@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, Modal, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
   getLocationTree, getTopLevelLocations, upsertLocation,
@@ -14,6 +14,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 
 // The app has no icon font bundled (see logs/index.tsx) — locations render an
 // emoji. Map the Material-style names the seed used onto emoji so seeded rows
@@ -37,6 +38,7 @@ function renderIcon(icon: string | null): string {
 
 export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
+  const router = useRouter();
 
   const [tree, setTree] = useState<LocationWithChildren[]>(() => getLocationTree());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -154,40 +156,53 @@ export default function LocationsScreen() {
             const isOpen = expanded.has(loc.id);
             return (
               <View key={loc.id} style={s.group}>
-                <TouchableOpacity style={s.card} onPress={() => toggle(loc.id)}>
-                  <View style={[s.swatch, { backgroundColor: loc.color ?? '#CBD5E1' }]}>
-                    <Text style={s.swatchIcon}>{renderIcon(loc.icon)}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.name}>{loc.name}</Text>
-                    <Text style={s.meta}>
-                      {loc.children.length > 0
-                        ? `${loc.children.length} sub-area${loc.children.length === 1 ? '' : 's'}`
-                        : 'No sub-areas'}
-                    </Text>
-                    {!!loc.owner_user_id && (
-                      <Text style={s.ownerMeta}>Owner: {userMap.get(loc.owner_user_id) ?? loc.owner_user_id}</Text>
-                    )}
-                  </View>
+                <View style={s.card}>
+                  <TouchableOpacity
+                    style={s.cardInner}
+                    onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: loc.id } })}
+                    activeOpacity={0.7}
+                  >
+                    <MediaThumbnail entityType="location" entityId={loc.id} size={40} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.name}>{loc.name}</Text>
+                      <Text style={s.meta}>
+                        {loc.children.length > 0
+                          ? `${loc.children.length} sub-area${loc.children.length === 1 ? '' : 's'}`
+                          : 'No sub-areas'}
+                      </Text>
+                      {!!loc.owner_user_id && (
+                        <Text style={s.ownerMeta}>Owner: {userMap.get(loc.owner_user_id) ?? loc.owner_user_id}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
                   {loc.children.length > 0 && (
-                    <Text style={s.chevron}>{isOpen ? '▾' : '▸'}</Text>
+                    <TouchableOpacity
+                      onPress={() => toggle(loc.id)}
+                      style={s.expandBtn}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Text style={s.chevron}>{isOpen ? '▾' : '▸'}</Text>
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
+                </View>
 
                 {isOpen && (
                   <View style={s.children}>
                     {loc.children.map(child => (
-                      <View key={child.id} style={s.childRow}>
-                        <View style={[s.childDot, { backgroundColor: child.color ?? '#CBD5E1' }]}>
-                          <Text style={s.childIcon}>{renderIcon(child.icon)}</Text>
-                        </View>
+                      <TouchableOpacity
+                        key={child.id}
+                        style={s.childRow}
+                        onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: child.id } })}
+                      >
+                        <MediaThumbnail entityType="location" entityId={child.id} size={28} />
                         <View style={{ flex: 1 }}>
                           <Text style={s.childName}>{child.name}</Text>
                           {!!child.owner_user_id && (
                             <Text style={s.ownerMeta}>Owner: {userMap.get(child.owner_user_id) ?? child.owner_user_id}</Text>
                           )}
                         </View>
-                      </View>
+                        <Text style={s.childChevron}>›</Text>
+                      </TouchableOpacity>
                     ))}
                     {canManage && (
                       <TouchableOpacity style={s.addSub} onPress={() => openCreate(loc.id)}>
@@ -311,6 +326,8 @@ const s = StyleSheet.create({
 
   group: { gap: 0 },
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, padding: 12, gap: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  cardInner: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  expandBtn: { paddingHorizontal: 4, paddingVertical: 4 },
   swatch: { width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   swatchIcon: { fontSize: 20 },
   name: { fontSize: 16, fontWeight: '600', color: '#1E293B' },
@@ -323,6 +340,7 @@ const s = StyleSheet.create({
   childDot: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   childIcon: { fontSize: 14 },
   childName: { fontSize: 14, color: '#475569', fontWeight: '500' },
+  childChevron: { fontSize: 16, color: '#CBD5E1', paddingHorizontal: 2 },
   addSub: { paddingVertical: 6, paddingHorizontal: 2 },
   addSubText: { color: '#2563EB', fontSize: 13, fontWeight: '600' },
 

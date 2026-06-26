@@ -71,6 +71,27 @@ export function getLocationsByOwner(ownerUserId: string): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+export interface StockAtLocation {
+  item_id: string;
+  location_id: string;
+  quantity: number;
+  updated_at: string;
+  name: string;
+}
+
+export function getStockAtLocation(locationId: string): StockAtLocation[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT s.item_id, s.location_id, s.quantity, s.updated_at, i.name
+     FROM stock_by_location s
+     JOIN inventory_items i ON i.id = s.item_id
+     WHERE s.location_id = ? AND s.quantity > 0
+     ORDER BY i.name`,
+    [locationId]
+  );
+  return rowsAs<StockAtLocation>(result.rows);
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(
