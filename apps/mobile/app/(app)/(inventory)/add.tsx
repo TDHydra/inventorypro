@@ -171,13 +171,20 @@ export default function AddStockScreen() {
       Alert.alert('Required', 'Item name is required.');
       return;
     }
-    if (!isUnitTrackedNew && !selectedLocation) {
+    if (!isUnitTracked && !selectedLocation) {
       Alert.alert('Required', 'Select a location.');
       return;
     }
     const qty = parseFloat(quantity) || 0;
-    if (!isUnitTrackedNew && qty <= 0) {
+    if (!isUnitTracked && qty <= 0) {
       Alert.alert('Required', 'Enter a quantity greater than 0.');
+      return;
+    }
+
+    // Existing unit-tracked item: nothing to add here — individual units are managed
+    // on the item detail screen. Do NOT create a duplicate catalog item or write stock.
+    if (existingUnitTracked) {
+      router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: selectedItem!.id } });
       return;
     }
 
@@ -251,6 +258,11 @@ export default function AddStockScreen() {
   const showReadOnly = !isCreatingNew && autofillItem !== null;
   // Equipment new-item with unit tracking: skip location/qty; create catalog entry only
   const isUnitTrackedNew = isCreatingNew && kind === 'equipment' && unitTracked;
+  // Existing unit-tracked item (selected via picker or barcode autofill): its on-hand
+  // is the count of available units — it must NEVER write stock_by_location.
+  const existingUnitTracked = autofillItem?.unit_tracked === 1;
+  // Any unit-tracked path (new or existing): hide Location/Quantity, no stock write.
+  const isUnitTracked = isUnitTrackedNew || existingUnitTracked;
 
   return (
     <>
@@ -419,7 +431,7 @@ export default function AddStockScreen() {
           )}
 
           {/* ── LOCATION ─────────────────────────────────────────────────── */}
-          {!isUnitTrackedNew && (
+          {!isUnitTracked && (
             <>
               <Text style={s.label}>Location</Text>
               <SearchablePicker
@@ -432,7 +444,7 @@ export default function AddStockScreen() {
           )}
 
           {/* ── QUANTITY ─────────────────────────────────────────────────── */}
-          {!isUnitTrackedNew && (
+          {!isUnitTracked && (
             <>
               <Text style={s.label}>Quantity to Add</Text>
               <TextInput
@@ -447,13 +459,19 @@ export default function AddStockScreen() {
           )}
 
           {/* ── ACTIONS ──────────────────────────────────────────────────── */}
-          {isUnitTrackedNew && (
+          {isUnitTracked && (
             <View style={s.noteBox}>
-              <Text style={s.noteText}>Save the item, then add its units from the item screen.</Text>
+              <Text style={s.noteText}>
+                {existingUnitTracked
+                  ? 'This item tracks individual units. Open the item to add or manage its units.'
+                  : 'Save the item, then add its units from the item screen.'}
+              </Text>
             </View>
           )}
           <TouchableOpacity style={s.btn} onPress={handleSave}>
-            <Text style={s.btnText}>{isUnitTrackedNew ? 'Save Item' : 'Add Stock'}</Text>
+            <Text style={s.btnText}>
+              {existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
+            </Text>
           </TouchableOpacity>
           <View style={s.secondaryRow}>
             <TouchableOpacity style={s.linkBtn} onPress={clearForm}>
