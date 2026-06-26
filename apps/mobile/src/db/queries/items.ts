@@ -9,6 +9,8 @@ export interface InventoryItem {
   supplier: string | null;
   model: string | null;
   kind: string; // 'product' | 'equipment'
+  category: string | null;
+  returnable: number;
   unit_category: string;
   unit: string;
   min_qty_alert: number;
@@ -104,10 +106,12 @@ export function upsertItem(item: InventoryItem): void {
   db.executeSync(
     `INSERT OR REPLACE INTO inventory_items
        (id, name, barcode, description, sku, supplier, model, kind,
+        category, returnable,
         unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
      item.sku, item.supplier, item.model, item.kind,
+     item.category, item.returnable,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
      item.active, item.updated_at, item.synced_at])
   );
@@ -119,6 +123,7 @@ export function updateItemFields(
   id: string,
   fields: Partial<Pick<InventoryItem,
     'name' | 'barcode' | 'description' | 'sku' | 'supplier' | 'model' |
+    'category' | 'returnable' |
     'unit_category' | 'unit' | 'min_qty_alert' | 'reorder_to'>>
 ): Record<string, unknown> {
   const db = getDb();
@@ -156,7 +161,7 @@ export { _upsertStock as upsertStockRaw };
 // Distinct existing values for a column, for autocomplete suggestions. Column is
 // a fixed whitelist (no injection). Lets crews reuse "Phoenix Supply" instead of
 // retyping it five slightly-different ways.
-export function getDistinctValues(column: 'supplier' | 'model' | 'unit'): string[] {
+export function getDistinctValues(column: 'supplier' | 'model' | 'unit' | 'category'): string[] {
   const db = getDb();
   const result = db.executeSync(
     `SELECT DISTINCT ${column} AS v FROM inventory_items

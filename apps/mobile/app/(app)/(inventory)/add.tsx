@@ -178,6 +178,8 @@ export default function AddStockScreen() {
         supplier: supplier.trim() || null,
         model: model.trim() || null,
         kind,
+        category: null as string | null,
+        returnable: 0 as number,
         unit_category: category,
         unit,
         min_qty_alert: parseFloat(minAlert) || 0,
