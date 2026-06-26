@@ -11,6 +11,9 @@ import {
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 
 // The app has no icon font bundled (see logs/index.tsx) — locations render an
 // emoji. Map the Material-style names the seed used onto emoji so seeded rows
@@ -44,8 +47,19 @@ export default function LocationsScreen() {
   const [parentId, setParentId] = useState<string | null>(null);
   const [color, setColor] = useState(COLOR_OPTIONS[0]);
   const [icon, setIcon] = useState(ICON_OPTIONS[0]);
+  const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null);
 
   const topLevel = useMemo<Location[]>(() => getTopLevelLocations(), [tree]);
+
+  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  const userOptions = useMemo<PickerOption[]>(
+    () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
+    [allUsers],
+  );
+  const userMap = useMemo<Map<string, string>>(
+    () => new Map(allUsers.map(u => [u.id, u.name])),
+    [allUsers],
+  );
 
   // Warn (don't block) if a location with the same name already lives under the
   // same parent — real sites rarely have two "Shelf A"s in one warehouse.
@@ -67,7 +81,7 @@ export default function LocationsScreen() {
   }
 
   function resetForm() {
-    setName(''); setParentId(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]);
+    setName(''); setParentId(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]); setOwnerOption(null);
   }
 
   function openCreate(presetParent: string | null = null) {
@@ -82,9 +96,9 @@ export default function LocationsScreen() {
     const trimmed = name.trim();
     const payload = {
       id, name: trimmed, parent_id: parentId,
-      color, icon, updated_at: now,
+      color, icon, updated_at: now, owner_user_id: ownerOption?.id ?? null,
     };
-    upsertLocation({ ...payload, owner_user_id: null, synced_at: null });
+    upsertLocation({ ...payload, synced_at: null });
     appendOutbox('INSERT', 'locations', payload);
     setTree(getLocationTree());
     if (parentId) setExpanded(prev => new Set(prev).add(parentId));
@@ -150,6 +164,9 @@ export default function LocationsScreen() {
                         ? `${loc.children.length} sub-area${loc.children.length === 1 ? '' : 's'}`
                         : 'No sub-areas'}
                     </Text>
+                    {!!loc.owner_user_id && (
+                      <Text style={s.ownerMeta}>Owner: {userMap.get(loc.owner_user_id) ?? loc.owner_user_id}</Text>
+                    )}
                   </View>
                   {loc.children.length > 0 && (
                     <Text style={s.chevron}>{isOpen ? '▾' : '▸'}</Text>
@@ -163,7 +180,12 @@ export default function LocationsScreen() {
                         <View style={[s.childDot, { backgroundColor: child.color ?? '#CBD5E1' }]}>
                           <Text style={s.childIcon}>{renderIcon(child.icon)}</Text>
                         </View>
-                        <Text style={s.childName}>{child.name}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.childName}>{child.name}</Text>
+                          {!!child.owner_user_id && (
+                            <Text style={s.ownerMeta}>Owner: {userMap.get(child.owner_user_id) ?? child.owner_user_id}</Text>
+                          )}
+                        </View>
                       </View>
                     ))}
                     {canManage && (
@@ -219,6 +241,17 @@ export default function LocationsScreen() {
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+
+                <Text style={s.label}>Belongs to (optional)</Text>
+                <SearchablePicker
+                  placeholder="Search people…"
+                  options={userOptions}
+                  value={ownerOption}
+                  onSelect={(opt) => {
+                    // Tapping "Change" re-passes current value — treat as clear
+                    setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
+                  }}
+                />
 
                 <Text style={s.label}>Icon</Text>
                 <View style={s.iconGrid}>
@@ -281,6 +314,7 @@ const s = StyleSheet.create({
   swatchIcon: { fontSize: 20 },
   name: { fontSize: 16, fontWeight: '600', color: '#1E293B' },
   meta: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
+  ownerMeta: { fontSize: 11, color: '#64748B', marginTop: 2 },
   chevron: { fontSize: 18, color: '#94A3B8', paddingHorizontal: 4 },
 
   children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: '#E2E8F0', gap: 6 },
