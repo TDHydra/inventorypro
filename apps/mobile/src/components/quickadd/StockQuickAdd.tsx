@@ -10,6 +10,7 @@ import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 interface Props {
   onSaved: (label: string) => void;
@@ -18,6 +19,7 @@ interface Props {
 export default function StockQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const qtyRef = useRef<TextInput>(null);
 
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null); // sticky
@@ -129,9 +131,10 @@ export default function StockQuickAdd({ onSaved }: Props) {
       />
       {!!error && <Text style={s.errorText}>{error}</Text>}
 
-      <TouchableOpacity style={s.btn} onPress={handleSave}>
+      <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
         <Text style={s.btnText}>Save &amp; add another</Text>
       </TouchableOpacity>
+      {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
         <Text style={s.doneBtnText}>Done</Text>
       </TouchableOpacity>

@@ -24,6 +24,7 @@ import {
 } from '../../../src/db/queries/equipmentUnits';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -51,6 +52,7 @@ interface PmSelection {
 export default function CheckoutScreen() {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const params = useLocalSearchParams<{ itemId?: string }>();
 
   const [step, setStep] = useState<Step>('find');
@@ -868,9 +870,10 @@ export default function CheckoutScreen() {
           <MediaGallery entityType="activity_log" entityId={checkoutEventId} canUpload={canUploadMedia} />
         </View>
 
-        <TouchableOpacity style={s.btn} disabled={submitting} onPress={handleConfirm}>
+        <TouchableOpacity style={s.btn} disabled={submitting || locked} onPress={handleConfirm}>
           <Text style={s.btnText}>{submitting ? 'Working...' : 'Confirm ✓'}</Text>
         </TouchableOpacity>
+        {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
 
         <TouchableOpacity style={s.btnSecondary} onPress={() => setStep('dest')}>
           <Text style={s.btnSecondaryText}>← Go Back</Text>

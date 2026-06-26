@@ -11,6 +11,7 @@ import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 const DEFAULT_COLOR = '#1E3A5F';
 const DEFAULT_ICON = '📦';
@@ -22,6 +23,7 @@ interface Props {
 export default function LocationQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
   const [name, setName] = useState('');
@@ -109,9 +111,10 @@ export default function LocationQuickAdd({ onSaved }: Props) {
         onSelect={opt => setParentOption(prev => prev?.id === opt.id ? null : opt)}
       />
 
-      <TouchableOpacity style={s.btn} onPress={handleSave}>
+      <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
         <Text style={s.btnText}>Save &amp; add another</Text>
       </TouchableOpacity>
+      {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
         <Text style={s.doneBtnText}>Done</Text>
       </TouchableOpacity>

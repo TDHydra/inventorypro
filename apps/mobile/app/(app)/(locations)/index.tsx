@@ -12,6 +12,7 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
@@ -24,6 +25,7 @@ export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
 
   const [tree, setTree] = useState<LocationWithChildren[]>(() => getLocationTree());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -335,9 +337,10 @@ export default function LocationsScreen() {
                   ))}
                 </View>
 
-                <TouchableOpacity style={s.btn} onPress={handleSave}>
+                <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
                   <Text style={s.btnText}>Add Location</Text>
                 </TouchableOpacity>
+                {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
                 <View style={s.secondaryRow}>
                   <TouchableOpacity style={s.linkBtn} onPress={resetForm}>
                     <Text style={s.linkText}>Clear</Text>

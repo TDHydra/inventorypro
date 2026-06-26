@@ -6,6 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { generateUUID } from '../../../src/utils/uuid';
 import { getActiveCheckoutsForUser } from '../../../src/db/queries/jobs';
@@ -38,6 +39,7 @@ interface Checkout {
 export default function CheckinScreen() {
   const { user } = useSession();
   const router = useRouter();
+  const { locked } = useMaintenanceMode();
 
   // --- Count-based checkout state ---
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -462,12 +464,13 @@ export default function CheckinScreen() {
               <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
-                style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
-                disabled={!returnLocation || submitting}
+                style={[s.btn, (!returnLocation || submitting || locked) && s.btnDisabled]}
+                disabled={!returnLocation || submitting || locked}
                 onPress={handleCheckin}
               >
                 <Text style={s.btnText}>{submitting ? 'Returning...' : 'Confirm Return'}</Text>
               </TouchableOpacity>
+              {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
               <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
@@ -518,12 +521,13 @@ export default function CheckinScreen() {
               <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
-                style={[s.btn, (!unitReturnLocation || unitSubmitting) && s.btnDisabled]}
-                disabled={!unitReturnLocation || unitSubmitting}
+                style={[s.btn, (!unitReturnLocation || unitSubmitting || locked) && s.btnDisabled]}
+                disabled={!unitReturnLocation || unitSubmitting || locked}
                 onPress={handleUnitCheckin}
               >
                 <Text style={s.btnText}>{unitSubmitting ? 'Returning...' : 'Confirm Return'}</Text>
               </TouchableOpacity>
+              {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
               <TouchableOpacity style={s.cancel} onPress={() => setShowUnitModal(false)}>
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>

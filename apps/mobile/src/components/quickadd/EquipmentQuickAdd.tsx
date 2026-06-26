@@ -13,6 +13,7 @@ import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { BarcodeInput } from '../BarcodeInput';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 interface Props {
   onSaved: (label: string) => void;
@@ -21,6 +22,7 @@ interface Props {
 export default function EquipmentQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
 
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null); // sticky
   const [assetTag, setAssetTag] = useState('');
@@ -131,12 +133,13 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       />
 
       <TouchableOpacity
-        style={[s.btn, !selectedItem && s.btnDisabled]}
+        style={[s.btn, (!selectedItem || locked) && s.btnDisabled]}
         onPress={handleSave}
-        disabled={!selectedItem}
+        disabled={!selectedItem || locked}
       >
         <Text style={s.btnText}>Save &amp; add another</Text>
       </TouchableOpacity>
+      {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
         <Text style={s.doneBtnText}>Done</Text>
       </TouchableOpacity>

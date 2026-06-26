@@ -22,6 +22,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 
 const CATEGORIES: { value: UnitCategory; label: string }[] = [
   { value: 'liquid', label: 'Liquid (gallons, pints...)' },
@@ -33,6 +34,7 @@ const CATEGORIES: { value: UnitCategory; label: string }[] = [
 export default function AddStockScreen() {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const { barcode: initialBarcode } = useLocalSearchParams<{ barcode?: string }>();
   const { coords, request } = useCurrentPosition();
 
@@ -498,11 +500,12 @@ export default function AddStockScreen() {
               </Text>
             </View>
           )}
-          <TouchableOpacity style={s.btn} onPress={handleSave}>
+          <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
             <Text style={s.btnText}>
               {existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
             </Text>
           </TouchableOpacity>
+          {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
           <View style={s.secondaryRow}>
             <TouchableOpacity style={s.linkBtn} onPress={clearForm}>
               <Text style={s.linkText}>Clear</Text>

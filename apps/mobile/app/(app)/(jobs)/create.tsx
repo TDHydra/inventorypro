@@ -6,6 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { upsertJob, Job } from '../../../src/db/queries/jobs';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -17,6 +18,7 @@ export default function CreateJobScreen() {
   const { user } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
+  const { locked } = useMaintenanceMode();
 
   const [name, setName] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -182,10 +184,12 @@ export default function CreateJobScreen() {
             <TouchableOpacity
               style={[s.btn, s.btnPrimary]}
               onPress={handleSave}
+              disabled={locked}
             >
               <Text style={s.btnPrimaryText}>Create Job</Text>
             </TouchableOpacity>
           </View>
+          {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
 
         </ScrollView>
       </KeyboardAvoidingView>

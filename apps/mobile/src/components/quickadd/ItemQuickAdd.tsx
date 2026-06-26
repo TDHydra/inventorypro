@@ -10,6 +10,7 @@ import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { UnitCategory, UNIT_OPTIONS } from '../../constants/units';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 const DEFAULT_UNIT_CAT: UnitCategory = 'piece';
 const DEFAULT_UNIT = 'each';
@@ -28,6 +29,7 @@ interface Props {
 export default function ItemQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
   const [name, setName] = useState('');
@@ -215,9 +217,10 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </>
       )}
 
-      <TouchableOpacity style={s.btn} onPress={handleSave}>
+      <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
         <Text style={s.btnText}>Save &amp; add another</Text>
       </TouchableOpacity>
+      {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
         <Text style={s.doneBtnText}>Done</Text>
       </TouchableOpacity>
