@@ -14,6 +14,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   teams: `INSERT OR REPLACE INTO teams (id, name, type, manager_id, updated_at) VALUES (?,?,?,?,?)`,
   team_members: `INSERT OR REPLACE INTO team_members (team_id, user_id, team_permission_overrides, added_by, joined_at) VALUES (?,?,?,?,?)`,
   media: `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, is_primary, uploaded_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  app_config: `INSERT OR REPLACE INTO app_config (key, value, updated_at) VALUES (?, ?, ?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -28,6 +29,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'teams': return [row.id, row.name, row.type, row.manager_id ?? null, row.updated_at];
     case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at];
     case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at];
+    case 'app_config': return [row.key, row.value, row.updated_at];
     default: return [];
   }
 }
