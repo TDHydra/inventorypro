@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Alert, Modal, TextInput, ScrollView,
+  StyleSheet, Alert, Modal, TextInput,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -12,6 +12,7 @@ import { adjustStock, getStockQuantity } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { formatQuantity } from '../../../src/constants/units';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 
 interface Checkout {
   log_id: string;
@@ -22,18 +23,17 @@ interface Checkout {
   quantity: number;
   from_location_id: string | null;
   job_name: string | null;
+  job_id: string | null;
   created_at: string;
 }
-
-interface Location { id: string; name: string; parent_id: string | null; parent_name?: string }
 
 export default function CheckinScreen() {
   const { user } = useSession();
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
-  const [locationSearch, setLocationSearch] = useState('');
-  const [returnLocation, setReturnLocation] = useState<Location | null>(null);
+  const [returnLocation, setReturnLocation] = useState<PickerOption | null>(null);
+  const [returnQtys, setReturnQtys] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const checkouts = useMemo(() => {
@@ -41,11 +41,15 @@ export default function CheckinScreen() {
     return rowsAs<Checkout>(getActiveCheckoutsForUser(user.id));
   }, [user]);
 
-  const locations = useMemo(() => getAllLocations() as Location[], []);
-  const filteredLocations = useMemo(() => {
-    const q = locationSearch.toLowerCase();
-    return locations.filter(l => l.name.toLowerCase().includes(q));
-  }, [locations, locationSearch]);
+  const locationOptions: PickerOption[] = useMemo(() => {
+    const all = getAllLocations();
+    const nameMap = new Map(all.map(l => [l.id, l.name]));
+    return all.map(l => ({
+      id: l.id,
+      label: l.name,
+      sublabel: l.parent_id ? nameMap.get(l.parent_id) : undefined,
+    }));
+  }, []);
 
   function toggleSelect(id: string) {
     setSelected(prev => {
@@ -60,34 +64,67 @@ export default function CheckinScreen() {
     setSelected(new Set(checkouts.map(c => c.log_id)));
   }
 
+  function openModal() {
+    const initial: Record<string, string> = {};
+    for (const c of checkouts) {
+      if (selected.has(c.log_id)) {
+        initial[c.log_id] = String(c.quantity);
+      }
+    }
+    setReturnQtys(initial);
+    setReturnLocation(null);
+    setShowModal(true);
+  }
+
   async function handleCheckin() {
     if (!user || selected.size === 0 || !returnLocation) return;
-    setSubmitting(true);
 
     const toReturn = checkouts.filter(c => selected.has(c.log_id));
 
+    // Validate all quantities before writing anything
     for (const item of toReturn) {
-      adjustStock(item.entity_id, returnLocation.id, item.quantity);
+      const entered = parseFloat(returnQtys[item.log_id] ?? '');
+      if (isNaN(entered) || entered <= 0) {
+        Alert.alert('Invalid Quantity', `Return quantity for "${item.item_name}" must be greater than 0.`);
+        return;
+      }
+      if (entered > item.quantity) {
+        Alert.alert(
+          'Invalid Quantity',
+          `Return quantity for "${item.item_name}" cannot exceed the checked-out amount (${formatQuantity(item.quantity, item.unit, item.unit_category as any)}).`
+        );
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    const now = new Date().toISOString();
+
+    for (const item of toReturn) {
+      const returnQty = parseFloat(returnQtys[item.log_id]);
+
+      adjustStock(item.entity_id, returnLocation.id, returnQty);
+
       appendOutbox('INSERT', 'stock_by_location', {
         item_id: item.entity_id,
         location_id: returnLocation.id,
         quantity: getStockQuantity(item.entity_id, returnLocation.id),
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       });
 
       appendLog({
         user_id: user.id,
         team_id: null,
         action: 'checkin',
-        entity_type: 'inventory_item',
+        entity_type: 'item',
         entity_id: item.entity_id,
         from_location_id: null,
         to_location_id: returnLocation.id,
-        quantity: item.quantity,
+        quantity: returnQty,
         unit: item.unit,
-        job_id: null,
+        job_id: item.job_id,
         note: null,
-        metadata: JSON.stringify({ original_log_id: item.log_id }),
+        metadata: null,
         device_id: null,
       });
     }
@@ -95,8 +132,8 @@ export default function CheckinScreen() {
     setSubmitting(false);
     setShowModal(false);
     Alert.alert(
-      'Checked In ✓',
-      `${selected.size} item${selected.size !== 1 ? 's' : ''} returned to ${returnLocation.name}.`,
+      'Checked In',
+      `${selected.size} item${selected.size !== 1 ? 's' : ''} returned to ${returnLocation.label}.`,
       [{ text: 'Done', onPress: () => router.replace('/(app)/(dashboard)') }]
     );
   }
@@ -149,42 +186,56 @@ export default function CheckinScreen() {
             <TouchableOpacity
               style={[s.btn, selected.size === 0 && s.btnDisabled]}
               disabled={selected.size === 0}
-              onPress={() => setShowModal(true)}
+              onPress={openModal}
             >
               <Text style={s.btnText}>Return {selected.size > 0 ? `${selected.size} Item${selected.size !== 1 ? 's' : ''}` : 'Items'}</Text>
             </TouchableOpacity>
           </>
         )}
 
-        {/* Location picker modal */}
+        {/* Return modal */}
         <Modal visible={showModal} animationType="slide" transparent>
           <View style={s.modalOverlay}>
             <View style={s.modal}>
               <Text style={s.modalTitle}>Return to Location</Text>
-              <TextInput
-                style={s.searchInput}
-                placeholder="Search location..."
-                value={locationSearch}
-                onChangeText={setLocationSearch}
+
+              <SearchablePicker
+                placeholder="Search destination location..."
+                options={locationOptions}
+                value={returnLocation}
+                onSelect={(opt) => {
+                  // If same option tapped again (via "Change"), clear to allow re-picking
+                  if (returnLocation && returnLocation.id === opt.id) {
+                    setReturnLocation(null);
+                  } else {
+                    setReturnLocation(opt);
+                  }
+                }}
               />
-              <ScrollView style={{ maxHeight: 300 }}>
-                {filteredLocations.map(loc => (
-                  <TouchableOpacity
-                    key={loc.id}
-                    style={[s.locRow, returnLocation?.id === loc.id && s.locRowSelected]}
-                    onPress={() => setReturnLocation(loc)}
-                  >
-                    <Text style={s.locName}>{loc.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+
+              {/* Per-item return quantity inputs */}
+              {checkouts.filter(c => selected.has(c.log_id)).map(item => (
+                <View key={item.log_id} style={s.qtyRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.qtyItemName}>{item.item_name}</Text>
+                    <Text style={s.qtyMax}>max {formatQuantity(item.quantity, item.unit, item.unit_category as any)}</Text>
+                  </View>
+                  <TextInput
+                    style={s.qtyInput}
+                    keyboardType="decimal-pad"
+                    value={returnQtys[item.log_id] ?? String(item.quantity)}
+                    onChangeText={(v) => setReturnQtys(prev => ({ ...prev, [item.log_id]: v }))}
+                    selectTextOnFocus
+                  />
+                </View>
+              ))}
 
               <TouchableOpacity
                 style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
                 disabled={!returnLocation || submitting}
                 onPress={handleCheckin}
               >
-                <Text style={s.btnText}>{submitting ? 'Returning...' : 'Confirm Return ✓'}</Text>
+                <Text style={s.btnText}>{submitting ? 'Returning...' : 'Confirm Return'}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
                 <Text style={s.cancelText}>Cancel</Text>
@@ -227,13 +278,13 @@ const s = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modal: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 12 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E3A5F' },
-  searchInput: {
-    backgroundColor: '#F8FAFF', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 42, fontSize: 14, color: '#1E293B',
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
+  qtyItemName: { fontSize: 14, fontWeight: '600', color: '#1E293B' },
+  qtyMax: { fontSize: 11, color: '#94A3B8', marginTop: 1 },
+  qtyInput: {
+    width: 80, backgroundColor: '#F8FAFF', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0',
+    paddingHorizontal: 10, height: 40, fontSize: 15, color: '#1E293B', textAlign: 'right',
   },
-  locRow: { padding: 12, borderRadius: 8 },
-  locRowSelected: { backgroundColor: '#EFF6FF' },
-  locName: { fontSize: 15, color: '#1E293B' },
   cancel: { alignItems: 'center', paddingVertical: 10 },
   cancelText: { color: '#64748B', fontSize: 15 },
 });
