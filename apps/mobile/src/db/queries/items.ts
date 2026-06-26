@@ -11,6 +11,8 @@ export interface InventoryItem {
   kind: string; // 'product' | 'equipment'
   category: string | null;
   returnable: number;
+  unit_tracked: number;
+  tag_prefix: string | null;
   unit_category: string;
   unit: string;
   min_qty_alert: number;
@@ -106,12 +108,12 @@ export function upsertItem(item: InventoryItem): void {
   db.executeSync(
     `INSERT OR REPLACE INTO inventory_items
        (id, name, barcode, description, sku, supplier, model, kind,
-        category, returnable,
+        category, returnable, unit_tracked, tag_prefix,
         unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
      item.sku, item.supplier, item.model, item.kind,
-     item.category, item.returnable,
+     item.category, item.returnable, item.unit_tracked, item.tag_prefix,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
      item.active, item.updated_at, item.synced_at])
   );
@@ -123,7 +125,7 @@ export function updateItemFields(
   id: string,
   fields: Partial<Pick<InventoryItem,
     'name' | 'barcode' | 'description' | 'sku' | 'supplier' | 'model' |
-    'category' | 'returnable' |
+    'category' | 'returnable' | 'unit_tracked' | 'tag_prefix' |
     'unit_category' | 'unit' | 'min_qty_alert' | 'reorder_to'>>
 ): Record<string, unknown> {
   const db = getDb();

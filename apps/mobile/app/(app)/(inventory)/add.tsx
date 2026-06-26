@@ -202,7 +202,7 @@ export default function AddStockScreen() {
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
       };
-      upsertItem({ ...payload, active: 1, updated_at: now, synced_at: null });
+      upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
       // Outbox: send returnable as a real boolean (Postgres column is BOOLEAN)
       appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable });
     }

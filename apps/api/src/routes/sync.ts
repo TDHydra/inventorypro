@@ -15,6 +15,7 @@ interface PushBody {
 const ALLOWED_TABLES = new Set([
   'users', 'locations', 'inventory_items', 'stock_by_location',
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
+  'equipment_units',
 ]);
 
 // Upsert conflict target per table. Most are keyed by `id`, but a few use a
@@ -37,6 +38,7 @@ function keyColumns(table: string): string[] {
 const FULL_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
+  'equipment_units',
 ];
 
 // Columns synced to devices, per table. Sensitive fields (e.g. users.pin_hash)
