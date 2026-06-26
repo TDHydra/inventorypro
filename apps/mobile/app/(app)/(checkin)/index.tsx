@@ -153,6 +153,7 @@ export default function CheckinScreen() {
 
     setSubmitting(true);
     const now = new Date().toISOString();
+    let primaryCheckinLogged = false;
 
     for (const item of toReturn) {
       const returnQty = parseFloat(returnQtys[item.log_id] ?? '');
@@ -183,7 +184,9 @@ export default function CheckinScreen() {
         latitude: coords?.latitude ?? null,
         longitude: coords?.longitude ?? null,
         location_accuracy: coords?.accuracy ?? null,
+        ...(!primaryCheckinLogged && { id: checkinEventId }),
       });
+      primaryCheckinLogged = true;
     }
 
     setSubmitting(false);
@@ -233,6 +236,7 @@ export default function CheckinScreen() {
     if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
     const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
     setUnitSubmitting(true);
+    let primaryUnitCheckinLogged = false;
 
     for (const unit of toReturn) {
       // Capture job_id before setUnitStatus clears it
@@ -273,7 +277,9 @@ export default function CheckinScreen() {
         latitude: coords?.latitude ?? null,
         longitude: coords?.longitude ?? null,
         location_accuracy: coords?.accuracy ?? null,
+        ...(!primaryUnitCheckinLogged && { id: unitCheckinEventId }),
       });
+      primaryUnitCheckinLogged = true;
     }
 
     setUnitSubmitting(false);
@@ -453,7 +459,7 @@ export default function CheckinScreen() {
 
               {/* Optional photo — media is additive and never blocks the stock return */}
               <Text style={s.mediaLabel}>Photo (optional)</Text>
-              <MediaGallery entityType="checkin" entityId={checkinEventId} canUpload={canUploadMedia} />
+              <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
                 style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
@@ -509,7 +515,7 @@ export default function CheckinScreen() {
 
               {/* Optional photo — media is additive and never blocks the unit return */}
               <Text style={s.mediaLabel}>Photo (optional)</Text>
-              <MediaGallery entityType="checkin" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
+              <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
                 style={[s.btn, (!unitReturnLocation || unitSubmitting) && s.btnDisabled]}
