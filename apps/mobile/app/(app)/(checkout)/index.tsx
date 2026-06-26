@@ -253,6 +253,12 @@ export default function CheckoutScreen() {
     };
     upsertJob(newJob);
     appendOutbox('INSERT', 'jobs', { ...newJob });
+    appendLog({
+      action: 'job_created', entity_type: 'job', entity_id: newJob.id,
+      user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
+      metadata: null, device_id: null,
+    });
     setSelectedJob({ id: newJob.id, name: newJob.name });
   }
 
