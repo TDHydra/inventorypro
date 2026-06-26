@@ -19,6 +19,9 @@ import { SuggestInput } from '../../../src/components/SuggestInput';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { useSession } from '../../../src/hooks/useSession';
+import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
+import { sortByProximity } from '../../../src/location/proximity';
+import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 
 const CATEGORIES: { value: UnitCategory; label: string }[] = [
   { value: 'liquid', label: 'Liquid (gallons, pints...)' },
@@ -31,6 +34,7 @@ export default function AddStockScreen() {
   const router = useRouter();
   const { user } = useSession();
   const { barcode: initialBarcode } = useLocalSearchParams<{ barcode?: string }>();
+  const { coords, request } = useCurrentPosition();
 
   // ── Item selection state ──────────────────────────────────────────────────
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null);
@@ -73,18 +77,36 @@ export default function AddStockScreen() {
     () => new Map(allLocations.map(l => [l.id, l])),
     [allLocations],
   );
+  // Proximity-sorted locations; re-runs when coords arrive after the async request.
+  const sortedLocations = useMemo(
+    () => sortByProximity(
+      allLocations.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+      coords,
+    ),
+    [allLocations, coords],
+  );
+  // First anchored location (non-null distanceM) is the nearest candidate for the banner.
+  const nearestLocation = useMemo(
+    () => sortedLocations.find(l => l.distanceM != null) ?? null,
+    [sortedLocations],
+  );
   const locationOptions: PickerOption[] = useMemo(
-    () => allLocations.map(l => ({
-      id: l.id,
-      label: l.name,
-      sublabel: l.parent_id ? locationById.get(l.parent_id)?.name : undefined,
-    })),
-    [allLocations, locationById],
+    () => sortedLocations.map(l => {
+      const parentName = l.parent_id ? locationById.get(l.parent_id)?.name : undefined;
+      const distLabel = l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined;
+      const sublabel = [parentName, distLabel].filter(Boolean).join(' · ') || undefined;
+      return { id: l.id, label: l.name, sublabel };
+    }),
+    [sortedLocations, locationById],
   );
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
   const categoryOptions = useMemo(() => getDistinctValues('category'), []);
+
+  // ── Position: request once on mount (fire-and-forget; never blocks UI) ────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void request(); }, []);
 
   // ── Barcode autofill ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -248,6 +270,9 @@ export default function AddStockScreen() {
       note: null,
       metadata: null,
       device_id: null,
+      latitude: coords?.latitude ?? null,
+      longitude: coords?.longitude ?? null,
+      location_accuracy: coords?.accuracy ?? null,
     });
 
     Alert.alert('Stock Added', `+${qty} ${effectiveUnit} added successfully.`, [
@@ -434,6 +459,11 @@ export default function AddStockScreen() {
           {!isUnitTracked && (
             <>
               <Text style={s.label}>Location</Text>
+              <LocationSuggestionBanner
+                name={nearestLocation?.name ?? null}
+                distanceM={nearestLocation?.distanceM ?? null}
+                onUse={() => nearestLocation && setSelectedLocation({ id: nearestLocation.id, label: nearestLocation.name })}
+              />
               <SearchablePicker
                 placeholder="Search locations..."
                 options={locationOptions}
