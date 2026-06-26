@@ -27,6 +27,8 @@ export default function ItemDetailScreen() {
   // Edit-mode state for new fields (outside the string-keyed form record)
   const [editCategory, setEditCategory] = useState('');
   const [editReturnable, setEditReturnable] = useState(false);
+  const [editUnitTracked, setEditUnitTracked] = useState(false);
+  const [editTagPrefix, setEditTagPrefix] = useState('');
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
@@ -62,6 +64,8 @@ export default function ItemDetailScreen() {
     });
     setEditCategory(item.category ?? '');
     setEditReturnable(item.returnable === 1);
+    setEditUnitTracked(item.unit_tracked === 1);
+    setEditTagPrefix(item.tag_prefix ?? '');
     setEditing(true);
   }
 
@@ -79,10 +83,12 @@ export default function ItemDetailScreen() {
       reorder_to: form.reorder_to.trim() ? parseFloat(form.reorder_to) : null,
       category: editCategory.trim() || null,
       returnable: (editReturnable ? 1 : 0) as number,
+      unit_tracked: (editUnitTracked ? 1 : 0) as number,
+      tag_prefix: editTagPrefix.trim() || null,
     };
     const synced = updateItemFields(item.id, fields);
-    // Outbox: send returnable as a real boolean (Postgres column is BOOLEAN)
-    appendOutbox('UPDATE', 'inventory_items', { ...synced, returnable: editReturnable });
+    // Outbox: send returnable + unit_tracked as real booleans (Postgres columns are BOOLEAN)
+    appendOutbox('UPDATE', 'inventory_items', { ...synced, returnable: editReturnable, unit_tracked: editUnitTracked });
     setEditing(false);
     reload();
   }
@@ -115,7 +121,23 @@ export default function ItemDetailScreen() {
                 <Switch value={editReturnable} onValueChange={setEditReturnable} />
               </View>
               {item.kind === 'equipment' && (
-                <Text style={s.unitReadOnly}>Unit: each (piece) — fixed for equipment</Text>
+                <>
+                  <View style={s.switchRow}>
+                    <Text style={s.switchLabel}>Track individual units</Text>
+                    <Switch value={editUnitTracked} onValueChange={setEditUnitTracked} />
+                  </View>
+                  {editUnitTracked && (
+                    <TextInput
+                      style={s.input}
+                      placeholder="Tag prefix (AM-, DH-, MSC-…)"
+                      placeholderTextColor="#94A3B8"
+                      value={editTagPrefix}
+                      onChangeText={setEditTagPrefix}
+                      autoCapitalize="characters"
+                    />
+                  )}
+                  <Text style={s.unitReadOnly}>Unit: each (piece) — fixed for equipment</Text>
+                </>
               )}
               <Field label="Low-stock alert" value={form.min_qty_alert} onChange={setField('min_qty_alert')} keyboardType="decimal-pad" />
               <Field label="Reorder up to" value={form.reorder_to} onChange={setField('reorder_to')} keyboardType="decimal-pad" />
@@ -153,7 +175,7 @@ export default function ItemDetailScreen() {
                 <Row k="Supplier" v={item.supplier ?? '—'} />
                 <Row k="Low-stock alert" v={item.min_qty_alert > 0 ? String(item.min_qty_alert) : 'Off'} />
                 <Row k="Reorder up to" v={item.reorder_to != null ? String(item.reorder_to) : '—'} />
-                <View style={[s.attrRow]}>
+                <View style={[s.attrRow, (item.kind === 'equipment' && !!item.unit_tracked) ? s.divider : undefined]}>
                   <Text style={s.attrKey}>Returnable</Text>
                   <View style={[s.badge, item.returnable ? s.badgeReturn : s.badgeConsume]}>
                     <Text style={[s.badgeText, item.returnable ? s.badgeReturnText : s.badgeConsumeText]}>
@@ -161,6 +183,16 @@ export default function ItemDetailScreen() {
                     </Text>
                   </View>
                 </View>
+                {item.kind === 'equipment' && !!item.unit_tracked && (
+                  <View style={s.attrRow}>
+                    <Text style={s.attrKey}>Unit tracking</Text>
+                    <View style={[s.badge, s.badgeTracked]}>
+                      <Text style={[s.badgeText, s.badgeTrackedText]}>
+                        Individually tracked{item.tag_prefix ? ` · ${item.tag_prefix}` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                )}
               </View>
 
               <Text style={s.sectionLabel}>Stock by location</Text>
@@ -267,6 +299,8 @@ const s = StyleSheet.create({
   badgeConsume: { backgroundColor: '#FEE2E2' },
   badgeConsumeText: { color: '#991B1B', fontWeight: '700', fontSize: 13 },
   badgeText: { fontSize: 13, fontWeight: '700' },
+  badgeTracked: { backgroundColor: '#DBEAFE' },
+  badgeTrackedText: { color: '#1D4ED8', fontWeight: '700', fontSize: 13 },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
