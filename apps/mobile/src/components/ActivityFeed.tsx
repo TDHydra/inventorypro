@@ -47,6 +47,9 @@ export const ACTION_ICONS: Record<string, string> = {
   // ---- equipment unit actions ----
   unit_edited: '🛠',
   unit_retired: '⛔',
+
+  // ---- item actions ----
+  item_created: '🆕',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
