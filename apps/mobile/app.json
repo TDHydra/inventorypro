@@ -55,7 +55,14 @@
         {
           "faceIDPermission": "InventoryPro uses Face ID to let you securely unlock the app without re-entering your PIN."
         }
-      ]
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Used only to suggest the nearest location while you're using the app — never tracked in the background."
+        }
+      ],
+      "expo-splash-screen"
     ],
     "experiments": {
       "typedRoutes": true

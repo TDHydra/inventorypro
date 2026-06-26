@@ -66,8 +66,9 @@ async function applyEntry(
       `INSERT INTO activity_log
          (id, user_id, team_id, action, entity_type, entity_id,
           from_location_id, to_location_id, quantity, unit,
-          job_id, note, metadata, device_id, created_at, synced_at)
-       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()
+          job_id, note, metadata, device_id, created_at, synced_at,
+          latitude, longitude, location_accuracy)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),$16,$17,$18
        WHERE NOT EXISTS (SELECT 1 FROM activity_log WHERE id = $1)`,
       [
         payload.id, payload.user_id ?? null, payload.team_id ?? null,
@@ -77,6 +78,7 @@ async function applyEntry(
         payload.job_id ?? null, payload.note ?? null,
         payload.metadata ? JSON.stringify(payload.metadata) : null,
         payload.device_id ?? null, payload.created_at,
+        payload.latitude ?? null, payload.longitude ?? null, payload.location_accuracy ?? null,
       ]
     );
     return;

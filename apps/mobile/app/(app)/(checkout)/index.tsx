@@ -31,6 +31,9 @@ import { generateUUID } from '../../../src/utils/uuid';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
+import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
+import { sortByProximity } from '../../../src/location/proximity';
+import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 
 type Step = 'find' | 'qty' | 'dest' | 'confirm';
 type DestType = 'job' | 'location' | 'pm';
@@ -69,12 +72,17 @@ export default function CheckoutScreen() {
   const [pmSelections, setPmSelections] = useState<PmSelection[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
+  const { coords, request } = useCurrentPosition();
 
   // Permission gates
   const canCreateJobs = usePermission('create_jobs');
   const canUploadMedia = usePermission('upload_media');
   // Stable UUID for the checkout event; refreshed each time we enter the confirm step
   const [checkoutEventId, setCheckoutEventId] = useState<string>(() => generateUUID());
+
+  // Position: request once on mount (fire-and-forget; never blocks UI).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void request(); }, []);
 
   // If navigated with itemId param (from a scan), skip straight to qty.
   useEffect(() => {
@@ -94,20 +102,7 @@ export default function CheckoutScreen() {
   const unit = selectedItem?.unit ?? '';
   const isUnitTracked = !!selectedItem?.unit_tracked;
 
-  // Source-location options for the qty step (only locations that hold stock).
-  const sourceOptions: PickerOption[] = useMemo(
-    () => stock.map(s => ({
-      id: s.location_id,
-      label: s.location_name,
-      sublabel: [s.parent_name, formatQuantity(s.quantity, unit, cat)].filter(Boolean).join(' · '),
-    })),
-    [stock, unit, cat]
-  );
-  const sourceValue: PickerOption | null = selectedLocation
-    ? { id: selectedLocation.location_id, label: selectedLocation.location_name }
-    : null;
-
-  // Destination-location options (all locations except the source).
+  // All locations — used for destination picker AND to look up lat/lng for source ranking.
   const allLocations = useMemo(() => getAllLocations(), []);
   const locNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -119,6 +114,39 @@ export default function CheckoutScreen() {
     for (const l of allLocations) m.set(l.id, l);
     return m;
   }, [allLocations]);
+
+  // Source-location options for the qty step (only locations that hold stock).
+  // Enriched with lat/lng from locById so sortByProximity can rank them nearest-first.
+  const sortedSourceStock = useMemo(() => {
+    const enriched = stock.map(s => ({
+      ...s,
+      latitude: locById.get(s.location_id)?.latitude ?? null,
+      longitude: locById.get(s.location_id)?.longitude ?? null,
+    }));
+    return sortByProximity(enriched, coords);
+  }, [stock, locById, coords]);
+
+  const sourceOptions: PickerOption[] = useMemo(
+    () => sortedSourceStock.map(s => ({
+      id: s.location_id,
+      label: s.location_name,
+      sublabel: [
+        s.parent_name,
+        formatQuantity(s.quantity, unit, cat),
+        s.distanceM != null ? `~${Math.round(s.distanceM)} m` : undefined,
+      ].filter(Boolean).join(' · '),
+    })),
+    [sortedSourceStock, unit, cat]
+  );
+
+  // First anchored stock-location is the banner candidate.
+  const nearestSource = useMemo(
+    () => sortedSourceStock.find(s => s.distanceM != null) ?? null,
+    [sortedSourceStock],
+  );
+  const sourceValue: PickerOption | null = selectedLocation
+    ? { id: selectedLocation.location_id, label: selectedLocation.location_name }
+    : null;
 
   // For unit-tracked items there are no stock_by_location rows, so the source
   // picker is derived from the locations where AVAILABLE units currently sit.
@@ -347,6 +375,9 @@ export default function CheckoutScreen() {
       unit: selectedItem.unit,
       device_id: null as string | null,
       metadata: null as string | null,
+      latitude: coords?.latitude ?? null,
+      longitude: coords?.longitude ?? null,
+      location_accuracy: coords?.accuracy ?? null,
     };
 
     // ── Unit-tracked path: move SPECIFIC units, never touch stock_by_location ──
@@ -535,12 +566,19 @@ export default function CheckoutScreen() {
           {stock.length === 0 ? (
             <Text style={s.empty}>{isUnitTracked ? 'No available units' : 'No stock available'}</Text>
           ) : (
-            <SearchablePicker
-              placeholder="Search source location..."
-              options={sourceOptions}
-              value={sourceValue}
-              onSelect={selectSource}
-            />
+            <>
+              <LocationSuggestionBanner
+                name={nearestSource?.location_name ?? null}
+                distanceM={nearestSource?.distanceM ?? null}
+                onUse={() => nearestSource && selectSource({ id: nearestSource.location_id, label: nearestSource.location_name })}
+              />
+              <SearchablePicker
+                placeholder="Search source location..."
+                options={sourceOptions}
+                value={sourceValue}
+                onSelect={selectSource}
+              />
+            </>
           )}
 
           {isUnitTracked ? (

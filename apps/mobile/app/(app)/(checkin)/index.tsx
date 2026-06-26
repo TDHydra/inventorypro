@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity,
   StyleSheet, Alert, Modal, TextInput, ScrollView,
@@ -18,6 +18,9 @@ import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { getDeployedUnitsForUser, getUnitByTag, setUnitStatus } from '../../../src/db/queries/equipmentUnits';
+import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
+import { sortByProximity } from '../../../src/location/proximity';
+import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 
 interface Checkout {
   log_id: string;
@@ -52,6 +55,11 @@ export default function CheckinScreen() {
   const [scanNote, setScanNote] = useState<{ text: string; tone: 'warn' | 'info' } | null>(null);
   const [unitSubmitting, setUnitSubmitting] = useState(false);
 
+  // Position: request once on mount (fire-and-forget; never blocks UI).
+  const { coords, request } = useCurrentPosition();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void request(); }, []);
+
   // Permission gate + stable UUIDs for optional movement photos
   const canUploadMedia = usePermission('upload_media');
   const [checkinEventId, setCheckinEventId] = useState<string>(() => generateUUID());
@@ -67,15 +75,33 @@ export default function CheckinScreen() {
     return getDeployedUnitsForUser(user.id);
   }, [user, unitRefreshKey]);
 
-  const locationOptions: PickerOption[] = useMemo(() => {
-    const all = getAllLocations();
-    const nameMap = new Map(all.map(l => [l.id, l.name]));
-    return all.map(l => ({
-      id: l.id,
-      label: l.name,
-      sublabel: l.parent_id ? nameMap.get(l.parent_id) : undefined,
-    }));
-  }, []);
+  const allLocations = useMemo(() => getAllLocations(), []);
+  // Proximity-sorted; re-runs when coords arrive after the async request.
+  const sortedLocations = useMemo(
+    () => sortByProximity(
+      allLocations.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+      coords,
+    ),
+    [allLocations, coords],
+  );
+  const locationNameById = useMemo(
+    () => new Map(sortedLocations.map(l => [l.id, l.name])),
+    [sortedLocations],
+  );
+  const locationOptions: PickerOption[] = useMemo(
+    () => sortedLocations.map(l => {
+      const parentName = l.parent_id ? locationNameById.get(l.parent_id) : undefined;
+      const distLabel = l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined;
+      const sublabel = [parentName, distLabel].filter(Boolean).join(' · ') || undefined;
+      return { id: l.id, label: l.name, sublabel };
+    }),
+    [sortedLocations, locationNameById],
+  );
+  // First anchored location (non-null distanceM) is the nearest candidate for banners.
+  const nearestLocation = useMemo(
+    () => sortedLocations.find(l => l.distanceM != null) ?? null,
+    [sortedLocations],
+  );
 
   // --- Count-based handlers (unchanged) ---
   function toggleSelect(id: string) {
@@ -154,6 +180,9 @@ export default function CheckinScreen() {
         note: null,
         metadata: null,
         device_id: null,
+        latitude: coords?.latitude ?? null,
+        longitude: coords?.longitude ?? null,
+        location_accuracy: coords?.accuracy ?? null,
       });
     }
 
@@ -241,6 +270,9 @@ export default function CheckinScreen() {
         note: 'unit ' + u.asset_tag,
         metadata: null,
         device_id: null,
+        latitude: coords?.latitude ?? null,
+        longitude: coords?.longitude ?? null,
+        location_accuracy: coords?.accuracy ?? null,
       });
     }
 
@@ -383,6 +415,11 @@ export default function CheckinScreen() {
               <Text style={s.modalTitle}>Return to Location</Text>
 
               <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                <LocationSuggestionBanner
+                  name={nearestLocation?.name ?? null}
+                  distanceM={nearestLocation?.distanceM ?? null}
+                  onUse={() => nearestLocation && setReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
+                />
                 <SearchablePicker
                   placeholder="Search destination location..."
                   options={locationOptions}
@@ -439,6 +476,11 @@ export default function CheckinScreen() {
               <Text style={s.modalTitle}>Return Units to Location</Text>
 
               <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                <LocationSuggestionBanner
+                  name={nearestLocation?.name ?? null}
+                  distanceM={nearestLocation?.distanceM ?? null}
+                  onUse={() => nearestLocation && setUnitReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
+                />
                 <SearchablePicker
                   placeholder="Search destination location..."
                   options={locationOptions}

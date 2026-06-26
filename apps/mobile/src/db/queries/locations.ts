@@ -10,6 +10,10 @@ export interface Location {
   active: number;
   updated_at: string;
   synced_at: string | null;
+  // Coords (migration 009). Optional so existing Location literals stay valid;
+  // upsertLocation coalesces undefined → null. Set via "use my current spot".
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface LocationWithChildren extends Location {
@@ -95,9 +99,10 @@ export function getStockAtLocation(locationId: string): StockAtLocation[] {
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(
-    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([location.id, location.name, location.parent_id, location.color,
-     location.icon, location.owner_user_id, location.active, location.updated_at, location.synced_at])
+     location.icon, location.owner_user_id, location.active, location.updated_at, location.synced_at,
+     location.latitude ?? null, location.longitude ?? null])
   );
 }
