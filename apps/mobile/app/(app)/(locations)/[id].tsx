@@ -20,17 +20,7 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
-
-// Mirror the icon/color constants from index.tsx so both screens are consistent.
-const ICON_ALIASES: Record<string, string> = {
-  warehouse: '🏭', store: '🏪', local_shipping: '🚚', shelves: '🗄️',
-  door_back: '🚪', counter: '🧾', inventory_2: '📦',
-};
-const ICON_OPTIONS = ['📦', '🏭', '🏪', '🚚', '🗄️', '🚪', '🧾', '🛠️', '🧰', '🏬', '🪜', '❄️'];
-const COLOR_OPTIONS = [
-  '#1E3A5F', '#2E7D32', '#C62828', '#1565C0', '#6A1B9A',
-  '#EF6C00', '#00695C', '#37474F', '#AD1457', '#4527A0',
-];
+import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
 
 export default function LocationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
