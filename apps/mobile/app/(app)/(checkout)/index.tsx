@@ -261,7 +261,7 @@ export default function CheckoutScreen() {
       setSubmitting(true);
       stockMove(itemId, source, null, qty);
       appendLog({
-        ...baseLog, action: 'checkout',
+        ...baseLog, action: 'checkout_to_job',
         from_location_id: source, to_location_id: null,
         job_id: selectedJob.id, quantity: qty, note: null,
       });
@@ -303,7 +303,7 @@ export default function CheckoutScreen() {
     for (const t of targets) {
       stockMove(itemId, source, t.locationId!, t.qty);
       appendLog({
-        ...baseLog, action: 'checkout',
+        ...baseLog, action: 'transfer',
         from_location_id: source, to_location_id: t.locationId!,
         job_id: null, quantity: t.qty, note: `PM: ${t.pmName}`,
       });
