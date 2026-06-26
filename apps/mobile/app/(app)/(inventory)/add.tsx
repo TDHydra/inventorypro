@@ -500,12 +500,14 @@ export default function AddStockScreen() {
               </Text>
             </View>
           )}
-          <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
+          {/* The existingUnitTracked branch only navigates (no write), so it
+              stays enabled during maintenance — only the writing modes gate. */}
+          <TouchableOpacity style={s.btn} onPress={handleSave} disabled={!existingUnitTracked && locked}>
             <Text style={s.btnText}>
               {existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
             </Text>
           </TouchableOpacity>
-          {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
+          {!existingUnitTracked && locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
           <View style={s.secondaryRow}>
             <TouchableOpacity style={s.linkBtn} onPress={clearForm}>
               <Text style={s.linkText}>Clear</Text>
