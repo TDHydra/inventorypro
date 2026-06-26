@@ -258,14 +258,21 @@ export default function CheckoutScreen() {
       if (isNaN(qty) || qty <= 0) { Alert.alert('Invalid Quantity', 'Enter a positive number.'); return; }
       if (qty > onHand) { Alert.alert('Not Enough Stock', `Only ${formatQuantity(onHand, unit, cat)} available.`); return; }
 
+      // Returnable items stay outstanding (surfaces in Check In); non-returnable
+      // items are consumed — stock deducted, does NOT appear in Check In.
+      const returnable = !!getItemById(itemId)?.returnable;
+      const logAction = returnable ? 'checkout_to_job' : 'consumed';
+
       setSubmitting(true);
       stockMove(itemId, source, null, qty);
       appendLog({
-        ...baseLog, action: 'checkout_to_job',
+        ...baseLog, action: logAction,
         from_location_id: source, to_location_id: null,
         job_id: selectedJob.id, quantity: qty, note: null,
       });
-      done(`${formatQuantity(qty, unit, cat)} of ${selectedItem.name} checked out to ${selectedJob.name}.`);
+      done(returnable
+        ? `${formatQuantity(qty, unit, cat)} of ${selectedItem.name} checked out to ${selectedJob.name}.`
+        : `${formatQuantity(qty, unit, cat)} of ${selectedItem.name} consumed for ${selectedJob.name}.`);
       return;
     }
 
@@ -549,6 +556,10 @@ export default function CheckoutScreen() {
             <>
               <Row label="Qty" value={formatQuantity(parseFloat(quantity) || 0, unit, cat)} />
               <Row label="To Job" value={selectedJob?.name ?? ''} />
+              <Row
+                label="Action"
+                value={selectedItem && !!selectedItem.returnable ? 'Deploy (returnable)' : 'Consume'}
+              />
             </>
           )}
           {destType === 'location' && (
