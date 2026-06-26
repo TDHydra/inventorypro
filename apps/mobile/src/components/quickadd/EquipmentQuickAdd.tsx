@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
 } from 'react-native';
@@ -12,6 +12,7 @@ import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { BarcodeInput } from '../BarcodeInput';
 
 interface Props {
   onSaved: (label: string) => void;
@@ -20,7 +21,6 @@ interface Props {
 export default function EquipmentQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
-  const tagRef = useRef<TextInput>(null);
 
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null); // sticky
   const [assetTag, setAssetTag] = useState('');
@@ -99,7 +99,6 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
     onSaved(tag);
     setAssetTag(''); // clear tag+serial; keep item sticky
     setSerial('');
-    setTimeout(() => tagRef.current?.focus(), 100);
   }
 
   return (
@@ -115,17 +114,11 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
         }}
       />
 
-      <TextInput
-        ref={tagRef}
-        autoFocus
-        style={[s.input, !!tagError && s.inputError]}
-        placeholder="Asset tag *"
-        placeholderTextColor="#94A3B8"
+      <BarcodeInput
+        label="Asset tag"
         value={assetTag}
-        onChangeText={t => { setAssetTag(t); if (tagError) setTagError(''); }}
-        autoCapitalize="characters"
-        returnKeyType="done"
-        onSubmitEditing={handleSave}
+        onChange={t => { setAssetTag(t); if (tagError) setTagError(''); }}
+        placeholder="AM-0001"
       />
       {!!tagError && <Text style={s.errorText}>{tagError}</Text>}
 

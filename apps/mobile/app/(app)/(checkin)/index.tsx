@@ -118,7 +118,6 @@ export default function CheckinScreen() {
   }
 
   function openModal() {
-    setCheckinEventId(generateUUID());
     const initial: Record<string, string> = {};
     for (const c of checkouts) {
       if (selected.has(c.log_id)) {
@@ -153,6 +152,7 @@ export default function CheckinScreen() {
 
     setSubmitting(true);
     const now = new Date().toISOString();
+    let primaryCheckinLogged = false;
 
     for (const item of toReturn) {
       const returnQty = parseFloat(returnQtys[item.log_id] ?? '');
@@ -183,11 +183,14 @@ export default function CheckinScreen() {
         latitude: coords?.latitude ?? null,
         longitude: coords?.longitude ?? null,
         location_accuracy: coords?.accuracy ?? null,
+        ...(!primaryCheckinLogged && { id: checkinEventId }),
       });
+      primaryCheckinLogged = true;
     }
 
     setSubmitting(false);
     setShowModal(false);
+    setCheckinEventId(generateUUID());
     Alert.alert(
       'Checked In',
       `${selected.size} item${selected.size !== 1 ? 's' : ''} returned to ${returnLocation.label}.`,
@@ -224,7 +227,6 @@ export default function CheckinScreen() {
   }
 
   function openUnitModal() {
-    setUnitCheckinEventId(generateUUID());
     setUnitReturnLocation(null);
     setShowUnitModal(true);
   }
@@ -233,6 +235,7 @@ export default function CheckinScreen() {
     if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
     const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
     setUnitSubmitting(true);
+    let primaryUnitCheckinLogged = false;
 
     for (const unit of toReturn) {
       // Capture job_id before setUnitStatus clears it
@@ -273,13 +276,16 @@ export default function CheckinScreen() {
         latitude: coords?.latitude ?? null,
         longitude: coords?.longitude ?? null,
         location_accuracy: coords?.accuracy ?? null,
+        ...(!primaryUnitCheckinLogged && { id: unitCheckinEventId }),
       });
+      primaryUnitCheckinLogged = true;
     }
 
     setUnitSubmitting(false);
     setShowUnitModal(false);
     setSelectedUnitIds(new Set());
     setUnitRefreshKey(k => k + 1);
+    setUnitCheckinEventId(generateUUID());
     Alert.alert(
       'Checked In',
       `${toReturn.length} unit${toReturn.length !== 1 ? 's' : ''} returned to ${unitReturnLocation.label}.`,
@@ -453,7 +459,7 @@ export default function CheckinScreen() {
 
               {/* Optional photo — media is additive and never blocks the stock return */}
               <Text style={s.mediaLabel}>Photo (optional)</Text>
-              <MediaGallery entityType="checkin" entityId={checkinEventId} canUpload={canUploadMedia} />
+              <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
                 style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
@@ -509,7 +515,7 @@ export default function CheckinScreen() {
 
               {/* Optional photo — media is additive and never blocks the unit return */}
               <Text style={s.mediaLabel}>Photo (optional)</Text>
-              <MediaGallery entityType="checkin" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
+              <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
                 style={[s.btn, (!unitReturnLocation || unitSubmitting) && s.btnDisabled]}

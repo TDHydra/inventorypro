@@ -399,6 +399,7 @@ export default function CheckoutScreen() {
       }
 
       setSubmitting(true);
+      let primaryUnitLogged = false;
       for (const sel of selectedUnits) {
         let updated: EquipmentUnit;
         if (destType === 'job') {
@@ -410,7 +411,9 @@ export default function CheckoutScreen() {
             ...baseLog, action: 'checkout_to_job',
             from_location_id: source, to_location_id: null,
             job_id: selectedJob!.id, quantity: 1, note: 'unit ' + sel.asset_tag,
+            ...(!primaryUnitLogged && { id: checkoutEventId }),
           });
+          primaryUnitLogged = true;
         } else if (destType === 'location') {
           updated = setUnitStatus(sel.id, {
             status: 'available', current_location_id: selectedDestLocation!.id, current_job_id: null,
@@ -420,7 +423,9 @@ export default function CheckoutScreen() {
             ...baseLog, action: 'transfer',
             from_location_id: source, to_location_id: selectedDestLocation!.id,
             job_id: null, quantity: 1, note: 'unit ' + sel.asset_tag,
+            ...(!primaryUnitLogged && { id: checkoutEventId }),
           });
+          primaryUnitLogged = true;
         } else {
           const pmLocationId = pmSelections[0].locationId!;
           updated = setUnitStatus(sel.id, {
@@ -431,7 +436,9 @@ export default function CheckoutScreen() {
             ...baseLog, action: 'transfer',
             from_location_id: source, to_location_id: pmLocationId,
             job_id: null, quantity: 1, note: 'unit ' + sel.asset_tag,
+            ...(!primaryUnitLogged && { id: checkoutEventId }),
           });
+          primaryUnitLogged = true;
         }
       }
       const n = selectedUnits.length;
@@ -456,6 +463,7 @@ export default function CheckoutScreen() {
         ...baseLog, action: logAction,
         from_location_id: source, to_location_id: null,
         job_id: selectedJob.id, quantity: qty, note: null,
+        id: checkoutEventId,
       });
       done(returnable
         ? `${formatQuantity(qty, unit, cat)} of ${selectedItem.name} checked out to ${selectedJob.name}.`
@@ -475,6 +483,7 @@ export default function CheckoutScreen() {
         ...baseLog, action: 'transfer',
         from_location_id: source, to_location_id: selectedDestLocation.id,
         job_id: null, quantity: qty, note: null,
+        id: checkoutEventId,
       });
       done(`Transferred ${formatQuantity(qty, unit, cat)} of ${selectedItem.name} to ${selectedDestLocation.name}.`);
       return;
@@ -494,19 +503,23 @@ export default function CheckoutScreen() {
     }
 
     setSubmitting(true);
+    let primaryPmLogged = false;
     for (const t of targets) {
       stockMove(itemId, source, t.locationId!, t.qty);
       appendLog({
         ...baseLog, action: 'transfer',
         from_location_id: source, to_location_id: t.locationId!,
         job_id: null, quantity: t.qty, note: `PM: ${t.pmName}`,
+        ...(!primaryPmLogged && { id: checkoutEventId }),
       });
+      primaryPmLogged = true;
     }
     done(`${formatQuantity(totalQty, unit, cat)} of ${selectedItem.name} checked out to ${targets.length} manager${targets.length > 1 ? 's' : ''}.`);
   }
 
   function done(message: string) {
     setSubmitting(false);
+    setCheckoutEventId(generateUUID());
     Alert.alert('Done ✓', message, [
       { text: 'Done', onPress: () => router.replace('/(app)/(dashboard)') },
     ]);
@@ -777,7 +790,7 @@ export default function CheckoutScreen() {
             <TouchableOpacity
               style={[s.btn, !destReady && s.btnDisabled]}
               disabled={!destReady}
-              onPress={() => { setCheckoutEventId(generateUUID()); setStep('confirm'); }}
+              onPress={() => { setStep('confirm'); }}
             >
               <Text style={s.btnText}>Review →</Text>
             </TouchableOpacity>
@@ -852,7 +865,7 @@ export default function CheckoutScreen() {
         {/* Optional photo — media is additive and never blocks the stock move */}
         <View>
           <Text style={s.label}>Photo (optional)</Text>
-          <MediaGallery entityType="checkout" entityId={checkoutEventId} canUpload={canUploadMedia} />
+          <MediaGallery entityType="activity_log" entityId={checkoutEventId} canUpload={canUploadMedia} />
         </View>
 
         <TouchableOpacity style={s.btn} disabled={submitting} onPress={handleConfirm}>
