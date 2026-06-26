@@ -60,6 +60,16 @@ export function getLocationById(id: string): Location | null {
   return (result.rows[0] as unknown as Location) ?? null;
 }
 
+// Locations that belong to a user (a PM's locker/vehicle, etc.).
+export function getLocationsByOwner(ownerUserId: string): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE owner_user_id = ? ORDER BY name`,
+    [ownerUserId]
+  );
+  return rowsAs<Location>(result.rows);
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(

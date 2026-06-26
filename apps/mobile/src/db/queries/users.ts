@@ -99,6 +99,16 @@ export function markUserPinReset(userId: string): void {
   db.executeSync(`UPDATE users SET pin_set = 0 WHERE id = ?`, [userId]);
 }
 
+// Active users of a given role — e.g. the production-manager dropdown in checkout.
+export function getUsersByRole(role: string): User[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM users WHERE active = 1 AND role = ? ORDER BY name`,
+    [role]
+  );
+  return rowsAs<User>(result.rows);
+}
+
 export function setRoleMinPin(role: string, minPinLength: number): string {
   const db = getDb();
   const now = new Date().toISOString();

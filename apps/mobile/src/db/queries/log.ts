@@ -1,5 +1,6 @@
 import { getDb, rowsAs } from '../schema';
 import { generateUUID } from '../../utils/uuid';
+import { appendOutbox } from '../../sync/outbox';
 
 export interface LogEntry {
   id: string;
@@ -35,6 +36,14 @@ export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at
      entry.quantity, entry.unit, entry.job_id, entry.note,
      entry.metadata, entry.device_id, created_at]
   );
+  // Sync the row to the server's append-only log (idempotent insert server-side).
+  appendOutbox('INSERT', 'activity_log', {
+    id, user_id: entry.user_id, team_id: entry.team_id, action: entry.action,
+    entity_type: entry.entity_type, entity_id: entry.entity_id,
+    from_location_id: entry.from_location_id, to_location_id: entry.to_location_id,
+    quantity: entry.quantity, unit: entry.unit, job_id: entry.job_id,
+    note: entry.note, metadata: entry.metadata, device_id: entry.device_id, created_at,
+  });
 }
 
 export function getLogForUser(userId: string, limit = 50): LogEntry[] {
