@@ -11,8 +11,10 @@ import {
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useSession } from '../../../src/hooks/useSession';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 
@@ -39,6 +41,7 @@ function renderIcon(icon: string | null): string {
 export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
   const router = useRouter();
+  const { user } = useSession();
 
   const [tree, setTree] = useState<LocationWithChildren[]>(() => getLocationTree());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -103,6 +106,21 @@ export default function LocationsScreen() {
     };
     upsertLocation({ ...payload, active: 1, synced_at: null });
     appendOutbox('INSERT', 'locations', payload);
+    appendLog({
+      action: 'location_created',
+      entity_type: 'location',
+      entity_id: id,
+      user_id: user?.id ?? null,
+      team_id: null,
+      job_id: null,
+      note: trimmed,
+      from_location_id: null,
+      to_location_id: null,
+      quantity: null,
+      unit: null,
+      metadata: null,
+      device_id: null,
+    });
     setTree(getLocationTree());
     if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     setShowCreate(false);
