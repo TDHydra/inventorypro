@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
 import { getStockByItem } from '../db/queries/items';
 import { usePermission } from '../hooks/usePermission';
+import { MediaThumbnail } from './MediaThumbnail';
 
 interface ItemRow {
   id: string;
@@ -47,6 +48,7 @@ export function ItemCard({ item, onCheckout }: Props) {
   return (
     <View style={styles.card}>
       <TouchableOpacity style={styles.header} onPress={toggle} activeOpacity={0.7}>
+        <MediaThumbnail entityType="item" entityId={item.id} size={44} />
         <View style={styles.headerLeft}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
           {item.barcode && <Text style={styles.barcode}>{item.barcode}</Text>}
@@ -118,7 +120,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 14,
   },
-  headerLeft: { flex: 1 },
+  headerLeft: { flex: 1, marginLeft: 10 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   name: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
   barcode: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
