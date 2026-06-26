@@ -43,9 +43,9 @@ export function searchItems(
   const db = getDb();
   const pattern = `%${query}%`;
   const catClause = category ? `AND i.unit_category = ?` : '';
-  const params: (string | number)[] = [pattern, pattern, pattern, query, `${query}%`];
+  const params: (string | number)[] = [pattern, pattern, pattern];
   if (category) params.push(category);
-  params.push(limit, offset);
+  params.push(query, `${query}%`, limit, offset);
 
   const result = db.executeSync(
     `SELECT i.*,
