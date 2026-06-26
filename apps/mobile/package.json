@@ -13,6 +13,7 @@
     "expo-file-system": "~56.0.8",
     "expo-image-picker": "~56.0.18",
     "expo-local-authentication": "~56.0.4",
+    "expo-location": "~56.0.18",
     "expo-router": "~56.2.11",
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.10",
