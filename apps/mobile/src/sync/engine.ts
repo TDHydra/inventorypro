@@ -7,11 +7,30 @@ import { getValidJwt } from '../auth/session';
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const MAX_ATTEMPTS = 5;
 const INTERVAL_MS = 60_000;
+const FAST_RETRY_MS = 10_000;
 
 let running = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let fastRetryId: ReturnType<typeof setTimeout> | null = null;
 let netInfoUnsub: (() => void) | null = null;
 let appStateUnsub: (() => void) | null = null;
+
+// True if the outbox still holds entries we're allowed to keep retrying.
+// Entries that have exhausted MAX_ATTEMPTS are excluded so a permanently
+// failing row can't pin the fast-retry loop on forever.
+function hasDeliverableWork(): boolean {
+  return getPendingOutbox(1).some(e => e.attempts < MAX_ATTEMPTS);
+}
+
+// Arm a single fast retry ~10s out. Debounced: if one is already armed we
+// don't stack a second; it's cleared as soon as a cycle actually runs.
+function scheduleFastRetry(): void {
+  if (fastRetryId) return;
+  fastRetryId = setTimeout(() => {
+    fastRetryId = null;
+    syncCycle();
+  }, FAST_RETRY_MS);
+}
 
 async function drainOutbox(): Promise<void> {
   if (running) return;
@@ -57,15 +76,23 @@ async function drainOutbox(): Promise<void> {
 }
 
 async function syncCycle(): Promise<void> {
-  const state = await NetInfo.fetch();
-  if (!state.isConnected) return;
+  // A cycle is running now, so any armed fast retry is redundant.
+  if (fastRetryId) { clearTimeout(fastRetryId); fastRetryId = null; }
 
-  try {
-    await drainOutbox();
-    await pullChanges();
-  } catch (err) {
-    console.warn('[Sync] Cycle error:', (err as Error).message);
+  const state = await NetInfo.fetch();
+  if (state.isConnected) {
+    try {
+      await drainOutbox();
+      await pullChanges();
+    } catch (err) {
+      console.warn('[Sync] Cycle error:', (err as Error).message);
+    }
   }
+
+  // Try immediately (above) but if anything is still undelivered — offline,
+  // a push error, or leftover entries — retry in ~10s instead of waiting for
+  // the 60s heartbeat. Once the outbox drains, this stops arming itself.
+  if (hasDeliverableWork()) scheduleFastRetry();
 }
 
 export function startSyncEngine(): void {
@@ -96,4 +123,5 @@ export function stopSyncEngine(): void {
   if (netInfoUnsub) { netInfoUnsub(); netInfoUnsub = null; }
   if (appStateUnsub) { appStateUnsub(); appStateUnsub = null; }
   if (intervalId) { clearInterval(intervalId); intervalId = null; }
+  if (fastRetryId) { clearTimeout(fastRetryId); fastRetryId = null; }
 }
