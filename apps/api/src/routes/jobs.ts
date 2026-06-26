@@ -1,8 +1,23 @@
 import { FastifyPluginAsync } from 'fastify';
+import { requirePermission } from '../lib/permissions';
 
 interface JobBody {
   name: string;
   status?: 'open' | 'closed' | 'archived';
+  customer_name?: string;
+  site_address?: string;
+  site_location_id?: string;
+  description?: string;
+}
+
+interface JobPatchBody {
+  name?: string;
+  status?: 'open' | 'closed' | 'archived';
+  job_number?: string;
+  customer_name?: string;
+  site_address?: string;
+  site_location_id?: string;
+  description?: string;
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {
@@ -41,40 +56,50 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // POST /jobs — create
+  // POST /jobs — create (job_number is NOT supplied; trigger assigns it)
   fastify.post<{ Body: JobBody }>(
     '/', {
-      preHandler: auth,
+      preHandler: [...auth, requirePermission('create_jobs')],
       schema: {
         body: {
           type: 'object', required: ['name'],
           properties: {
             name: { type: 'string', minLength: 1 },
             status: { type: 'string', enum: ['open', 'closed', 'archived'] },
+            customer_name: { type: 'string' },
+            site_address: { type: 'string' },
+            site_location_id: { type: 'string' },
+            description: { type: 'string' },
           },
         },
       },
     },
     async (request) => {
-      const { name, status = 'open' } = request.body;
+      const { name, status = 'open', customer_name, site_address, site_location_id, description } = request.body;
       const userId = (request.user as { sub: string }).sub;
       const { rows } = await fastify.pg.query(
-        `INSERT INTO jobs (name, status, created_by) VALUES ($1, $2, $3) RETURNING *`,
-        [name, status, userId]
+        `INSERT INTO jobs (name, status, created_by, customer_name, site_address, site_location_id, description)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [name, status, userId, customer_name ?? null, site_address ?? null, site_location_id ?? null, description ?? null]
       );
       return rows[0];
     }
   );
 
-  // PATCH /jobs/:id — update name/status
-  fastify.patch<{ Params: { id: string }; Body: Partial<JobBody> }>(
-    '/:id', { preHandler: auth },
+  // PATCH /jobs/:id — update name/status/job_number/work-order fields
+  fastify.patch<{ Params: { id: string }; Body: JobPatchBody }>(
+    '/:id', { preHandler: [...auth, requirePermission('close_jobs')] },
     async (request, reply) => {
-      const { name, status } = request.body;
+      const { name, status, job_number, customer_name, site_address, site_location_id, description } = request.body;
       const sets: string[] = [];
       const params: unknown[] = [];
       if (name !== undefined) { params.push(name); sets.push(`name = $${params.length}`); }
       if (status !== undefined) { params.push(status); sets.push(`status = $${params.length}`); }
+      if (job_number !== undefined) { params.push(job_number); sets.push(`job_number = $${params.length}`); }
+      if (customer_name !== undefined) { params.push(customer_name); sets.push(`customer_name = $${params.length}`); }
+      if (site_address !== undefined) { params.push(site_address); sets.push(`site_address = $${params.length}`); }
+      if (site_location_id !== undefined) { params.push(site_location_id); sets.push(`site_location_id = $${params.length}`); }
+      if (description !== undefined) { params.push(description); sets.push(`description = $${params.length}`); }
       if (sets.length === 0) return reply.status(400).send({ error: 'No fields to update' });
       sets.push(`updated_at = NOW()`);
       params.push(request.params.id);

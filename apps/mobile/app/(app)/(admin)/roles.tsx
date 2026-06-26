@@ -8,6 +8,8 @@ import {
 import { getRoleSettings, setRoleMinPin } from '../../../src/db/queries/users';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { appendLog } from '../../../src/db/queries/log';
+import { useSession } from '../../../src/hooks/useSession';
 
 const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
 
@@ -42,6 +44,7 @@ const MIN_PIN = 4;
 const MAX_PIN = 8;
 
 export default function RolesScreen() {
+  const { user: sessionUser } = useSession();
   const canManage = usePermission('manage_roles_permissions');
   const [minPins, setMinPins] = useState<Record<string, number>>(() => getRoleSettings());
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -64,6 +67,15 @@ export default function RolesScreen() {
     if (next === effectiveMinPin(role)) return;
     const now = setRoleMinPin(role, next);
     appendOutbox('UPDATE', 'role_settings', { role, min_pin_length: next, updated_at: now });
+    appendLog({
+      action: 'role_min_pin_changed',
+      entity_type: 'role_settings',
+      entity_id: role,
+      user_id: sessionUser?.id ?? null,
+      note: `${role} → ${next}`,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    });
     setMinPins(prev => ({ ...prev, [role]: next }));
   }
 

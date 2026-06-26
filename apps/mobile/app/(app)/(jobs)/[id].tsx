@@ -7,8 +7,11 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, Job,
 } from '../../../src/db/queries/jobs';
-import { getLogForJob, LogEntry } from '../../../src/db/queries/log';
+import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
+import { getAllLocations } from '../../../src/db/queries/locations';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useSession } from '../../../src/hooks/useSession';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 
 type LogWithUser = LogEntry & { user_name?: string };
@@ -16,17 +19,28 @@ type LogWithUser = LogEntry & { user_name?: string };
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useSession();
   const canEdit = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
   const canUpload = usePermission('upload_media');
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
   const [editing, setEditing] = useState(false);
+
+  // Edit form state
   const [editName, setEditName] = useState('');
   const [editStatus, setEditStatus] = useState<string>('');
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editSiteAddress, setEditSiteAddress] = useState('');
+  const [editSiteLocation, setEditSiteLocation] = useState<PickerOption | null>(null);
+  const [editDescription, setEditDescription] = useState('');
 
   const deployments = useMemo(() => getJobDeployments(id), [id]);
   const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id]);
+
+  const locationOptions = useMemo((): PickerOption[] => {
+    return getAllLocations().map(l => ({ id: l.id, label: l.name }));
+  }, []);
 
   function reload() {
     setJob(getJobById(id));
@@ -44,18 +58,56 @@ export default function JobDetailScreen() {
   function startEdit() {
     setEditName(job!.name);
     setEditStatus(job!.status);
+    setEditCustomerName(job!.customer_name ?? '');
+    setEditSiteAddress(job!.site_address ?? '');
+    setEditDescription(job!.description ?? '');
+    // Pre-populate site location picker if set
+    if (job!.site_location_id) {
+      const match = locationOptions.find(l => l.id === job!.site_location_id);
+      setEditSiteLocation(match ?? null);
+    } else {
+      setEditSiteLocation(null);
+    }
     setEditing(true);
   }
 
   function saveEdit() {
     const trimmed = editName.trim();
     if (!trimmed) { Alert.alert('Required', 'Job name is required.'); return; }
-    updateJobFields(id, { name: trimmed, status: editStatus });
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
+
+    const fields = {
+      name: trimmed,
+      status: editStatus,
+      customer_name: editCustomerName.trim() || null,
+      site_address: editSiteAddress.trim() || null,
+      site_location_id: editSiteLocation?.id ?? null,
+      description: editDescription.trim() || null,
+    };
+
+    updateJobFields(id, fields);
+    appendLog({
+      action: 'job_updated',
+      entity_type: 'job',
+      entity_id: id,
+      user_id: user.id,
+      note: trimmed,
+      team_id: null,
+      from_location_id: null,
+      to_location_id: null,
+      quantity: null,
+      unit: null,
+      job_id: id,
+      metadata: null,
+      device_id: null,
+    });
+
     setEditing(false);
     reload();
   }
 
   function doArchive() {
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
     Alert.alert(
       'Archive Job',
       `Archive "${job!.name}"? It will be hidden from active lists.`,
@@ -63,7 +115,25 @@ export default function JobDetailScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Archive', style: 'destructive',
-          onPress: () => { archiveJob(id); router.back(); },
+          onPress: () => {
+            archiveJob(id);
+            appendLog({
+              action: 'job_archived',
+              entity_type: 'job',
+              entity_id: id,
+              user_id: user.id,
+              note: job!.name,
+              team_id: null,
+              from_location_id: null,
+              to_location_id: null,
+              quantity: null,
+              unit: null,
+              job_id: id,
+              metadata: null,
+              device_id: null,
+            });
+            router.back();
+          },
         },
       ],
     );
@@ -75,6 +145,8 @@ export default function JobDetailScreen() {
   const badgeFg = job.status === 'open' ? '#1D4ED8'
     : job.status === 'closed' ? '#475569'
     : '#92400E';
+
+  const jobNumberLabel = job.job_number ? `# ${job.job_number}` : 'Pending #';
 
   return (
     <>
@@ -113,6 +185,54 @@ export default function JobDetailScreen() {
                 </View>
               </View>
 
+              <View style={s.fieldWrap}>
+                <Text style={s.fieldLabel}>Customer Name</Text>
+                <TextInput
+                  style={s.input}
+                  value={editCustomerName}
+                  onChangeText={setEditCustomerName}
+                  placeholder="Customer or company name"
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={s.fieldWrap}>
+                <Text style={s.fieldLabel}>Site Address</Text>
+                <TextInput
+                  style={s.input}
+                  value={editSiteAddress}
+                  onChangeText={setEditSiteAddress}
+                  placeholder="Street address or description"
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={s.fieldWrap}>
+                <Text style={s.fieldLabel}>Site Location</Text>
+                <SearchablePicker
+                  placeholder="Search locations..."
+                  options={locationOptions}
+                  value={editSiteLocation}
+                  onSelect={opt =>
+                    setEditSiteLocation(prev => prev?.id === opt.id ? null : opt)
+                  }
+                />
+              </View>
+
+              <View style={s.fieldWrap}>
+                <Text style={s.fieldLabel}>Description</Text>
+                <TextInput
+                  style={[s.input, s.textArea]}
+                  value={editDescription}
+                  onChangeText={setEditDescription}
+                  placeholder="Job description or notes"
+                  placeholderTextColor="#94A3B8"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+
               <View style={s.row}>
                 <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setEditing(false)}>
                   <Text style={s.btnGhostText}>Cancel</Text>
@@ -126,6 +246,12 @@ export default function JobDetailScreen() {
             <>
               {/* Header card */}
               <View style={s.card}>
+                <View style={s.jobNumberRow}>
+                  <Text style={s.jobNumber}>{jobNumberLabel}</Text>
+                  {!job.job_number && (
+                    <Text style={s.pendingHint}>assigned after sync</Text>
+                  )}
+                </View>
                 <Text style={s.name}>{job.name}</Text>
                 <View style={s.headerRow}>
                   <View style={[s.statusBadge, { backgroundColor: badgeBg }]}>
@@ -137,6 +263,25 @@ export default function JobDetailScreen() {
                     Created {new Date(job.created_at).toLocaleDateString()}
                   </Text>
                 </View>
+
+                {!!job.customer_name && (
+                  <View style={s.metaRow}>
+                    <Text style={s.metaLabel}>Customer</Text>
+                    <Text style={s.metaValue}>{job.customer_name}</Text>
+                  </View>
+                )}
+                {!!job.site_address && (
+                  <View style={s.metaRow}>
+                    <Text style={s.metaLabel}>Site</Text>
+                    <Text style={s.metaValue}>{job.site_address}</Text>
+                  </View>
+                )}
+                {!!job.description && (
+                  <View style={[s.metaRow, { alignItems: 'flex-start' }]}>
+                    <Text style={s.metaLabel}>Notes</Text>
+                    <Text style={[s.metaValue, { flex: 1 }]}>{job.description}</Text>
+                  </View>
+                )}
               </View>
 
               {/* Deployed section */}
@@ -242,11 +387,25 @@ const s = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 12, padding: 16,
     borderWidth: 1, borderColor: '#EEF2F7',
   },
+  jobNumberRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  jobNumber: { fontSize: 13, fontWeight: '700', color: '#2563EB' },
+  pendingHint: { fontSize: 11, color: '#94A3B8' },
   name: { fontSize: 22, fontWeight: '700', color: '#1E3A5F' },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   statusBadgeText: { fontSize: 13, fontWeight: '700' },
   dateText: { fontSize: 13, color: '#94A3B8' },
+
+  metaRow: {
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: 10, gap: 8,
+  },
+  metaLabel: {
+    fontSize: 12, fontWeight: '700', color: '#64748B',
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    minWidth: 60,
+  },
+  metaValue: { fontSize: 14, color: '#1E293B', flexShrink: 1 },
 
   sectionLabel: {
     fontSize: 12, fontWeight: '700', color: '#64748B',
@@ -283,6 +442,7 @@ const s = StyleSheet.create({
     borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44,
     fontSize: 14, color: '#1E293B',
   },
+  textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
   chipRow: { flexDirection: 'row', gap: 8 },
   chip: {
     borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8,

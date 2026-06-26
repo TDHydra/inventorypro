@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
 import { getAllJobs, getActiveCheckoutsForUser, Job } from '../../../src/db/queries/jobs';
 import { rowsAs } from '../../../src/db/schema';
 
@@ -21,6 +22,7 @@ type StatusFilter = 'open' | 'closed' | 'all';
 export default function JobsScreen() {
   const { user } = useSession();
   const router = useRouter();
+  const canCreate = usePermission('create_jobs');
   const [tab, setTab] = useState<Tab>('my');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
@@ -45,6 +47,15 @@ export default function JobsScreen() {
     <>
       <Stack.Screen options={{ title: 'Jobs', headerShown: true }} />
       <View style={s.container}>
+        {canCreate && (
+          <TouchableOpacity
+            style={s.fab}
+            onPress={() => router.push('/(app)/(jobs)/create')}
+            accessibilityLabel="New Job"
+          >
+            <Text style={s.fabText}>+ New Job</Text>
+          </TouchableOpacity>
+        )}
         {/* Tabs */}
         <View style={s.tabs}>
           <TouchableOpacity
@@ -201,7 +212,7 @@ const s = StyleSheet.create({
   },
   archivedLabel: { fontSize: 13, color: '#64748B', fontWeight: '600' },
 
-  list: { padding: 12, gap: 8 },
+  list: { padding: 12, gap: 8, paddingBottom: 80 },
   card: {
     backgroundColor: '#fff', borderRadius: 10, padding: 14,
     borderWidth: 1, borderColor: '#E2E8F0',
@@ -215,4 +226,14 @@ const s = StyleSheet.create({
   statusArchived: { backgroundColor: '#F59E0B' },
   empty: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, color: '#94A3B8' },
+
+  fab: {
+    position: 'absolute', bottom: 24, right: 20,
+    backgroundColor: '#2563EB', borderRadius: 28,
+    paddingHorizontal: 22, paddingVertical: 13,
+    zIndex: 10,
+    shadowColor: '#1E3A8A', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25, shadowRadius: 8, elevation: 6,
+  },
+  fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });

@@ -13,6 +13,8 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getDb } from '../../../src/db/schema';
 import { getValidJwt } from '../../../src/auth/session';
+import { appendLog } from '../../../src/db/queries/log';
+import { useSession } from '../../../src/hooks/useSession';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -25,12 +27,13 @@ const ALL_PERMISSIONS: Permission[] = [
   'manage_teams', 'checkout_for_team', 'manage_users',
   'view_all_logs', 'view_own_logs', 'manage_locations',
   'upload_media', 'set_pins', 'manage_roles_permissions',
+  'view_financial_data', 'system_settings',
 ];
 
 // User creation is online-only: the server hashes the PIN (bcrypt) and the raw
 // PIN never touches the device DB or the sync outbox. The created row (without
 // pin_hash) is then mirrored locally for immediate display.
-async function createUserOnline(name: string, role: UserRole): Promise<void> {
+async function createUserOnline(name: string, role: UserRole): Promise<string> {
   const jwt = await getValidJwt();
   if (!jwt) throw new Error('Connect to the server to create users.');
 
@@ -56,6 +59,7 @@ async function createUserOnline(name: string, role: UserRole): Promise<void> {
      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     [created.id, created.name, created.role, created.pin_length_required, created.pin_set ? 1 : 0, JSON.stringify({}), now, now]
   );
+  return created.id;
 }
 
 function savePermissionOverrides(userId: string, overrides: Record<string, boolean>): void {
@@ -112,6 +116,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function AdminUsersScreen() {
+  const { user: sessionUser } = useSession();
   const [users, setUsers] = useState<User[]>(() => getAllUsers());
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -157,8 +162,34 @@ export default function AdminUsersScreen() {
     }
     if ((editExpiry ?? null) !== (editUser.expires_at ?? null)) fields.expires_at = editExpiry;
     if (Object.keys(fields).length === 0) { setEditUser(null); return; }
+    const roleChanged = editRole !== editUser.role;
+    const otherFieldsChanged = editName.trim() !== editUser.name ||
+      (editExpiry ?? null) !== (editUser.expires_at ?? null);
     const now = updateUserLocal(editUser.id, fields as never);
     appendOutbox('UPDATE', 'users', { id: editUser.id, ...fields, updated_at: now });
+    const adminId = sessionUser?.id ?? null;
+    if (roleChanged) {
+      appendLog({
+        action: 'user_role_changed',
+        entity_type: 'user',
+        entity_id: editUser.id,
+        user_id: adminId,
+        note: `${editUser.name}: ${editUser.role} → ${editRole}`,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
+    }
+    if (otherFieldsChanged && !roleChanged) {
+      appendLog({
+        action: 'user_updated',
+        entity_type: 'user',
+        entity_id: editUser.id,
+        user_id: adminId,
+        note: `${editUser.name}: updated ${Object.keys(fields).join(', ')}`,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
+    }
     refresh();
     setEditUser(null);
   }
@@ -179,6 +210,15 @@ export default function AdminUsersScreen() {
           onPress: () => {
             const now = updateUserLocal(editUser.id, { active: next } as never);
             appendOutbox('UPDATE', 'users', { id: editUser.id, active: !!next, updated_at: now });
+            appendLog({
+              action: 'user_updated',
+              entity_type: 'user',
+              entity_id: editUser.id,
+              user_id: sessionUser?.id ?? null,
+              note: `${editUser.name}: ${next ? 'reactivated' : 'deactivated'}`,
+              team_id: null, from_location_id: null, to_location_id: null,
+              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+            });
             const updated = { ...editUser, active: next };
             setEditUser(updated);
             refresh();
@@ -201,6 +241,15 @@ export default function AdminUsersScreen() {
             setBusy(true);
             try {
               await resetUserPinOnline(editUser.id);
+              appendLog({
+                action: 'user_pin_reset',
+                entity_type: 'user',
+                entity_id: editUser.id,
+                user_id: sessionUser?.id ?? null,
+                note: editUser.name,
+                team_id: null, from_location_id: null, to_location_id: null,
+                quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+              });
               setEditUser({ ...editUser, pin_set: 0 });
               refresh();
               Alert.alert('PIN reset', `${editUser.name} will set a new PIN at next sign-in.`);
@@ -231,13 +280,27 @@ export default function AdminUsersScreen() {
   }
 
   async function doCreate() {
+    let createdId: string | null = null;
     try {
-      await createUserOnline(newName.trim(), newRole);
+      createdId = await createUserOnline(newName.trim(), newRole);
       refresh();
       setShowCreate(false);
       resetCreateForm();
     } catch (err) {
       Alert.alert('Could not create user', (err as Error).message);
+    }
+    // Log outside the createUserOnline try/catch so a log-write failure is not
+    // misreported as "could not create user" when the server already succeeded.
+    if (createdId) {
+      appendLog({
+        action: 'user_created',
+        entity_type: 'user',
+        entity_id: createdId,
+        user_id: sessionUser?.id ?? null,
+        note: `${newName.trim()} (${newRole})`,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
     }
   }
 
@@ -266,6 +329,15 @@ export default function AdminUsersScreen() {
     const overrides = parseOverrides(u);
     overrides[permission] = !currentVal;
     savePermissionOverrides(userId, overrides);
+    appendLog({
+      action: 'user_permission_changed',
+      entity_type: 'user',
+      entity_id: userId,
+      user_id: sessionUser?.id ?? null,
+      note: `${permission}: ${!currentVal}`,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    });
     refresh();
     if (editUser?.id === userId) {
       setEditUser(prev => prev ? { ...prev, permission_overrides: JSON.stringify(overrides) } : null);

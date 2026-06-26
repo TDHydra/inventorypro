@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { requirePermission } from '../lib/permissions';
 
 interface LogQuery {
   user_id?: string;
@@ -7,11 +8,15 @@ interface LogQuery {
   action?: string;
   job_id?: string;
   limit?: string;
-  before?: string; // ISO timestamp for keyset pagination
+  before?: string; // ISO timestamp, exclusive upper bound
+  after?: string;  // ISO timestamp, inclusive lower bound
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {
-  const auth = [(fastify as any).authenticate];
+  const auth = [
+    (fastify as any).authenticate,
+    requirePermission('view_all_logs'),
+  ];
 
   // GET /logs — filtered, paginated activity log (read-only; the log is append-only)
   fastify.get<{ Querystring: LogQuery }>(
@@ -32,6 +37,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
       if (q.before !== undefined) {
         params.push(q.before);
         filters.push(`al.created_at < $${params.length}`);
+      }
+      if (q.after !== undefined) {
+        params.push(q.after);
+        filters.push(`al.created_at >= $${params.length}`);
       }
 
       const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';

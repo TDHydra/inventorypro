@@ -9,6 +9,13 @@ export interface Job {
   created_at: string;
   updated_at: string;
   synced_at: string | null;
+  // Work-order fields (migration 008). Optional so existing Job literals stay
+  // valid; job_number is assigned server-side on insert when left null.
+  job_number?: string | null;
+  customer_name?: string | null;
+  site_address?: string | null;
+  site_location_id?: string | null;
+  description?: string | null;
 }
 
 export function getOpenJobs(): Job[] {
@@ -40,9 +47,18 @@ export function getJobById(id: string): Job | null {
 export function upsertJob(job: Job): void {
   const db = getDb();
   db.executeSync(
-    `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    bindParams([job.id, job.name, job.status, job.created_by, job.created_at, job.updated_at, job.synced_at])
+    `INSERT OR REPLACE INTO jobs
+       (id, name, status, created_by, created_at, updated_at, synced_at,
+        job_number, customer_name, site_address, site_location_id, description)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([
+      job.id, job.name, job.status, job.created_by, job.created_at, job.updated_at, job.synced_at,
+      job.job_number ?? null,
+      job.customer_name ?? null,
+      job.site_address ?? null,
+      job.site_location_id ?? null,
+      job.description ?? null,
+    ])
   );
 }
 
@@ -86,13 +102,29 @@ export function archiveJob(id: string): void {
 }
 
 /** Partially update job fields locally and queue an outbox UPDATE. */
-export function updateJobFields(id: string, fields: { name?: string; status?: string }): void {
+export function updateJobFields(
+  id: string,
+  fields: {
+    name?: string;
+    status?: string;
+    job_number?: string | null;
+    customer_name?: string | null;
+    site_address?: string | null;
+    site_location_id?: string | null;
+    description?: string | null;
+  }
+): void {
   const db = getDb();
   const updated_at = new Date().toISOString();
   const sets: string[] = [];
   const params: (string | number | null)[] = [];
   if (fields.name !== undefined) { sets.push('name = ?'); params.push(fields.name); }
   if (fields.status !== undefined) { sets.push('status = ?'); params.push(fields.status); }
+  if (fields.job_number !== undefined) { sets.push('job_number = ?'); params.push(fields.job_number); }
+  if (fields.customer_name !== undefined) { sets.push('customer_name = ?'); params.push(fields.customer_name); }
+  if (fields.site_address !== undefined) { sets.push('site_address = ?'); params.push(fields.site_address); }
+  if (fields.site_location_id !== undefined) { sets.push('site_location_id = ?'); params.push(fields.site_location_id); }
+  if (fields.description !== undefined) { sets.push('description = ?'); params.push(fields.description); }
   if (sets.length === 0) return;
   sets.push('updated_at = ?');
   params.push(updated_at);

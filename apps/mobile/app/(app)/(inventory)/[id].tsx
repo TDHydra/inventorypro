@@ -21,6 +21,7 @@ import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
 import { generateUUID } from '../../../src/utils/uuid';
 import { UnitRow } from '../../../src/components/UnitRow';
+import ActivityFeed from '../../../src/components/ActivityFeed';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -58,6 +59,15 @@ export default function ItemDetailScreen() {
   // Repair-in modal state (location picker)
   const [repairInUnit, setRepairInUnit] = useState<EquipmentUnit | null>(null);
   const [repairInLoc, setRepairInLoc] = useState<PickerOption | null>(null);
+
+  // Unit edit modal state
+  const [editUnit, setEditUnit] = useState<EquipmentUnit | null>(null);
+  const [editUnitTag, setEditUnitTag] = useState('');
+  const [editUnitSerial, setEditUnitSerial] = useState('');
+  const [editUnitNotes, setEditUnitNotes] = useState('');
+
+  // Unit history modal state
+  const [historyUnit, setHistoryUnit] = useState<EquipmentUnit | null>(null);
 
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
@@ -326,6 +336,62 @@ export default function ItemDetailScreen() {
     reload();
   }
 
+  // ── Unit Edit / Retire / History helpers ────────────────────────────────
+  function openEditUnit(unit: EquipmentUnit) {
+    setEditUnit(unit);
+    setEditUnitTag(unit.asset_tag);
+    setEditUnitSerial(unit.serial_number ?? '');
+    setEditUnitNotes(unit.notes ?? '');
+  }
+
+  function saveEditUnit() {
+    if (!editUnit || !user) return;
+    if (!editUnitTag.trim()) { Alert.alert('Required', 'Asset tag is required.'); return; }
+    const now = new Date().toISOString();
+    const changes = {
+      asset_tag: editUnitTag.trim(),
+      serial_number: editUnitSerial.trim() || null,
+      notes: editUnitNotes.trim() || null,
+    };
+    upsertUnit({ ...editUnit, ...changes, updated_at: now });
+    appendOutbox('UPDATE', 'equipment_units', { id: editUnit.id, ...changes, updated_at: now });
+    appendLog({
+      user_id: user.id, team_id: null, action: 'unit_edited',
+      entity_type: 'equipment_unit', entity_id: editUnit.id,
+      from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+      note: 'edited ' + editUnit.asset_tag,
+      metadata: null, device_id: null,
+    });
+    setEditUnit(null);
+    reload();
+  }
+
+  function doRetireUnit(unit: EquipmentUnit) {
+    if (!user) return;
+    Alert.alert(
+      'Retire Unit',
+      `Retire ${unit.asset_tag}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Retire', style: 'destructive',
+          onPress: () => {
+            const updated = setUnitStatus(unit.id, { status: 'retired' });
+            appendOutbox('UPDATE', 'equipment_units', { id: unit.id, status: 'retired', updated_at: updated.updated_at });
+            appendLog({
+              user_id: user.id, team_id: null, action: 'unit_retired',
+              entity_type: 'equipment_unit', entity_id: unit.id,
+              from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+              note: 'retired ' + unit.asset_tag,
+              metadata: null, device_id: null,
+            });
+            reload();
+          },
+        },
+      ],
+    );
+  }
+
   const cat = item.unit_category as UnitCategory;
 
   return (
@@ -494,6 +560,21 @@ export default function ItemDetailScreen() {
                                 : undefined
                             }
                           />
+                          <View style={s.unitActionRow}>
+                            <TouchableOpacity style={s.unitActionBtn} onPress={() => setHistoryUnit(u)}>
+                              <Text style={s.unitActionText}>History</Text>
+                            </TouchableOpacity>
+                            {canEdit && u.status !== 'retired' && (
+                              <>
+                                <TouchableOpacity style={s.unitActionBtn} onPress={() => openEditUnit(u)}>
+                                  <Text style={s.unitActionText}>Edit</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[s.unitActionBtn, s.unitActionRetireBtn]} onPress={() => doRetireUnit(u)}>
+                                  <Text style={s.unitActionRetireText}>Retire</Text>
+                                </TouchableOpacity>
+                              </>
+                            )}
+                          </View>
                         </View>
                       ))
                     )}
@@ -598,6 +679,83 @@ export default function ItemDetailScreen() {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Edit Unit Modal ─────────────────────────────────────────────── */}
+      <Modal
+        visible={editUnit !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditUnit(null)}
+      >
+        <View style={s.overlay}>
+          <View style={s.promptCard}>
+            <Text style={s.promptTitle}>Edit Unit</Text>
+            <Text style={s.promptSub}>{editUnit?.asset_tag}</Text>
+            <Text style={[s.fieldLabel, { marginTop: 14 }]}>Asset Tag *</Text>
+            <TextInput
+              style={s.input}
+              value={editUnitTag}
+              onChangeText={setEditUnitTag}
+              placeholder="Asset tag"
+              placeholderTextColor="#94A3B8"
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            <Text style={[s.fieldLabel, { marginTop: 10 }]}>Serial # (optional)</Text>
+            <TextInput
+              style={s.input}
+              value={editUnitSerial}
+              onChangeText={setEditUnitSerial}
+              placeholder="Serial number"
+              placeholderTextColor="#94A3B8"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={[s.fieldLabel, { marginTop: 10 }]}>Notes (optional)</Text>
+            <TextInput
+              style={[s.input, s.multiline]}
+              value={editUnitNotes}
+              onChangeText={setEditUnitNotes}
+              placeholder="Notes"
+              placeholderTextColor="#94A3B8"
+              multiline
+            />
+            <View style={[s.row, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={[s.btn, s.btnGhost]}
+                onPress={() => setEditUnit(null)}
+              >
+                <Text style={s.btnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.btn, s.btnPrimary]}
+                onPress={saveEditUnit}
+              >
+                <Text style={s.btnPrimaryText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Unit History Modal ──────────────────────────────────────────── */}
+      <Modal
+        visible={historyUnit !== null}
+        animationType="slide"
+        onRequestClose={() => setHistoryUnit(null)}
+      >
+        <View style={s.container}>
+          <View style={s.historyHeader}>
+            <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
+            <TouchableOpacity onPress={() => setHistoryUnit(null)}>
+              <Text style={s.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {historyUnit && (
+            <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
+          )}
+        </View>
       </Modal>
 
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
@@ -773,4 +931,13 @@ const s = StyleSheet.create({
   },
   promptTitle: { fontSize: 17, fontWeight: '700', color: '#1E3A5F' },
   promptSub: { fontSize: 14, color: '#64748B', marginTop: 2 },
+  unitActionRow: { flexDirection: 'row', gap: 8, paddingBottom: 8, paddingTop: 2, flexWrap: 'wrap' },
+  unitActionBtn: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F1F5F9' },
+  unitActionText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  unitActionRetireBtn: { backgroundColor: '#FEE2E2' },
+  unitActionRetireText: { fontSize: 12, fontWeight: '600', color: '#991B1B' },
+  historyHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    padding: 16, borderBottomWidth: 1, borderBottomColor: '#EEF2F7',
+  },
 });
