@@ -23,6 +23,8 @@ import {
   type EquipmentUnit,
 } from '../../../src/db/queries/equipmentUnits';
 import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -67,6 +69,12 @@ export default function CheckoutScreen() {
   const [pmSelections, setPmSelections] = useState<PmSelection[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
+
+  // Permission gates
+  const canCreateJobs = usePermission('create_jobs');
+  const canUploadMedia = usePermission('upload_media');
+  // Stable UUID for the checkout event; refreshed each time we enter the confirm step
+  const [checkoutEventId, setCheckoutEventId] = useState<string>(() => generateUUID());
 
   // If navigated with itemId param (from a scan), skip straight to qty.
   useEffect(() => {
@@ -629,11 +637,11 @@ export default function CheckoutScreen() {
               <>
                 <Text style={s.label}>Job</Text>
                 <SearchablePicker
-                  placeholder="Search or create a job..."
+                  placeholder={canCreateJobs ? 'Search or create a job...' : 'Search jobs...'}
                   options={jobOptions}
                   value={jobValue}
                   onSelect={selectJob}
-                  onCreate={createJob}
+                  onCreate={canCreateJobs ? createJob : undefined}
                 />
               </>
             )}
@@ -725,7 +733,7 @@ export default function CheckoutScreen() {
             <TouchableOpacity
               style={[s.btn, !destReady && s.btnDisabled]}
               disabled={!destReady}
-              onPress={() => setStep('confirm')}
+              onPress={() => { setCheckoutEventId(generateUUID()); setStep('confirm'); }}
             >
               <Text style={s.btnText}>Review →</Text>
             </TouchableOpacity>
@@ -795,6 +803,12 @@ export default function CheckoutScreen() {
               value={`${formatQuantity(parseFloat(p.qty) || 0, unit, cat)} → ${p.locationName ?? '?'}`}
             />
           ))}
+        </View>
+
+        {/* Optional photo — media is additive and never blocks the stock move */}
+        <View>
+          <Text style={s.label}>Photo (optional)</Text>
+          <MediaGallery entityType="checkout" entityId={checkoutEventId} canUpload={canUploadMedia} />
         </View>
 
         <TouchableOpacity style={s.btn} disabled={submitting} onPress={handleConfirm}>

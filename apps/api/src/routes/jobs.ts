@@ -8,14 +8,20 @@ interface JobBody {
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = [(fastify as any).authenticate];
 
-  // GET /jobs?status=open — list jobs
-  fastify.get<{ Querystring: { status?: string } }>(
+  // GET /jobs?status=open&includeArchived=true — list jobs
+  // By default, archived jobs are excluded. Pass ?includeArchived=true to include them.
+  fastify.get<{ Querystring: { status?: string; includeArchived?: string } }>(
     '/', { preHandler: auth },
     async (request) => {
-      const { status } = request.query;
+      const { status, includeArchived } = request.query;
       const params: unknown[] = [];
       let where = '';
-      if (status) { where = 'WHERE status = $1'; params.push(status); }
+      if (status) {
+        where = 'WHERE status = $1';
+        params.push(status);
+      } else if (includeArchived !== 'true') {
+        where = "WHERE status != 'archived'";
+      }
       const { rows } = await fastify.pg.query(
         `SELECT * FROM jobs ${where} ORDER BY updated_at DESC`, params
       );

@@ -5,6 +5,9 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { MediaGallery } from '../../../src/components/MediaGallery';
+import { generateUUID } from '../../../src/utils/uuid';
 import { getActiveCheckoutsForUser } from '../../../src/db/queries/jobs';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { rowsAs } from '../../../src/db/schema';
@@ -49,6 +52,11 @@ export default function CheckinScreen() {
   const [scanNote, setScanNote] = useState<{ text: string; tone: 'warn' | 'info' } | null>(null);
   const [unitSubmitting, setUnitSubmitting] = useState(false);
 
+  // Permission gate + stable UUIDs for optional movement photos
+  const canUploadMedia = usePermission('upload_media');
+  const [checkinEventId, setCheckinEventId] = useState<string>(() => generateUUID());
+  const [unitCheckinEventId, setUnitCheckinEventId] = useState<string>(() => generateUUID());
+
   const checkouts = useMemo(() => {
     if (!user) return [];
     return rowsAs<Checkout>(getActiveCheckoutsForUser(user.id));
@@ -84,6 +92,7 @@ export default function CheckinScreen() {
   }
 
   function openModal() {
+    setCheckinEventId(generateUUID());
     const initial: Record<string, string> = {};
     for (const c of checkouts) {
       if (selected.has(c.log_id)) {
@@ -186,6 +195,7 @@ export default function CheckinScreen() {
   }
 
   function openUnitModal() {
+    setUnitCheckinEventId(generateUUID());
     setUnitReturnLocation(null);
     setShowUnitModal(true);
   }
@@ -404,6 +414,10 @@ export default function CheckinScreen() {
                 ))}
               </ScrollView>
 
+              {/* Optional photo — media is additive and never blocks the stock return */}
+              <Text style={s.mediaLabel}>Photo (optional)</Text>
+              <MediaGallery entityType="checkin" entityId={checkinEventId} canUpload={canUploadMedia} />
+
               <TouchableOpacity
                 style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
                 disabled={!returnLocation || submitting}
@@ -450,6 +464,10 @@ export default function CheckinScreen() {
                   </View>
                 ))}
               </ScrollView>
+
+              {/* Optional photo — media is additive and never blocks the unit return */}
+              <Text style={s.mediaLabel}>Photo (optional)</Text>
+              <MediaGallery entityType="checkin" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
                 style={[s.btn, (!unitReturnLocation || unitSubmitting) && s.btnDisabled]}
@@ -514,6 +532,7 @@ const s = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
   unitBadge: { backgroundColor: '#DBEAFE', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   unitBadgeText: { fontSize: 12, fontWeight: '700', color: '#1D4ED8' },
+  mediaLabel: { fontSize: 13, fontWeight: '600', color: '#64748B', marginTop: 8, marginBottom: 4 },
   scanAddBtn: {
     alignSelf: 'flex-start', backgroundColor: '#EFF6FF', borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 8, marginTop: 6,

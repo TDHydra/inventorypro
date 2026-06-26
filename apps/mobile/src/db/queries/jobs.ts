@@ -1,4 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { appendOutbox } from '../../sync/outbox';
 
 export interface Job {
   id: string;
@@ -61,4 +62,66 @@ export function getActiveCheckoutsForUser(userId: string) {
     [userId]
   );
   return result.rows;
+}
+
+/** Return all jobs, optionally including archived ones. Ordered by created_at DESC. */
+export function getAllJobs(includeArchived = false): Job[] {
+  const db = getDb();
+  const sql = includeArchived
+    ? `SELECT * FROM jobs ORDER BY created_at DESC`
+    : `SELECT * FROM jobs WHERE status != 'archived' ORDER BY created_at DESC`;
+  const result = db.executeSync(sql);
+  return rowsAs<Job>(result.rows);
+}
+
+/** Soft-delete a job locally and queue an outbox UPDATE. */
+export function archiveJob(id: string): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+  db.executeSync(
+    `UPDATE jobs SET status = 'archived', updated_at = ? WHERE id = ?`,
+    [updated_at, id]
+  );
+  appendOutbox('UPDATE', 'jobs', { id, status: 'archived', updated_at });
+}
+
+/** Partially update job fields locally and queue an outbox UPDATE. */
+export function updateJobFields(id: string, fields: { name?: string; status?: string }): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+  const sets: string[] = [];
+  const params: (string | number | null)[] = [];
+  if (fields.name !== undefined) { sets.push('name = ?'); params.push(fields.name); }
+  if (fields.status !== undefined) { sets.push('status = ?'); params.push(fields.status); }
+  if (sets.length === 0) return;
+  sets.push('updated_at = ?');
+  params.push(updated_at);
+  params.push(id);
+  db.executeSync(`UPDATE jobs SET ${sets.join(', ')} WHERE id = ?`, params);
+  appendOutbox('UPDATE', 'jobs', { id, ...fields, updated_at });
+}
+
+/**
+ * Return equipment units currently deployed to this job (with item_name),
+ * and count-based item checkouts from the activity log for this job.
+ */
+export function getJobDeployments(jobId: string): { units: any[]; items: any[] } {
+  const db = getDb();
+  const unitsResult = db.executeSync(
+    `SELECT eu.*, i.name AS item_name
+     FROM equipment_units eu
+     JOIN inventory_items i ON i.id = eu.item_id
+     WHERE eu.status = 'deployed' AND eu.current_job_id = ?`,
+    [jobId]
+  );
+  const itemsResult = db.executeSync(
+    `SELECT al.*, i.name AS item_name, i.unit
+     FROM activity_log al
+     JOIN inventory_items i ON i.id = al.entity_id
+     WHERE al.job_id = ?
+       AND al.action = 'checkout_to_job'
+       AND i.unit_tracked = 0`,
+    [jobId]
+  );
+  return { units: unitsResult.rows, items: itemsResult.rows };
 }
