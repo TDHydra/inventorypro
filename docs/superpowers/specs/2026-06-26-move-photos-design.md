@@ -67,8 +67,10 @@ photo share that id.
 ### Unit 3 — Thumbnail on `ActivityFeed` rows
 For each rendered row, look up `getPrimaryMedia('activity_log', row.id)`; if present, render a small 📷
 thumbnail (the `thumbnail_url ?? url`) at the row's trailing edge. Tapping it opens a lightbox `Modal`
-(reuse the simple full-screen image modal pattern from `MediaGallery`'s lightbox) showing the photo(s)
-via `getMediaForEntity('activity_log', row.id)`. Rows without media render exactly as today.
+(reuse the simple full-screen image modal pattern from `MediaGallery`'s lightbox) showing **all** the
+move's photo(s) via `getMediaForEntity('activity_log', row.id)` — a mixed-equipment checkout where the
+user snapped a different picture per kind shows every one (swipe/scroll through them). Rows without media
+render exactly as today.
 
 ### Unit 4 — Scanning touch-up
 `src/components/quickadd/EquipmentQuickAdd.tsx`: replace the plain asset-tag `TextInput` with `BarcodeInput`
