@@ -19,24 +19,40 @@ export interface LogEntry {
   device_id: string | null;
   created_at: string;
   synced_at: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  location_accuracy: number | null;
   // Present when the query joins the users table
   user_name?: string | null;
 }
 
-export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at'>): void {
+export function appendLog(
+  // Coords are Omitted from the base and re-added as optional so the existing
+  // (non-move) call sites don't have to pass them; they default to null.
+  entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at' | 'latitude' | 'longitude' | 'location_accuracy'> & {
+    latitude?: number | null;
+    longitude?: number | null;
+    location_accuracy?: number | null;
+  },
+): void {
   const db = getDb();
   const id = generateUUID();
   const created_at = new Date().toISOString();
+  const latitude = entry.latitude ?? null;
+  const longitude = entry.longitude ?? null;
+  const location_accuracy = entry.location_accuracy ?? null;
   db.executeSync(
     `INSERT INTO activity_log
        (id, user_id, team_id, action, entity_type, entity_id,
         from_location_id, to_location_id, quantity, unit, job_id,
-        note, metadata, device_id, created_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        note, metadata, device_id, created_at, synced_at,
+        latitude, longitude, location_accuracy)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
     [id, entry.user_id, entry.team_id, entry.action, entry.entity_type,
      entry.entity_id, entry.from_location_id, entry.to_location_id,
      entry.quantity, entry.unit, entry.job_id, entry.note,
-     entry.metadata, entry.device_id, created_at]
+     entry.metadata, entry.device_id, created_at,
+     latitude, longitude, location_accuracy]
   );
   // Sync the row to the server's append-only log (idempotent insert server-side).
   appendOutbox('INSERT', 'activity_log', {
@@ -45,6 +61,7 @@ export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at
     from_location_id: entry.from_location_id, to_location_id: entry.to_location_id,
     quantity: entry.quantity, unit: entry.unit, job_id: entry.job_id,
     note: entry.note, metadata: entry.metadata, device_id: entry.device_id, created_at,
+    latitude, longitude, location_accuracy,
   });
 }
 
