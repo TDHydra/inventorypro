@@ -1,0 +1,464 @@
+{"_e":"root:init","_t":1782426527283,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"devserver:start","_t":1782426527291,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782426527746,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782426531850,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[89704:0625/182850.698097:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782426533433,"atlas":false,"workers":10,"host":"::","port":8081}
+{"_e":"root:init","_t":1782426560767,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782426560768,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782426560769,"mode":"development","files":["../../../.env"],"env":{"EXPO_PUBLIC_API_URL":"http://192.168.1.49:3000"}}
+{"_e":"devserver:start","_t":1782426560940,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782426561405,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782426563006,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[89930:0625/182921.500654:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782426566937,"atlas":false,"workers":10,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1782426573622,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782426579050,"id":"1","total":1781,"ms":5428.449331}
+{"_e":"root:init","_t":1782426770113,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"devserver:start","_t":1782426770122,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782426770563,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782426772204,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[92872:0625/183250.659824:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782426776256,"atlas":false,"workers":10,"host":"::","port":8081}
+{"_e":"root:init","_t":1782427233935,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782427233935,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782427233936,"mode":"development","files":["../../../.env"],"env":{"EXPO_PUBLIC_API_URL":"http://localhost:3000"}}
+{"_e":"root:init","_t":1782427345718,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782427345719,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782427345720,"mode":"development","files":["../../../.env"],"env":{"EXPO_PUBLIC_API_URL":"http://localhost:3000"}}
+{"_e":"devserver:start","_t":1782427345882,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782427346309,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782427347918,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[97395:0625/184226.403576:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782427351796,"atlas":false,"workers":10,"host":"127.0.0.1","port":8081}
+{"_e":"metro:bundling:started","_t":1782427363198,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427363963,"id":"1","total":1781,"ms":764.720714}
+{"_e":"metro:bundling:started","_t":1782427392058,"id":"2","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427392348,"id":"2","total":1,"ms":289.955589}
+{"_e":"metro:client_log","_t":1782427392376,"level":"log","data":["[DB] Applying SQLite migration v1..."]}
+{"_e":"metro:client_log","_t":1782427392385,"level":"log","data":["[DB] ✓ SQLite migration v1 applied"]}
+{"_e":"metro:client_log","_t":1782427392386,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427392782,"id":"3","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782427392979,"id":"3","total":417,"ms":196.42063}
+{"_e":"metro:bundling:started","_t":1782427393220,"id":"4","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782427393412,"id":"4","total":421,"ms":191.204751}
+{"_e":"metro:bundling:started","_t":1782427393590,"id":"5","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782427393754,"id":"5","total":539,"ms":163.741512}
+{"_e":"metro:bundling:started","_t":1782427394057,"id":"6","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782427394206,"id":"6","total":519,"ms":149.652817}
+{"_e":"metro:bundling:started","_t":1782427394506,"id":"7","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782427394647,"id":"7","total":556,"ms":140.406232}
+{"_e":"metro:bundling:started","_t":1782427407314,"id":"8","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427407361,"id":"8","total":1,"ms":47.387608}
+{"_e":"metro:bundling:started","_t":1782427409124,"id":"9","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427409126,"id":"9","total":1,"ms":1.699838}
+{"_e":"metro:client_log","_t":1782427409160,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427409440,"id":"a","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782427409468,"id":"a","total":1,"ms":27.968372}
+{"_e":"metro:bundling:started","_t":1782427409691,"id":"b","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782427409721,"id":"b","total":1,"ms":29.071623}
+{"_e":"metro:bundling:started","_t":1782427409888,"id":"c","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782427409916,"id":"c","total":1,"ms":28.020881}
+{"_e":"metro:bundling:started","_t":1782427410114,"id":"d","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782427410134,"id":"d","total":1,"ms":20.418483}
+{"_e":"metro:bundling:started","_t":1782427410296,"id":"e","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782427410323,"id":"e","total":1,"ms":27.644861}
+{"_e":"metro:bundling:started","_t":1782427601947,"id":"f","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427602002,"id":"f","total":1,"ms":54.360778}
+{"_e":"metro:bundling:started","_t":1782427603889,"id":"g","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427603893,"id":"g","total":1,"ms":3.87864}
+{"_e":"metro:client_log","_t":1782427603942,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427604209,"id":"h","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782427604234,"id":"h","total":1,"ms":24.512968}
+{"_e":"metro:bundling:started","_t":1782427604428,"id":"i","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782427604451,"id":"i","total":1,"ms":23.392626}
+{"_e":"metro:bundling:started","_t":1782427604622,"id":"j","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782427604645,"id":"j","total":1,"ms":23.090056}
+{"_e":"metro:bundling:started","_t":1782427604804,"id":"k","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782427604826,"id":"k","total":1,"ms":22.181577}
+{"_e":"metro:bundling:started","_t":1782427605014,"id":"l","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782427605034,"id":"l","total":1,"ms":19.449649}
+{"_e":"metro:bundling:started","_t":1782427606422,"id":"m","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782427606453,"id":"m","total":1,"ms":30.33845}
+{"_e":"metro:bundling:started","_t":1782427606494,"id":"n","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782427606513,"id":"n","total":1,"ms":18.881401}
+{"_e":"metro:bundling:started","_t":1782427606592,"id":"o","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782427606620,"id":"o","total":1,"ms":27.897291}
+{"_e":"metro:bundling:started","_t":1782427606700,"id":"p","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782427606733,"id":"p","total":1,"ms":32.410237}
+{"_e":"metro:bundling:started","_t":1782427606808,"id":"q","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782427606824,"id":"q","total":1,"ms":15.664362}
+{"_e":"metro:client_log","_t":1782427618240,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427618564,"id":"r","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427618625,"id":"r","total":1,"ms":61.053204}
+{"_e":"metro:bundling:started","_t":1782427620582,"id":"s","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427620583,"id":"s","total":1,"ms":0.751826}
+{"_e":"metro:client_log","_t":1782427620626,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:client_log","_t":1782427620828,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427620897,"id":"t","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782427620925,"id":"t","total":1,"ms":28.036071}
+{"_e":"metro:bundling:started","_t":1782427621134,"id":"u","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782427621162,"id":"u","total":1,"ms":27.687234}
+{"_e":"metro:bundling:started","_t":1782427621354,"id":"v","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782427621386,"id":"v","total":1,"ms":31.681276}
+{"_e":"metro:bundling:started","_t":1782427621557,"id":"w","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782427621592,"id":"w","total":1,"ms":34.390707}
+{"_e":"metro:bundling:started","_t":1782427621778,"id":"x","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782427621806,"id":"x","total":1,"ms":27.577761}
+{"_e":"metro:bundling:started","_t":1782427626472,"id":"y","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427626521,"id":"y","total":1,"ms":49.20676}
+{"_e":"metro:bundling:started","_t":1782427628407,"id":"z","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427628410,"id":"z","total":1,"ms":3.129006}
+{"_e":"metro:client_log","_t":1782427628445,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427668654,"id":"10","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427668711,"id":"10","total":1,"ms":56.697396}
+{"_e":"metro:bundling:started","_t":1782427670573,"id":"11","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427670582,"id":"11","total":1,"ms":9.440658}
+{"_e":"metro:client_log","_t":1782427670605,"level":"log","data":["[DB] Applying SQLite migration v1..."]}
+{"_e":"metro:client_log","_t":1782427670613,"level":"log","data":["[DB] ✓ SQLite migration v1 applied"]}
+{"_e":"metro:client_log","_t":1782427670651,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782427670891,"id":"12","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782427670907,"id":"12","total":1,"ms":15.609479}
+{"_e":"metro:bundling:started","_t":1782427671139,"id":"13","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782427671173,"id":"13","total":1,"ms":34.284053}
+{"_e":"metro:bundling:started","_t":1782427671366,"id":"14","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782427671395,"id":"14","total":1,"ms":28.693799}
+{"_e":"metro:bundling:started","_t":1782427671586,"id":"15","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782427671611,"id":"15","total":1,"ms":24.741316}
+{"_e":"metro:bundling:started","_t":1782427671786,"id":"16","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782427671818,"id":"16","total":1,"ms":31.988431}
+{"_e":"metro:bundling:started","_t":1782427809793,"id":"17","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782427809845,"id":"17","total":1,"ms":51.771429}
+{"_e":"metro:bundling:started","_t":1782427811578,"id":"18","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782427811579,"id":"18","total":1,"ms":0.663548}
+{"_e":"metro:client_log","_t":1782427811614,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782428221760,"id":"19","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782428221811,"id":"19","total":1,"ms":51.366586}
+{"_e":"metro:bundling:started","_t":1782428223660,"id":"1a","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782428223663,"id":"1a","total":1,"ms":2.789155}
+{"_e":"metro:client_log","_t":1782428223719,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:server_log","_t":1782428384723,"level":"error","data":["[timeout] connection terminated with Device for app='%s' on device='%s' after not responding for %s seconds.","com.inventorypro.app","Pixel 10 Pro XL - 16 - API 36","60"]}
+{"_e":"metro:bundling:failed","_t":1782428656123,"id":null,"message":"Unable to resolve \"bcryptjs\" from \"apps/mobile/src/auth/pin.ts\"\n> 1 | import bcrypt from 'bcryptjs';\n    |                     ^\n  2 |\n  3 | const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';\n  4 |","importStack":"Import stack:\n\n apps/mobile/src/auth/pin.ts\n | import \"bcryptjs\"\n\n apps/mobile/app/(auth)/login.tsx\n | import \"../../src/auth/pin\"\n\n apps/mobile/app (require.context)\n","filename":null,"targetModuleName":"bcryptjs","originModulePath":"apps/mobile/src/auth/pin.ts"}
+{"_e":"metro:bundling:failed","_t":1782428656444,"id":null,"message":"Unable to resolve \"bcryptjs\" from \"apps/mobile/src/auth/pin.ts\"\n> 1 | import bcrypt from 'bcryptjs';\n    |                     ^\n  2 |\n  3 | const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';\n  4 |","importStack":"Import stack:\n\n apps/mobile/src/auth/pin.ts\n | import \"bcryptjs\"\n\n apps/mobile/app/(auth)/login.tsx\n | import \"../../src/auth/pin\"\n\n apps/mobile/app (require.context)\n","filename":null,"targetModuleName":"bcryptjs","originModulePath":"apps/mobile/src/auth/pin.ts"}
+{"_e":"metro:bundling:failed","_t":1782428684943,"id":null,"message":"Unable to resolve \"bcryptjs\" from \"apps/mobile/src/auth/pin.ts\"\n> 1 | import bcrypt from 'bcryptjs';\n    |                     ^\n  2 |\n  3 | const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';\n  4 |","importStack":"Import stack:\n\n apps/mobile/src/auth/pin.ts\n | import \"bcryptjs\"\n\n apps/mobile/app/(auth)/login.tsx\n | import \"../../src/auth/pin\"\n\n apps/mobile/app (require.context)\n","filename":null,"targetModuleName":"bcryptjs","originModulePath":"apps/mobile/src/auth/pin.ts"}
+{"_e":"metro:bundling:failed","_t":1782428691794,"id":null,"message":"Unable to resolve \"bcryptjs\" from \"apps/mobile/src/auth/pin.ts\"\n> 1 | import bcrypt from 'bcryptjs';\n    |                     ^\n  2 |\n  3 | const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';\n  4 |","importStack":"Import stack:\n\n apps/mobile/src/auth/pin.ts\n | import \"bcryptjs\"\n\n apps/mobile/app/(auth)/login.tsx\n | import \"../../src/auth/pin\"\n\n apps/mobile/app (require.context)\n","filename":null,"targetModuleName":"bcryptjs","originModulePath":"apps/mobile/src/auth/pin.ts"}
+{"_e":"metro:bundling:failed","_t":1782428696179,"id":null,"message":"Unable to resolve \"bcryptjs\" from \"apps/mobile/src/auth/pin.ts\"\n> 1 | import bcrypt from 'bcryptjs';\n    |                     ^\n  2 |\n  3 | const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';\n  4 |","importStack":"Import stack:\n\n apps/mobile/src/auth/pin.ts\n | import \"bcryptjs\"\n\n apps/mobile/app/(auth)/login.tsx\n | import \"../../src/auth/pin\"\n\n apps/mobile/app (require.context)\n","filename":null,"targetModuleName":"bcryptjs","originModulePath":"apps/mobile/src/auth/pin.ts"}
+{"_e":"root:init","_t":1782429005122,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"devserver:start","_t":1782429005134,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782429005574,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782429007217,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[112860:0625/191005.668230:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782429011218,"atlas":false,"workers":10,"host":"::","port":8081}
+{"_e":"root:init","_t":1782429123807,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782429123807,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782429123809,"mode":"development","files":["../../../.env"],"env":{"EXPO_PUBLIC_API_URL":"http://localhost:3000"}}
+{"_e":"devserver:start","_t":1782429123979,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782429124441,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782429126050,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[114564:0625/191204.539197:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782429130118,"atlas":false,"workers":10,"host":"127.0.0.1","port":8081}
+{"_e":"metro:bundling:started","_t":1782429142506,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782429143297,"id":"1","total":1718,"ms":791.383206}
+{"_e":"metro:bundling:started","_t":1782429189744,"id":"2","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782429189773,"id":"2","total":1,"ms":28.130942}
+{"_e":"metro:client_log","_t":1782429189789,"level":"log","data":["[DB] Applying SQLite migration v1..."]}
+{"_e":"metro:client_log","_t":1782429189799,"level":"log","data":["[DB] ✓ SQLite migration v1 applied"]}
+{"_e":"metro:client_log","_t":1782429189842,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782429190149,"id":"3","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782429190354,"id":"3","total":392,"ms":205.053121}
+{"_e":"metro:bundling:started","_t":1782429190494,"id":"4","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782429190674,"id":"4","total":423,"ms":179.845361}
+{"_e":"metro:bundling:started","_t":1782429190815,"id":"5","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782429190985,"id":"5","total":518,"ms":169.662205}
+{"_e":"metro:bundling:started","_t":1782429191130,"id":"6","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782429191280,"id":"6","total":544,"ms":149.274586}
+{"_e":"metro:bundling:started","_t":1782429191409,"id":"7","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782429191553,"id":"7","total":545,"ms":144.803148}
+{"_e":"metro:bundling:started","_t":1782429193567,"id":"8","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782429193609,"id":"8","total":1,"ms":41.761899}
+{"_e":"metro:bundling:started","_t":1782429195353,"id":"9","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782429195354,"id":"9","total":1,"ms":0.79659}
+{"_e":"metro:client_log","_t":1782429195387,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:client_log","_t":1782429275881,"level":"error","data":["[Error: Exception in HostFunction: [op-sqlite] sqlite query error: table users has no column named pin_hash]"]}
+{"_e":"metro:client_log","_t":1782429452608,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:bundling:started","_t":1782430103708,"id":"c","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782430103781,"id":"c","total":1,"ms":72.270524}
+{"_e":"metro:bundling:started","_t":1782432181702,"id":"d","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782432181756,"id":"d","total":1,"ms":54.328579}
+{"_e":"metro:bundling:started","_t":1782432183579,"id":"e","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782432183587,"id":"e","total":1,"ms":8.017572}
+{"_e":"metro:client_log","_t":1782432183604,"level":"log","data":["[DB] SQLite schema v1 ready"]}
+{"_e":"metro:client_log","_t":1782432658347,"level":"error","data":["[Error: Database not initialized. Call initDb() first.]"]}
+{"_e":"metro:bundling:started","_t":1782432673561,"id":"h","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782432673568,"id":"h","total":1,"ms":7.486242}
+{"_e":"metro:bundling:started","_t":1782432673605,"id":"i","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782432673619,"id":"i","total":1,"ms":13.627297}
+{"_e":"metro:client_log","_t":1782432673678,"level":"log","data":["[DB] Applying SQLite migration v2..."]}
+{"_e":"metro:client_log","_t":1782432673695,"level":"log","data":["[DB] ✓ SQLite migration v2 applied"]}
+{"_e":"metro:client_log","_t":1782432673739,"level":"log","data":["[DB] SQLite schema v2 ready"]}
+{"_e":"metro:bundling:started","_t":1782432938652,"id":"j","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782432938710,"id":"j","total":1,"ms":57.625967}
+{"_e":"metro:bundling:started","_t":1782433114018,"id":"k","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782433114019,"id":"k","total":1,"ms":1.046435}
+{"_e":"metro:bundling:started","_t":1782433114056,"id":"l","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782433114066,"id":"l","total":1,"ms":10.004902}
+{"_e":"metro:client_log","_t":1782433114121,"level":"log","data":["[DB] SQLite schema v2 ready"]}
+{"_e":"metro:client_log","_t":1782433670697,"level":"log","data":["[DB] SQLite schema v2 ready"]}
+{"_e":"metro:bundling:started","_t":1782434555817,"id":"m","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782434555900,"id":"m","total":1,"ms":83.474716}
+{"_e":"root:init","_t":1782434618068,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782434618069,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782434618070,"mode":"development","files":["../../../.env"],"env":{"EXPO_PUBLIC_API_URL":"http://localhost:3000"}}
+{"_e":"devserver:start","_t":1782434618242,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782434618706,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782434620380,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[147887:0625/204338.806089:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782434624434,"atlas":false,"workers":10,"host":"127.0.0.1","port":8081}
+{"_e":"metro:bundling:started","_t":1782434629381,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782434635009,"id":"1","total":1788,"ms":5627.412089}
+{"_e":"metro:bundling:started","_t":1782434825007,"id":"2","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782434825057,"id":"2","total":1,"ms":50.011667}
+{"_e":"metro:bundling:started","_t":1782434895232,"id":"3","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782434895269,"id":"3","total":1,"ms":36.612334}
+{"_e":"metro:bundling:started","_t":1782434895289,"id":"4","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782434895312,"id":"4","total":1,"ms":22.168862}
+{"_e":"metro:bundling:started","_t":1782434895373,"id":"5","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782434895387,"id":"5","total":1,"ms":13.496482}
+{"_e":"metro:client_log","_t":1782434895445,"level":"log","data":["[DB] Applying SQLite migration v3..."]}
+{"_e":"metro:client_log","_t":1782434895452,"level":"log","data":["[DB] ✓ SQLite migration v3 applied"]}
+{"_e":"metro:client_log","_t":1782434895495,"level":"log","data":["[DB] SQLite schema v3 ready"]}
+{"_e":"metro:bundling:started","_t":1782434917798,"id":"6","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782434917845,"id":"6","total":1,"ms":46.407345}
+{"_e":"metro:bundling:started","_t":1782434919633,"id":"7","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782434919636,"id":"7","total":1,"ms":3.100168}
+{"_e":"metro:bundling:started","_t":1782434919676,"id":"8","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782434919677,"id":"8","total":1,"ms":0.899931}
+{"_e":"metro:bundling:started","_t":1782434919755,"id":"9","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782434919755,"id":"9","total":1,"ms":0.742071}
+{"_e":"metro:client_log","_t":1782434919813,"level":"log","data":["[DB] SQLite schema v3 ready"]}
+{"_e":"metro:server_log","_t":1782434956706,"level":"info","data":["Launching DevTools..."]}
+{"_e":"metro:bundling:started","_t":1782434957232,"id":"a","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:started","_t":1782434957343,"id":"b","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:started","_t":1782434957345,"id":"c","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:started","_t":1782434957346,"id":"d","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:server_log","_t":1782435895105,"level":"error","data":["[timeout] connection terminated with Device for app='%s' on device='%s' after not responding for %s seconds.","com.inventorypro.app","Pixel 10 Pro XL - 16 - API 36","60"]}
+{"_e":"root:init","_t":1782448488331,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782448488332,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782448488334,"mode":"development","files":["../../../.env"],"env":{}}
+{"_e":"devserver:start","_t":1782448488588,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782448489240,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782448490713,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[35095:0626/003449.454373:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782448496692,"atlas":false,"workers":10,"host":"127.0.0.1","port":8081}
+{"_e":"metro:bundling:started","_t":1782448510336,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782448519230,"id":"1","total":1794,"ms":8893.687317}
+{"_e":"metro:bundling:started","_t":1782448554985,"id":"2","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782448555038,"id":"2","total":1,"ms":52.410114}
+{"_e":"metro:bundling:started","_t":1782448599057,"id":"3","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782448599083,"id":"3","total":1,"ms":25.446067}
+{"_e":"metro:bundling:started","_t":1782448599101,"id":"4","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782448599121,"id":"4","total":1,"ms":19.462678}
+{"_e":"metro:bundling:started","_t":1782448599182,"id":"5","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782448599196,"id":"5","total":1,"ms":14.530435}
+{"_e":"metro:client_log","_t":1782448599248,"level":"log","data":["[DB] Applying SQLite migration v1..."]}
+{"_e":"metro:client_log","_t":1782448599254,"level":"log","data":["[DB] ✓ SQLite migration v1 applied"]}
+{"_e":"metro:client_log","_t":1782448599300,"level":"log","data":["[DB] Applying SQLite migration v2..."]}
+{"_e":"metro:client_log","_t":1782448599301,"level":"log","data":["[DB] ✓ SQLite migration v2 applied"]}
+{"_e":"metro:client_log","_t":1782448599301,"level":"log","data":["[DB] Applying SQLite migration v3..."]}
+{"_e":"metro:client_log","_t":1782448599301,"level":"log","data":["[DB] ✓ SQLite migration v3 applied"]}
+{"_e":"metro:client_log","_t":1782448599301,"level":"log","data":["[DB] SQLite schema v3 ready"]}
+{"_e":"metro:bundling:started","_t":1782448599746,"id":"6","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782448600100,"id":"6","total":585,"ms":354.106998}
+{"_e":"metro:bundling:started","_t":1782448600244,"id":"7","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782448600446,"id":"7","total":421,"ms":202.727909}
+{"_e":"metro:bundling:started","_t":1782448600574,"id":"8","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782448600787,"id":"8","total":423,"ms":212.806876}
+{"_e":"metro:bundling:started","_t":1782448600980,"id":"9","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782448601184,"id":"9","total":449,"ms":203.962067}
+{"_e":"metro:bundling:started","_t":1782448601364,"id":"a","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782448601540,"id":"a","total":422,"ms":176.264881}
+{"_e":"metro:bundling:started","_t":1782448602433,"id":"b","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782448602484,"id":"b","total":1,"ms":50.86962}
+{"_e":"metro:bundling:started","_t":1782448604260,"id":"c","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782448604262,"id":"c","total":1,"ms":1.833058}
+{"_e":"metro:bundling:started","_t":1782448604294,"id":"d","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782448604295,"id":"d","total":1,"ms":0.901389}
+{"_e":"metro:bundling:started","_t":1782448604367,"id":"e","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782448604368,"id":"e","total":1,"ms":0.791167}
+{"_e":"metro:client_log","_t":1782448604428,"level":"log","data":["[DB] SQLite schema v3 ready"]}
+{"_e":"metro:client_log","_t":1782450942067,"level":"error","data":["[Error: Database not initialized. Call initDb() first.]"]}
+{"_e":"metro:bundling:started","_t":1782450944754,"id":"h","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782450944767,"id":"h","total":1,"ms":13.066862}
+{"_e":"metro:bundling:started","_t":1782450944843,"id":"i","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782450944860,"id":"i","total":1,"ms":17.475735}
+{"_e":"metro:bundling:started","_t":1782450944898,"id":"j","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782450944909,"id":"j","total":1,"ms":10.150934}
+{"_e":"metro:bundling:started","_t":1782450945022,"id":"k","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782450945046,"id":"k","total":1,"ms":23.760599}
+{"_e":"metro:client_log","_t":1782450945125,"level":"log","data":["[DB] Applying SQLite migration v4..."]}
+{"_e":"metro:client_log","_t":1782450945164,"level":"log","data":["[DB] ✓ SQLite migration v4 applied"]}
+{"_e":"metro:client_log","_t":1782450945208,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"metro:client_log","_t":1782450949523,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"metro:bundling:started","_t":1782450955570,"id":"l","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782450955622,"id":"l","total":1,"ms":51.168217}
+{"_e":"metro:bundling:started","_t":1782450957434,"id":"m","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782450957436,"id":"m","total":1,"ms":1.363491}
+{"_e":"metro:bundling:started","_t":1782450957463,"id":"n","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782450957464,"id":"n","total":1,"ms":0.90096}
+{"_e":"metro:bundling:started","_t":1782450957531,"id":"o","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782450957532,"id":"o","total":1,"ms":0.925113}
+{"_e":"metro:bundling:started","_t":1782450957606,"id":"p","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782450957618,"id":"p","total":1,"ms":11.477854}
+{"_e":"metro:client_log","_t":1782450957686,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"metro:server_log","_t":1782451149245,"level":"error","data":["[timeout] connection terminated with Device for app='%s' on device='%s' after not responding for %s seconds.","com.inventorypro.app","Pixel 10 Pro XL - 16 - API 36","60"]}
+{"_e":"metro:client_log","_t":1782452940495,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"metro:bundling:started","_t":1782452941108,"id":"q","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782452941160,"id":"q","total":1,"ms":51.665769}
+{"_e":"metro:bundling:started","_t":1782452943064,"id":"r","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782452943065,"id":"r","total":1,"ms":0.796218}
+{"_e":"metro:bundling:started","_t":1782452943099,"id":"s","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782452943099,"id":"s","total":1,"ms":0.606496}
+{"_e":"metro:bundling:started","_t":1782452943155,"id":"t","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782452943156,"id":"t","total":1,"ms":1.027016}
+{"_e":"metro:bundling:started","_t":1782452943219,"id":"u","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782452943220,"id":"u","total":1,"ms":0.68935}
+{"_e":"metro:client_log","_t":1782452943284,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"root:init","_t":1782454214234,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782454214235,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782454214236,"mode":"development","files":["../../../.env"],"env":{}}
+{"_e":"root:init","_t":1782454251877,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782454251877,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782454251879,"mode":"development","files":["../../../.env"],"env":{}}
+{"_e":"devserver:start","_t":1782454252057,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782454252527,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782454254160,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[71237:0626/021052.628763:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782454258285,"atlas":false,"workers":10,"host":"127.0.0.1","port":8081}
+{"_e":"metro:bundling:started","_t":1782454284166,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782454290171,"id":"1","total":1795,"ms":6005.039846}
+{"_e":"metro:bundling:started","_t":1782454292169,"id":"2","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782454292191,"id":"2","total":1,"ms":22.214802}
+{"_e":"metro:bundling:started","_t":1782454292222,"id":"3","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782454292235,"id":"3","total":1,"ms":12.502133}
+{"_e":"metro:bundling:started","_t":1782454292293,"id":"4","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782454292303,"id":"4","total":1,"ms":9.923155}
+{"_e":"metro:bundling:started","_t":1782454292370,"id":"5","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782454292380,"id":"5","total":1,"ms":9.550939}
+{"_e":"metro:client_log","_t":1782454292446,"level":"log","data":["[DB] Applying SQLite migration v1..."]}
+{"_e":"metro:client_log","_t":1782454292460,"level":"log","data":["[DB] ✓ SQLite migration v1 applied"]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] Applying SQLite migration v2..."]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] ✓ SQLite migration v2 applied"]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] Applying SQLite migration v3..."]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] ✓ SQLite migration v3 applied"]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] Applying SQLite migration v4..."]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] ✓ SQLite migration v4 applied"]}
+{"_e":"metro:client_log","_t":1782454292504,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"metro:bundling:started","_t":1782454292905,"id":"6","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/items.ts"}
+{"_e":"metro:bundling:done","_t":1782454293078,"id":"6","total":448,"ms":173.493665}
+{"_e":"metro:bundling:started","_t":1782454293304,"id":"7","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/locations.ts"}
+{"_e":"metro:bundling:done","_t":1782454293476,"id":"7","total":471,"ms":171.143994}
+{"_e":"metro:bundling:started","_t":1782454293671,"id":"8","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/users.ts"}
+{"_e":"metro:bundling:done","_t":1782454293825,"id":"8","total":489,"ms":154.225604}
+{"_e":"metro:bundling:started","_t":1782454294038,"id":"9","platform":"android","environment":null,"entry":"apps/mobile/src/db/queries/jobs.ts"}
+{"_e":"metro:bundling:done","_t":1782454294176,"id":"9","total":566,"ms":138.038499}
+{"_e":"metro:bundling:started","_t":1782454294365,"id":"a","platform":"android","environment":null,"entry":"apps/mobile/src/db/schema.ts"}
+{"_e":"metro:bundling:done","_t":1782454294505,"id":"a","total":575,"ms":139.78597}
+{"_e":"metro:bundling:started","_t":1782454526949,"id":"b","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782454526996,"id":"b","total":1,"ms":46.344379}
+{"_e":"metro:bundling:started","_t":1782454528784,"id":"c","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782454528786,"id":"c","total":1,"ms":1.163803}
+{"_e":"metro:bundling:started","_t":1782454528823,"id":"d","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782454528824,"id":"d","total":1,"ms":0.768436}
+{"_e":"metro:bundling:started","_t":1782454528889,"id":"e","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782454528890,"id":"e","total":1,"ms":0.682342}
+{"_e":"metro:bundling:started","_t":1782454528956,"id":"f","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782454528957,"id":"f","total":1,"ms":0.703732}
+{"_e":"metro:client_log","_t":1782454529033,"level":"log","data":["[DB] SQLite schema v4 ready"]}
+{"_e":"metro:client_log","_t":1782454569441,"level":"error","data":["Each child in a list should have a unique \"key\" prop.\n\nCheck the render method of `ScrollView`. It was passed a child from VirtualizedList. See https://react.dev/link/warning-keys for more information."]}
+{"_e":"metro:client_log","_t":1782455258000,"level":"error","data":["[Error: Database not initialized. Call initDb() first.]"]}
+{"_e":"metro:bundling:started","_t":1782455263973,"id":"m","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782455263988,"id":"m","total":1,"ms":15.120799}
+{"_e":"metro:bundling:started","_t":1782455264029,"id":"n","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782455264046,"id":"n","total":1,"ms":16.291498}
+{"_e":"metro:bundling:started","_t":1782455264121,"id":"o","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782455264134,"id":"o","total":1,"ms":12.272104}
+{"_e":"metro:bundling:started","_t":1782455264202,"id":"p","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782455264217,"id":"p","total":1,"ms":14.859038}
+{"_e":"metro:bundling:started","_t":1782455264255,"id":"q","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/005_item_category_returnable.ts"}
+{"_e":"metro:bundling:done","_t":1782455264279,"id":"q","total":1,"ms":23.870601}
+{"_e":"metro:client_log","_t":1782455264345,"level":"log","data":["[DB] Applying SQLite migration v5..."]}
+{"_e":"metro:client_log","_t":1782455264369,"level":"log","data":["[DB] ✓ SQLite migration v5 applied"]}
+{"_e":"metro:client_log","_t":1782455264415,"level":"log","data":["[DB] SQLite schema v5 ready"]}
+{"_e":"metro:client_log","_t":1782455269201,"level":"log","data":["[DB] SQLite schema v5 ready"]}
+{"_e":"root:init","_t":1782456479441,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782456479442,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782456479445,"mode":"development","files":["../../../.env"],"env":{}}
+{"_e":"devserver:start","_t":1782456479749,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782456480596,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":false,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782456482673,"level":"error","data":["An unknown error occurred while installing React Native DevTools. Details:\n\n[85354:0626/024800.741913:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/tdpotato/.cache/dotslash/af/5aa55d5d0401a9f3a438c9deb082205f28e353/React Native DevTools-linux-x64/chrome-sandbox is owned by root and has mode 4755.\n"]}
+{"_e":"metro:instantiate","_t":1782456490932,"atlas":false,"workers":10,"host":"127.0.0.1","port":8081}
+{"_e":"metro:bundling:started","_t":1782456512950,"id":"1","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782456523359,"id":"1","total":1795,"ms":10408.865954}
+{"_e":"metro:bundling:started","_t":1782456665149,"id":"2","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782456665175,"id":"2","total":1,"ms":26.416396}
+{"_e":"metro:bundling:started","_t":1782456665192,"id":"3","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782456665210,"id":"3","total":1,"ms":17.724314}
+{"_e":"metro:bundling:started","_t":1782456665264,"id":"4","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782456665280,"id":"4","total":1,"ms":16.558083}
+{"_e":"metro:bundling:started","_t":1782456665339,"id":"5","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782456665363,"id":"5","total":1,"ms":23.902763}
+{"_e":"metro:bundling:started","_t":1782456665414,"id":"6","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/005_item_category_returnable.ts"}
+{"_e":"metro:bundling:done","_t":1782456665427,"id":"6","total":1,"ms":12.44152}
+{"_e":"metro:client_log","_t":1782456665478,"level":"log","data":["[DB] SQLite schema v5 ready"]}
+{"_e":"metro:bundling:started","_t":1782456671032,"id":"7","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782456671101,"id":"7","total":1,"ms":68.618833}
+{"_e":"metro:bundling:started","_t":1782456672879,"id":"8","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782456672880,"id":"8","total":1,"ms":0.976115}
+{"_e":"metro:bundling:started","_t":1782456672919,"id":"9","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782456672920,"id":"9","total":1,"ms":0.801938}
+{"_e":"metro:bundling:started","_t":1782456672983,"id":"a","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782456672984,"id":"a","total":1,"ms":1.153725}
+{"_e":"metro:bundling:started","_t":1782456673059,"id":"b","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782456673061,"id":"b","total":1,"ms":1.912854}
+{"_e":"metro:bundling:started","_t":1782456673129,"id":"c","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/005_item_category_returnable.ts"}
+{"_e":"metro:bundling:done","_t":1782456673131,"id":"c","total":1,"ms":2.02434}
+{"_e":"metro:client_log","_t":1782456673185,"level":"log","data":["[DB] SQLite schema v5 ready"]}
+{"_e":"metro:bundling:started","_t":1782457165465,"id":"d","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782457165508,"id":"d","total":1,"ms":42.966577}
+{"_e":"metro:bundling:started","_t":1782457167359,"id":"e","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782457167361,"id":"e","total":1,"ms":1.761035}
+{"_e":"metro:bundling:started","_t":1782457167388,"id":"f","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782457167389,"id":"f","total":1,"ms":0.85262}
+{"_e":"metro:bundling:started","_t":1782457167452,"id":"g","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782457167453,"id":"g","total":1,"ms":0.84461}
+{"_e":"metro:bundling:started","_t":1782457167517,"id":"h","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782457167518,"id":"h","total":1,"ms":0.866099}
+{"_e":"metro:bundling:started","_t":1782457167593,"id":"i","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/005_item_category_returnable.ts"}
+{"_e":"metro:bundling:done","_t":1782457167594,"id":"i","total":1,"ms":0.704285}
+{"_e":"metro:client_log","_t":1782457167661,"level":"log","data":["[DB] SQLite schema v5 ready"]}
+{"_e":"metro:server_log","_t":1782457867153,"level":"error","data":["[timeout] connection terminated with Device for app='%s' on device='%s' after not responding for %s seconds.","com.inventorypro.app","Pixel 10 Pro XL - 16 - API 36","60"]}
+{"_e":"metro:client_log","_t":1782459160448,"level":"error","data":["[Error: Database not initialized. Call initDb() first.]"]}
+{"_e":"metro:bundling:started","_t":1782459161687,"id":"l","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782459161730,"id":"l","total":1,"ms":42.865834}
+{"_e":"metro:bundling:started","_t":1782459163705,"id":"m","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782459163706,"id":"m","total":1,"ms":0.660521}
+{"_e":"metro:bundling:started","_t":1782459163739,"id":"n","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782459163740,"id":"n","total":1,"ms":0.746322}
+{"_e":"metro:bundling:started","_t":1782459163821,"id":"o","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782459163821,"id":"o","total":1,"ms":0.630592}
+{"_e":"metro:bundling:started","_t":1782459163889,"id":"p","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782459163889,"id":"p","total":1,"ms":0.661793}
+{"_e":"metro:bundling:started","_t":1782459163960,"id":"q","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/005_item_category_returnable.ts"}
+{"_e":"metro:bundling:done","_t":1782459163961,"id":"q","total":1,"ms":0.776087}
+{"_e":"metro:bundling:started","_t":1782459164029,"id":"r","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/006_equipment_units.ts"}
+{"_e":"metro:bundling:done","_t":1782459164039,"id":"r","total":1,"ms":10.621291}
+{"_e":"metro:client_log","_t":1782459164102,"level":"log","data":["[DB] Applying SQLite migration v6..."]}
+{"_e":"metro:client_log","_t":1782459164123,"level":"log","data":["[DB] ✓ SQLite migration v6 applied"]}
+{"_e":"metro:client_log","_t":1782459164169,"level":"log","data":["[DB] SQLite schema v6 ready"]}
+{"_e":"metro:bundling:started","_t":1782459196414,"id":"s","platform":"android","environment":null,"entry":"apps/mobile/index.ts"}
+{"_e":"metro:bundling:done","_t":1782459196536,"id":"s","total":1,"ms":121.98131}
+{"_e":"metro:bundling:started","_t":1782459198263,"id":"t","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/001_initial.ts"}
+{"_e":"metro:bundling:done","_t":1782459198264,"id":"t","total":1,"ms":0.87609}
+{"_e":"metro:bundling:started","_t":1782459198279,"id":"u","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/002_inventory_fields.ts"}
+{"_e":"metro:bundling:done","_t":1782459198280,"id":"u","total":1,"ms":0.641176}
+{"_e":"metro:bundling:started","_t":1782459198338,"id":"v","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/003_user_pin_set.ts"}
+{"_e":"metro:bundling:done","_t":1782459198339,"id":"v","total":1,"ms":0.639471}
+{"_e":"metro:bundling:started","_t":1782459198414,"id":"w","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts"}
+{"_e":"metro:bundling:done","_t":1782459198415,"id":"w","total":1,"ms":1.079372}
+{"_e":"metro:bundling:started","_t":1782459198486,"id":"x","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/005_item_category_returnable.ts"}
+{"_e":"metro:bundling:done","_t":1782459198487,"id":"x","total":1,"ms":0.75582}
+{"_e":"metro:bundling:started","_t":1782459198561,"id":"y","platform":"android","environment":null,"entry":"apps/mobile/src/db/migrations/006_equipment_units.ts"}
+{"_e":"metro:bundling:done","_t":1782459198561,"id":"y","total":1,"ms":0.570655}
+{"_e":"metro:client_log","_t":1782459198617,"level":"log","data":["[DB] SQLite schema v6 ready"]}
+{"_e":"metro:client_log","_t":1782459213616,"level":"error","data":["Each child in a list should have a unique \"key\" prop.\n\nCheck the render method of `ScrollView`. It was passed a child from VirtualizedList. See https://react.dev/link/warning-keys for more information."]}

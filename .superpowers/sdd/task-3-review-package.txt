@@ -1,0 +1,985 @@
+=== COMMITS ===
+cfeae5a feat(components): add SearchablePicker entity dropdown
+
+=== STAT ===
+ .superpowers/sdd/progress.md                    |   2 +
+ .superpowers/sdd/task-1-report.md               |  54 ++++
+ .superpowers/sdd/task-1-review-package.txt      | 384 ++++++++++++++++++++++++
+ .superpowers/sdd/task-2-brief.md                |  95 ++++++
+ .superpowers/sdd/task-2-report.md               |  38 +++
+ .superpowers/sdd/task-2-review-package.txt      | 126 ++++++++
+ .superpowers/sdd/task-3-brief.md                | 129 ++++++++
+ apps/mobile/src/components/SearchablePicker.tsx |  94 ++++++
+ 8 files changed, 922 insertions(+)
+
+=== DIFF ===
+diff --git a/.superpowers/sdd/progress.md b/.superpowers/sdd/progress.md
+index 94458e1..c1f1847 100644
+--- a/.superpowers/sdd/progress.md
++++ b/.superpowers/sdd/progress.md
+@@ -1 +1,3 @@
+ # Phase 1 progress ledger
++Task 1: complete (commits 6cc24bf..b1459bd, review clean)
++Task 2: complete (commits b1459bd..94ea873, review clean)
+diff --git a/.superpowers/sdd/task-1-report.md b/.superpowers/sdd/task-1-report.md
+new file mode 100644
+index 0000000..5e27667
+--- /dev/null
++++ b/.superpowers/sdd/task-1-report.md
+@@ -0,0 +1,54 @@
++# Task 1 Report — Migration 004: item `kind` + location `owner_user_id`
++
++**Status:** DONE  
++**Commit:** b1459bd  
++**Branch:** feat/inventory-products-movement
++
++---
++
++## Files Changed
++
++| File | Action |
++|------|--------|
++| `apps/api/src/db/migrations/004_inventory_kind_location_owner.sql` | Created |
++| `apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts` | Created |
++| `apps/mobile/src/db/schema.ts` | Modified — registered m004 in `loadMigrations()` |
++| `apps/mobile/src/sync/pull.ts` | Modified — updated INSERT templates + `rowToValues` for `locations` and `inventory_items` |
++| `apps/mobile/src/db/queries/items.ts` | Modified — added `kind: string` to `InventoryItem`, updated `upsertItem` SQL + params |
++| `apps/mobile/src/db/queries/locations.ts` | Modified — added `owner_user_id: string | null` to `Location`, updated `upsertLocation` SQL + params |
++| `apps/mobile/app/(app)/(inventory)/add.tsx` | Modified — added `kind: 'product'` to `upsertItem` call (fixing TS literal error) |
++| `apps/mobile/app/(app)/(locations)/index.tsx` | Modified — added `owner_user_id: null` to `upsertLocation` call (fixing TS literal error) |
++
++---
++
++## TypeScript Compile Results
++
++### `apps/mobile` (`npx tsc --noEmit -p tsconfig.json`)
++Initial run produced 2 errors:
++- `app/(app)/(inventory)/add.tsx:88` — `kind` missing on `upsertItem` literal → fixed by adding `kind: 'product'`
++- `app/(app)/(locations)/index.tsx:87` — `owner_user_id` missing on `upsertLocation` literal → fixed by adding `owner_user_id: null`
++
++After fixes: **EXIT 0** (clean)
++
++### `apps/api` (`npx tsc --noEmit`)
++**EXIT 0** (clean, no errors)
++
++---
++
++## E2E Verification Output
++
++```
++AID=358683ed-72b7-45f1-9914-0bdc56bcaeaf
++TOK_LEN=241
++PUSH:{"ok":["t1"],"conflicts":[]}
++QUERY RESULT: Test Air Mover|equipment
++DELETE 1
++```
++
++The `/sync/push` accepted the `kind=equipment` payload, Postgres stored it correctly, and the cleanup deleted the test row. Migration 004 applied successfully on API boot.
++
++---
++
++## Concerns
++
++None. The two extra file edits (`add.tsx`, `locations/index.tsx`) were expected by the brief ("Type errors here mean a missing `kind`/`owner_user_id` on a literal — fix the offending object") and the fixes are minimal and correct (defaulting new items to `kind: 'product'` and `owner_user_id: null`).
+diff --git a/.superpowers/sdd/task-1-review-package.txt b/.superpowers/sdd/task-1-review-package.txt
+new file mode 100644
+index 0000000..7f68f6b
+--- /dev/null
++++ b/.superpowers/sdd/task-1-review-package.txt
+@@ -0,0 +1,384 @@
++=== COMMITS ===
++b1459bd feat(inventory): migration 004 — item kind + location owner_user_id
++
++=== STAT ===
++ .superpowers/sdd/task-1-brief.md                   | 113 +++++++++++++++++++++
++ .../004_inventory_kind_location_owner.sql          |   2 +
++ apps/mobile/app/(app)/(inventory)/add.tsx          |   2 +-
++ apps/mobile/app/(app)/(locations)/index.tsx        |   2 +-
++ .../004_inventory_kind_location_owner.ts           |  12 +++
++ apps/mobile/src/db/queries/items.ts                |   7 +-
++ apps/mobile/src/db/queries/locations.ts            |   7 +-
++ apps/mobile/src/db/schema.ts                       |   3 +-
++ apps/mobile/src/sync/pull.ts                       |   8 +-
++ 9 files changed, 143 insertions(+), 13 deletions(-)
++
++=== DIFF ===
++diff --git a/.superpowers/sdd/task-1-brief.md b/.superpowers/sdd/task-1-brief.md
++new file mode 100644
++index 0000000..3110d50
++--- /dev/null
+++++ b/.superpowers/sdd/task-1-brief.md
++@@ -0,0 +1,113 @@
+++## Task 1: Migration 004 — `kind` + `owner_user_id` (schema + sync)
+++
+++**Files:**
+++- Create: `apps/api/src/db/migrations/004_inventory_kind_location_owner.sql`
+++- Create: `apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts`
+++- Modify: `apps/mobile/src/db/schema.ts` (loadMigrations)
+++- Modify: `apps/mobile/src/sync/pull.ts`
+++- Modify: `apps/mobile/src/db/queries/items.ts` (InventoryItem + upsertItem)
+++- Modify: `apps/mobile/src/db/queries/locations.ts` (Location + upsertLocation)
+++
+++**Interfaces:**
+++- Produces: `inventory_items.kind: 'product'|'equipment'` (local col `kind` TEXT default `'product'`); `locations.owner_user_id: string | null`. `InventoryItem.kind: string`; `Location.owner_user_id: string | null`.
+++
+++- [ ] **Step 1: Postgres migration SQL**
+++
+++Create `apps/api/src/db/migrations/004_inventory_kind_location_owner.sql`:
+++```sql
+++ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'product';
+++ALTER TABLE locations ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(id);
+++```
+++
+++- [ ] **Step 2: op-sqlite migration (version 4)**
+++
+++Create `apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts`:
+++```typescript
+++import { DB } from '@op-engineering/op-sqlite';
+++
+++export const migration = {
+++  version: 4,
+++  up: (db: DB): void => {
+++    // Distinguish durable equipment from consumable products. Existing rows are
+++    // consumables → 'product' is the correct default.
+++    db.executeSync(`ALTER TABLE inventory_items ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'`);
+++    // A location may belong to a person (PM locker/vehicle). Nullable, general.
+++    db.executeSync(`ALTER TABLE locations ADD COLUMN owner_user_id TEXT`);
+++  },
+++};
+++```
+++
+++- [ ] **Step 3: Register migration 004**
+++
+++In `apps/mobile/src/db/schema.ts`, edit `loadMigrations()`:
+++```typescript
+++async function loadMigrations(): Promise<Migration[]> {
+++  const { migration: m001 } = await import('./migrations/001_initial');
+++  const { migration: m002 } = await import('./migrations/002_inventory_fields');
+++  const { migration: m003 } = await import('./migrations/003_user_pin_set');
+++  const { migration: m004 } = await import('./migrations/004_inventory_kind_location_owner');
+++  return [m001, m002, m003, m004].sort((a, b) => a.version - b.version);
+++}
+++```
+++
+++- [ ] **Step 4: Pull mappings**
+++
+++In `apps/mobile/src/sync/pull.ts`, update the `locations` and `inventory_items` INSERT templates and `rowToValues` cases to include the new columns:
+++```typescript
+++  locations: `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at) VALUES (?,?,?,?,?,?,?)`,
+++  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, unit_category, unit, min_qty_alert, reorder_to, active, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+++```
+++```typescript
+++    case 'locations': return [row.id, row.name, row.parent_id ?? null, row.color ?? null, row.icon ?? null, row.owner_user_id ?? null, row.updated_at];
+++    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at];
+++```
+++
+++- [ ] **Step 5: Mobile interfaces + upsert**
+++
+++In `apps/mobile/src/db/queries/items.ts`, add `kind` to `InventoryItem` (after `model`):
+++```typescript
+++  model: string | null;
+++  kind: string; // 'product' | 'equipment'
+++```
+++And update `upsertItem` to include `kind`:
+++```typescript
+++    `INSERT OR REPLACE INTO inventory_items
+++       (id, name, barcode, description, sku, supplier, model, kind,
+++        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at)
+++     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+++    bindParams([item.id, item.name, item.barcode, item.description,
+++     item.sku, item.supplier, item.model, item.kind,
+++     item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
+++     item.active, item.updated_at, item.synced_at])
+++```
+++In `apps/mobile/src/db/queries/locations.ts`, add to `Location` interface (after `icon`): `owner_user_id: string | null;` and update `upsertLocation`'s column list + values to include `owner_user_id` (place it right before `updated_at`):
+++```typescript
+++    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at, synced_at)
+++     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+++    bindParams([location.id, location.name, location.parent_id, location.color,
+++     location.icon, location.owner_user_id, location.updated_at, location.synced_at])
+++```
+++
+++- [ ] **Step 6: Compile gate**
+++
+++Run: `cd ~/inventorypro/apps/mobile && npx tsc --noEmit -p tsconfig.json`
+++Expected: exit 0. (Type errors here mean a missing `kind`/`owner_user_id` on a literal — fix the offending object.)
+++
+++- [ ] **Step 7: Apply Postgres migration + e2e verify round-trip**
+++
+++Rebuild API (runs migration), then push an item with `kind` and a location with `owner_user_id` and confirm both land:
+++```bash
+++cd ~/inventorypro/infra && sg docker -c "docker compose up -d --build api"; sleep 4
+++AID=$(sg docker -c "docker exec infra-postgres-1 psql -U inventorypro -d inventorypro -tAc \"SELECT id FROM users WHERE name='Alex Admin'\"" | tr -d '[:space:]')
+++TOK=$(curl -s -X POST http://localhost:3000/auth/token -H 'Content-Type: application/json' -d "{\"user_id\":\"$AID\",\"pin\":\"12345678\"}" | python3 -c "import sys,json;print(json.load(sys.stdin)['jwt'])")
+++curl -s -X POST http://localhost:3000/sync/push -H 'Content-Type: application/json' -H "Authorization: Bearer $TOK" -d "{\"entries\":[{\"id\":\"t1\",\"operation\":\"INSERT\",\"table_name\":\"inventory_items\",\"payload\":{\"id\":\"eeee0001-0001-0001-0001-000000000001\",\"name\":\"Test Air Mover\",\"kind\":\"equipment\",\"unit_category\":\"piece\",\"unit\":\"each\",\"min_qty_alert\":0,\"updated_at\":\"2026-06-26T12:00:00Z\"}}]}"
+++sg docker -c "docker exec infra-postgres-1 psql -U inventorypro -d inventorypro -tAc \"SELECT name, kind FROM inventory_items WHERE id='eeee0001-0001-0001-0001-000000000001'\""
+++# cleanup
+++sg docker -c "docker exec infra-postgres-1 psql -U inventorypro -d inventorypro -tAc \"DELETE FROM inventory_items WHERE id='eeee0001-0001-0001-0001-000000000001'\""
+++```
+++Expected: prints `Test Air Mover|equipment`.
+++
+++- [ ] **Step 8: Checkpoint** — `tsc` clean + e2e prints the equipment row. (Commit if git initialized.)
+++
+++---
+++
++diff --git a/apps/api/src/db/migrations/004_inventory_kind_location_owner.sql b/apps/api/src/db/migrations/004_inventory_kind_location_owner.sql
++new file mode 100644
++index 0000000..36f3862
++--- /dev/null
+++++ b/apps/api/src/db/migrations/004_inventory_kind_location_owner.sql
++@@ -0,0 +1,2 @@
+++ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'product';
+++ALTER TABLE locations ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(id);
++diff --git a/apps/mobile/app/(app)/(inventory)/add.tsx b/apps/mobile/app/(app)/(inventory)/add.tsx
++index c8b9f4c..e1e17d7 100644
++--- a/apps/mobile/app/(app)/(inventory)/add.tsx
+++++ b/apps/mobile/app/(app)/(inventory)/add.tsx
++@@ -78,21 +78,21 @@ export default function AddItemScreen() {
++       id, name: trimmed,
++       barcode: barcode.trim() || null,
++       description: description.trim() || null,
++       sku: sku.trim() || null,
++       supplier: supplier.trim() || null,
++       model: model.trim() || null,
++       unit_category: category, unit,
++       min_qty_alert: minAlertNum,
++       reorder_to: reorderNum,
++     };
++-    upsertItem({ ...payload, active: 1, updated_at: now, synced_at: null });
+++    upsertItem({ ...payload, kind: 'product', active: 1, updated_at: now, synced_at: null });
++     appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now });
++     Alert.alert('Item Added', `${trimmed} added to catalog.`, [{ text: 'OK', onPress: () => router.back() }]);
++   }
++ 
++   return (
++     <>
++       <Stack.Screen options={{ title: 'Add Item', headerShown: true }} />
++       <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
++         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
++           <Text style={s.label}>Basics</Text>
++diff --git a/apps/mobile/app/(app)/(locations)/index.tsx b/apps/mobile/app/(app)/(locations)/index.tsx
++index 75d9704..47ea7d1 100644
++--- a/apps/mobile/app/(app)/(locations)/index.tsx
+++++ b/apps/mobile/app/(app)/(locations)/index.tsx
++@@ -77,21 +77,21 @@ export default function LocationsScreen() {
++   }
++ 
++   function doCreate() {
++     const id = generateUUID();
++     const now = new Date().toISOString();
++     const trimmed = name.trim();
++     const payload = {
++       id, name: trimmed, parent_id: parentId,
++       color, icon, updated_at: now,
++     };
++-    upsertLocation({ ...payload, synced_at: null });
+++    upsertLocation({ ...payload, owner_user_id: null, synced_at: null });
++     appendOutbox('INSERT', 'locations', payload);
++     setTree(getLocationTree());
++     if (parentId) setExpanded(prev => new Set(prev).add(parentId));
++     setShowCreate(false);
++     resetForm();
++   }
++ 
++   function handleSave() {
++     if (!name.trim()) {
++       Alert.alert('Required', 'Enter a location name.');
++diff --git a/apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts b/apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts
++new file mode 100644
++index 0000000..ff5b30d
++--- /dev/null
+++++ b/apps/mobile/src/db/migrations/004_inventory_kind_location_owner.ts
++@@ -0,0 +1,12 @@
+++import { DB } from '@op-engineering/op-sqlite';
+++
+++export const migration = {
+++  version: 4,
+++  up: (db: DB): void => {
+++    // Distinguish durable equipment from consumable products. Existing rows are
+++    // consumables → 'product' is the correct default.
+++    db.executeSync(`ALTER TABLE inventory_items ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'`);
+++    // A location may belong to a person (PM locker/vehicle). Nullable, general.
+++    db.executeSync(`ALTER TABLE locations ADD COLUMN owner_user_id TEXT`);
+++  },
+++};
++diff --git a/apps/mobile/src/db/queries/items.ts b/apps/mobile/src/db/queries/items.ts
++index e817814..21356d3 100644
++--- a/apps/mobile/src/db/queries/items.ts
+++++ b/apps/mobile/src/db/queries/items.ts
++@@ -1,20 +1,21 @@
++ import { getDb, rowsAs, bindParams } from '../schema';
++ 
++ export interface InventoryItem {
++   id: string;
++   name: string;
++   barcode: string | null;
++   description: string | null;
++   sku: string | null;
++   supplier: string | null;
++   model: string | null;
+++  kind: string; // 'product' | 'equipment'
++   unit_category: string;
++   unit: string;
++   min_qty_alert: number;
++   reorder_to: number | null;
++   active: number;
++   updated_at: string;
++   synced_at: string | null;
++ }
++ 
++ export interface ItemWithTotalStock extends InventoryItem {
++@@ -95,25 +96,25 @@ export function getStockByItem(itemId: string): StockByLocation[] {
++      ORDER BY p.name NULLS LAST, l.name`,
++     [itemId]
++   );
++   return rowsAs<StockByLocation>(result.rows);
++ }
++ 
++ export function upsertItem(item: InventoryItem): void {
++   const db = getDb();
++   db.executeSync(
++     `INSERT OR REPLACE INTO inventory_items
++-       (id, name, barcode, description, sku, supplier, model,
+++       (id, name, barcode, description, sku, supplier, model, kind,
++         unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at)
++-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+++     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++     bindParams([item.id, item.name, item.barcode, item.description,
++-     item.sku, item.supplier, item.model,
+++     item.sku, item.supplier, item.model, item.kind,
++      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
++      item.active, item.updated_at, item.synced_at])
++   );
++ }
++ 
++ // Partial edit of catalog fields (not stock). Returns the column/value map that
++ // should also go to the sync outbox so callers stay in sync with the server.
++ export function updateItemFields(
++   id: string,
++   fields: Partial<Pick<InventoryItem,
++diff --git a/apps/mobile/src/db/queries/locations.ts b/apps/mobile/src/db/queries/locations.ts
++index 2673831..41e73ad 100644
++--- a/apps/mobile/src/db/queries/locations.ts
+++++ b/apps/mobile/src/db/queries/locations.ts
++@@ -1,18 +1,19 @@
++ import { getDb, rowsAs, bindParams } from '../schema';
++ 
++ export interface Location {
++   id: string;
++   name: string;
++   parent_id: string | null;
++   color: string | null;
++   icon: string | null;
+++  owner_user_id: string | null;
++   updated_at: string;
++   synced_at: string | null;
++ }
++ 
++ export interface LocationWithChildren extends Location {
++   children: Location[];
++ }
++ 
++ export function getAllLocations(): Location[] {
++   const db = getDb();
++@@ -55,16 +56,16 @@ export function getLocationTree(): LocationWithChildren[] {
++ 
++ export function getLocationById(id: string): Location | null {
++   const db = getDb();
++   const result = db.executeSync(`SELECT * FROM locations WHERE id = ?`, [id]);
++   return (result.rows[0] as unknown as Location) ?? null;
++ }
++ 
++ export function upsertLocation(location: Location): void {
++   const db = getDb();
++   db.executeSync(
++-    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, updated_at, synced_at)
++-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+++    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at, synced_at)
+++     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
++     bindParams([location.id, location.name, location.parent_id, location.color,
++-     location.icon, location.updated_at, location.synced_at])
+++     location.icon, location.owner_user_id, location.updated_at, location.synced_at])
++   );
++ }
++diff --git a/apps/mobile/src/db/schema.ts b/apps/mobile/src/db/schema.ts
++index 97bd32f..b595dc2 100644
++--- a/apps/mobile/src/db/schema.ts
+++++ b/apps/mobile/src/db/schema.ts
++@@ -79,21 +79,22 @@ async function runMigrations(database: DB): Promise<void> {
++ interface Migration {
++   version: number;
++   up: (db: DB) => void;
++ }
++ 
++ async function loadMigrations(): Promise<Migration[]> {
++   // Statically import migrations to work with Metro bundler
++   const { migration: m001 } = await import('./migrations/001_initial');
++   const { migration: m002 } = await import('./migrations/002_inventory_fields');
++   const { migration: m003 } = await import('./migrations/003_user_pin_set');
++-  return [m001, m002, m003].sort((a, b) => a.version - b.version);
+++  const { migration: m004 } = await import('./migrations/004_inventory_kind_location_owner');
+++  return [m001, m002, m003, m004].sort((a, b) => a.version - b.version);
++ }
++ 
++ // Type-safe cast helper — accepts any array (raw op-sqlite rows or pre-typed query results)
++ export function rowsAs<T>(rows: unknown[]): T[] {
++   return rows as unknown as T[];
++ }
++ 
++ type Bindable = string | number | null | ArrayBuffer;
++ 
++ // op-sqlite only binds string | number | null | ArrayBuffer. The API returns
++diff --git a/apps/mobile/src/sync/pull.ts b/apps/mobile/src/sync/pull.ts
++index 22dd449..e1dd5b3 100644
++--- a/apps/mobile/src/sync/pull.ts
+++++ b/apps/mobile/src/sync/pull.ts
++@@ -1,33 +1,33 @@
++ import { getDb } from '../db/schema';
++ import { getValidJwt } from '../auth/session';
++ 
++ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
++ 
++ const TABLE_UPSERT_SQL: Record<string, string> = {
++   role_settings: `INSERT OR REPLACE INTO role_settings (role, min_pin_length, updated_at) VALUES (?, ?, ?)`,
++   users: `INSERT OR REPLACE INTO users (id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
++-  locations: `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, updated_at) VALUES (?,?,?,?,?,?)`,
++-  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, unit_category, unit, min_qty_alert, reorder_to, active, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+++  locations: `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at) VALUES (?,?,?,?,?,?,?)`,
+++  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, unit_category, unit, min_qty_alert, reorder_to, active, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
++   stock_by_location: `INSERT OR REPLACE INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES (?,?,?,?)`,
++   jobs: `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
++   teams: `INSERT OR REPLACE INTO teams (id, name, type, manager_id, updated_at) VALUES (?,?,?,?,?)`,
++   team_members: `INSERT OR REPLACE INTO team_members (team_id, user_id, team_permission_overrides, added_by, joined_at) VALUES (?,?,?,?,?)`,
++   media: `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, is_primary, uploaded_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
++ };
++ 
++ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
++   switch (table) {
++     case 'role_settings': return [row.role, row.min_pin_length, row.updated_at];
++     case 'users': return [row.id, row.name, row.role, row.pin_length_required, row.pin_set ? 1 : 0, JSON.stringify(row.permission_overrides ?? {}), row.active ? 1 : 0, row.expires_at ?? null, row.created_at, row.updated_at];
++-    case 'locations': return [row.id, row.name, row.parent_id ?? null, row.color ?? null, row.icon ?? null, row.updated_at];
++-    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at];
+++    case 'locations': return [row.id, row.name, row.parent_id ?? null, row.color ?? null, row.icon ?? null, row.owner_user_id ?? null, row.updated_at];
+++    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at];
++     case 'stock_by_location': return [row.item_id, row.location_id, row.quantity, row.updated_at];
++     case 'jobs': return [row.id, row.name, row.status, row.created_by ?? null, row.created_at, row.updated_at];
++     case 'teams': return [row.id, row.name, row.type, row.manager_id ?? null, row.updated_at];
++     case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at];
++     case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at];
++     default: return [];
++   }
++ }
++ 
++ function getLastPulledAt(): string {
+diff --git a/.superpowers/sdd/task-2-brief.md b/.superpowers/sdd/task-2-brief.md
+new file mode 100644
+index 0000000..9f8fbda
+--- /dev/null
++++ b/.superpowers/sdd/task-2-brief.md
+@@ -0,0 +1,95 @@
++## Task 2: Query-layer helpers — `getUsersByRole`, `getLocationsByOwner`, sync-enabled `appendLog`
++
++**Files:**
++- Modify: `apps/mobile/src/db/queries/users.ts`
++- Modify: `apps/mobile/src/db/queries/locations.ts`
++- Modify: `apps/mobile/src/db/queries/log.ts`
++
++**Interfaces:**
++- Consumes: `User` (users.ts), `Location` (locations.ts), `appendOutbox` (sync/outbox.ts).
++- Produces: `getUsersByRole(role: string): User[]`; `getLocationsByOwner(ownerUserId: string): Location[]`. `appendLog(...)` now also enqueues the row to the sync outbox so on-device moves reach the server's immutable log.
++
++> **Why the appendLog change:** today `appendLog` writes the row to local SQLite only and returns void, so checkout/checkin logs never sync. The server already accepts `activity_log` via idempotent `WHERE NOT EXISTS` inserts on `/sync/push`. Making `appendLog` outbox the exact row it just inserted (same `id` + `created_at`) fixes this for every caller at once — no caller changes needed.
++
++- [ ] **Step 1: getUsersByRole**
++
++In `apps/mobile/src/db/queries/users.ts` add:
++```typescript
++// Active users of a given role — e.g. the production-manager dropdown in checkout.
++export function getUsersByRole(role: string): User[] {
++  const db = getDb();
++  const result = db.executeSync(
++    `SELECT * FROM users WHERE active = 1 AND role = ? ORDER BY name`,
++    [role]
++  );
++  return rowsAs<User>(result.rows);
++}
++```
++
++- [ ] **Step 2: getLocationsByOwner**
++
++In `apps/mobile/src/db/queries/locations.ts` add:
++```typescript
++// Locations that belong to a user (a PM's locker/vehicle, etc.).
++export function getLocationsByOwner(ownerUserId: string): Location[] {
++  const db = getDb();
++  const result = db.executeSync(
++    `SELECT * FROM locations WHERE owner_user_id = ? ORDER BY name`,
++    [ownerUserId]
++  );
++  return rowsAs<Location>(result.rows);
++}
++```
++
++- [ ] **Step 3: Sync-enable `appendLog`**
++
++In `apps/mobile/src/db/queries/log.ts`, import the outbox and make `appendLog` enqueue the same row after inserting it locally:
++```typescript
++import { getDb, rowsAs } from '../schema';
++import { generateUUID } from '../../utils/uuid';
++import { appendOutbox } from '../../sync/outbox';
++```
++```typescript
++export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at'>): void {
++  const db = getDb();
++  const id = generateUUID();
++  const created_at = new Date().toISOString();
++  db.executeSync(
++    `INSERT INTO activity_log
++       (id, user_id, team_id, action, entity_type, entity_id,
++        from_location_id, to_location_id, quantity, unit, job_id,
++        note, metadata, device_id, created_at, synced_at)
++     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
++    [id, entry.user_id, entry.team_id, entry.action, entry.entity_type,
++     entry.entity_id, entry.from_location_id, entry.to_location_id,
++     entry.quantity, entry.unit, entry.job_id, entry.note,
++     entry.metadata, entry.device_id, created_at]
++  );
++  // Sync the row to the server's append-only log (idempotent insert server-side).
++  appendOutbox('INSERT', 'activity_log', {
++    id, user_id: entry.user_id, team_id: entry.team_id, action: entry.action,
++    entity_type: entry.entity_type, entity_id: entry.entity_id,
++    from_location_id: entry.from_location_id, to_location_id: entry.to_location_id,
++    quantity: entry.quantity, unit: entry.unit, job_id: entry.job_id,
++    note: entry.note, metadata: entry.metadata, device_id: entry.device_id, created_at,
++  });
++}
++```
++
++- [ ] **Step 4: Compile gate**
++
++Run: `cd ~/inventorypro/apps/mobile && npx tsc --noEmit -p tsconfig.json`
++Expected: exit 0.
++
++- [ ] **Step 5: e2e verify a log syncs**
++
++Trigger any log (e.g. add stock in a later task, or temporarily call appendLog) and confirm it reaches Postgres:
++```bash
++sg docker -c "docker exec infra-postgres-1 psql -U inventorypro -d inventorypro -tAc \"SELECT action, count(*) FROM activity_log GROUP BY action ORDER BY action\""
++```
++Expected: `add_stock`/`checkout`/`checkin`/`transfer` rows appear after on-device actions (verified end-to-end in Tasks 4–7).
++
++- [ ] **Step 6: Checkpoint** — `tsc` clean; `appendLog` now enqueues to the outbox.
++
++---
++
+diff --git a/.superpowers/sdd/task-2-report.md b/.superpowers/sdd/task-2-report.md
+new file mode 100644
+index 0000000..629d8e2
+--- /dev/null
++++ b/.superpowers/sdd/task-2-report.md
+@@ -0,0 +1,38 @@
++# Task 2 Report — Query-layer helpers + sync-enabled appendLog
++
++## Files Changed
++
++- `apps/mobile/src/db/queries/users.ts` — added `getUsersByRole(role: string): User[]`
++- `apps/mobile/src/db/queries/locations.ts` — added `getLocationsByOwner(ownerUserId: string): Location[]`
++- `apps/mobile/src/db/queries/log.ts` — added `import { appendOutbox } from '../../sync/outbox'` and the `appendOutbox('INSERT', 'activity_log', { ... })` call at the end of `appendLog`
++
++## tsc Result
++
++`cd ~/inventorypro/apps/mobile && npx tsc --noEmit -p tsconfig.json` → **exit 0**, no errors or warnings.
++
++## appendOutbox Signature Confirmed
++
++```typescript
++export function appendOutbox(
++  operation: OutboxOperation,
++  table_name: string,
++  payload: Record<string, unknown>
++): void
++```
++Source: `apps/mobile/src/sync/outbox.ts` lines 17-21. Call in `log.ts` matches exactly.
++
++## Circular-Import Check
++
++`apps/mobile/src/sync/outbox.ts` imports only:
++- `'../db/schema'` (getDb)
++- `'../utils/uuid'` (generateUUID)
++
++It does **not** import from `db/queries/log.ts` or any file in `db/queries/`. No circular dependency.
++
++## Observations / Concerns
++
++None. `rowsAs` was already imported in all three target files before this task. The `appendLog` signature is unchanged; the outbox call appends after the local INSERT using the same `id` and `created_at` that were just generated.
++
++## Commit
++
++`94ea873` — `feat(queries): getUsersByRole, getLocationsByOwner, sync-enable appendLog`
+diff --git a/.superpowers/sdd/task-2-review-package.txt b/.superpowers/sdd/task-2-review-package.txt
+new file mode 100644
+index 0000000..66526bb
+--- /dev/null
++++ b/.superpowers/sdd/task-2-review-package.txt
+@@ -0,0 +1,126 @@
++=== COMMITS ===
++94ea873 feat(queries): getUsersByRole, getLocationsByOwner, sync-enable appendLog
++
++=== STAT ===
++ apps/mobile/src/db/queries/locations.ts | 10 ++++++++++
++ apps/mobile/src/db/queries/log.ts       |  9 +++++++++
++ apps/mobile/src/db/queries/users.ts     | 10 ++++++++++
++ 3 files changed, 29 insertions(+)
++
++=== DIFF ===
++diff --git a/apps/mobile/src/db/queries/locations.ts b/apps/mobile/src/db/queries/locations.ts
++index 41e73ad..c3aa758 100644
++--- a/apps/mobile/src/db/queries/locations.ts
+++++ b/apps/mobile/src/db/queries/locations.ts
++@@ -53,19 +53,29 @@ export function getLocationTree(): LocationWithChildren[] {
++     children: byParent.get(loc.id) ?? [],
++   }));
++ }
++ 
++ export function getLocationById(id: string): Location | null {
++   const db = getDb();
++   const result = db.executeSync(`SELECT * FROM locations WHERE id = ?`, [id]);
++   return (result.rows[0] as unknown as Location) ?? null;
++ }
++ 
+++// Locations that belong to a user (a PM's locker/vehicle, etc.).
+++export function getLocationsByOwner(ownerUserId: string): Location[] {
+++  const db = getDb();
+++  const result = db.executeSync(
+++    `SELECT * FROM locations WHERE owner_user_id = ? ORDER BY name`,
+++    [ownerUserId]
+++  );
+++  return rowsAs<Location>(result.rows);
+++}
+++
++ export function upsertLocation(location: Location): void {
++   const db = getDb();
++   db.executeSync(
++     `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at, synced_at)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
++     bindParams([location.id, location.name, location.parent_id, location.color,
++      location.icon, location.owner_user_id, location.updated_at, location.synced_at])
++   );
++ }
++diff --git a/apps/mobile/src/db/queries/log.ts b/apps/mobile/src/db/queries/log.ts
++index 68284a3..939e57b 100644
++--- a/apps/mobile/src/db/queries/log.ts
+++++ b/apps/mobile/src/db/queries/log.ts
++@@ -1,12 +1,13 @@
++ import { getDb, rowsAs } from '../schema';
++ import { generateUUID } from '../../utils/uuid';
+++import { appendOutbox } from '../../sync/outbox';
++ 
++ export interface LogEntry {
++   id: string;
++   user_id: string | null;
++   team_id: string | null;
++   action: string;
++   entity_type: string;
++   entity_id: string | null;
++   from_location_id: string | null;
++   to_location_id: string | null;
++@@ -28,20 +29,28 @@ export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at
++     `INSERT INTO activity_log
++        (id, user_id, team_id, action, entity_type, entity_id,
++         from_location_id, to_location_id, quantity, unit, job_id,
++         note, metadata, device_id, created_at, synced_at)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
++     [id, entry.user_id, entry.team_id, entry.action, entry.entity_type,
++      entry.entity_id, entry.from_location_id, entry.to_location_id,
++      entry.quantity, entry.unit, entry.job_id, entry.note,
++      entry.metadata, entry.device_id, created_at]
++   );
+++  // Sync the row to the server's append-only log (idempotent insert server-side).
+++  appendOutbox('INSERT', 'activity_log', {
+++    id, user_id: entry.user_id, team_id: entry.team_id, action: entry.action,
+++    entity_type: entry.entity_type, entity_id: entry.entity_id,
+++    from_location_id: entry.from_location_id, to_location_id: entry.to_location_id,
+++    quantity: entry.quantity, unit: entry.unit, job_id: entry.job_id,
+++    note: entry.note, metadata: entry.metadata, device_id: entry.device_id, created_at,
+++  });
++ }
++ 
++ export function getLogForUser(userId: string, limit = 50): LogEntry[] {
++   const db = getDb();
++   const result = db.executeSync(
++     `SELECT * FROM activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
++     [userId, limit]
++   );
++   return rowsAs<LogEntry>(result.rows);
++ }
++diff --git a/apps/mobile/src/db/queries/users.ts b/apps/mobile/src/db/queries/users.ts
++index e8358e7..b5d9789 100644
++--- a/apps/mobile/src/db/queries/users.ts
+++++ b/apps/mobile/src/db/queries/users.ts
++@@ -92,20 +92,30 @@ export function updateUserLocal(userId: string, fields: EditableUserFields): str
++   return now;
++ }
++ 
++ // Mark a user's PIN as cleared locally after an admin reset, so this device
++ // reflects it immediately (other devices pick it up on the next pull).
++ export function markUserPinReset(userId: string): void {
++   const db = getDb();
++   db.executeSync(`UPDATE users SET pin_set = 0 WHERE id = ?`, [userId]);
++ }
++ 
+++// Active users of a given role — e.g. the production-manager dropdown in checkout.
+++export function getUsersByRole(role: string): User[] {
+++  const db = getDb();
+++  const result = db.executeSync(
+++    `SELECT * FROM users WHERE active = 1 AND role = ? ORDER BY name`,
+++    [role]
+++  );
+++  return rowsAs<User>(result.rows);
+++}
+++
++ export function setRoleMinPin(role: string, minPinLength: number): string {
++   const db = getDb();
++   const now = new Date().toISOString();
++   db.executeSync(
++     `INSERT INTO role_settings (role, min_pin_length, updated_at) VALUES (?, ?, ?)
++      ON CONFLICT(role) DO UPDATE SET min_pin_length = excluded.min_pin_length, updated_at = excluded.updated_at`,
++     [role, minPinLength, now]
++   );
++   return now;
++ }
+diff --git a/.superpowers/sdd/task-3-brief.md b/.superpowers/sdd/task-3-brief.md
+new file mode 100644
+index 0000000..c5d7a6c
+--- /dev/null
++++ b/.superpowers/sdd/task-3-brief.md
+@@ -0,0 +1,129 @@
++## Task 3: `SearchablePicker` component
++
++**Files:**
++- Create: `apps/mobile/src/components/SearchablePicker.tsx`
++
++**Interfaces:**
++- Produces:
++```typescript
++interface PickerOption { id: string; label: string; sublabel?: string }
++interface SearchablePickerProps {
++  placeholder?: string;
++  options: PickerOption[];
++  value: PickerOption | null;
++  onSelect: (opt: PickerOption) => void;
++  onCreate?: (text: string) => void; // when present, shows "Create '<text>'" if no exact match
++  autoFocus?: boolean;
++}
++export function SearchablePicker(props: SearchablePickerProps): JSX.Element
++```
++
++- [ ] **Step 1: Implement the component**
++
++Create `apps/mobile/src/components/SearchablePicker.tsx`:
++```typescript
++import { useState, useMemo } from 'react';
++import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
++
++export interface PickerOption { id: string; label: string; sublabel?: string }
++
++interface Props {
++  placeholder?: string;
++  options: PickerOption[];
++  value: PickerOption | null;
++  onSelect: (opt: PickerOption) => void;
++  onCreate?: (text: string) => void;
++  autoFocus?: boolean;
++}
++
++// Live-filtering entity dropdown: type to narrow existing rows to a tappable list,
++// collapse to the single match, and (when onCreate is given) offer to create a new
++// one when nothing matches. Used for item/location/job/PM selection so the behavior
++// is identical everywhere.
++export function SearchablePicker({ placeholder, options, value, onSelect, onCreate, autoFocus }: Props) {
++  const [query, setQuery] = useState('');
++  const [focused, setFocused] = useState(false);
++
++  const matches = useMemo(() => {
++    const q = query.trim().toLowerCase();
++    if (!q) return options.slice(0, 8);
++    return options.filter(o =>
++      o.label.toLowerCase().includes(q) || (o.sublabel?.toLowerCase().includes(q) ?? false)
++    ).slice(0, 8);
++  }, [query, options]);
++
++  const exact = useMemo(
++    () => options.find(o => o.label.trim().toLowerCase() === query.trim().toLowerCase()) ?? null,
++    [query, options]
++  );
++  const showCreate = !!onCreate && query.trim().length > 0 && !exact;
++  const open = focused && (matches.length > 0 || showCreate);
++
++  if (value) {
++    return (
++      <TouchableOpacity style={s.selected} onPress={() => { onSelect(value); setQuery(''); }}>
++        <View style={{ flex: 1 }}>
++          <Text style={s.selectedLabel}>{value.label}</Text>
++          {!!value.sublabel && <Text style={s.selectedSub}>{value.sublabel}</Text>}
++        </View>
++        <Text style={s.change}>Change</Text>
++      </TouchableOpacity>
++    );
++  }
++
++  return (
++    <View style={s.wrap}>
++      <TextInput
++        style={s.input}
++        placeholder={placeholder}
++        placeholderTextColor="#94A3B8"
++        value={query}
++        onChangeText={setQuery}
++        onFocus={() => setFocused(true)}
++        onBlur={() => setTimeout(() => setFocused(false), 150)}
++        autoFocus={autoFocus}
++      />
++      {open && (
++        <ScrollView style={s.dropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
++          {matches.map(o => (
++            <TouchableOpacity key={o.id} style={s.row} onPress={() => { onSelect(o); setQuery(''); setFocused(false); }}>
++              <Text style={s.rowLabel}>{o.label}</Text>
++              {!!o.sublabel && <Text style={s.rowSub}>{o.sublabel}</Text>}
++            </TouchableOpacity>
++          ))}
++          {showCreate && (
++            <TouchableOpacity style={[s.row, s.createRow]} onPress={() => { onCreate!(query.trim()); setFocused(false); }}>
++              <Text style={s.createText}>+ Create “{query.trim()}”</Text>
++            </TouchableOpacity>
++          )}
++        </ScrollView>
++      )}
++    </View>
++  );
++}
++
++const s = StyleSheet.create({
++  wrap: { position: 'relative' },
++  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B' },
++  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 4 },
++  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
++  rowLabel: { fontSize: 14, color: '#1E293B' },
++  rowSub: { fontSize: 12, color: '#94A3B8', marginTop: 1 },
++  createRow: { backgroundColor: '#EFF6FF' },
++  createText: { fontSize: 14, color: '#1D4ED8', fontWeight: '600' },
++  selected: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 10, paddingHorizontal: 14, height: 44 },
++  selectedLabel: { fontSize: 14, color: '#1E293B', fontWeight: '600' },
++  selectedSub: { fontSize: 12, color: '#64748B', marginTop: 1 },
++  change: { color: '#2563EB', fontSize: 13, fontWeight: '600' },
++});
++```
++
++- [ ] **Step 2: Compile gate**
++
++Run: `cd ~/inventorypro/apps/mobile && npx tsc --noEmit -p tsconfig.json`
++Expected: exit 0.
++
++- [ ] **Step 3: Checkpoint** — `tsc` clean. (Manual render verified in Task 6 where it's first used.)
++
++---
++
+diff --git a/apps/mobile/src/components/SearchablePicker.tsx b/apps/mobile/src/components/SearchablePicker.tsx
+new file mode 100644
+index 0000000..2ccf4ff
+--- /dev/null
++++ b/apps/mobile/src/components/SearchablePicker.tsx
+@@ -0,0 +1,94 @@
++import { useState, useMemo } from 'react';
++import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
++
++export interface PickerOption { id: string; label: string; sublabel?: string }
++
++interface Props {
++  placeholder?: string;
++  options: PickerOption[];
++  value: PickerOption | null;
++  onSelect: (opt: PickerOption) => void;
++  onCreate?: (text: string) => void;
++  autoFocus?: boolean;
++}
++
++// Live-filtering entity dropdown: type to narrow existing rows to a tappable list,
++// collapse to the single match, and (when onCreate is given) offer to create a new
++// one when nothing matches. Used for item/location/job/PM selection so the behavior
++// is identical everywhere.
++export function SearchablePicker({ placeholder, options, value, onSelect, onCreate, autoFocus }: Props) {
++  const [query, setQuery] = useState('');
++  const [focused, setFocused] = useState(false);
++
++  const matches = useMemo(() => {
++    const q = query.trim().toLowerCase();
++    if (!q) return options.slice(0, 8);
++    return options.filter(o =>
++      o.label.toLowerCase().includes(q) || (o.sublabel?.toLowerCase().includes(q) ?? false)
++    ).slice(0, 8);
++  }, [query, options]);
++
++  const exact = useMemo(
++    () => options.find(o => o.label.trim().toLowerCase() === query.trim().toLowerCase()) ?? null,
++    [query, options]
++  );
++  const showCreate = !!onCreate && query.trim().length > 0 && !exact;
++  const open = focused && (matches.length > 0 || showCreate);
++
++  if (value) {
++    return (
++      <TouchableOpacity style={s.selected} onPress={() => { onSelect(value); setQuery(''); }}>
++        <View style={{ flex: 1 }}>
++          <Text style={s.selectedLabel}>{value.label}</Text>
++          {!!value.sublabel && <Text style={s.selectedSub}>{value.sublabel}</Text>}
++        </View>
++        <Text style={s.change}>Change</Text>
++      </TouchableOpacity>
++    );
++  }
++
++  return (
++    <View style={s.wrap}>
++      <TextInput
++        style={s.input}
++        placeholder={placeholder}
++        placeholderTextColor="#94A3B8"
++        value={query}
++        onChangeText={setQuery}
++        onFocus={() => setFocused(true)}
++        onBlur={() => setTimeout(() => setFocused(false), 150)}
++        autoFocus={autoFocus}
++      />
++      {open && (
++        <ScrollView style={s.dropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
++          {matches.map(o => (
++            <TouchableOpacity key={o.id} style={s.row} onPress={() => { onSelect(o); setQuery(''); setFocused(false); }}>
++              <Text style={s.rowLabel}>{o.label}</Text>
++              {!!o.sublabel && <Text style={s.rowSub}>{o.sublabel}</Text>}
++            </TouchableOpacity>
++          ))}
++          {showCreate && (
++            <TouchableOpacity style={[s.row, s.createRow]} onPress={() => { onCreate!(query.trim()); setFocused(false); }}>
++              <Text style={s.createText}>+ Create "{query.trim()}"</Text>
++            </TouchableOpacity>
++          )}
++        </ScrollView>
++      )}
++    </View>
++  );
++}
++
++const s = StyleSheet.create({
++  wrap: { position: 'relative' },
++  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B' },
++  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 4 },
++  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
++  rowLabel: { fontSize: 14, color: '#1E293B' },
++  rowSub: { fontSize: 12, color: '#94A3B8', marginTop: 1 },
++  createRow: { backgroundColor: '#EFF6FF' },
++  createText: { fontSize: 14, color: '#1D4ED8', fontWeight: '600' },
++  selected: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 10, paddingHorizontal: 14, height: 44 },
++  selectedLabel: { fontSize: 14, color: '#1E293B', fontWeight: '600' },
++  selectedSub: { fontSize: 12, color: '#64748B', marginTop: 1 },
++  change: { color: '#2563EB', fontSize: 13, fontWeight: '600' },
++});

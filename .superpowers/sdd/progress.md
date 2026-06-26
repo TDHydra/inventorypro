@@ -1,0 +1,21 @@
+# Phase 1 progress ledger
+Task 1: complete (commits 6cc24bf..b1459bd, review clean)
+Task 2: complete (commits b1459bd..94ea873, review clean)
+Task 3: complete (commits 94ea873..cfeae5a, review clean)
+Task 4: complete (commits 06b2adf..01e3f4c, review clean; on-device verify pending)
+Task 5: complete (commits 01e3f4c..15207f5, review clean; on-device verify pending)
+Task 6: complete (commits 15207f5..7db5529 incl action-string fix, review clean; on-device pending)
+Task 7: complete (commits 7db5529..3bbf3e9 incl scroll fix, review clean; on-device pending)
+Task 8: complete (commit 68ff0e2, relabel verified; on-device pending)
+Final review: 1 Critical (entity_type) fixed in 593592e; all minors deferred; branch review-clean.
+P15 Task 1: complete (commit 69a1fa2, review clean, e2e ok)
+P15 Task 2: complete (commit fe9c70d, review clean; on-device pending)
+P15 Task 3: complete (commit 0f4870a, review clean; on-device pending)
+=== Phase 2a tasks ===
+EU Task 1: complete (commit 384f645, review clean, e2e ok)
+EU Task 2: complete (commit 9763842, review clean)
+EU Task 3: complete (commit 8f2c9af, review clean; on-device pending)
+EU Task 4: complete (commit a036c02, review clean; on-device pending)
+EU Task 5: complete (commits a036c02..b9c4d36 incl outbox-INSERT fix, review clean; on-device pending)
+EU Task 6: complete (commits b9c4d36..b24b934 incl PM-gating fix, review clean; on-device pending)
+EU Task 7: complete (commit 647b6c0, review clean; on-device pending)

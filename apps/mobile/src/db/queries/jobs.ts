@@ -56,6 +56,7 @@ export function getActiveCheckoutsForUser(userId: string) {
      WHERE al.user_id = ?
        AND al.action = 'checkout_to_job'
        AND al.entity_type = 'item'
+       AND i.unit_tracked = 0
      ORDER BY al.created_at DESC`,
     [userId]
   );

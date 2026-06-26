@@ -49,7 +49,10 @@ export function searchItems(
 
   const result = db.executeSync(
     `SELECT i.*,
-            COALESCE(SUM(s.quantity), 0) AS total_stock
+            CASE WHEN i.unit_tracked = 1
+                 THEN (SELECT COUNT(*) FROM equipment_units eu
+                       WHERE eu.item_id = i.id AND eu.status = 'available')
+                 ELSE COALESCE(SUM(s.quantity), 0) END AS total_stock
      FROM inventory_items i
      LEFT JOIN stock_by_location s ON s.item_id = i.id
      WHERE i.active = 1
@@ -198,13 +201,18 @@ export function adjustStock(itemId: string, locationId: string, delta: number): 
 export function getLowStockItems(): ItemWithTotalStock[] {
   const db = getDb();
   const result = db.executeSync(
-    `SELECT i.*,
-            COALESCE(SUM(s.quantity), 0) AS total_stock
-     FROM inventory_items i
-     LEFT JOIN stock_by_location s ON s.item_id = i.id
-     WHERE i.active = 1 AND i.min_qty_alert > 0
-     GROUP BY i.id
-     HAVING total_stock <= i.min_qty_alert
+    `SELECT * FROM (
+       SELECT i.*,
+              CASE WHEN i.unit_tracked = 1
+                   THEN (SELECT COUNT(*) FROM equipment_units eu
+                         WHERE eu.item_id = i.id AND eu.status = 'available')
+                   ELSE COALESCE(SUM(s.quantity), 0) END AS total_stock
+       FROM inventory_items i
+       LEFT JOIN stock_by_location s ON s.item_id = i.id
+       WHERE i.active = 1 AND i.min_qty_alert > 0
+       GROUP BY i.id
+     )
+     WHERE total_stock <= min_qty_alert
      ORDER BY total_stock ASC`
   );
   return rowsAs<ItemWithTotalStock>(result.rows);
