@@ -21,3 +21,6 @@ apps/api/dist/
 # Logs / OS cruft
 *.log
 .DS_Store
+
+# SDD process scratch (briefs, reports, ledger)
+.superpowers/
