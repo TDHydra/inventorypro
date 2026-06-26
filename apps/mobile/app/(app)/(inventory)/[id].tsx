@@ -16,10 +16,11 @@ import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { getUnitByTag, upsertUnit, getUnitsForItem, EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
+import { getUnitByTag, upsertUnit, getUnitsForItem, countUnitsByStatus, setUnitStatus, EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
 import { generateUUID } from '../../../src/utils/uuid';
+import { UnitRow } from '../../../src/components/UnitRow';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -48,18 +49,52 @@ export default function ItemDetailScreen() {
   const [unitRows, setUnitRows] = useState<Array<{ tag: string; serial: string }>>([{ tag: '', serial: '' }]);
   const [tagErrors, setTagErrors] = useState<Record<number, string>>({});
   const [units, setUnits] = useState<EquipmentUnit[]>(() => getUnitsForItem(id));
+  const [unitCounts, setUnitCounts] = useState(() => countUnitsByStatus(id));
+
+  // Repair-out modal state (note prompt, cross-platform)
+  const [repairOutUnit, setRepairOutUnit] = useState<EquipmentUnit | null>(null);
+  const [repairNote, setRepairNote] = useState('');
+
+  // Repair-in modal state (location picker)
+  const [repairInUnit, setRepairInUnit] = useState<EquipmentUnit | null>(null);
+  const [repairInLoc, setRepairInLoc] = useState<PickerOption | null>(null);
 
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
     []
   );
 
-  const total = useMemo(() => stock.reduce((sum, st) => sum + st.quantity, 0), [stock]);
+  const locationMap = useMemo<Map<string, string>>(
+    () => new Map(locationOptions.map(o => [o.id, o.label])),
+    [locationOptions]
+  );
+
+  const total = useMemo(
+    () => item?.unit_tracked === 1
+      ? unitCounts.available
+      : stock.reduce((sum, st) => sum + st.quantity, 0),
+    [item, stock, unitCounts]
+  );
+
+  // Per-location breakdown of available units (unit-tracked items only)
+  const availableByLocation = useMemo(() => {
+    const map = new Map<string, { locationId: string; locationName: string; count: number }>();
+    for (const u of units) {
+      if (u.status === 'available' && u.current_location_id) {
+        const locName = locationMap.get(u.current_location_id) ?? u.current_location_id;
+        const entry = map.get(u.current_location_id);
+        if (entry) { entry.count++; }
+        else map.set(u.current_location_id, { locationId: u.current_location_id, locationName: locName, count: 1 });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.locationName.localeCompare(b.locationName));
+  }, [units, locationMap]);
 
   const reload = useCallback(() => {
     setItem(getItemById(id));
     setStock(getStockByItem(id));
     setUnits(getUnitsForItem(id));
+    setUnitCounts(countUnitsByStatus(id));
   }, [id]);
 
   if (!item) {
@@ -246,6 +281,51 @@ export default function ItemDetailScreen() {
     reload();
   }
 
+  // ── Repair helpers ───────────────────────────────────────────────────────
+  function doRepairOut(unit: EquipmentUnit, note: string) {
+    if (!user || !item) return;
+    const updated = setUnitStatus(unit.id, { status: 'in_repair', notes: note.trim() || null });
+    appendOutbox('UPDATE', 'equipment_units', {
+      id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
+      serial_number: updated.serial_number, status: updated.status,
+      current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
+      notes: updated.notes, created_at: updated.created_at, updated_at: updated.updated_at,
+      // synced_at intentionally omitted
+    });
+    appendLog({
+      user_id: user.id, team_id: null, action: 'repair_out',
+      entity_type: 'item', entity_id: item.id,
+      from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+      note: 'unit ' + unit.asset_tag + (note.trim() ? ': ' + note.trim() : ''),
+      metadata: null, device_id: null,
+    });
+    setRepairOutUnit(null);
+    setRepairNote('');
+    reload();
+  }
+
+  function doRepairIn(unit: EquipmentUnit, locationId: string) {
+    if (!user || !item) return;
+    const updated = setUnitStatus(unit.id, { status: 'available', current_location_id: locationId, notes: null });
+    appendOutbox('UPDATE', 'equipment_units', {
+      id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
+      serial_number: updated.serial_number, status: updated.status,
+      current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
+      notes: updated.notes, created_at: updated.created_at, updated_at: updated.updated_at,
+      // synced_at intentionally omitted
+    });
+    appendLog({
+      user_id: user.id, team_id: null, action: 'repair_in',
+      entity_type: 'item', entity_id: item.id,
+      from_location_id: null, to_location_id: locationId, quantity: null, unit: null, job_id: null,
+      note: 'unit ' + unit.asset_tag,
+      metadata: null, device_id: null,
+    });
+    setRepairInUnit(null);
+    setRepairInLoc(null);
+    reload();
+  }
+
   const cat = item.unit_category as UnitCategory;
 
   return (
@@ -347,24 +427,49 @@ export default function ItemDetailScreen() {
                 )}
               </View>
 
-              <Text style={s.sectionLabel}>Stock by location</Text>
-              <View style={s.card}>
-                {stock.length === 0 ? (
-                  <Text style={s.muted}>No stock recorded yet.</Text>
-                ) : (
-                  stock.map((row, i) => (
-                    <View key={row.location_id} style={[s.stockRow, i < stock.length - 1 && s.divider]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.stockLoc}>{row.location_name}</Text>
-                        {!!row.parent_name && <Text style={s.stockParent}>{row.parent_name}</Text>}
+              {item.unit_tracked === 1 ? (
+                <>
+                  <Text style={s.sectionLabel}>Units on Hand</Text>
+                  <View style={s.card}>
+                    <Text style={s.unitSummary}>
+                      {unitCounts.available} available
+                      {unitCounts.deployed > 0 ? ` · ${unitCounts.deployed} deployed` : ''}
+                      {unitCounts.in_repair > 0 ? ` · ${unitCounts.in_repair} in repair` : ''}
+                    </Text>
+                    {availableByLocation.length > 0 && (
+                      <View style={{ marginTop: 10 }}>
+                        {availableByLocation.map((loc, i) => (
+                          <View key={loc.locationId} style={[s.stockRow, i < availableByLocation.length - 1 && s.divider]}>
+                            <Text style={s.stockLoc}>{loc.locationName}</Text>
+                            <Text style={s.stockQty}>{loc.count} available</Text>
+                          </View>
+                        ))}
                       </View>
-                      <Text style={[s.stockQty, row.quantity === 0 && s.stockZero]}>
-                        {formatQuantity(row.quantity, item.unit, cat)}
-                      </Text>
-                    </View>
-                  ))
-                )}
-              </View>
+                    )}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={s.sectionLabel}>Stock by location</Text>
+                  <View style={s.card}>
+                    {stock.length === 0 ? (
+                      <Text style={s.muted}>No stock recorded yet.</Text>
+                    ) : (
+                      stock.map((row, i) => (
+                        <View key={row.location_id} style={[s.stockRow, i < stock.length - 1 && s.divider]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.stockLoc}>{row.location_name}</Text>
+                            {!!row.parent_name && <Text style={s.stockParent}>{row.parent_name}</Text>}
+                          </View>
+                          <Text style={[s.stockQty, row.quantity === 0 && s.stockZero]}>
+                            {formatQuantity(row.quantity, item.unit, cat)}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                </>
+              )}
 
               {item.unit_tracked === 1 && (
                 <>
@@ -374,14 +479,21 @@ export default function ItemDetailScreen() {
                       <Text style={s.muted}>No units registered yet.</Text>
                     ) : (
                       units.map((u, i) => (
-                        <View key={u.id} style={[s.unitRow, i < units.length - 1 && s.divider]}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={s.unitTag}>{u.asset_tag}</Text>
-                            {!!u.serial_number && <Text style={s.unitSerial}>S/N: {u.serial_number}</Text>}
-                          </View>
-                          <View style={[s.badge, s.badgeTracked]}>
-                            <Text style={[s.badgeText, s.badgeTrackedText]}>{u.status}</Text>
-                          </View>
+                        <View key={u.id} style={i < units.length - 1 ? s.divider : undefined}>
+                          <UnitRow
+                            unit={u}
+                            locationName={u.current_location_id ? (locationMap.get(u.current_location_id) ?? null) : null}
+                            onRepairOut={
+                              canEdit && (u.status === 'available' || u.status === 'deployed')
+                                ? () => { setRepairOutUnit(u); setRepairNote(''); }
+                                : undefined
+                            }
+                            onRepairIn={
+                              canEdit && u.status === 'in_repair'
+                                ? () => { setRepairInUnit(u); setRepairInLoc(null); }
+                                : undefined
+                            }
+                          />
                         </View>
                       ))
                     )}
@@ -406,6 +518,88 @@ export default function ItemDetailScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── Repair-Out Modal (note prompt) ─────────────────────────────── */}
+      <Modal
+        visible={repairOutUnit !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setRepairOutUnit(null); setRepairNote(''); }}
+      >
+        <View style={s.overlay}>
+          <View style={s.promptCard}>
+            <Text style={s.promptTitle}>Send to Repair</Text>
+            <Text style={s.promptSub}>{repairOutUnit?.asset_tag}</Text>
+            <TextInput
+              style={[s.input, { marginTop: 12 }]}
+              placeholder="Note (optional)"
+              placeholderTextColor="#94A3B8"
+              value={repairNote}
+              onChangeText={setRepairNote}
+              autoFocus
+            />
+            <View style={[s.row, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={[s.btn, s.btnGhost]}
+                onPress={() => { setRepairOutUnit(null); setRepairNote(''); }}
+              >
+                <Text style={s.btnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.btn, s.btnPrimary]}
+                onPress={() => repairOutUnit && doRepairOut(repairOutUnit, repairNote)}
+              >
+                <Text style={s.btnPrimaryText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
+      <Modal
+        visible={repairInUnit !== null}
+        animationType="slide"
+        onRequestClose={() => { setRepairInUnit(null); setRepairInLoc(null); }}
+      >
+        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
+              <TouchableOpacity onPress={() => { setRepairInUnit(null); setRepairInLoc(null); }}>
+                <Text style={s.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={s.fieldLabel}>Return to Location *</Text>
+            <SearchablePicker
+              placeholder="Search location…"
+              options={locationOptions}
+              value={repairInLoc}
+              onSelect={(opt) => {
+                if (repairInLoc !== null) setRepairInLoc(null);
+                else setRepairInLoc(opt);
+              }}
+            />
+            <View style={[s.row, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={[s.btn, s.btnGhost]}
+                onPress={() => { setRepairInUnit(null); setRepairInLoc(null); }}
+              >
+                <Text style={s.btnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.btn, s.btnPrimary]}
+                onPress={() => {
+                  if (!repairInLoc) { Alert.alert('Required', 'Please select a location.'); return; }
+                  if (repairInUnit) doRepairIn(repairInUnit, repairInLoc.id);
+                }}
+              >
+                <Text style={s.btnPrimaryText}>Confirm Return</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
       <Modal visible={addUnitsOpen} animationType="slide" onRequestClose={closeAddUnits}>
@@ -568,4 +762,16 @@ const s = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 12, padding: 14,
     borderWidth: 1, borderColor: '#EEF2F7', gap: 0,
   },
+  unitSummary: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  promptCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 20,
+    width: '100%', maxWidth: 360,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6,
+  },
+  promptTitle: { fontSize: 17, fontWeight: '700', color: '#1E3A5F' },
+  promptSub: { fontSize: 14, color: '#64748B', marginTop: 2 },
 });
