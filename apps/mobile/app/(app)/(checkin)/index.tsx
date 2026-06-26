@@ -118,7 +118,6 @@ export default function CheckinScreen() {
   }
 
   function openModal() {
-    setCheckinEventId(generateUUID());
     const initial: Record<string, string> = {};
     for (const c of checkouts) {
       if (selected.has(c.log_id)) {
@@ -191,6 +190,7 @@ export default function CheckinScreen() {
 
     setSubmitting(false);
     setShowModal(false);
+    setCheckinEventId(generateUUID());
     Alert.alert(
       'Checked In',
       `${selected.size} item${selected.size !== 1 ? 's' : ''} returned to ${returnLocation.label}.`,
@@ -227,7 +227,6 @@ export default function CheckinScreen() {
   }
 
   function openUnitModal() {
-    setUnitCheckinEventId(generateUUID());
     setUnitReturnLocation(null);
     setShowUnitModal(true);
   }
@@ -286,6 +285,7 @@ export default function CheckinScreen() {
     setShowUnitModal(false);
     setSelectedUnitIds(new Set());
     setUnitRefreshKey(k => k + 1);
+    setUnitCheckinEventId(generateUUID());
     Alert.alert(
       'Checked In',
       `${toReturn.length} unit${toReturn.length !== 1 ? 's' : ''} returned to ${unitReturnLocation.label}.`,

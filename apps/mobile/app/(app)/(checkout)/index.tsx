@@ -519,6 +519,7 @@ export default function CheckoutScreen() {
 
   function done(message: string) {
     setSubmitting(false);
+    setCheckoutEventId(generateUUID());
     Alert.alert('Done ✓', message, [
       { text: 'Done', onPress: () => router.replace('/(app)/(dashboard)') },
     ]);
@@ -789,7 +790,7 @@ export default function CheckoutScreen() {
             <TouchableOpacity
               style={[s.btn, !destReady && s.btnDisabled]}
               disabled={!destReady}
-              onPress={() => { setCheckoutEventId(generateUUID()); setStep('confirm'); }}
+              onPress={() => { setStep('confirm'); }}
             >
               <Text style={s.btnText}>Review →</Text>
             </TouchableOpacity>
