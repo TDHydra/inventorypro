@@ -9,17 +9,7 @@ import { getDb } from '../db/schema';
 import { appendOutbox } from '../sync/outbox';
 import { generateUUID } from '../utils/uuid';
 import { getValidJwt } from '../auth/session';
-
-interface MediaRecord {
-  id: string;
-  entity_type: string;
-  entity_id: string;
-  media_type: 'image' | 'video';
-  url: string;
-  thumbnail_url: string | null;
-  caption: string | null;
-  is_primary: number;
-}
+import { MediaRecord, getMediaForEntity } from '../db/queries/media';
 
 interface Props {
   entityType: string;
@@ -30,15 +20,6 @@ interface Props {
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const { width } = Dimensions.get('window');
 const THUMB = (width - 48) / 3;
-
-function getMediaForEntity(entityType: string, entityId: string): MediaRecord[] {
-  const db = getDb();
-  const result = db.executeSync(
-    `SELECT * FROM media WHERE entity_type = ? AND entity_id = ? ORDER BY is_primary DESC, created_at DESC`,
-    [entityType, entityId]
-  );
-  return result.rows as unknown as MediaRecord[];
-}
 
 export function MediaGallery({ entityType, entityId, canUpload = true }: Props) {
   const { user } = useSession();
