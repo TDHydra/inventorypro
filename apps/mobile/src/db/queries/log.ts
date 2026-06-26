@@ -19,6 +19,8 @@ export interface LogEntry {
   device_id: string | null;
   created_at: string;
   synced_at: string | null;
+  // Present when the query joins the users table
+  user_name?: string | null;
 }
 
 export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at'>): void {
@@ -49,7 +51,11 @@ export function appendLog(entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at
 export function getLogForUser(userId: string, limit = 50): LogEntry[] {
   const db = getDb();
   const result = db.executeSync(
-    `SELECT * FROM activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+    `SELECT al.*, u.name AS user_name
+     FROM activity_log al
+     LEFT JOIN users u ON u.id = al.user_id
+     WHERE al.user_id = ?
+     ORDER BY al.created_at DESC LIMIT ?`,
     [userId, limit]
   );
   return rowsAs<LogEntry>(result.rows);
@@ -85,4 +91,76 @@ export function markLogsSynced(ids: string[]): void {
     `UPDATE activity_log SET synced_at = ? WHERE id IN (${placeholders})`,
     [now, ...ids]
   );
+}
+
+export function getLogForEntity(
+  entityType: string,
+  entityId: string,
+  limit = 50,
+): LogEntry[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT al.*, u.name AS user_name
+     FROM activity_log al
+     LEFT JOIN users u ON u.id = al.user_id
+     WHERE al.entity_type = ? AND al.entity_id = ?
+     ORDER BY al.created_at DESC LIMIT ?`,
+    [entityType, entityId, limit],
+  );
+  return rowsAs<LogEntry>(result.rows);
+}
+
+export function getRecentLog(limit = 100): LogEntry[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT al.*, u.name AS user_name
+     FROM activity_log al
+     LEFT JOIN users u ON u.id = al.user_id
+     ORDER BY al.created_at DESC LIMIT ?`,
+    [limit],
+  );
+  return rowsAs<LogEntry>(result.rows);
+}
+
+export interface LogFilter {
+  userId?: string;
+  action?: string;
+  sinceISO?: string;
+  untilISO?: string;
+}
+
+export function getLogFiltered(f: LogFilter, limit = 200): LogEntry[] {
+  const db = getDb();
+  const clauses: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  if (f.userId != null) {
+    clauses.push('al.user_id = ?');
+    params.push(f.userId);
+  }
+  if (f.action != null) {
+    clauses.push('al.action = ?');
+    params.push(f.action);
+  }
+  if (f.sinceISO != null) {
+    clauses.push('al.created_at >= ?');
+    params.push(f.sinceISO);
+  }
+  if (f.untilISO != null) {
+    clauses.push('al.created_at <= ?');
+    params.push(f.untilISO);
+  }
+
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  params.push(limit);
+
+  const result = db.executeSync(
+    `SELECT al.*, u.name AS user_name
+     FROM activity_log al
+     LEFT JOIN users u ON u.id = al.user_id
+     ${where}
+     ORDER BY al.created_at DESC LIMIT ?`,
+    params,
+  );
+  return rowsAs<LogEntry>(result.rows);
 }
