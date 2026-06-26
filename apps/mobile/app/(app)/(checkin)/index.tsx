@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
+  View, Text, TouchableOpacity,
   StyleSheet, Alert, Modal, TextInput, ScrollView,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -13,6 +13,8 @@ import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { BarcodeInput } from '../../../src/components/BarcodeInput';
+import { getDeployedUnitsForUser, getUnitByTag, setUnitStatus } from '../../../src/db/queries/equipmentUnits';
 
 interface Checkout {
   log_id: string;
@@ -30,16 +32,32 @@ interface Checkout {
 export default function CheckinScreen() {
   const { user } = useSession();
   const router = useRouter();
+
+  // --- Count-based checkout state ---
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
   const [returnLocation, setReturnLocation] = useState<PickerOption | null>(null);
   const [returnQtys, setReturnQtys] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  // --- Deployed units state ---
+  const [unitRefreshKey, setUnitRefreshKey] = useState(0);
+  const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
+  const [showUnitModal, setShowUnitModal] = useState(false);
+  const [unitReturnLocation, setUnitReturnLocation] = useState<PickerOption | null>(null);
+  const [scanTag, setScanTag] = useState('');
+  const [scanNote, setScanNote] = useState<{ text: string; tone: 'warn' | 'info' } | null>(null);
+  const [unitSubmitting, setUnitSubmitting] = useState(false);
+
   const checkouts = useMemo(() => {
     if (!user) return [];
     return rowsAs<Checkout>(getActiveCheckoutsForUser(user.id));
   }, [user]);
+
+  const deployedUnits = useMemo(() => {
+    if (!user) return [];
+    return getDeployedUnitsForUser(user.id);
+  }, [user, unitRefreshKey]);
 
   const locationOptions: PickerOption[] = useMemo(() => {
     const all = getAllLocations();
@@ -51,6 +69,7 @@ export default function CheckinScreen() {
     }));
   }, []);
 
+  // --- Count-based handlers (unchanged) ---
   function toggleSelect(id: string) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -138,62 +157,216 @@ export default function CheckinScreen() {
     );
   }
 
+  // --- Units handlers ---
+  function toggleSelectUnit(id: string) {
+    setSelectedUnitIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleScanAdd() {
+    const tag = scanTag.trim();
+    if (!tag) return;
+    const unit = getUnitByTag(tag);
+    if (!unit) {
+      setScanNote({ text: `Tag "${tag}" not found.`, tone: 'warn' });
+      return;
+    }
+    const inDeployed = deployedUnits.find(u => u.id === unit.id);
+    if (!inDeployed) {
+      setScanNote({ text: `"${tag}" is not in your deployed units.`, tone: 'warn' });
+      return;
+    }
+    setSelectedUnitIds(prev => new Set([...prev, unit.id]));
+    setScanTag('');
+    setScanNote({ text: `Added: ${unit.asset_tag}`, tone: 'info' });
+  }
+
+  function openUnitModal() {
+    setUnitReturnLocation(null);
+    setShowUnitModal(true);
+  }
+
+  async function handleUnitCheckin() {
+    if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
+    const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
+    setUnitSubmitting(true);
+
+    for (const unit of toReturn) {
+      // Capture job_id before setUnitStatus clears it
+      const jobIdForLog = unit.current_job_id;
+      const u = setUnitStatus(unit.id, {
+        status: 'available',
+        current_location_id: unitReturnLocation.id,
+        current_job_id: null,
+      });
+      // Full upsert by id; no synced_at
+      appendOutbox('INSERT', 'equipment_units', {
+        id: u.id,
+        item_id: u.item_id,
+        asset_tag: u.asset_tag,
+        serial_number: u.serial_number,
+        status: 'available',
+        current_location_id: unitReturnLocation.id,
+        current_job_id: null,
+        notes: u.notes,
+        created_at: u.created_at,
+        updated_at: u.updated_at,
+      });
+      // appendLog self-enqueues activity_log — never separately outbox it
+      appendLog({
+        user_id: user.id,
+        team_id: null,
+        action: 'checkin',
+        entity_type: 'item',
+        entity_id: u.item_id,
+        from_location_id: null,
+        to_location_id: unitReturnLocation.id,
+        quantity: 1,
+        unit: null,
+        job_id: jobIdForLog,
+        note: 'unit ' + u.asset_tag,
+        metadata: null,
+        device_id: null,
+      });
+    }
+
+    setUnitSubmitting(false);
+    setShowUnitModal(false);
+    setSelectedUnitIds(new Set());
+    setUnitRefreshKey(k => k + 1);
+    Alert.alert(
+      'Checked In',
+      `${toReturn.length} unit${toReturn.length !== 1 ? 's' : ''} returned to ${unitReturnLocation.label}.`,
+      [{ text: 'Done', onPress: () => router.replace('/(app)/(dashboard)') }]
+    );
+  }
+
+  const hasAnything = checkouts.length > 0 || deployedUnits.length > 0;
+
   return (
     <>
       <Stack.Screen options={{ title: 'Check In Items', headerShown: true }} />
       <View style={s.container}>
-        {checkouts.length === 0 ? (
+        {!hasAnything ? (
           <View style={s.empty}>
             <Text style={s.emptyTitle}>No Active Checkouts</Text>
             <Text style={s.emptyText}>Items you check out will appear here for return.</Text>
           </View>
         ) : (
-          <>
-            <View style={s.topBar}>
-              <Text style={s.count}>{checkouts.length} item{checkouts.length !== 1 ? 's' : ''} out</Text>
-              <TouchableOpacity onPress={selectAll}>
-                <Text style={s.selectAll}>Select All</Text>
-              </TouchableOpacity>
-            </View>
-
-            <FlatList
-              data={checkouts}
-              keyExtractor={c => c.log_id}
-              renderItem={({ item }) => {
-                const isSel = selected.has(item.log_id);
-                return (
-                  <TouchableOpacity
-                    style={[s.row, isSel && s.rowSelected]}
-                    onPress={() => toggleSelect(item.log_id)}
-                  >
-                    <View style={[s.checkbox, isSel && s.checkboxChecked]}>
-                      {isSel && <Text style={s.checkMark}>✓</Text>}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.itemName}>{item.item_name}</Text>
-                      {item.job_name && <Text style={s.itemSub}>Job: {item.job_name}</Text>}
-                      <Text style={s.itemSub}>{new Date(item.created_at).toLocaleDateString()}</Text>
-                    </View>
-                    <Text style={s.qty}>
-                      {formatQuantity(item.quantity, item.unit, item.unit_category as any)}
-                    </Text>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {/* ── Count-based job checkouts (unchanged) ── */}
+            {checkouts.length > 0 && (
+              <>
+                <View style={s.topBar}>
+                  <Text style={s.count}>{checkouts.length} item{checkouts.length !== 1 ? 's' : ''} out</Text>
+                  <TouchableOpacity onPress={selectAll}>
+                    <Text style={s.selectAll}>Select All</Text>
                   </TouchableOpacity>
-                );
-              }}
-              ItemSeparatorComponent={() => <View style={s.sep} />}
-            />
+                </View>
 
-            <TouchableOpacity
-              style={[s.btn, selected.size === 0 && s.btnDisabled]}
-              disabled={selected.size === 0}
-              onPress={openModal}
-            >
-              <Text style={s.btnText}>Return {selected.size > 0 ? `${selected.size} Item${selected.size !== 1 ? 's' : ''}` : 'Items'}</Text>
-            </TouchableOpacity>
-          </>
+                {checkouts.map((item, idx) => {
+                  const isSel = selected.has(item.log_id);
+                  return (
+                    <View key={item.log_id}>
+                      <TouchableOpacity
+                        style={[s.row, isSel && s.rowSelected]}
+                        onPress={() => toggleSelect(item.log_id)}
+                      >
+                        <View style={[s.checkbox, isSel && s.checkboxChecked]}>
+                          {isSel && <Text style={s.checkMark}>✓</Text>}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.itemName}>{item.item_name}</Text>
+                          {item.job_name && <Text style={s.itemSub}>Job: {item.job_name}</Text>}
+                          <Text style={s.itemSub}>{new Date(item.created_at).toLocaleDateString()}</Text>
+                        </View>
+                        <Text style={s.qty}>
+                          {formatQuantity(item.quantity, item.unit, item.unit_category as any)}
+                        </Text>
+                      </TouchableOpacity>
+                      {idx < checkouts.length - 1 && <View style={s.sep} />}
+                    </View>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={[s.btn, selected.size === 0 && s.btnDisabled]}
+                  disabled={selected.size === 0}
+                  onPress={openModal}
+                >
+                  <Text style={s.btnText}>Return {selected.size > 0 ? `${selected.size} Item${selected.size !== 1 ? 's' : ''}` : 'Items'}</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ── Deployed equipment (units) ── */}
+            {deployedUnits.length > 0 && (
+              <>
+                {checkouts.length > 0 && <View style={s.sectionDivider} />}
+                <View style={s.sectionHeader}>
+                  <Text style={s.sectionTitle}>Deployed equipment (units)</Text>
+                </View>
+
+                <BarcodeInput
+                  label="Scan or type asset tag to add"
+                  value={scanTag}
+                  onChange={v => { setScanTag(v); setScanNote(null); }}
+                  placeholder="Asset tag..."
+                  note={scanNote?.text}
+                  noteTone={scanNote?.tone}
+                />
+                <TouchableOpacity style={s.scanAddBtn} onPress={handleScanAdd}>
+                  <Text style={s.scanAddText}>Add Unit</Text>
+                </TouchableOpacity>
+
+                <View style={{ height: 10 }} />
+
+                {deployedUnits.map((unit, idx) => {
+                  const isSel = selectedUnitIds.has(unit.id);
+                  return (
+                    <View key={unit.id}>
+                      <TouchableOpacity
+                        style={[s.row, isSel && s.rowSelected]}
+                        onPress={() => toggleSelectUnit(unit.id)}
+                      >
+                        <View style={[s.checkbox, isSel && s.checkboxChecked]}>
+                          {isSel && <Text style={s.checkMark}>✓</Text>}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.itemName}>{unit.asset_tag}</Text>
+                          <Text style={s.itemSub}>{unit.item_name}</Text>
+                          {unit.job_name && <Text style={s.itemSub}>Job: {unit.job_name}</Text>}
+                        </View>
+                        <View style={s.unitBadge}>
+                          <Text style={s.unitBadgeText}>Deployed</Text>
+                        </View>
+                      </TouchableOpacity>
+                      {idx < deployedUnits.length - 1 && <View style={s.sep} />}
+                    </View>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={[s.btn, selectedUnitIds.size === 0 && s.btnDisabled]}
+                  disabled={selectedUnitIds.size === 0}
+                  onPress={openUnitModal}
+                >
+                  <Text style={s.btnText}>
+                    Return {selectedUnitIds.size > 0 ? `${selectedUnitIds.size} Unit${selectedUnitIds.size !== 1 ? 's' : ''}` : 'Units'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
         )}
 
-        {/* Return modal */}
+        {/* Count-based return modal (unchanged) */}
         <Modal visible={showModal} animationType="slide" transparent>
           <View style={s.modalOverlay}>
             <View style={s.modal}>
@@ -205,7 +378,6 @@ export default function CheckinScreen() {
                   options={locationOptions}
                   value={returnLocation}
                   onSelect={(opt) => {
-                    // If same option tapped again (via "Change"), clear to allow re-picking
                     if (returnLocation && returnLocation.id === opt.id) {
                       setReturnLocation(null);
                     } else {
@@ -240,6 +412,53 @@ export default function CheckinScreen() {
                 <Text style={s.btnText}>{submitting ? 'Returning...' : 'Confirm Return'}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
+                <Text style={s.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Units return modal */}
+        <Modal visible={showUnitModal} animationType="slide" transparent>
+          <View style={s.modalOverlay}>
+            <View style={s.modal}>
+              <Text style={s.modalTitle}>Return Units to Location</Text>
+
+              <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                <SearchablePicker
+                  placeholder="Search destination location..."
+                  options={locationOptions}
+                  value={unitReturnLocation}
+                  onSelect={(opt) => {
+                    if (unitReturnLocation && unitReturnLocation.id === opt.id) {
+                      setUnitReturnLocation(null);
+                    } else {
+                      setUnitReturnLocation(opt);
+                    }
+                  }}
+                />
+
+                {/* Selected units summary */}
+                {deployedUnits.filter(u => selectedUnitIds.has(u.id)).map(unit => (
+                  <View key={unit.id} style={s.qtyRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.qtyItemName}>{unit.asset_tag}</Text>
+                      <Text style={s.qtyMax}>
+                        {unit.item_name}{unit.job_name ? ` · ${unit.job_name}` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={[s.btn, (!unitReturnLocation || unitSubmitting) && s.btnDisabled]}
+                disabled={!unitReturnLocation || unitSubmitting}
+                onPress={handleUnitCheckin}
+              >
+                <Text style={s.btnText}>{unitSubmitting ? 'Returning...' : 'Confirm Return'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.cancel} onPress={() => setShowUnitModal(false)}>
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
@@ -289,4 +508,16 @@ const s = StyleSheet.create({
   },
   cancel: { alignItems: 'center', paddingVertical: 10 },
   cancelText: { color: '#64748B', fontSize: 15 },
+  // Units section
+  sectionDivider: { height: 1, backgroundColor: '#E2E8F0', marginVertical: 20 },
+  sectionHeader: { marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
+  unitBadge: { backgroundColor: '#DBEAFE', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  unitBadgeText: { fontSize: 12, fontWeight: '700', color: '#1D4ED8' },
+  scanAddBtn: {
+    alignSelf: 'flex-start', backgroundColor: '#EFF6FF', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 8, marginTop: 6,
+    borderWidth: 1, borderColor: '#BFDBFE',
+  },
+  scanAddText: { color: '#1D4ED8', fontWeight: '700', fontSize: 14 },
 });

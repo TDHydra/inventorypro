@@ -4,9 +4,18 @@ interface CreateItemBody {
   name: string;
   barcode?: string;
   description?: string;
+  sku?: string;
+  supplier?: string;
+  model?: string;
+  kind?: 'product' | 'equipment';
+  category?: string;
+  returnable?: boolean;
   unit_category: 'liquid' | 'piece' | 'length' | 'weight';
   unit: string;
   min_qty_alert?: number;
+  reorder_to?: number;
+  unit_tracked?: boolean;
+  tag_prefix?: string;
 }
 
 interface UpdateItemBody extends Partial<CreateItemBody> {
@@ -31,7 +40,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
       if (q.trim()) {
         const { rows } = await fastify.pg.query(
-          `SELECT i.*, COALESCE(SUM(s.quantity), 0) as total_stock
+          `SELECT i.*,
+                CASE WHEN i.unit_tracked
+                     THEN (SELECT COUNT(*) FROM equipment_units eu WHERE eu.item_id = i.id AND eu.status = 'available')
+                     ELSE COALESCE(SUM(s.quantity), 0) END as total_stock
            FROM inventory_items i
            LEFT JOIN stock_by_location s ON s.item_id = i.id
            WHERE i.active = true AND (i.name ILIKE $1 OR i.barcode ILIKE $1)
@@ -44,7 +56,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
       }
 
       const { rows } = await fastify.pg.query(
-        `SELECT i.*, COALESCE(SUM(s.quantity), 0) as total_stock
+        `SELECT i.*,
+                CASE WHEN i.unit_tracked
+                     THEN (SELECT COUNT(*) FROM equipment_units eu WHERE eu.item_id = i.id AND eu.status = 'available')
+                     ELSE COALESCE(SUM(s.quantity), 0) END as total_stock
          FROM inventory_items i
          LEFT JOIN stock_by_location s ON s.item_id = i.id
          WHERE i.active = true
@@ -85,12 +100,21 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // POST /items — create catalog item
   fastify.post<{ Body: CreateItemBody }>('/', auth, async (request, reply) => {
-    const { name, barcode, description, unit_category, unit, min_qty_alert = 0 } = request.body;
+    const {
+      name, barcode, description, sku, supplier, model,
+      kind = 'product', category, returnable = false,
+      unit_category, unit, min_qty_alert = 0, reorder_to,
+      unit_tracked = false, tag_prefix,
+    } = request.body;
     const { rows } = await fastify.pg.query(
-      `INSERT INTO inventory_items (name, barcode, description, unit_category, unit, min_qty_alert)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO inventory_items
+         (name, barcode, description, sku, supplier, model, kind, category, returnable,
+          unit_category, unit, min_qty_alert, reorder_to, unit_tracked, tag_prefix)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
-      [name, barcode ?? null, description ?? null, unit_category, unit, min_qty_alert]
+      [name, barcode ?? null, description ?? null, sku ?? null, supplier ?? null, model ?? null,
+       kind, category ?? null, returnable, unit_category, unit, min_qty_alert,
+       reorder_to ?? null, unit_tracked, tag_prefix ?? null]
     );
     return reply.status(201).send(rows[0]);
   });
@@ -99,7 +123,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
   fastify.patch<{ Params: { id: string }; Body: UpdateItemBody }>(
     '/:id', auth, async (request, reply) => {
       const fields = request.body;
-      const allowed = ['name','barcode','description','unit_category','unit','min_qty_alert','active'];
+      const allowed = ['name','barcode','description','sku','supplier','model','kind','category',
+        'returnable','unit_category','unit','min_qty_alert','reorder_to','unit_tracked','tag_prefix','active'];
       const updates = Object.entries(fields)
         .filter(([k]) => allowed.includes(k))
         .map(([k], i) => `${k} = $${i + 2}`);

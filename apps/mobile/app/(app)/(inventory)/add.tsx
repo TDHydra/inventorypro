@@ -51,6 +51,9 @@ export default function AddStockScreen() {
   const [category, setCategory] = useState('');
   // Whether this item is expected back via Check In
   const [returnable, setReturnable] = useState(false);
+  // Equipment-only: per-unit tracking toggle and optional asset-tag prefix
+  const [unitTracked, setUnitTracked] = useState(false);
+  const [tagPrefix, setTagPrefix] = useState('');
   const [minAlert, setMinAlert] = useState('0');
   const [reorderTo, setReorderTo] = useState('');
 
@@ -108,6 +111,8 @@ export default function AddStockScreen() {
       setReturnable(true);
     } else {
       setReturnable(false);
+      setUnitTracked(false);
+      setTagPrefix('');
     }
   }, [kind]);
 
@@ -151,6 +156,7 @@ export default function AddStockScreen() {
     setSupplier(''); setModel('');
     setUnitCat('piece'); setUnit('each');
     setCategory(''); setReturnable(false);
+    setUnitTracked(false); setTagPrefix('');
     setMinAlert('0'); setReorderTo('');
     setSelectedLocation(null);
     setQuantity('');
@@ -165,18 +171,24 @@ export default function AddStockScreen() {
       Alert.alert('Required', 'Item name is required.');
       return;
     }
-    if (!selectedLocation) {
+    if (!isUnitTracked && !selectedLocation) {
       Alert.alert('Required', 'Select a location.');
       return;
     }
     const qty = parseFloat(quantity) || 0;
-    if (qty <= 0) {
+    if (!isUnitTracked && qty <= 0) {
       Alert.alert('Required', 'Enter a quantity greater than 0.');
       return;
     }
 
+    // Existing unit-tracked item: nothing to add here — individual units are managed
+    // on the item detail screen. Do NOT create a duplicate catalog item or write stock.
+    if (existingUnitTracked) {
+      router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: selectedItem!.id } });
+      return;
+    }
+
     const now = new Date().toISOString();
-    const locationId = selectedLocation.id;
     // Unit for the activity log: prefer the existing item's unit, fall back to form state
     const effectiveUnit = autofillItem?.unit ?? unit;
 
@@ -202,11 +214,21 @@ export default function AddStockScreen() {
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
       };
-      upsertItem({ ...payload, active: 1, updated_at: now, synced_at: null });
-      // Outbox: send returnable as a real boolean (Postgres column is BOOLEAN)
-      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable });
+      upsertItem({ ...payload, unit_tracked: unitTracked ? 1 : 0, tag_prefix: tagPrefix.trim() || null, active: 1, updated_at: now, synced_at: null });
+      // Outbox: send returnable + unit_tracked as real booleans (Postgres columns are BOOLEAN)
+      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable, unit_tracked: unitTracked, tag_prefix: tagPrefix.trim() || null });
     }
 
+    // When unit-tracking is enabled for a new equipment item, skip stock adjustment.
+    // Units are added individually from the item screen.
+    if (isUnitTrackedNew) {
+      Alert.alert('Item Created', 'Open the item screen to add individual units.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+      return;
+    }
+
+    const locationId = selectedLocation!.id;
     adjustStock(itemId, locationId, qty);
     const newQty = getStockQuantity(itemId, locationId);
     appendOutbox('INSERT', 'stock_by_location', {
@@ -234,6 +256,13 @@ export default function AddStockScreen() {
   }
 
   const showReadOnly = !isCreatingNew && autofillItem !== null;
+  // Equipment new-item with unit tracking: skip location/qty; create catalog entry only
+  const isUnitTrackedNew = isCreatingNew && kind === 'equipment' && unitTracked;
+  // Existing unit-tracked item (selected via picker or barcode autofill): its on-hand
+  // is the count of available units — it must NEVER write stock_by_location.
+  const existingUnitTracked = autofillItem?.unit_tracked === 1;
+  // Any unit-tracked path (new or existing): hide Location/Quantity, no stock write.
+  const isUnitTracked = isUnitTrackedNew || existingUnitTracked;
 
   return (
     <>
@@ -334,6 +363,25 @@ export default function AddStockScreen() {
                 <Switch value={returnable} onValueChange={setReturnable} />
               </View>
 
+              {kind === 'equipment' && (
+                <>
+                  <View style={s.switchRow}>
+                    <Text style={s.switchLabel}>Track individual units</Text>
+                    <Switch value={unitTracked} onValueChange={setUnitTracked} />
+                  </View>
+                  {unitTracked && (
+                    <TextInput
+                      style={s.input}
+                      placeholder="Tag prefix (AM-, DH-, MSC-…)"
+                      placeholderTextColor="#94A3B8"
+                      value={tagPrefix}
+                      onChangeText={setTagPrefix}
+                      autoCapitalize="characters"
+                    />
+                  )}
+                </>
+              )}
+
               <Text style={s.label}>Units</Text>
               {kind === 'equipment' ? (
                 <Text style={s.unitReadOnly}>Unit: each (piece)</Text>
@@ -383,28 +431,47 @@ export default function AddStockScreen() {
           )}
 
           {/* ── LOCATION ─────────────────────────────────────────────────── */}
-          <Text style={s.label}>Location</Text>
-          <SearchablePicker
-            placeholder="Search locations..."
-            options={locationOptions}
-            value={selectedLocation}
-            onSelect={handleLocationSelect}
-          />
+          {!isUnitTracked && (
+            <>
+              <Text style={s.label}>Location</Text>
+              <SearchablePicker
+                placeholder="Search locations..."
+                options={locationOptions}
+                value={selectedLocation}
+                onSelect={handleLocationSelect}
+              />
+            </>
+          )}
 
           {/* ── QUANTITY ─────────────────────────────────────────────────── */}
-          <Text style={s.label}>Quantity to Add</Text>
-          <TextInput
-            style={s.input}
-            placeholder="Enter quantity"
-            placeholderTextColor="#94A3B8"
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="decimal-pad"
-          />
+          {!isUnitTracked && (
+            <>
+              <Text style={s.label}>Quantity to Add</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Enter quantity"
+                placeholderTextColor="#94A3B8"
+                value={quantity}
+                onChangeText={setQuantity}
+                keyboardType="decimal-pad"
+              />
+            </>
+          )}
 
           {/* ── ACTIONS ──────────────────────────────────────────────────── */}
+          {isUnitTracked && (
+            <View style={s.noteBox}>
+              <Text style={s.noteText}>
+                {existingUnitTracked
+                  ? 'This item tracks individual units. Open the item to add or manage its units.'
+                  : 'Save the item, then add its units from the item screen.'}
+              </Text>
+            </View>
+          )}
           <TouchableOpacity style={s.btn} onPress={handleSave}>
-            <Text style={s.btnText}>Add Stock</Text>
+            <Text style={s.btnText}>
+              {existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
+            </Text>
           </TouchableOpacity>
           <View style={s.secondaryRow}>
             <TouchableOpacity style={s.linkBtn} onPress={clearForm}>
@@ -457,6 +524,20 @@ const s = StyleSheet.create({
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
   cancelText: { color: '#94A3B8' },
+  noteBox: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  noteText: {
+    fontSize: 13,
+    color: '#1D4ED8',
+    lineHeight: 18,
+  },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',

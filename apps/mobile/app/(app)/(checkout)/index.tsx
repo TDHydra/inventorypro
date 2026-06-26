@@ -18,12 +18,17 @@ import {
 import { getOpenJobs, upsertJob, type Job } from '../../../src/db/queries/jobs';
 import { getAllLocations, getLocationsByOwner, type Location } from '../../../src/db/queries/locations';
 import { getUsersByRole } from '../../../src/db/queries/users';
+import {
+  getUnitsForItem, getAvailableUnitsAtLocation, getUnitByTag, setUnitStatus,
+  type EquipmentUnit,
+} from '../../../src/db/queries/equipmentUnits';
 import { useSession } from '../../../src/hooks/useSession';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { generateUUID } from '../../../src/utils/uuid';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
+import { BarcodeInput } from '../../../src/components/BarcodeInput';
 
 type Step = 'find' | 'qty' | 'dest' | 'confirm';
 type DestType = 'job' | 'location' | 'pm';
@@ -50,6 +55,10 @@ export default function CheckoutScreen() {
   const [selectedLocation, setSelectedLocation] = useState<StockByLocation | null>(null);
   const [quantity, setQuantity] = useState('1');
 
+  // Unit-tracked items move SPECIFIC units instead of a quantity.
+  const [selectedUnits, setSelectedUnits] = useState<EquipmentUnit[]>([]);
+  const [scanTag, setScanTag] = useState('');
+
   // Destination
   const [destType, setDestType] = useState<DestType | null>(null);
   const [selectedJob, setSelectedJob] = useState<{ id: string; name: string } | null>(null);
@@ -75,6 +84,7 @@ export default function CheckoutScreen() {
 
   const cat = (selectedItem?.unit_category ?? '') as any;
   const unit = selectedItem?.unit ?? '';
+  const isUnitTracked = !!selectedItem?.unit_tracked;
 
   // Source-location options for the qty step (only locations that hold stock).
   const sourceOptions: PickerOption[] = useMemo(
@@ -96,6 +106,18 @@ export default function CheckoutScreen() {
     for (const l of allLocations) m.set(l.id, l.name);
     return m;
   }, [allLocations]);
+  const locById = useMemo(() => {
+    const m = new Map<string, Location>();
+    for (const l of allLocations) m.set(l.id, l);
+    return m;
+  }, [allLocations]);
+
+  // For unit-tracked items there are no stock_by_location rows, so the source
+  // picker is derived from the locations where AVAILABLE units currently sit.
+  const availableUnits = useMemo(() => {
+    if (!selectedItem || !isUnitTracked || !selectedLocation) return [];
+    return getAvailableUnitsAtLocation(selectedItem.id, selectedLocation.location_id);
+  }, [selectedItem, isUnitTracked, selectedLocation]);
   const destLocationOptions: PickerOption[] = useMemo(
     () => allLocations
       .filter(l => l.id !== selectedLocation?.location_id)
@@ -124,11 +146,40 @@ export default function CheckoutScreen() {
   const pms = useMemo(() => getUsersByRole('production_manager'), []);
   const pmOptions: PickerOption[] = useMemo(() => pms.map(u => ({ id: u.id, label: u.name })), [pms]);
 
+  // Build source-location rows for a unit-tracked item from its available units
+  // (count of available units per location), so the existing source picker works.
+  function buildUnitSourceStock(itemId: string): StockByLocation[] {
+    const units = getUnitsForItem(itemId)
+      .filter(u => u.status === 'available' && u.current_location_id);
+    const byLoc = new Map<string, number>();
+    for (const u of units) {
+      const loc = u.current_location_id!;
+      byLoc.set(loc, (byLoc.get(loc) ?? 0) + 1);
+    }
+    const rows: StockByLocation[] = [];
+    for (const [locId, count] of byLoc) {
+      const loc = locById.get(locId);
+      rows.push({
+        location_id: locId,
+        location_name: loc?.name ?? locId,
+        parent_id: loc?.parent_id ?? null,
+        parent_name: loc?.parent_id ? (locNameById.get(loc.parent_id) ?? null) : null,
+        quantity: count,
+      });
+    }
+    rows.sort((a, b) => a.location_name.localeCompare(b.location_name));
+    return rows;
+  }
+
   function handleSelectItem(item: ItemWithTotalStock) {
     setSelectedItem(item);
-    const stockRows = getStockByItem(item.id).filter(s => s.quantity > 0);
+    const stockRows = item.unit_tracked
+      ? buildUnitSourceStock(item.id)
+      : getStockByItem(item.id).filter(s => s.quantity > 0);
     setStock(stockRows);
     setSelectedLocation(null);
+    setSelectedUnits([]);
+    setScanTag('');
     setQuantity('1');
     resetDest();
     setStep('qty');
@@ -144,8 +195,40 @@ export default function CheckoutScreen() {
 
   // ── Source location ──────────────────────────────────────────────────────
   function selectSource(opt: PickerOption) {
+    setSelectedUnits([]); // changing source invalidates any unit selection
     if (selectedLocation?.location_id === opt.id) { setSelectedLocation(null); return; }
     setSelectedLocation(stock.find(s => s.location_id === opt.id) ?? null);
+  }
+
+  // ── Unit selection (unit-tracked items only) ─────────────────────────────
+  function toggleUnit(u: EquipmentUnit) {
+    setSelectedUnits(prev =>
+      prev.some(x => x.id === u.id) ? prev.filter(x => x.id !== u.id) : [...prev, u]);
+  }
+  function addUnitByTag(tag: string) {
+    const t = tag.trim();
+    if (!t) return;
+    if (!selectedItem || !selectedLocation) { Alert.alert('Pick a Source', 'Choose a source location first.'); return; }
+    const u = getUnitByTag(t);
+    if (!u) { Alert.alert('Unknown Tag', `No unit found for "${t}".`); return; }
+    if (u.item_id !== selectedItem.id) { Alert.alert('Wrong Item', `Tag "${t}" belongs to a different item.`); return; }
+    if (u.status !== 'available' || u.current_location_id !== selectedLocation.location_id) {
+      Alert.alert('Not Available Here', `Unit "${t}" is not available at the selected source location.`);
+      return;
+    }
+    setSelectedUnits(prev => (prev.some(x => x.id === u.id) ? prev : [...prev, u]));
+    setScanTag('');
+  }
+
+  // Outbox a full equipment_units row (upsert keyed by id; synced_at omitted).
+  function outboxUnit(u: EquipmentUnit) {
+    appendOutbox('INSERT', 'equipment_units', {
+      id: u.id, item_id: u.item_id, asset_tag: u.asset_tag,
+      serial_number: u.serial_number, status: u.status,
+      current_location_id: u.current_location_id, current_job_id: u.current_job_id,
+      notes: u.notes, created_at: u.created_at, updated_at: u.updated_at,
+      // synced_at intentionally omitted from outbox payload
+    });
   }
 
   // ── Destination: job ─────────────────────────────────────────────────────
@@ -241,7 +324,7 @@ export default function CheckoutScreen() {
     if (!selectedItem || !selectedLocation || !user || !destType) return;
     const itemId = selectedItem.id;
     const source = selectedLocation.location_id;
-    const onHand = getStockQuantity(itemId, source);
+    const onHand = isUnitTracked ? 0 : getStockQuantity(itemId, source);
     const baseLog = {
       user_id: user.id,
       team_id: null as string | null,
@@ -251,6 +334,65 @@ export default function CheckoutScreen() {
       device_id: null as string | null,
       metadata: null as string | null,
     };
+
+    // ── Unit-tracked path: move SPECIFIC units, never touch stock_by_location ──
+    if (isUnitTracked) {
+      if (selectedUnits.length === 0) { Alert.alert('No Units Selected', 'Select at least one unit.'); return; }
+
+      // Resolve + validate the destination before any writes.
+      let destLabel: string;
+      if (destType === 'job') {
+        if (!selectedJob) { Alert.alert('Pick a Job', 'Choose or create a job first.'); return; }
+        destLabel = selectedJob.name;
+      } else if (destType === 'location') {
+        if (!selectedDestLocation) { Alert.alert('Pick a Location', 'Choose a destination location.'); return; }
+        destLabel = selectedDestLocation.name;
+      } else {
+        const pm = pmSelections[0];
+        if (!pm || !pm.locationId) { Alert.alert('Pick a Location', 'The manager needs a destination location.'); return; }
+        destLabel = pm.locationName ?? pm.pmName;
+      }
+
+      setSubmitting(true);
+      for (const sel of selectedUnits) {
+        let updated: EquipmentUnit;
+        if (destType === 'job') {
+          updated = setUnitStatus(sel.id, {
+            status: 'deployed', current_job_id: selectedJob!.id, current_location_id: null,
+          });
+          outboxUnit(updated);
+          appendLog({
+            ...baseLog, action: 'checkout_to_job',
+            from_location_id: source, to_location_id: null,
+            job_id: selectedJob!.id, quantity: 1, note: 'unit ' + sel.asset_tag,
+          });
+        } else if (destType === 'location') {
+          updated = setUnitStatus(sel.id, {
+            status: 'available', current_location_id: selectedDestLocation!.id, current_job_id: null,
+          });
+          outboxUnit(updated);
+          appendLog({
+            ...baseLog, action: 'transfer',
+            from_location_id: source, to_location_id: selectedDestLocation!.id,
+            job_id: null, quantity: 1, note: 'unit ' + sel.asset_tag,
+          });
+        } else {
+          const pmLocationId = pmSelections[0].locationId!;
+          updated = setUnitStatus(sel.id, {
+            status: 'available', current_location_id: pmLocationId, current_job_id: null,
+          });
+          outboxUnit(updated);
+          appendLog({
+            ...baseLog, action: 'transfer',
+            from_location_id: source, to_location_id: pmLocationId,
+            job_id: null, quantity: 1, note: 'unit ' + sel.asset_tag,
+          });
+        }
+      }
+      const n = selectedUnits.length;
+      done(`${n} unit${n > 1 ? 's' : ''} of ${selectedItem.name} ${destType === 'job' ? 'checked out to' : 'moved to'} ${destLabel}.`);
+      return;
+    }
 
     if (destType === 'job') {
       const qty = parseFloat(quantity);
@@ -377,7 +519,7 @@ export default function CheckoutScreen() {
 
           <Text style={s.label}>Source Location</Text>
           {stock.length === 0 ? (
-            <Text style={s.empty}>No stock available</Text>
+            <Text style={s.empty}>{isUnitTracked ? 'No available units' : 'No stock available'}</Text>
           ) : (
             <SearchablePicker
               placeholder="Search source location..."
@@ -387,18 +529,65 @@ export default function CheckoutScreen() {
             />
           )}
 
-          <Text style={s.label}>Quantity</Text>
-          <TextInput
-            style={s.qtyInput}
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="decimal-pad"
-            selectTextOnFocus
-          />
+          {isUnitTracked ? (
+            <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
+              <Text style={s.label}>Select Units{selectedUnits.length > 0 ? ` (${selectedUnits.length})` : ''}</Text>
+              {!selectedLocation ? (
+                <Text style={s.empty}>Choose a source location first.</Text>
+              ) : (
+                <>
+                  <BarcodeInput
+                    value={scanTag}
+                    onChange={setScanTag}
+                    placeholder="Scan or type an asset tag..."
+                  />
+                  <TouchableOpacity
+                    style={[s.addTagBtn, !scanTag.trim() && s.btnDisabled]}
+                    disabled={!scanTag.trim()}
+                    onPress={() => addUnitByTag(scanTag)}
+                  >
+                    <Text style={s.btnText}>+ Add Unit by Tag</Text>
+                  </TouchableOpacity>
+
+                  {availableUnits.length === 0 ? (
+                    <Text style={s.empty}>No available units at this location.</Text>
+                  ) : (
+                    availableUnits.map(u => {
+                      const checked = selectedUnits.some(x => x.id === u.id);
+                      return (
+                        <TouchableOpacity
+                          key={u.id}
+                          style={[s.row, checked && s.rowSelected]}
+                          onPress={() => toggleUnit(u)}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.rowName}>{u.asset_tag}</Text>
+                            {!!u.serial_number && <Text style={s.rowSub}>S/N: {u.serial_number}</Text>}
+                          </View>
+                          <Text style={s.rowStock}>{checked ? '✓' : ''}</Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </>
+              )}
+            </ScrollView>
+          ) : (
+            <>
+              <Text style={s.label}>Quantity</Text>
+              <TextInput
+                style={s.qtyInput}
+                value={quantity}
+                onChangeText={setQuantity}
+                keyboardType="decimal-pad"
+                selectTextOnFocus
+              />
+            </>
+          )}
 
           <TouchableOpacity
-            style={[s.btn, !selectedLocation && s.btnDisabled]}
-            disabled={!selectedLocation}
+            style={[s.btn, (isUnitTracked ? selectedUnits.length === 0 : !selectedLocation) && s.btnDisabled]}
+            disabled={isUnitTracked ? selectedUnits.length === 0 : !selectedLocation}
             onPress={() => { resetDest(); setStep('dest'); }}
           >
             <Text style={s.btnText}>Next: Choose Destination →</Text>
@@ -416,7 +605,9 @@ export default function CheckoutScreen() {
         <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             <Text style={s.sectionLabel}>
-              {formatQuantity(parseFloat(quantity) || 0, unit, cat)} · {selectedItem.name}
+              {isUnitTracked
+                ? `${selectedUnits.length} unit${selectedUnits.length === 1 ? '' : 's'}`
+                : formatQuantity(parseFloat(quantity) || 0, unit, cat)} · {selectedItem.name}
             </Text>
 
             <Text style={s.label}>Destination Type</Text>
@@ -462,23 +653,28 @@ export default function CheckoutScreen() {
             {destType === 'pm' && (
               <>
                 <Text style={s.label}>Managers</Text>
-                <View style={s.forRow}>
-                  {(['single', 'multiple'] as const).map(m => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[s.forBtn, pmMode === m && s.forBtnActive]}
-                      onPress={() => setMode(m)}
-                    >
-                      <Text style={[s.forBtnText, pmMode === m && s.forBtnTextActive]}>
-                        {m === 'single' ? 'Single' : 'Multiple'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+
+                {/* Unit-tracked items always use single-PM mode; hide the toggle. */}
+                {!isUnitTracked && (
+                  <View style={s.forRow}>
+                    {(['single', 'multiple'] as const).map(m => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[s.forBtn, pmMode === m && s.forBtnActive]}
+                        onPress={() => setMode(m)}
+                      >
+                        <Text style={[s.forBtnText, pmMode === m && s.forBtnTextActive]}>
+                          {m === 'single' ? 'Single' : 'Multiple'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
                 {pms.length === 0 && <Text style={s.empty}>No production managers found</Text>}
 
-                {pmMode === 'single' ? (
+                {/* Force single-PM path for unit-tracked items regardless of pmMode state. */}
+                {(isUnitTracked || pmMode === 'single') ? (
                   <View style={{ marginTop: 8 }}>
                     <SearchablePicker
                       placeholder="Pick a production manager..."
@@ -492,6 +688,7 @@ export default function CheckoutScreen() {
                         onPick={loc => setPmLocation(pmSelections[0].pmId, loc)}
                         qtyEditable={false}
                         qtyDisplay={formatQuantity(parseFloat(quantity) || 0, unit, cat)}
+                        hideQty={isUnitTracked}
                       />
                     )}
                   </View>
@@ -552,7 +749,30 @@ export default function CheckoutScreen() {
         <View style={s.confirmCard}>
           <Row label="Item" value={selectedItem?.name ?? ''} />
           <Row label="From" value={fromLabel} />
-          {destType === 'job' && (
+          {isUnitTracked && (
+            <>
+              <Row
+                label={`Units (${selectedUnits.length})`}
+                value={selectedUnits.map(u => u.asset_tag).join(', ')}
+              />
+              {destType === 'job' && (
+                <>
+                  <Row label="To Job" value={selectedJob?.name ?? ''} />
+                  <Row label="Action" value="Deploy (returnable)" />
+                </>
+              )}
+              {destType === 'location' && (
+                <Row label="To Location" value={selectedDestLocation?.name ?? ''} />
+              )}
+              {destType === 'pm' && (
+                <Row
+                  label="To Manager"
+                  value={`${pmSelections[0]?.pmName ?? ''} → ${pmSelections[0]?.locationName ?? '?'}`}
+                />
+              )}
+            </>
+          )}
+          {!isUnitTracked && destType === 'job' && (
             <>
               <Row label="Qty" value={formatQuantity(parseFloat(quantity) || 0, unit, cat)} />
               <Row label="To Job" value={selectedJob?.name ?? ''} />
@@ -562,13 +782,13 @@ export default function CheckoutScreen() {
               />
             </>
           )}
-          {destType === 'location' && (
+          {!isUnitTracked && destType === 'location' && (
             <>
               <Row label="Qty" value={formatQuantity(parseFloat(quantity) || 0, unit, cat)} />
               <Row label="To Location" value={selectedDestLocation?.name ?? ''} />
             </>
           )}
-          {destType === 'pm' && pmSelections.map(p => (
+          {!isUnitTracked && destType === 'pm' && pmSelections.map(p => (
             <Row
               key={p.pmId}
               label={p.pmName}
@@ -591,7 +811,7 @@ export default function CheckoutScreen() {
 
 // Per-PM location picker (+ optional per-PM quantity for the multiple case).
 function PmLocationRow({
-  sel, onPick, qtyEditable, qtyValue, onQtyChange, qtyDisplay,
+  sel, onPick, qtyEditable, qtyValue, onQtyChange, qtyDisplay, hideQty,
 }: {
   sel: PmSelection;
   onPick: (loc: Location | null) => void;
@@ -599,6 +819,8 @@ function PmLocationRow({
   qtyValue?: string;
   onQtyChange?: (q: string) => void;
   qtyDisplay?: string;
+  /** When true, suppress all quantity display (used for unit-tracked items). */
+  hideQty?: boolean;
 }) {
   const locs = useMemo(() => getLocationsByOwner(sel.pmId), [sel.pmId]);
   const options: PickerOption[] = locs.map(l => ({ id: l.id, label: l.name }));
@@ -617,19 +839,21 @@ function PmLocationRow({
           onSelect={opt => onPick(sel.locationId === opt.id ? null : (locs.find(l => l.id === opt.id) ?? null))}
         />
       )}
-      {qtyEditable ? (
-        <View style={s.pmQtyRow}>
-          <Text style={s.pmHint}>Qty</Text>
-          <TextInput
-            style={s.pmQtyInput}
-            value={qtyValue}
-            onChangeText={onQtyChange}
-            keyboardType="decimal-pad"
-            selectTextOnFocus
-          />
-        </View>
-      ) : (
-        <Text style={s.pmHint}>Qty: {qtyDisplay}</Text>
+      {!hideQty && (
+        qtyEditable ? (
+          <View style={s.pmQtyRow}>
+            <Text style={s.pmHint}>Qty</Text>
+            <TextInput
+              style={s.pmQtyInput}
+              value={qtyValue}
+              onChangeText={onQtyChange}
+              keyboardType="decimal-pad"
+              selectTextOnFocus
+            />
+          </View>
+        ) : (
+          <Text style={s.pmHint}>Qty: {qtyDisplay}</Text>
+        )
       )}
     </View>
   );
@@ -676,6 +900,10 @@ const s = StyleSheet.create({
     alignItems: 'center', marginTop: 20,
   },
   btnDisabled: { backgroundColor: '#93C5FD' },
+  addTagBtn: {
+    backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 11,
+    alignItems: 'center', marginTop: 8, marginBottom: 4,
+  },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   btnSecondary: { alignItems: 'center', paddingVertical: 10 },
   btnSecondaryText: { color: '#64748B', fontSize: 15 },
