@@ -111,15 +111,16 @@ export default function MoveStockModal({
     adjustStock(itemId, destLoc.id, qty);
 
     // Outbox both stock_by_location rows with intended final quantities.
-    // Using absolute quantities ensures the server applies the correct state
-    // regardless of local DB edge-cases.
-    appendOutbox('UPDATE', 'stock_by_location', {
+    // Use INSERT (the server's upsert path: ON CONFLICT (item_id,location_id) DO
+    // UPDATE) — a plain UPDATE would match 0 rows when the destination location
+    // has no existing row for this item, silently dropping the increment.
+    appendOutbox('INSERT', 'stock_by_location', {
       item_id: itemId,
       location_id: fromLocationId,
       quantity: intendedFromQty,
       updated_at: now,
     });
-    appendOutbox('UPDATE', 'stock_by_location', {
+    appendOutbox('INSERT', 'stock_by_location', {
       item_id: itemId,
       location_id: destLoc.id,
       quantity: intendedToQty,

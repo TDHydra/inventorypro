@@ -64,7 +64,9 @@ export default function CreateJobScreen() {
       created_by: newJob.created_by,
       created_at: newJob.created_at,
       updated_at: newJob.updated_at,
-      job_number: null,
+      // Omit job_number entirely: the server's BEFORE INSERT trigger assigns it.
+      // Including it (even as null) would let an at-least-once redelivery's
+      // ON CONFLICT upsert overwrite the already-assigned number (churn).
       customer_name: newJob.customer_name,
       site_address: newJob.site_address,
       site_location_id: newJob.site_location_id,
