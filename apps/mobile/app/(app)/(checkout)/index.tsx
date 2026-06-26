@@ -324,7 +324,7 @@ export default function CheckoutScreen() {
     if (!selectedItem || !selectedLocation || !user || !destType) return;
     const itemId = selectedItem.id;
     const source = selectedLocation.location_id;
-    const onHand = getStockQuantity(itemId, source);
+    const onHand = isUnitTracked ? 0 : getStockQuantity(itemId, source);
     const baseLog = {
       user_id: user.id,
       team_id: null as string | null,
@@ -653,23 +653,28 @@ export default function CheckoutScreen() {
             {destType === 'pm' && (
               <>
                 <Text style={s.label}>Managers</Text>
-                <View style={s.forRow}>
-                  {(['single', 'multiple'] as const).map(m => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[s.forBtn, pmMode === m && s.forBtnActive]}
-                      onPress={() => setMode(m)}
-                    >
-                      <Text style={[s.forBtnText, pmMode === m && s.forBtnTextActive]}>
-                        {m === 'single' ? 'Single' : 'Multiple'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+
+                {/* Unit-tracked items always use single-PM mode; hide the toggle. */}
+                {!isUnitTracked && (
+                  <View style={s.forRow}>
+                    {(['single', 'multiple'] as const).map(m => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[s.forBtn, pmMode === m && s.forBtnActive]}
+                        onPress={() => setMode(m)}
+                      >
+                        <Text style={[s.forBtnText, pmMode === m && s.forBtnTextActive]}>
+                          {m === 'single' ? 'Single' : 'Multiple'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
                 {pms.length === 0 && <Text style={s.empty}>No production managers found</Text>}
 
-                {pmMode === 'single' ? (
+                {/* Force single-PM path for unit-tracked items regardless of pmMode state. */}
+                {(isUnitTracked || pmMode === 'single') ? (
                   <View style={{ marginTop: 8 }}>
                     <SearchablePicker
                       placeholder="Pick a production manager..."
@@ -683,6 +688,7 @@ export default function CheckoutScreen() {
                         onPick={loc => setPmLocation(pmSelections[0].pmId, loc)}
                         qtyEditable={false}
                         qtyDisplay={formatQuantity(parseFloat(quantity) || 0, unit, cat)}
+                        hideQty={isUnitTracked}
                       />
                     )}
                   </View>
@@ -805,7 +811,7 @@ export default function CheckoutScreen() {
 
 // Per-PM location picker (+ optional per-PM quantity for the multiple case).
 function PmLocationRow({
-  sel, onPick, qtyEditable, qtyValue, onQtyChange, qtyDisplay,
+  sel, onPick, qtyEditable, qtyValue, onQtyChange, qtyDisplay, hideQty,
 }: {
   sel: PmSelection;
   onPick: (loc: Location | null) => void;
@@ -813,6 +819,8 @@ function PmLocationRow({
   qtyValue?: string;
   onQtyChange?: (q: string) => void;
   qtyDisplay?: string;
+  /** When true, suppress all quantity display (used for unit-tracked items). */
+  hideQty?: boolean;
 }) {
   const locs = useMemo(() => getLocationsByOwner(sel.pmId), [sel.pmId]);
   const options: PickerOption[] = locs.map(l => ({ id: l.id, label: l.name }));
@@ -831,19 +839,21 @@ function PmLocationRow({
           onSelect={opt => onPick(sel.locationId === opt.id ? null : (locs.find(l => l.id === opt.id) ?? null))}
         />
       )}
-      {qtyEditable ? (
-        <View style={s.pmQtyRow}>
-          <Text style={s.pmHint}>Qty</Text>
-          <TextInput
-            style={s.pmQtyInput}
-            value={qtyValue}
-            onChangeText={onQtyChange}
-            keyboardType="decimal-pad"
-            selectTextOnFocus
-          />
-        </View>
-      ) : (
-        <Text style={s.pmHint}>Qty: {qtyDisplay}</Text>
+      {!hideQty && (
+        qtyEditable ? (
+          <View style={s.pmQtyRow}>
+            <Text style={s.pmHint}>Qty</Text>
+            <TextInput
+              style={s.pmQtyInput}
+              value={qtyValue}
+              onChangeText={onQtyChange}
+              keyboardType="decimal-pad"
+              selectTextOnFocus
+            />
+          </View>
+        ) : (
+          <Text style={s.pmHint}>Qty: {qtyDisplay}</Text>
+        )
       )}
     </View>
   );
