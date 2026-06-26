@@ -10,6 +10,7 @@ const INTERVAL_MS = 60_000;
 const FAST_RETRY_MS = 10_000;
 
 let running = false;
+let started = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let fastRetryId: ReturnType<typeof setTimeout> | null = null;
 let netInfoUnsub: (() => void) | null = null;
@@ -95,7 +96,14 @@ async function syncCycle(): Promise<void> {
   if (hasDeliverableWork()) scheduleFastRetry();
 }
 
+export async function syncNow(): Promise<void> {
+  await syncCycle();
+}
+
 export function startSyncEngine(): void {
+  if (started) return;
+  started = true;
+
   // NetInfo: sync on reconnect
   netInfoUnsub = NetInfo.addEventListener(state => {
     if (state.isConnected) {
@@ -124,4 +132,5 @@ export function stopSyncEngine(): void {
   if (appStateUnsub) { appStateUnsub(); appStateUnsub = null; }
   if (intervalId) { clearInterval(intervalId); intervalId = null; }
   if (fastRetryId) { clearTimeout(fastRetryId); fastRetryId = null; }
+  started = false;
 }

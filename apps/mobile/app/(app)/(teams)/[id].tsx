@@ -15,9 +15,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-
-// keep in sync with index.tsx
-const TEAM_TYPES = ['operations', 'management', 'construction', 'contents', 'cleaning', 'admin', 'other'];
+import { TEAM_TYPES } from '../../../src/constants/teams';
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

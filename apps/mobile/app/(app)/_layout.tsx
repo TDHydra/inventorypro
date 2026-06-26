@@ -3,10 +3,14 @@ import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../src/hooks/useSession';
 import { SyncIndicator } from '../../src/components/SyncIndicator';
+import { useIdleLogout } from '../../src/hooks/useIdleLogout';
 
 export default function AppLayout() {
-  const { user } = useSession();
+  const { user, logout } = useSession();
   const router = useRouter();
+
+  // Idle auto-logout — must be called before any early return (React rules)
+  const { reset } = useIdleLogout(logout);
 
   // Guard — redirect to login if no session
   useEffect(() => {
@@ -18,24 +22,34 @@ export default function AppLayout() {
   if (!user) return null;
 
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: '#1E3A5F' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '700' },
-        headerRight: () => (
-          <View style={styles.headerRight}>
-            <SyncIndicator />
-            <TouchableOpacity
-              style={styles.switchBtn}
-              onPress={() => router.push('/(auth)/login')}
-            >
-              <Text style={styles.switchText}>Switch</Text>
-            </TouchableOpacity>
-          </View>
-        ),
+    // Wrap the Stack in a View that intercepts all touch starts to reset the
+    // idle timer without consuming the event (return false keeps gestures intact)
+    <View
+      style={{ flex: 1 }}
+      onStartShouldSetResponderCapture={() => {
+        reset();
+        return false;
       }}
-    />
+    >
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: '#1E3A5F' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: '700' },
+          headerRight: () => (
+            <View style={styles.headerRight}>
+              <SyncIndicator />
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={() => router.push('/(auth)/login')}
+              >
+                <Text style={styles.switchText}>Switch</Text>
+              </TouchableOpacity>
+            </View>
+          ),
+        }}
+      />
+    </View>
   );
 }
 

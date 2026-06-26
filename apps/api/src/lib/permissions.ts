@@ -133,7 +133,7 @@ export function requirePermission(perm: string) {
     );
     const u = rows[0];
     if (!u || !userHasPermission(u.role, u.permission_overrides, perm)) {
-      reply.status(403).send({ error: 'Forbidden' });
+      return reply.status(403).send({ error: 'Forbidden' });
     }
   };
 }
