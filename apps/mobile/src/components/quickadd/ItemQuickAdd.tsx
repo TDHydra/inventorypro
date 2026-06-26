@@ -96,8 +96,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     };
 
     upsertItem(item);
+    // synced_at is a local-only column — the server table has none, and the
+    // dynamic push INSERT would error on it. Strip it from the outbox payload.
+    const { synced_at: _s, ...itemRow } = item;
     appendOutbox('INSERT', 'inventory_items', {
-      ...item,
+      ...itemRow,
       returnable: !!item.returnable,
       unit_tracked: !!item.unit_tracked,
       active: true,

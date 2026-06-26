@@ -77,7 +77,9 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
     };
 
     upsertUnit(u);
-    appendOutbox('INSERT', 'equipment_units', { ...u });
+    // synced_at is local-only — strip from the outbox payload (server has no such column).
+    const { synced_at: _s, ...unitRow } = u;
+    appendOutbox('INSERT', 'equipment_units', { ...unitRow });
     appendLog({
       action: 'add_units',
       entity_type: 'equipment_unit',

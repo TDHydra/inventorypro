@@ -61,7 +61,9 @@ export default function LocationQuickAdd({ onSaved }: Props) {
     };
 
     upsertLocation(loc);
-    appendOutbox('INSERT', 'locations', { ...loc, active: true });
+    // synced_at is local-only — strip from the outbox payload (server has no such column).
+    const { synced_at: _s, ...locRow } = loc;
+    appendOutbox('INSERT', 'locations', { ...locRow, active: true });
     appendLog({
       action: 'location_created',
       entity_type: 'location',
