@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -41,6 +41,14 @@ export default function LogsScreen() {
     [],
   );
 
+  // Computed date values — partial strings (<10 chars) are treated as unset
+  const sinceVal = filterSince.trim().length >= 10 ? filterSince.trim() : undefined;
+  // Append end-of-day time so the until date is inclusive
+  const untilVal =
+    filterUntil.trim().length >= 10
+      ? filterUntil.trim() + 'T23:59:59.999Z'
+      : undefined;
+
   const logs = useMemo<LogEntry[]>(() => {
     if (!user) return [];
 
@@ -49,12 +57,6 @@ export default function LogsScreen() {
     }
 
     if (filter === 'all') {
-      const sinceVal = filterSince.trim().length >= 10 ? filterSince.trim() : undefined;
-      // Append end-of-day time so the until date is inclusive
-      const untilVal =
-        filterUntil.trim().length >= 10
-          ? filterUntil.trim() + 'T23:59:59.999Z'
-          : undefined;
       const hasFilter = filterUser || filterAction || sinceVal || untilVal;
       if (!hasFilter) return getRecentLog(100);
       return getLogFiltered(
@@ -70,7 +72,7 @@ export default function LogsScreen() {
 
     // Default: 'mine'
     return getLogForUser(user.id, 50);
-  }, [user, filter, filterUser, filterAction, filterSince, filterUntil]);
+  }, [user, filter, filterUser, filterAction, sinceVal, untilVal]);
 
   function clearAllFilters() {
     setFilterUser(null);
@@ -79,7 +81,13 @@ export default function LogsScreen() {
     setFilterUntil('');
   }
 
-  const anyFilterSet = !!(filterUser || filterAction || filterSince || filterUntil);
+  // Derive from computed date values so partial date strings don't show the button
+  const anyFilterSet = !!(filterUser || filterAction || sinceVal || untilVal);
+
+  // Fall back to 'mine' if admin permission is revoked mid-session
+  useEffect(() => {
+    if (!canViewAll && filter === 'all') setFilter('mine');
+  }, [canViewAll, filter]);
 
   return (
     <>
@@ -122,7 +130,6 @@ export default function LogsScreen() {
                 setFilterUser(prev => (prev?.id === opt.id ? null : opt))
               }
             />
-            <View style={s.gap} />
             <SearchablePicker
               placeholder="Filter by action…"
               options={actionOptions}
@@ -217,7 +224,6 @@ const s = StyleSheet.create({
     paddingBottom: 8,
     gap: 8,
   },
-  gap: { height: 0 }, // structural spacer used between SearchablePicker instances
   dateRow: { flexDirection: 'row', gap: 8 },
   dateInput: {
     backgroundColor: '#fff',

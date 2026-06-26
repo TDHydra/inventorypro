@@ -212,7 +212,7 @@ const s = StyleSheet.create({
   },
   archivedLabel: { fontSize: 13, color: '#64748B', fontWeight: '600' },
 
-  list: { padding: 12, gap: 8 },
+  list: { padding: 12, gap: 8, paddingBottom: 80 },
   card: {
     backgroundColor: '#fff', borderRadius: 10, padding: 14,
     borderWidth: 1, borderColor: '#E2E8F0',

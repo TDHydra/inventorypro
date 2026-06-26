@@ -74,6 +74,7 @@ export default function JobDetailScreen() {
   function saveEdit() {
     const trimmed = editName.trim();
     if (!trimmed) { Alert.alert('Required', 'Job name is required.'); return; }
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
 
     const fields = {
       name: trimmed,
@@ -85,30 +86,28 @@ export default function JobDetailScreen() {
     };
 
     updateJobFields(id, fields);
-
-    if (user) {
-      appendLog({
-        action: 'job_updated',
-        entity_type: 'job',
-        entity_id: id,
-        user_id: user.id,
-        note: trimmed,
-        team_id: null,
-        from_location_id: null,
-        to_location_id: null,
-        quantity: null,
-        unit: null,
-        job_id: id,
-        metadata: null,
-        device_id: null,
-      });
-    }
+    appendLog({
+      action: 'job_updated',
+      entity_type: 'job',
+      entity_id: id,
+      user_id: user.id,
+      note: trimmed,
+      team_id: null,
+      from_location_id: null,
+      to_location_id: null,
+      quantity: null,
+      unit: null,
+      job_id: id,
+      metadata: null,
+      device_id: null,
+    });
 
     setEditing(false);
     reload();
   }
 
   function doArchive() {
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
     Alert.alert(
       'Archive Job',
       `Archive "${job!.name}"? It will be hidden from active lists.`,
@@ -118,23 +117,21 @@ export default function JobDetailScreen() {
           text: 'Archive', style: 'destructive',
           onPress: () => {
             archiveJob(id);
-            if (user) {
-              appendLog({
-                action: 'job_archived',
-                entity_type: 'job',
-                entity_id: id,
-                user_id: user.id,
-                note: job!.name,
-                team_id: null,
-                from_location_id: null,
-                to_location_id: null,
-                quantity: null,
-                unit: null,
-                job_id: id,
-                metadata: null,
-                device_id: null,
-              });
-            }
+            appendLog({
+              action: 'job_archived',
+              entity_type: 'job',
+              entity_id: id,
+              user_id: user.id,
+              note: job!.name,
+              team_id: null,
+              from_location_id: null,
+              to_location_id: null,
+              quantity: null,
+              unit: null,
+              job_id: id,
+              metadata: null,
+              device_id: null,
+            });
             router.back();
           },
         },

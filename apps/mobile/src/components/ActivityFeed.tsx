@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { getLogForEntity, LogEntry } from '../db/queries/log';
 
 // ── Action icon map ───────────────────────────────────────────────────────────
@@ -88,32 +88,28 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
   );
 
   return (
-    <FlatList<LogEntry>
-      data={entries}
-      keyExtractor={item => item.id}
-      contentContainerStyle={s.list}
-      renderItem={({ item }) => (
-        <View style={s.row}>
-          <Text style={s.icon}>{ACTION_ICONS[item.action] ?? '·'}</Text>
-          <View style={s.middle}>
-            <Text style={s.action}>{actionLabel(item.action)}</Text>
-            {item.user_name ? (
-              <Text style={s.user}>{item.user_name}</Text>
-            ) : null}
-            {item.quantity != null && item.unit ? (
-              <Text style={s.qty}>{item.quantity} {item.unit}</Text>
-            ) : null}
-            {item.note ? <Text style={s.note}>{item.note}</Text> : null}
-          </View>
-          <Text style={s.date}>{relativeDate(item.created_at)}</Text>
-        </View>
-      )}
-      ListEmptyComponent={
+    <View style={s.list}>
+      {entries.length === 0 ? (
         <View style={s.empty}>
           <Text style={s.emptyText}>No activity yet</Text>
         </View>
-      }
-    />
+      ) : entries.map(r => (
+        <View key={r.id} style={s.row}>
+          <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
+          <View style={s.middle}>
+            <Text style={s.action}>{actionLabel(r.action)}</Text>
+            {r.user_name ? (
+              <Text style={s.user}>{r.user_name}</Text>
+            ) : null}
+            {r.quantity != null && r.unit ? (
+              <Text style={s.qty}>{r.quantity} {r.unit}</Text>
+            ) : null}
+            {r.note ? <Text style={s.note}>{r.note}</Text> : null}
+          </View>
+          <Text style={s.date}>{relativeDate(r.created_at)}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 

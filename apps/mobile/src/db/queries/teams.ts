@@ -29,7 +29,7 @@ export function getAllTeams(): Team[] {
 export function getTeamById(id: string): Team | null {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM teams WHERE id = ?`, [id]);
-  return (result.rows[0] as unknown as Team) ?? null;
+  return rowsAs<Team>(result.rows)[0] ?? null;
 }
 
 export function getTeamMembers(teamId: string): TeamMember[] {
@@ -55,24 +55,26 @@ export function upsertTeam(team: Team): void {
   );
 }
 
-// Pure local write — returns joined_at so the caller can include the exact
-// same timestamp in the outbox INSERT payload for consistency.
+// Pure local write — returns { joined_at } on a real insert, or null if the
+// composite key already existed (INSERT OR IGNORE skipped the row).
+// Callers must check for null before enqueuing outbox/log entries.
 // overrides defaults to {} (no per-member permission overrides on create).
 export function addTeamMember(
   teamId: string,
   userId: string,
   overrides: Record<string, boolean> = {},
   addedBy?: string | null,
-): string {
+): { joined_at: string } | null {
   const db = getDb();
   const joined_at = new Date().toISOString();
-  db.executeSync(
+  const res = db.executeSync(
     `INSERT OR IGNORE INTO team_members
        (team_id, user_id, team_permission_overrides, added_by, joined_at)
      VALUES (?, ?, ?, ?, ?)`,
     bindParams([teamId, userId, JSON.stringify(overrides), addedBy ?? null, joined_at]),
   );
-  return joined_at;
+  if (res.rowsAffected < 1) return null;
+  return { joined_at };
 }
 
 // Pure local write — callers queue the DELETE outbox row with {team_id, user_id}.
@@ -80,6 +82,6 @@ export function removeTeamMember(teamId: string, userId: string): void {
   const db = getDb();
   db.executeSync(
     `DELETE FROM team_members WHERE team_id = ? AND user_id = ?`,
-    [teamId, userId],
+    bindParams([teamId, userId]),
   );
 }

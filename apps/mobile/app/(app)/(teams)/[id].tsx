@@ -16,6 +16,7 @@ import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 
+// keep in sync with index.tsx
 const TEAM_TYPES = ['operations', 'management', 'construction', 'contents', 'cleaning', 'admin', 'other'];
 
 export default function TeamDetailScreen() {
@@ -113,7 +114,15 @@ export default function TeamDetailScreen() {
 
   function handleAddMember() {
     if (!newMemberOption || !team) return;
-    const joined_at = addTeamMember(team.id, newMemberOption.id, {}, user?.id ?? null);
+    const result = addTeamMember(team.id, newMemberOption.id, {}, user?.id ?? null);
+    if (result === null) {
+      // INSERT OR IGNORE skipped — composite key already exists
+      Alert.alert('Already a member', `${newMemberOption.label} is already on this team.`);
+      setNewMemberOption(null);
+      setShowAddMember(false);
+      return;
+    }
+    const { joined_at } = result;
     appendOutbox('INSERT', 'team_members', {
       team_id: team.id,
       user_id: newMemberOption.id,

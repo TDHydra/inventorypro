@@ -23,7 +23,6 @@ export default function CreateJobScreen() {
   const [siteAddress, setSiteAddress] = useState('');
   const [siteLocation, setSiteLocation] = useState<PickerOption | null>(null);
   const [description, setDescription] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const locationOptions = useMemo((): PickerOption[] => {
     return getAllLocations().map(l => ({ id: l.id, label: l.name }));
@@ -40,7 +39,6 @@ export default function CreateJobScreen() {
       return;
     }
 
-    setSaving(true);
     const now = new Date().toISOString();
     const id = generateUUID();
     const newJob: Job = {
@@ -180,11 +178,10 @@ export default function CreateJobScreen() {
               <Text style={s.btnGhostText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[s.btn, s.btnPrimary, saving && s.btnDisabled]}
+              style={[s.btn, s.btnPrimary]}
               onPress={handleSave}
-              disabled={saving}
             >
-              <Text style={s.btnPrimaryText}>{saving ? 'Creating…' : 'Create Job'}</Text>
+              <Text style={s.btnPrimaryText}>Create Job</Text>
             </TouchableOpacity>
           </View>
 
@@ -227,5 +224,4 @@ const s = StyleSheet.create({
   btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#CBD5E1' },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
-  btnDisabled: { opacity: 0.6 },
 });

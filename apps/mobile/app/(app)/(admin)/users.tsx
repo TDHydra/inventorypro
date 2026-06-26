@@ -179,13 +179,13 @@ export default function AdminUsersScreen() {
         quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
       });
     }
-    if (otherFieldsChanged) {
+    if (otherFieldsChanged && !roleChanged) {
       appendLog({
         action: 'user_updated',
         entity_type: 'user',
         entity_id: editUser.id,
         user_id: adminId,
-        note: editUser.name,
+        note: `${editUser.name}: updated ${Object.keys(fields).join(', ')}`,
         team_id: null, from_location_id: null, to_location_id: null,
         quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
       });
@@ -280,8 +280,18 @@ export default function AdminUsersScreen() {
   }
 
   async function doCreate() {
+    let createdId: string | null = null;
     try {
-      const createdId = await createUserOnline(newName.trim(), newRole);
+      createdId = await createUserOnline(newName.trim(), newRole);
+      refresh();
+      setShowCreate(false);
+      resetCreateForm();
+    } catch (err) {
+      Alert.alert('Could not create user', (err as Error).message);
+    }
+    // Log outside the createUserOnline try/catch so a log-write failure is not
+    // misreported as "could not create user" when the server already succeeded.
+    if (createdId) {
       appendLog({
         action: 'user_created',
         entity_type: 'user',
@@ -291,11 +301,6 @@ export default function AdminUsersScreen() {
         team_id: null, from_location_id: null, to_location_id: null,
         quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
       });
-      refresh();
-      setShowCreate(false);
-      resetCreateForm();
-    } catch (err) {
-      Alert.alert('Could not create user', (err as Error).message);
     }
   }
 

@@ -14,6 +14,7 @@ import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 
+// keep in sync with [id].tsx
 const TEAM_TYPES = ['operations', 'management', 'construction', 'contents', 'cleaning', 'admin', 'other'];
 
 export default function TeamsScreen() {

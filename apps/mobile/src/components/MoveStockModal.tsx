@@ -44,7 +44,7 @@ export default function MoveStockModal({
 
   // Load data once (these are sync queries, so useMemo is fine)
   const stock = useMemo(() => getStockAtLocation(fromLocationId), [fromLocationId]);
-  const allLocs = useMemo(() => getAllLocations(), []);
+  const allLocs = useMemo(() => getAllLocations(), [visible]);
 
   const itemOptions = useMemo<PickerOption[]>(
     () => stock.map(s => ({ id: s.item_id, label: s.name, sublabel: `${s.quantity} on hand` })),
@@ -90,18 +90,18 @@ export default function MoveStockModal({
     }
 
     const itemId = selectedItem.id;
-    const stockRow = stock.find(s => s.item_id === itemId);
-    const onHand = stockRow?.quantity ?? 0;
+    // Read on-hand quantity live to avoid using a stale snapshot from mount time.
+    const currentOnHand = getStockQuantity(itemId, fromLocationId);
 
-    if (qty > onHand) {
-      Alert.alert('Not enough stock', `Only ${onHand} on hand at this location.`);
+    if (qty > currentOnHand) {
+      Alert.alert('Not enough stock', `Only ${currentOnHand} on hand at this location.`);
       return;
     }
 
     // Read the destination's current qty BEFORE adjustment so we can compute
     // the intended absolute values for the outbox payloads.
     const destCurrentQty = getStockQuantity(itemId, destLoc.id);
-    const intendedFromQty = Math.max(0, onHand - qty);
+    const intendedFromQty = Math.max(0, currentOnHand - qty);
     const intendedToQty = destCurrentQty + qty;
 
     const now = new Date().toISOString();
