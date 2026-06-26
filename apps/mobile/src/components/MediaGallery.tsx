@@ -4,6 +4,10 @@ import {
   Dimensions, Alert, ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+// SDK 54+ moved uploadAsync to the /legacy entry point. BINARY_CONTENT streams
+// the file straight to the presigned URL natively — avoids RN's "creating blobs
+// from ArrayBuffer is not supported" error that fetch(uri).blob() + PUT hits.
+import * as FileSystem from 'expo-file-system/legacy';
 import { useSession } from '../hooks/useSession';
 import { getDb } from '../db/schema';
 import { appendOutbox } from '../sync/outbox';
@@ -88,16 +92,17 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
         uploadUrl: string; publicUrl: string; contentType: string;
       };
 
-      // Upload directly to MinIO. The Content-Type MUST equal the value the
-      // server signed (contentType), or MinIO rejects with SignatureDoesNotMatch.
-      const fileRes = await fetch(localUri);
-      const blob = await fileRes.blob();
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'PUT',
+      // Upload directly to MinIO by streaming the file from disk (no JS Blob).
+      // The Content-Type MUST equal the value the server signed (contentType),
+      // or MinIO rejects with SignatureDoesNotMatch.
+      const uploadRes = await FileSystem.uploadAsync(uploadUrl, localUri, {
+        httpMethod: 'PUT',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: { 'Content-Type': contentType },
-        body: blob,
       });
-      if (!uploadRes.ok) throw new Error(`Upload failed (${uploadRes.status}).`);
+      if (uploadRes.status < 200 || uploadRes.status >= 300) {
+        throw new Error(`Upload failed (${uploadRes.status}).`);
+      }
 
       // First image for an entity becomes its primary photo. Read fresh from the
       // DB (not the stale `media` closure) so concurrent adds don't both claim it.
