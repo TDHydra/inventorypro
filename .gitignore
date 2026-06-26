@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Expo / React Native native projects (regenerated via `expo prebuild`)
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/.expo/
+
+# Build output
+apps/api/dist/
+
+# Large artifacts (image tarballs are shipped out-of-band)
+*.tar.gz
+
+# Env files (keep the *.example ones)
+**/.env
+**/.env.local
+**/.env.prod
+
+# Logs / OS cruft
+*.log
+.DS_Store

@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "InventoryPro",
+    "slug": "inventorypro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "inventorypro",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.inventorypro.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "InventoryPro uses the camera to scan barcodes on inventory items.",
+        "NSPhotoLibraryUsageDescription": "InventoryPro accesses your photo library to attach images to inventory items and jobs.",
+        "NSMicrophoneUsageDescription": "InventoryPro may use the microphone when recording video for job documentation."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1E3A5F",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.inventorypro.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "InventoryPro uses the camera to scan barcodes on inventory items."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "InventoryPro accesses your photos to attach images to inventory items and jobs.",
+          "cameraPermission": "InventoryPro uses the camera to take photos of inventory and job sites."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "InventoryPro uses Face ID to let you securely unlock the app without re-entering your PIN."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d4244438-0520-46c3-9ad1-fd5da43f7f86"
+      }
+    },
+    "owner": "tdhydra"
+  }
+}
