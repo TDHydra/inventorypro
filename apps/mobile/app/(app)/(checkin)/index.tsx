@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Alert, Modal, TextInput,
+  StyleSheet, Alert, Modal, TextInput, ScrollView,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -101,7 +101,7 @@ export default function CheckinScreen() {
     const now = new Date().toISOString();
 
     for (const item of toReturn) {
-      const returnQty = parseFloat(returnQtys[item.log_id]);
+      const returnQty = parseFloat(returnQtys[item.log_id] ?? '');
 
       adjustStock(item.entity_id, returnLocation.id, returnQty);
 
@@ -199,36 +199,38 @@ export default function CheckinScreen() {
             <View style={s.modal}>
               <Text style={s.modalTitle}>Return to Location</Text>
 
-              <SearchablePicker
-                placeholder="Search destination location..."
-                options={locationOptions}
-                value={returnLocation}
-                onSelect={(opt) => {
-                  // If same option tapped again (via "Change"), clear to allow re-picking
-                  if (returnLocation && returnLocation.id === opt.id) {
-                    setReturnLocation(null);
-                  } else {
-                    setReturnLocation(opt);
-                  }
-                }}
-              />
+              <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                <SearchablePicker
+                  placeholder="Search destination location..."
+                  options={locationOptions}
+                  value={returnLocation}
+                  onSelect={(opt) => {
+                    // If same option tapped again (via "Change"), clear to allow re-picking
+                    if (returnLocation && returnLocation.id === opt.id) {
+                      setReturnLocation(null);
+                    } else {
+                      setReturnLocation(opt);
+                    }
+                  }}
+                />
 
-              {/* Per-item return quantity inputs */}
-              {checkouts.filter(c => selected.has(c.log_id)).map(item => (
-                <View key={item.log_id} style={s.qtyRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.qtyItemName}>{item.item_name}</Text>
-                    <Text style={s.qtyMax}>max {formatQuantity(item.quantity, item.unit, item.unit_category as any)}</Text>
+                {/* Per-item return quantity inputs */}
+                {checkouts.filter(c => selected.has(c.log_id)).map(item => (
+                  <View key={item.log_id} style={s.qtyRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.qtyItemName}>{item.item_name}</Text>
+                      <Text style={s.qtyMax}>max {formatQuantity(item.quantity, item.unit, item.unit_category as any)}</Text>
+                    </View>
+                    <TextInput
+                      style={s.qtyInput}
+                      keyboardType="decimal-pad"
+                      value={returnQtys[item.log_id] ?? String(item.quantity)}
+                      onChangeText={(v) => setReturnQtys(prev => ({ ...prev, [item.log_id]: v }))}
+                      selectTextOnFocus
+                    />
                   </View>
-                  <TextInput
-                    style={s.qtyInput}
-                    keyboardType="decimal-pad"
-                    value={returnQtys[item.log_id] ?? String(item.quantity)}
-                    onChangeText={(v) => setReturnQtys(prev => ({ ...prev, [item.log_id]: v }))}
-                    selectTextOnFocus
-                  />
-                </View>
-              ))}
+                ))}
+              </ScrollView>
 
               <TouchableOpacity
                 style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
