@@ -107,11 +107,11 @@ export function updateJobFields(
   fields: {
     name?: string;
     status?: string;
-    job_number?: string;
-    customer_name?: string;
-    site_address?: string;
-    site_location_id?: string;
-    description?: string;
+    job_number?: string | null;
+    customer_name?: string | null;
+    site_address?: string | null;
+    site_location_id?: string | null;
+    description?: string | null;
   }
 ): void {
   const db = getDb();
