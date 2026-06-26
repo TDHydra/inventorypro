@@ -188,13 +188,16 @@ export function getStockQuantity(itemId: string, locationId: string): number {
 export function adjustStock(itemId: string, locationId: string, delta: number): void {
   const db = getDb();
   const now = new Date().toISOString();
+  // New row: clamp a negative delta up to 0. Existing row: add the RAW delta
+  // (not excluded.quantity, which is the already-clamped insert value — using
+  // it made negative deltas a silent no-op), clamped at 0.
   db.executeSync(
     `INSERT INTO stock_by_location (item_id, location_id, quantity, updated_at)
      VALUES (?, ?, MAX(0, ?), ?)
      ON CONFLICT(item_id, location_id) DO UPDATE SET
-       quantity = MAX(0, quantity + excluded.quantity - ?),
+       quantity = MAX(0, quantity + ?),
        updated_at = excluded.updated_at`,
-    [itemId, locationId, delta, now, 0]
+    [itemId, locationId, delta, now, delta]
   );
 }
 
