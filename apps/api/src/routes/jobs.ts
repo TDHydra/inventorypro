@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { requirePermission } from '../lib/permissions';
 
 interface JobBody {
   name: string;
@@ -58,7 +59,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // POST /jobs — create (job_number is NOT supplied; trigger assigns it)
   fastify.post<{ Body: JobBody }>(
     '/', {
-      preHandler: auth,
+      preHandler: [...auth, requirePermission('create_jobs')],
       schema: {
         body: {
           type: 'object', required: ['name'],
@@ -87,7 +88,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /jobs/:id — update name/status/job_number/work-order fields
   fastify.patch<{ Params: { id: string }; Body: JobPatchBody }>(
-    '/:id', { preHandler: auth },
+    '/:id', { preHandler: [...auth, requirePermission('close_jobs')] },
     async (request, reply) => {
       const { name, status, job_number, customer_name, site_address, site_location_id, description } = request.body;
       const sets: string[] = [];

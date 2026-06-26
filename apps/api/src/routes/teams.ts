@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { requirePermission } from '../lib/permissions';
 
 interface TeamBody {
   name: string;
@@ -51,7 +52,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // POST /teams — create
   fastify.post<{ Body: TeamBody }>(
     '/', {
-      preHandler: auth,
+      preHandler: [...auth, requirePermission('manage_teams')],
       schema: {
         body: {
           type: 'object', required: ['name', 'type'],
@@ -75,7 +76,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /teams/:id
   fastify.patch<{ Params: { id: string }; Body: Partial<TeamBody> }>(
-    '/:id', { preHandler: auth },
+    '/:id', { preHandler: [...auth, requirePermission('manage_teams')] },
     async (request, reply) => {
       const { name, type, manager_id } = request.body;
       const sets: string[] = [];
@@ -97,7 +98,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // POST /teams/:id/members — add a member
   fastify.post<{ Params: { id: string }; Body: MemberBody }>(
     '/:id/members', {
-      preHandler: auth,
+      preHandler: [...auth, requirePermission('manage_teams')],
       schema: {
         body: {
           type: 'object', required: ['user_id'],
@@ -125,7 +126,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // DELETE /teams/:id/members/:uid
   fastify.delete<{ Params: { id: string; uid: string } }>(
-    '/:id/members/:uid', { preHandler: auth },
+    '/:id/members/:uid', { preHandler: [...auth, requirePermission('manage_teams')] },
     async (request) => {
       await fastify.pg.query(
         `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,

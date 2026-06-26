@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
+import { requirePermission } from '../lib/permissions';
 
 interface CreateUserBody {
   name: string;
@@ -45,7 +46,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // POST /users — create user. PIN is optional: when omitted, the user sets and
   // confirms their own PIN on first login (pin_set stays false).
   fastify.post<{ Body: CreateUserBody }>('/', {
-    ...auth,
+    preHandler: [(fastify as any).authenticate, requirePermission('manage_users')],
     schema: {
       body: {
         type: 'object',

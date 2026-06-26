@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { requirePermission } from '../lib/permissions';
 
 interface CreateItemBody {
   name: string;
@@ -99,7 +100,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /items — create catalog item
-  fastify.post<{ Body: CreateItemBody }>('/', auth, async (request, reply) => {
+  fastify.post<{ Body: CreateItemBody }>('/', {
+    preHandler: [(fastify as any).authenticate, requirePermission('add_inventory')],
+  }, async (request, reply) => {
     const {
       name, barcode, description, sku, supplier, model,
       kind = 'product', category, returnable = false,
@@ -121,7 +124,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /items/:id
   fastify.patch<{ Params: { id: string }; Body: UpdateItemBody }>(
-    '/:id', auth, async (request, reply) => {
+    '/:id', { preHandler: [(fastify as any).authenticate, requirePermission('edit_inventory')] },
+    async (request, reply) => {
       const fields = request.body;
       const allowed = ['name','barcode','description','sku','supplier','model','kind','category',
         'returnable','unit_category','unit','min_qty_alert','reorder_to','unit_tracked','tag_prefix','active'];
@@ -146,7 +150,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // POST /items/:id/stock — adjust stock at a location
   fastify.post<{ Params: { id: string }; Body: StockAdjustBody }>(
-    '/:id/stock', auth, async (request, reply) => {
+    '/:id/stock', { preHandler: [(fastify as any).authenticate, requirePermission('add_inventory')] },
+    async (request, reply) => {
       const { location_id, quantity } = request.body;
       const { rows } = await fastify.pg.query(
         `INSERT INTO stock_by_location (item_id, location_id, quantity)

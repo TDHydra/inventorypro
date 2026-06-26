@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { requirePermission } from '../lib/permissions';
 
 interface CreateLocationBody {
   name: string;
@@ -43,7 +44,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /locations
-  fastify.post<{ Body: CreateLocationBody }>('/', auth, async (request, reply) => {
+  fastify.post<{ Body: CreateLocationBody }>('/', {
+    preHandler: [(fastify as any).authenticate, requirePermission('manage_locations')],
+  }, async (request, reply) => {
     const { name, parent_id, color, icon } = request.body;
     const { rows } = await fastify.pg.query(
       `INSERT INTO locations (name, parent_id, color, icon)
@@ -56,7 +59,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /locations/:id
   fastify.patch<{ Params: { id: string }; Body: Partial<CreateLocationBody> }>(
-    '/:id', auth, async (request, reply) => {
+    '/:id', { preHandler: [(fastify as any).authenticate, requirePermission('manage_locations')] },
+    async (request, reply) => {
       const allowed = ['name', 'parent_id', 'color', 'icon'];
       const entries = Object.entries(request.body).filter(([k]) => allowed.includes(k));
       if (entries.length === 0) return reply.status(400).send({ error: 'No valid fields' });
