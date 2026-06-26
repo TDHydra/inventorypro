@@ -1,6 +1,12 @@
-import { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { useState, useMemo } from 'react';
+import {
+  View, Text, StyleSheet, Image, Modal, TouchableOpacity,
+  ScrollView, Dimensions,
+} from 'react-native';
 import { getLogForEntity, LogEntry } from '../db/queries/log';
+import { getPrimaryMedia, getMediaForEntity, MediaRecord } from '../db/queries/media';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ── Action icon map ───────────────────────────────────────────────────────────
 // Exported so W6 (logs screen) and any other consumer can reuse without
@@ -90,28 +96,68 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
     [entityType, entityId, limit],
   );
 
+  // Lightbox state: null = closed; MediaRecord[] = open showing those photos
+  const [lightbox, setLightbox] = useState<MediaRecord[] | null>(null);
+
   return (
     <View style={s.list}>
       {entries.length === 0 ? (
         <View style={s.empty}>
           <Text style={s.emptyText}>No activity yet</Text>
         </View>
-      ) : entries.map(r => (
-        <View key={r.id} style={s.row}>
-          <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
-          <View style={s.middle}>
-            <Text style={s.action}>{actionLabel(r.action)}</Text>
-            {r.user_name ? (
-              <Text style={s.user}>{r.user_name}</Text>
+      ) : entries.map(r => {
+        const photo = getPrimaryMedia('activity_log', r.id);
+        return (
+          <View key={r.id} style={s.row}>
+            <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
+            <View style={s.middle}>
+              <Text style={s.action}>{actionLabel(r.action)}</Text>
+              {r.user_name ? (
+                <Text style={s.user}>{r.user_name}</Text>
+              ) : null}
+              {r.quantity != null && r.unit ? (
+                <Text style={s.qty}>{r.quantity} {r.unit}</Text>
+              ) : null}
+              {r.note ? <Text style={s.note}>{r.note}</Text> : null}
+            </View>
+            <Text style={s.date}>{relativeDate(r.created_at)}</Text>
+            {photo ? (
+              <TouchableOpacity
+                onPress={() => setLightbox(getMediaForEntity('activity_log', r.id))}
+                style={s.thumbBtn}
+              >
+                <Image
+                  source={{ uri: photo.thumbnail_url ?? photo.url }}
+                  style={s.thumbImg}
+                />
+              </TouchableOpacity>
             ) : null}
-            {r.quantity != null && r.unit ? (
-              <Text style={s.qty}>{r.quantity} {r.unit}</Text>
-            ) : null}
-            {r.note ? <Text style={s.note}>{r.note}</Text> : null}
           </View>
-          <Text style={s.date}>{relativeDate(r.created_at)}</Text>
-        </View>
-      ))}
+        );
+      })}
+
+      {/* Lightbox — full-screen, tap anywhere to close; horizontal pager for multi-photo moves */}
+      <Modal visible={lightbox !== null} transparent animationType="fade">
+        <TouchableOpacity style={s.lightbox} onPress={() => setLightbox(null)} activeOpacity={1}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: SCREEN_WIDTH }}
+            contentContainerStyle={s.lightboxScroll}
+          >
+            {(lightbox ?? []).map((m, i) => (
+              <Image
+                key={i}
+                source={{ uri: m.url }}
+                style={[s.lightboxImg, { width: SCREEN_WIDTH }]}
+                resizeMode="contain"
+              />
+            ))}
+          </ScrollView>
+          <Text style={s.lightboxClose}>✕ Tap to close</Text>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -144,4 +190,15 @@ const s = StyleSheet.create({
   date: { fontSize: 11, color: '#94A3B8', paddingTop: 2 },
   empty: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, color: '#94A3B8' },
+  // Trailing thumbnail on rows that have a move photo
+  thumbBtn: { marginLeft: 4, alignSelf: 'center' },
+  thumbImg: { width: 36, height: 36, borderRadius: 6, backgroundColor: '#E2E8F0' },
+  // Lightbox overlay (mirrors MediaGallery lightbox pattern)
+  lightbox: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  lightboxScroll: { alignItems: 'center' },
+  lightboxImg: { height: '80%' },
+  lightboxClose: { color: '#fff', marginTop: 16, fontSize: 14 },
 });

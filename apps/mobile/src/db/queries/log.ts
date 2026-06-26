@@ -29,14 +29,17 @@ export interface LogEntry {
 export function appendLog(
   // Coords are Omitted from the base and re-added as optional so the existing
   // (non-move) call sites don't have to pass them; they default to null.
+  // id is optional: callers that supply it (e.g. the move-confirm flow re-using
+  // checkoutEventId) get a deterministic row id; omitting it auto-generates one.
   entry: Omit<LogEntry, 'id' | 'created_at' | 'synced_at' | 'latitude' | 'longitude' | 'location_accuracy'> & {
+    id?: string;
     latitude?: number | null;
     longitude?: number | null;
     location_accuracy?: number | null;
   },
 ): void {
   const db = getDb();
-  const id = generateUUID();
+  const id = entry.id ?? generateUUID();
   const created_at = new Date().toISOString();
   const latitude = entry.latitude ?? null;
   const longitude = entry.longitude ?? null;
