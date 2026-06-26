@@ -1,20 +1,34 @@
 import { useState, useMemo, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import {
+  View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator,
+} from 'react-native';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import {
   getLogForUser,
   getUnsyncedLogs,
-  getRecentLog,
-  getLogFiltered,
   LogEntry,
 } from '../../../src/db/queries/log';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { getValidJwt } from '../../../src/auth/session';
 
 // Local ACTION_ICONS removed — imported from ActivityFeed (single source of truth).
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+
+/** Shape of rows returned by GET /logs (server-side joins included). */
+interface ServerLogRow {
+  id: string;
+  action: string;
+  user_name: string | null;
+  quantity: number | null;
+  unit: string | null;
+  note: string | null;
+  created_at: string;
+}
 
 type Filter = 'mine' | 'unsynced' | 'all';
 
@@ -28,6 +42,11 @@ export default function LogsScreen() {
   const [filterAction, setFilterAction] = useState<PickerOption | null>(null);
   const [filterSince, setFilterSince] = useState('');
   const [filterUntil, setFilterUntil] = useState('');
+
+  // Server-fetch state for the All-Activity tab
+  const [serverLogs, setServerLogs] = useState<ServerLogRow[]>([]);
+  const [serverLoading, setServerLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   // User options for the user picker (only loaded when admin can see all activity)
   const userOptions = useMemo<PickerOption[]>(() => {
@@ -49,30 +68,68 @@ export default function LogsScreen() {
       ? filterUntil.trim() + 'T23:59:59.999Z'
       : undefined;
 
+  // Local logs for My Activity and Pending Sync tabs (offline-first, unchanged)
   const logs = useMemo<LogEntry[]>(() => {
     if (!user) return [];
-
-    if (filter === 'unsynced') {
-      return getUnsyncedLogs();
-    }
-
-    if (filter === 'all') {
-      const hasFilter = filterUser || filterAction || sinceVal || untilVal;
-      if (!hasFilter) return getRecentLog(100);
-      return getLogFiltered(
-        {
-          userId: filterUser?.id,
-          action: filterAction?.id,
-          sinceISO: sinceVal,
-          untilISO: untilVal,
-        },
-        200,
-      );
-    }
-
-    // Default: 'mine'
+    if (filter === 'unsynced') return getUnsyncedLogs();
+    // Default: 'mine' — filter === 'all' is handled by the server fetch below
     return getLogForUser(user.id, 50);
-  }, [user, filter, filterUser, filterAction, sinceVal, untilVal]);
+  }, [user, filter]);
+
+  // Server fetch for the All-Activity tab — re-runs whenever tab or filters change
+  useEffect(() => {
+    if (filter !== 'all') return;
+
+    let cancelled = false;
+    setServerLoading(true);
+    setServerError(null);
+    setServerLogs([]);
+
+    void (async () => {
+      try {
+        const jwt = await getValidJwt();
+        if (!jwt) {
+          if (!cancelled) {
+            setServerError('Connect to the server to view team activity.');
+            setServerLoading(false);
+          }
+          return;
+        }
+
+        const params = new URLSearchParams({ limit: '200' });
+        if (filterUser?.id) params.set('user_id', filterUser.id);
+        if (filterAction?.id) params.set('action', filterAction.id);
+        if (sinceVal) params.set('after', `${sinceVal}T00:00:00.000Z`);
+        if (untilVal) params.set('before', untilVal);
+
+        const res = await fetch(`${API_BASE}/logs?${params}`, {
+          headers: { Authorization: `Bearer ${jwt}` },
+        });
+
+        if (!res.ok) {
+          if (!cancelled) {
+            setServerError('Connect to the server to view team activity.');
+            setServerLoading(false);
+          }
+          return;
+        }
+
+        const data = await res.json() as { logs: ServerLogRow[] };
+        if (!cancelled) {
+          setServerLogs(data.logs);
+          setServerLoading(false);
+        }
+      } catch (err) {
+        void err;
+        if (!cancelled) {
+          setServerError('Connect to the server to view team activity.');
+          setServerLoading(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [filter, filterUser, filterAction, sinceVal, untilVal]);
 
   function clearAllFilters() {
     setFilterUser(null);
@@ -167,39 +224,77 @@ export default function LogsScreen() {
         )}
 
         {/* ── Log list ──────────────────────────────────────────────── */}
-        <FlatList<LogEntry>
-          data={logs}
-          keyExtractor={l => l.id}
-          contentContainerStyle={s.list}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item: log }) => (
-            <View style={s.row}>
-              <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
-              <View style={s.middle}>
-                <Text style={s.action}>{actionLabel(log.action)}</Text>
-                {/* Show user_name in All-Activity view so cross-user events are legible */}
-                {filter === 'all' && log.user_name ? (
-                  <Text style={s.user}>{log.user_name}</Text>
-                ) : null}
-                {log.quantity != null && log.unit && (
-                  <Text style={s.qty}>
-                    {log.quantity} {log.unit}
-                  </Text>
-                )}
-                {log.note ? <Text style={s.note}>{log.note}</Text> : null}
-              </View>
-              <View style={s.right}>
-                <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
-                {!log.synced_at && <Text style={s.pending}>↑ pending</Text>}
-              </View>
-            </View>
-          )}
-          ListEmptyComponent={
+        {filter === 'all' ? (
+          serverLoading ? (
             <View style={s.empty}>
-              <Text style={s.emptyText}>No log entries</Text>
+              <ActivityIndicator size="large" color="#2563EB" />
             </View>
-          }
-        />
+          ) : serverError ? (
+            <View style={s.empty}>
+              <Text style={s.emptyText}>{serverError}</Text>
+            </View>
+          ) : (
+            <FlatList<ServerLogRow>
+              data={serverLogs}
+              keyExtractor={l => l.id}
+              contentContainerStyle={s.list}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item: log }) => (
+                <View style={s.row}>
+                  <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
+                  <View style={s.middle}>
+                    <Text style={s.action}>{actionLabel(log.action)}</Text>
+                    {log.user_name ? <Text style={s.user}>{log.user_name}</Text> : null}
+                    {log.quantity != null && log.unit && (
+                      <Text style={s.qty}>
+                        {log.quantity} {log.unit}
+                      </Text>
+                    )}
+                    {log.note ? <Text style={s.note}>{log.note}</Text> : null}
+                  </View>
+                  <View style={s.right}>
+                    <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
+                  </View>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={s.empty}>
+                  <Text style={s.emptyText}>No activity</Text>
+                </View>
+              }
+            />
+          )
+        ) : (
+          <FlatList<LogEntry>
+            data={logs}
+            keyExtractor={l => l.id}
+            contentContainerStyle={s.list}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item: log }) => (
+              <View style={s.row}>
+                <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
+                <View style={s.middle}>
+                  <Text style={s.action}>{actionLabel(log.action)}</Text>
+                  {log.quantity != null && log.unit && (
+                    <Text style={s.qty}>
+                      {log.quantity} {log.unit}
+                    </Text>
+                  )}
+                  {log.note ? <Text style={s.note}>{log.note}</Text> : null}
+                </View>
+                <View style={s.right}>
+                  <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
+                  {!log.synced_at && <Text style={s.pending}>↑ pending</Text>}
+                </View>
+              </View>
+            )}
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyText}>No log entries</Text>
+              </View>
+            }
+          />
+        )}
       </View>
     </>
   );
