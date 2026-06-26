@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform,
+  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -24,9 +24,13 @@ export default function ItemDetailScreen() {
   const [stock, setStock] = useState<StockByLocation[]>(() => getStockByItem(id));
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
+  // Edit-mode state for new fields (outside the string-keyed form record)
+  const [editCategory, setEditCategory] = useState('');
+  const [editReturnable, setEditReturnable] = useState(false);
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
+  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
 
   const total = useMemo(() => stock.reduce((sum, st) => sum + st.quantity, 0), [stock]);
 
@@ -56,6 +60,8 @@ export default function ItemDetailScreen() {
       min_qty_alert: String(item.min_qty_alert ?? 0),
       reorder_to: item.reorder_to != null ? String(item.reorder_to) : '',
     });
+    setEditCategory(item.category ?? '');
+    setEditReturnable(item.returnable === 1);
     setEditing(true);
   }
 
@@ -71,9 +77,12 @@ export default function ItemDetailScreen() {
       supplier: form.supplier.trim() || null,
       min_qty_alert: parseFloat(form.min_qty_alert) || 0,
       reorder_to: form.reorder_to.trim() ? parseFloat(form.reorder_to) : null,
+      category: editCategory.trim() || null,
+      returnable: (editReturnable ? 1 : 0) as number,
     };
     const synced = updateItemFields(item.id, fields);
-    appendOutbox('UPDATE', 'inventory_items', synced);
+    // Outbox: send returnable as a real boolean (Postgres column is BOOLEAN)
+    appendOutbox('UPDATE', 'inventory_items', { ...synced, returnable: editReturnable });
     setEditing(false);
     reload();
   }
@@ -94,6 +103,20 @@ export default function ItemDetailScreen() {
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
               <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
               <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
+              <SuggestInput
+                label="Category"
+                value={editCategory}
+                onChange={setEditCategory}
+                suggestions={categoryOptions}
+                placeholder="Air Movers, Filters, Equipment Inventory…"
+              />
+              <View style={s.switchRow}>
+                <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
+                <Switch value={editReturnable} onValueChange={setEditReturnable} />
+              </View>
+              {item.kind === 'equipment' && (
+                <Text style={s.unitReadOnly}>Unit: each (piece) — fixed for equipment</Text>
+              )}
               <Field label="Low-stock alert" value={form.min_qty_alert} onChange={setField('min_qty_alert')} keyboardType="decimal-pad" />
               <Field label="Reorder up to" value={form.reorder_to} onChange={setField('reorder_to')} keyboardType="decimal-pad" />
 
@@ -122,13 +145,22 @@ export default function ItemDetailScreen() {
               </View>
 
               <View style={s.card}>
-                <Row k="Category" v={UNIT_CATEGORY_LABELS[cat]} />
+                {!!item.category && <Row k="Category" v={item.category} />}
+                <Row k="Unit Type" v={UNIT_CATEGORY_LABELS[cat]} />
                 <Row k="Unit" v={item.unit} />
                 <Row k="Barcode" v={item.barcode ?? '—'} />
                 <Row k="SKU / Part #" v={item.sku ?? '—'} />
                 <Row k="Supplier" v={item.supplier ?? '—'} />
                 <Row k="Low-stock alert" v={item.min_qty_alert > 0 ? String(item.min_qty_alert) : 'Off'} />
-                <Row k="Reorder up to" v={item.reorder_to != null ? String(item.reorder_to) : '—'} last />
+                <Row k="Reorder up to" v={item.reorder_to != null ? String(item.reorder_to) : '—'} />
+                <View style={[s.attrRow]}>
+                  <Text style={s.attrKey}>Returnable</Text>
+                  <View style={[s.badge, item.returnable ? s.badgeReturn : s.badgeConsume]}>
+                    <Text style={[s.badgeText, item.returnable ? s.badgeReturnText : s.badgeConsumeText]}>
+                      {item.returnable ? 'Returnable' : 'Consumed'}
+                    </Text>
+                  </View>
+                </View>
               </View>
 
               <Text style={s.sectionLabel}>Stock by location</Text>
@@ -229,4 +261,20 @@ const s = StyleSheet.create({
   btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#CBD5E1' },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
+  badge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeReturn: { backgroundColor: '#D1FAE5' },
+  badgeReturnText: { color: '#065F46', fontWeight: '700', fontSize: 13 },
+  badgeConsume: { backgroundColor: '#FEE2E2' },
+  badgeConsumeText: { color: '#991B1B', fontWeight: '700', fontSize: 13 },
+  badgeText: { fontSize: 13, fontWeight: '700' },
+  switchRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  switchLabel: { fontSize: 14, color: '#1E293B', flex: 1, marginRight: 12 },
+  unitReadOnly: {
+    fontSize: 13, color: '#64748B', fontStyle: 'italic',
+    paddingVertical: 4, paddingHorizontal: 4,
+  },
 });

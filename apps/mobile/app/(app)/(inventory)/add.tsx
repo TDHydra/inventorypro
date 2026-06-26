@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform,
+  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -45,8 +45,12 @@ export default function AddStockScreen() {
   const [kind, setKind] = useState<'product' | 'equipment'>('product');
   const [supplier, setSupplier] = useState('');
   const [model, setModel] = useState('');
-  const [category, setCategory] = useState<UnitCategory>('piece');
+  const [unitCat, setUnitCat] = useState<UnitCategory>('piece');
   const [unit, setUnit] = useState('each');
+  // Item catalog category (free-text, e.g. "Air Movers", "Filters")
+  const [category, setCategory] = useState('');
+  // Whether this item is expected back via Check In
+  const [returnable, setReturnable] = useState(false);
   const [minAlert, setMinAlert] = useState('0');
   const [reorderTo, setReorderTo] = useState('');
 
@@ -77,6 +81,7 @@ export default function AddStockScreen() {
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
+  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
 
   // ── Barcode autofill ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,6 +99,17 @@ export default function AddStockScreen() {
       setAutofillItem(null);
     }
   }, [barcode]);
+
+  // ── Kind change: lock units for equipment; set returnable default ─────────
+  useEffect(() => {
+    if (kind === 'equipment') {
+      setUnitCat('piece');
+      setUnit('each');
+      setReturnable(true);
+    } else {
+      setReturnable(false);
+    }
+  }, [kind]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function handleItemSelect(opt: PickerOption) {
@@ -133,7 +149,8 @@ export default function AddStockScreen() {
     setBarcode('');
     setName(''); setDescription(''); setKind('product');
     setSupplier(''); setModel('');
-    setCategory('piece'); setUnit('each');
+    setUnitCat('piece'); setUnit('each');
+    setCategory(''); setReturnable(false);
     setMinAlert('0'); setReorderTo('');
     setSelectedLocation(null);
     setQuantity('');
@@ -178,15 +195,16 @@ export default function AddStockScreen() {
         supplier: supplier.trim() || null,
         model: model.trim() || null,
         kind,
-        category: null as string | null,
-        returnable: 0 as number,
-        unit_category: category,
+        category: category.trim() || null,
+        returnable: (returnable ? 1 : 0) as number,
+        unit_category: unitCat,
         unit,
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
       };
       upsertItem({ ...payload, active: 1, updated_at: now, synced_at: null });
-      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now });
+      // Outbox: send returnable as a real boolean (Postgres column is BOOLEAN)
+      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable });
     }
 
     adjustStock(itemId, locationId, qty);
@@ -303,27 +321,46 @@ export default function AddStockScreen() {
                 placeholder="Color / Model (optional)"
               />
 
-              <Text style={s.label}>Units</Text>
-              {CATEGORIES.map(c => (
-                <TouchableOpacity
-                  key={c.value}
-                  style={[s.opt, category === c.value && s.optActive]}
-                  onPress={() => { setCategory(c.value); setUnit(UNIT_OPTIONS[c.value][0]); }}
-                >
-                  <Text style={[s.optText, category === c.value && s.optTextActive]}>{c.label}</Text>
-                </TouchableOpacity>
-              ))}
-              <View style={s.unitRow}>
-                {UNIT_OPTIONS[category].map(u => (
-                  <TouchableOpacity
-                    key={u}
-                    style={[s.chip, unit === u && s.chipActive]}
-                    onPress={() => setUnit(u)}
-                  >
-                    <Text style={[s.chipText, unit === u && s.chipTextActive]}>{u}</Text>
-                  </TouchableOpacity>
-                ))}
+              <SuggestInput
+                label="Category"
+                value={category}
+                onChange={setCategory}
+                suggestions={categoryOptions}
+                placeholder="Air Movers, Filters, Equipment Inventory…"
+              />
+
+              <View style={s.switchRow}>
+                <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
+                <Switch value={returnable} onValueChange={setReturnable} />
               </View>
+
+              <Text style={s.label}>Units</Text>
+              {kind === 'equipment' ? (
+                <Text style={s.unitReadOnly}>Unit: each (piece)</Text>
+              ) : (
+                <>
+                  {CATEGORIES.map(c => (
+                    <TouchableOpacity
+                      key={c.value}
+                      style={[s.opt, unitCat === c.value && s.optActive]}
+                      onPress={() => { setUnitCat(c.value); setUnit(UNIT_OPTIONS[c.value][0]); }}
+                    >
+                      <Text style={[s.optText, unitCat === c.value && s.optTextActive]}>{c.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <View style={s.unitRow}>
+                    {UNIT_OPTIONS[unitCat].map(u => (
+                      <TouchableOpacity
+                        key={u}
+                        style={[s.chip, unit === u && s.chipActive]}
+                        onPress={() => setUnit(u)}
+                      >
+                        <Text style={[s.chipText, unit === u && s.chipTextActive]}>{u}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
 
               <Text style={s.label}>Stock thresholds</Text>
               <TextInput
@@ -420,4 +457,14 @@ const s = StyleSheet.create({
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
   cancelText: { color: '#94A3B8' },
+  switchRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  switchLabel: { fontSize: 14, color: '#1E293B', flex: 1, marginRight: 12 },
+  unitReadOnly: {
+    fontSize: 14, color: '#475569', fontStyle: 'italic',
+    paddingVertical: 8, paddingHorizontal: 4,
+  },
 });
