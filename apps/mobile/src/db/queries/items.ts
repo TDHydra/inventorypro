@@ -8,6 +8,7 @@ export interface InventoryItem {
   sku: string | null;
   supplier: string | null;
   model: string | null;
+  kind: string; // 'product' | 'equipment'
   unit_category: string;
   unit: string;
   min_qty_alert: number;
@@ -102,11 +103,11 @@ export function upsertItem(item: InventoryItem): void {
   const db = getDb();
   db.executeSync(
     `INSERT OR REPLACE INTO inventory_items
-       (id, name, barcode, description, sku, supplier, model,
+       (id, name, barcode, description, sku, supplier, model, kind,
         unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
-     item.sku, item.supplier, item.model,
+     item.sku, item.supplier, item.model, item.kind,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
      item.active, item.updated_at, item.synced_at])
   );

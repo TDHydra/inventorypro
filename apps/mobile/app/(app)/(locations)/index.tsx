@@ -84,7 +84,7 @@ export default function LocationsScreen() {
       id, name: trimmed, parent_id: parentId,
       color, icon, updated_at: now,
     };
-    upsertLocation({ ...payload, synced_at: null });
+    upsertLocation({ ...payload, owner_user_id: null, synced_at: null });
     appendOutbox('INSERT', 'locations', payload);
     setTree(getLocationTree());
     if (parentId) setExpanded(prev => new Set(prev).add(parentId));

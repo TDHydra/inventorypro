@@ -6,6 +6,7 @@ export interface Location {
   parent_id: string | null;
   color: string | null;
   icon: string | null;
+  owner_user_id: string | null;
   updated_at: string;
   synced_at: string | null;
 }
@@ -62,9 +63,9 @@ export function getLocationById(id: string): Location | null {
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(
-    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([location.id, location.name, location.parent_id, location.color,
-     location.icon, location.updated_at, location.synced_at])
+     location.icon, location.owner_user_id, location.updated_at, location.synced_at])
   );
 }

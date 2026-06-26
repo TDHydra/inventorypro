@@ -85,7 +85,7 @@ export default function AddItemScreen() {
       min_qty_alert: minAlertNum,
       reorder_to: reorderNum,
     };
-    upsertItem({ ...payload, active: 1, updated_at: now, synced_at: null });
+    upsertItem({ ...payload, kind: 'product', active: 1, updated_at: now, synced_at: null });
     appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now });
     Alert.alert('Item Added', `${trimmed} added to catalog.`, [{ text: 'OK', onPress: () => router.back() }]);
   }
