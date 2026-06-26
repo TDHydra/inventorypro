@@ -120,7 +120,7 @@ export default function LogsScreen() {
           setServerLoading(false);
         }
       } catch (err) {
-        void err;
+        if (__DEV__) console.warn('[logs] all-activity fetch failed', err);
         if (!cancelled) {
           setServerError('Connect to the server to view team activity.');
           setServerLoading(false);

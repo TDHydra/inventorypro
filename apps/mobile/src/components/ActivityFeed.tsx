@@ -99,6 +99,17 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
   // Lightbox state: null = closed; MediaRecord[] = open showing those photos
   const [lightbox, setLightbox] = useState<MediaRecord[] | null>(null);
 
+  // Build a per-entry primary-media map once when entries change instead of
+  // calling getPrimaryMedia inside each row's render pass.
+  const mediaByRow = useMemo(() => {
+    const m: Record<string, MediaRecord> = {};
+    for (const r of entries) {
+      const p = getPrimaryMedia('activity_log', r.id);
+      if (p) m[r.id] = p;
+    }
+    return m;
+  }, [entries]);
+
   return (
     <View style={s.list}>
       {entries.length === 0 ? (
@@ -106,7 +117,7 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
           <Text style={s.emptyText}>No activity yet</Text>
         </View>
       ) : entries.map(r => {
-        const photo = getPrimaryMedia('activity_log', r.id);
+        const photo = mediaByRow[r.id];
         return (
           <View key={r.id} style={s.row}>
             <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
