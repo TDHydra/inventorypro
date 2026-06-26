@@ -87,7 +87,8 @@ async function loadMigrations(): Promise<Migration[]> {
   const { migration: m002 } = await import('./migrations/002_inventory_fields');
   const { migration: m003 } = await import('./migrations/003_user_pin_set');
   const { migration: m004 } = await import('./migrations/004_inventory_kind_location_owner');
-  return [m001, m002, m003, m004].sort((a, b) => a.version - b.version);
+  const { migration: m005 } = await import('./migrations/005_item_category_returnable');
+  return [m001, m002, m003, m004, m005].sort((a, b) => a.version - b.version);
 }
 
 // Type-safe cast helper — accepts any array (raw op-sqlite rows or pre-typed query results)

@@ -7,7 +7,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   role_settings: `INSERT OR REPLACE INTO role_settings (role, min_pin_length, updated_at) VALUES (?, ?, ?)`,
   users: `INSERT OR REPLACE INTO users (id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   locations: `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, updated_at) VALUES (?,?,?,?,?,?,?)`,
-  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, unit_category, unit, min_qty_alert, reorder_to, active, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, category, returnable, unit_category, unit, min_qty_alert, reorder_to, active, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   stock_by_location: `INSERT OR REPLACE INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES (?,?,?,?)`,
   jobs: `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
   teams: `INSERT OR REPLACE INTO teams (id, name, type, manager_id, updated_at) VALUES (?,?,?,?,?)`,
@@ -20,7 +20,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'role_settings': return [row.role, row.min_pin_length, row.updated_at];
     case 'users': return [row.id, row.name, row.role, row.pin_length_required, row.pin_set ? 1 : 0, JSON.stringify(row.permission_overrides ?? {}), row.active ? 1 : 0, row.expires_at ?? null, row.created_at, row.updated_at];
     case 'locations': return [row.id, row.name, row.parent_id ?? null, row.color ?? null, row.icon ?? null, row.owner_user_id ?? null, row.updated_at];
-    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at];
+    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.category ?? null, row.returnable ? 1 : 0, row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at];
     case 'stock_by_location': return [row.item_id, row.location_id, row.quantity, row.updated_at];
     case 'jobs': return [row.id, row.name, row.status, row.created_by ?? null, row.created_at, row.updated_at];
     case 'teams': return [row.id, row.name, row.type, row.manager_id ?? null, row.updated_at];
