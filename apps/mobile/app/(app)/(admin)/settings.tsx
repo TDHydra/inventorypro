@@ -7,6 +7,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
+import { getIdleTimeoutMinutes, setIdleTimeoutMinutes } from '../../../src/db/appSettings';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -38,19 +39,6 @@ function readSyncStatus(): { lastSync: string; pending: number } {
   }
 }
 
-function readIdleMinutes(): number {
-  try {
-    const rows = getDb().executeSync(
-      `SELECT value FROM app_settings WHERE key = 'idle_timeout_minutes'`
-    ).rows as { value: string }[];
-    if (!rows.length) return 0;
-    const parsed = parseInt(rows[0].value, 10);
-    return isNaN(parsed) ? 0 : parsed;
-  } catch {
-    return 0;
-  }
-}
-
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
@@ -67,7 +55,7 @@ export default function SettingsScreen() {
     const { lastSync: ls, pending: p } = readSyncStatus();
     setLastSync(ls);
     setPending(p);
-    setIdleMinutes(readIdleMinutes());
+    setIdleMinutes(getIdleTimeoutMinutes());
   }, []);
 
   // Re-read DB values every time the screen gains focus
@@ -91,10 +79,7 @@ export default function SettingsScreen() {
 
   const handleSetIdle = (mins: number) => {
     try {
-      getDb().executeSync(
-        `INSERT OR REPLACE INTO app_settings (key, value) VALUES ('idle_timeout_minutes', ?)`,
-        [String(mins)]
-      );
+      setIdleTimeoutMinutes(mins);
       setIdleMinutes(mins);
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to save idle timeout:', err);

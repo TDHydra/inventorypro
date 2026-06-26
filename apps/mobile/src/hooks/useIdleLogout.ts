@@ -1,19 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { getDb } from '../db/schema';
-
-function readIdleMinutes(): number {
-  try {
-    const rows = getDb().executeSync(
-      `SELECT value FROM app_settings WHERE key = 'idle_timeout_minutes'`
-    ).rows as { value: string }[];
-    if (!rows.length) return 0;
-    const parsed = parseInt(rows[0].value, 10);
-    return isNaN(parsed) ? 0 : parsed;
-  } catch {
-    return 0;
-  }
-}
+import { getIdleTimeoutMinutes } from '../db/appSettings';
 
 /**
  * Idle auto-logout hook.
@@ -43,7 +30,7 @@ export function useIdleLogout(logout: () => Promise<void>): { reset: () => void 
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    const mins = readIdleMinutes();
+    const mins = getIdleTimeoutMinutes();
     if (mins <= 0) return; // disabled
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -51,9 +38,7 @@ export function useIdleLogout(logout: () => Promise<void>): { reset: () => void 
     }, mins * 60_000);
   }, []);
 
-  const reset = useCallback(() => {
-    armTimer();
-  }, [armTimer]);
+  const reset = armTimer;
 
   useEffect(() => {
     // Arm on mount
