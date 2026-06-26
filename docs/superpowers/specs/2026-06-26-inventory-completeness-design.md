@@ -103,13 +103,20 @@ Postgres mirror in `apps/api/src/db/migrations/008_*.sql` (runner applies on boo
 ### FOUNDATION (Wave 0 — merges before feature waves)
 
 **F1 — Migration 008: job work-order fields**
-- `jobs` gains: `job_number TEXT`, `customer_name TEXT`, `site_address TEXT`,
-  `site_location_id` (FK locations, nullable), `priority TEXT` (`low|normal|high`, default `normal`),
-  `scheduled_start TEXT/ TIMESTAMPTZ`, `scheduled_end TEXT/TIMESTAMPTZ`, `description TEXT`.
+- `jobs` gains: `job_number TEXT` (nullable; auto-assigned when null — see below),
+  `customer_name TEXT`, `site_address TEXT`, `site_location_id` (FK locations, nullable),
+  `description TEXT`. (Schedule/priority intentionally **dropped** per user.)
+- **`job_number` auto-increment (offline-safe):** a device-side counter would collide across
+  offline devices, so the **server** is authoritative. Postgres: `CREATE SEQUENCE jobs_job_number_seq`
+  + a `BEFORE INSERT` trigger that sets `job_number = nextval(...)::text` **only when NULL**. This
+  fires for both `POST /jobs` and `sync/push` INSERTs. A user-typed value is kept verbatim.
+  The mobile create flow leaves it null by default and shows **"Pending #"** until the next
+  `sync/pull` returns the assigned number (jobs sync `SELECT *`, server-wins → populates locally;
+  the trigger sets it at insert time so the row's `updated_at` carries it into the pull window).
 - Files: `apps/mobile/src/db/migrations/008_job_workorder_fields.ts` (op-sqlite `ALTER TABLE jobs ADD COLUMN …`),
-  `apps/api/src/db/migrations/008_job_workorder_fields.sql` (Postgres `ALTER`), register m008 in `schema.ts`.
+  `apps/api/src/db/migrations/008_job_workorder_fields.sql` (Postgres `ALTER` + sequence + trigger),
+  register m008 in `schema.ts`.
 - Update `Job` interface + `upsertJob` + `updateJobFields` to carry new fields (still partial-update safe).
-- Postgres `priority` CHECK constraint; sqlite plain TEXT.
 
 **F2 — Server permission enforcement**
 - New `apps/api/src/lib/permissions.ts`: port `ROLE_DEFAULTS` + tier map from
@@ -210,7 +217,8 @@ rebuild APK.
 ## Verification
 - `tsc` clean across `apps/mobile` and `apps/api`.
 - Migration 008 applies cleanly on a fresh sqlite DB (schema v8 log) and on Postgres.
-- Manual: create job with work-order fields → appears in detail + logged; edit/archive logged.
+- Manual: create job with work-order fields, leave job_number blank → after sync it shows a
+  server-assigned sequential number (was "Pending #"); a typed job_number is preserved; edit/archive logged.
 - Location edit + unarchive + move-stock → stock math correct, transfer logged, both stock rows outboxed.
 - Unit retire + edit → status/fields change, history timeline shows it.
 - API guard: tier-1 JWT `POST /jobs` → 403; admin → 200 (curl against prod-like).
