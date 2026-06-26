@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, Modal, Alert, KeyboardAvoidingView, Platform,
@@ -17,6 +17,7 @@ import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
+import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 
 // The app has no icon font bundled (see logs/index.tsx) — locations render an
 // emoji. Map the Material-style names the seed used onto emoji so seeded rows
@@ -53,6 +54,18 @@ export default function LocationsScreen() {
   const [color, setColor] = useState(COLOR_OPTIONS[0]);
   const [icon, setIcon] = useState(ICON_OPTIONS[0]);
   const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null);
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+
+  const { coords: anchorCoords, status: anchorStatus, request: requestAnchor } = useCurrentPosition();
+
+  // Sync GPS coords into form state when a capture completes
+  useEffect(() => {
+    if (anchorCoords !== null) {
+      setLatitude(anchorCoords.latitude);
+      setLongitude(anchorCoords.longitude);
+    }
+  }, [anchorCoords]);
 
   const topLevel = useMemo<Location[]>(() => getTopLevelLocations(), [tree]);
 
@@ -87,6 +100,7 @@ export default function LocationsScreen() {
 
   function resetForm() {
     setName(''); setParentId(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]); setOwnerOption(null);
+    setLatitude(null); setLongitude(null);
   }
 
   function openCreate(presetParent: string | null = null) {
@@ -103,6 +117,8 @@ export default function LocationsScreen() {
       id, name: trimmed, parent_id: parentId,
       color, icon, updated_at: now, owner_user_id: ownerOption?.id ?? null,
       active: true,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
     };
     upsertLocation({ ...payload, active: 1, synced_at: null });
     appendOutbox('INSERT', 'locations', payload);
@@ -287,6 +303,31 @@ export default function LocationsScreen() {
                   }}
                 />
 
+                <Text style={s.label}>GPS Anchor</Text>
+                {anchorStatus === 'denied' ? (
+                  <Text style={s.anchorDenied}>
+                    Location permission off — you can still save without it.
+                  </Text>
+                ) : (
+                  <TouchableOpacity
+                    style={[s.anchorBtn, latitude !== null && s.anchorBtnSet]}
+                    onPress={requestAnchor}
+                    disabled={anchorStatus === 'loading'}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.anchorBtnText, latitude !== null && s.anchorBtnTextSet]}>
+                      {anchorStatus === 'loading'
+                        ? '📍 Getting location…'
+                        : latitude !== null
+                        ? '📍 Anchored ✓ · re-capture'
+                        : '📍 Use my current spot'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {latitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
+                  <Text style={s.anchorHint}>Not anchored</Text>
+                )}
+
                 <Text style={s.label}>Icon</Text>
                 <View style={s.iconGrid}>
                   {ICON_OPTIONS.map(ic => (
@@ -387,4 +428,10 @@ const s = StyleSheet.create({
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
   cancelText: { color: '#94A3B8' },
+  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: 10, paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: '#CBD5E1', alignItems: 'center' },
+  anchorBtnSet: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
+  anchorBtnText: { fontSize: 14, color: '#475569', fontWeight: '600' },
+  anchorBtnTextSet: { color: '#166534', fontWeight: '700' },
+  anchorHint: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginTop: 2 },
+  anchorDenied: { fontSize: 12, color: '#B45309', textAlign: 'center', paddingVertical: 8 },
 });
