@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -8,6 +8,7 @@ import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes } from '../../../src/db/appSettings';
+import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export default function SettingsScreen() {
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [idleMinutes, setIdleMinutes] = useState(0);
+  const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
 
   const refreshStatus = useCallback(() => {
     const { lastSync: ls, pending: p } = readSyncStatus();
@@ -62,6 +64,7 @@ export default function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       refreshStatus();
+      setMaintOn(isMaintenanceActive());
     }, [refreshStatus])
   );
 
@@ -172,6 +175,27 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+
+        {/* ── System (admin only) ──────────────────────────────────────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>System</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🔧 Maintenance mode</Text>
+                  <Text style={s.rowSub}>
+                    Locks the app to read-only for all non-admin users on every device once it syncs.
+                  </Text>
+                </View>
+                <Switch
+                  value={maintOn}
+                  onValueChange={(v) => { setMaintenanceMode(v); setMaintOn(v); }}
+                />
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* ── Developer Tools (admin only — keep from Phase 1) ─────────── */}
         {isAdmin && (
