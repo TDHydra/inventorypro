@@ -90,7 +90,6 @@ export default function StockQuickAdd({ onSaved }: Props) {
     // Clear item+qty; keep location sticky
     setSelectedItemOpt(null);
     setQty('');
-    setTimeout(() => qtyRef.current?.focus(), 100);
   }
 
   return (

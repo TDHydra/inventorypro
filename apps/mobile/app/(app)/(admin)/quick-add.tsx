@@ -47,7 +47,7 @@ export default function QuickAddScreen() {
   function onSaved(label: string) {
     setCounts(c => ({ ...c, [mode]: (c[mode] ?? 0) + 1 }));
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(`Added: ${label}`);
+    setToast(`Added ${label}`);
     toastTimer.current = setTimeout(() => setToast(null), 2000);
   }
 

@@ -115,6 +115,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
 
       <TextInput
         ref={tagRef}
+        autoFocus
         style={[s.input, !!tagError && s.inputError]}
         placeholder="Asset tag *"
         placeholderTextColor="#94A3B8"
