@@ -1,0 +1,57 @@
+# InventoryPro — Full Status
+
+*As of 2026-06-26 · branch `feat/inventory-completeness`*
+
+## ✅ Done
+
+**Core platform — live in prod (`api.plexcontrol.com`, migrations 001–007):**
+- Offline-first stack: Expo SDK 56 + op-sqlite (mobile) · Fastify + Postgres + MinIO (API) · Docker on Unraid
+- Sync engine: outbox push + pull-since-timestamp + first-launch full download
+- PIN auth + JWT, first-login set-PIN flow
+- Permissions: 13 roles, 4 tiers, 19 keys, resolution role default → team → user override (client-side)
+- Inventory: catalog items, stock-by-location, add/edit, barcode + USB scan, low-stock alerts
+- Locations: tree (parent/sub-areas), create modal, detail, archive (`active`), owner assignment
+- Jobs: list, detail (deployments/activity/photos), edit, archive
+- Equipment units (Phase 2a): asset-tag tracking, status, deploy/return, basic repair in/out — fully logged
+- Checkout/checkin: Job / Location / Production Manager destinations, multi-PM qty, unit + count flows
+- Universal media: `media` table, MediaGallery/Thumbnail, presigned S3 (`s3.plexcontrol.com`) working end-to-end
+- Admin: user list/create/edit, role + PIN management, permission overrides, role min-PIN
+- Standalone APK built + installed, in field use; Unraid SSH management skill
+
+**This session — Foundation wave (reviewed clean):**
+- **F1** — Migration 008: job work-order fields + server-assigned `job_number` (sequence + trigger) — `e18acc91` ✅ review clean
+- **F3** — Log queries (`getLogForEntity`/`getRecentLog`/`getLogFiltered`) + reusable `ActivityFeed` — `cc6406bb` ✅ review clean
+- **Sync 10 s fast-retry** (your request): immediate attempt → 10 s retry until outbox drains → 60 s heartbeat backstop — `b0e2ac9c` ✅
+- **F2** — Server-side permission guards on 12 write routes (jobs/locations/users/teams/items) — `26d6f25d` 🔍 in review
+- Spec + parallel plan committed
+
+## 🔄 Incomplete (queued this push)
+
+- **W1** — Jobs: dedicated create + edit screens, work-order fields in detail, `job_created/updated/archived` logging
+- **W2** — Locations: edit screen, unarchive/restore, **Move Stock** modal, activity feed, create/archive logging
+- **W3** — Equipment: unit **edit** + **retire** UI, repair/maintenance **history timeline**
+- **W4** — Users/Admin: logging on all admin mutations + add `view_financial_data` + `system_settings` to permission UI
+- **W5** — Teams: queries + roster/member-assignment/create screens (currently stubs) + team logging
+- **W6** — Logs UI: admin **All-Activity** view + date/user/action filters
+- **Integration pass:** `job_created` logging in checkout · app-wide tsc · whole-branch review · prod deploy of migration 008 + guards · APK rebuild
+
+## ➕ To be added (backlog — deferred)
+
+- Location-aware UX / multi-parent locations
+- Make checkout/checkin move-photos retrievable
+- Job batch ops; bulk user ops
+- Push notifications for low-stock / temp-employee expiry
+- Camera barcode-scan for asset tags (currently manual entry)
+- Label templates / auto-generated tags
+- Role-definition runtime editor
+- Server-side stock-quantity re-validation on push (multi-device race safety)
+- Postgres `synced_at` parity for `equipment_units`
+
+## ⭐ Extras (added beyond the original ask)
+
+- **Server-side permission enforcement** (F2) — makes the crew-can't-create-jobs gate real, not just UI
+- **Auto-incrementing job numbers** — offline-safe via Postgres sequence + trigger, "Pending #" until sync
+- **10-second fast-retry sync**
+- **Move Stock modal** (W2) — quick location→location transfer vs. the 4-step checkout wizard
+- **Per-unit maintenance history timeline** (W3)
+- **Reusable ActivityFeed** across location + item + unit detail
