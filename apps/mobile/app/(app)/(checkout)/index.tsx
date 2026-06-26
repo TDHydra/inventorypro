@@ -245,7 +245,7 @@ export default function CheckoutScreen() {
     const baseLog = {
       user_id: user.id,
       team_id: null as string | null,
-      entity_type: 'inventory_item',
+      entity_type: 'item',
       entity_id: itemId,
       unit: selectedItem.unit,
       device_id: null as string | null,
