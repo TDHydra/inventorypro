@@ -62,7 +62,7 @@ export default function DashboardScreen() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(locations)')}>
               <Text style={styles.tileIcon}>⇄</Text>
-              <Text style={styles.tileLabel}>Transfer Between Areas</Text>
+              <Text style={styles.tileLabel}>Manage Locations</Text>
             </TouchableOpacity>
             <PermissionGate permission="edit_inventory">
               <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(inventory)')}>
