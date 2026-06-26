@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
+  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch, Modal,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -14,11 +14,19 @@ import { UnitCategory, UNIT_CATEGORY_LABELS, formatQuantity } from '../../../src
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
+import { getAllLocations } from '../../../src/db/queries/locations';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { getUnitByTag, upsertUnit, getUnitsForItem, EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
+import { appendLog } from '../../../src/db/queries/log';
+import { useSession } from '../../../src/hooks/useSession';
+import { generateUUID } from '../../../src/utils/uuid';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
+  const canAddUnits = usePermission('add_inventory');
+  const { user } = useSession();
 
   const [item, setItem] = useState<InventoryItem | null>(() => getItemById(id));
   const [stock, setStock] = useState<StockByLocation[]>(() => getStockByItem(id));
@@ -34,11 +42,24 @@ export default function ItemDetailScreen() {
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
   const categoryOptions = useMemo(() => getDistinctValues('category'), []);
 
+  // Add Units modal state
+  const [addUnitsOpen, setAddUnitsOpen] = useState(false);
+  const [addUnitsLoc, setAddUnitsLoc] = useState<PickerOption | null>(null);
+  const [unitRows, setUnitRows] = useState<Array<{ tag: string; serial: string }>>([{ tag: '', serial: '' }]);
+  const [tagErrors, setTagErrors] = useState<Record<number, string>>({});
+  const [units, setUnits] = useState<EquipmentUnit[]>(() => getUnitsForItem(id));
+
+  const locationOptions = useMemo<PickerOption[]>(
+    () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
+    []
+  );
+
   const total = useMemo(() => stock.reduce((sum, st) => sum + st.quantity, 0), [stock]);
 
   const reload = useCallback(() => {
     setItem(getItemById(id));
     setStock(getStockByItem(id));
+    setUnits(getUnitsForItem(id));
   }, [id]);
 
   if (!item) {
@@ -94,6 +115,137 @@ export default function ItemDetailScreen() {
   }
 
   const setField = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  // ── Add Units modal helpers ──────────────────────────────────────────────
+  function openAddUnits() {
+    if (!item) return;
+    setAddUnitsLoc(null);
+    setUnitRows([{ tag: item.tag_prefix ?? '', serial: '' }]);
+    setTagErrors({});
+    setAddUnitsOpen(true);
+  }
+
+  function closeAddUnits() {
+    setAddUnitsOpen(false);
+  }
+
+  function checkTagError(
+    idx: number,
+    tag: string,
+    rows: Array<{ tag: string; serial: string }>,
+  ): string | undefined {
+    const t = tag.trim();
+    if (!t) return undefined;
+    const batchDup = rows.some((r, i) => i !== idx && r.tag.trim() === t);
+    if (batchDup) return 'Duplicate tag in this batch';
+    const existing = getUnitByTag(t);
+    if (existing) return 'Tag already registered';
+    return undefined;
+  }
+
+  function updateTag(idx: number, tag: string) {
+    const newRows = unitRows.map((r, i) => (i === idx ? { ...r, tag } : r));
+    setUnitRows(newRows);
+    const err = checkTagError(idx, tag, newRows);
+    setTagErrors(prev => {
+      const next = { ...prev };
+      if (err) next[idx] = err;
+      else delete next[idx];
+      return next;
+    });
+  }
+
+  function updateSerial(idx: number, serial: string) {
+    setUnitRows(rows => rows.map((r, i) => (i === idx ? { ...r, serial } : r)));
+  }
+
+  function addUnitRow() {
+    setUnitRows(rows => [...rows, { tag: item?.tag_prefix ?? '', serial: '' }]);
+  }
+
+  function saveUnits() {
+    if (!addUnitsLoc) {
+      Alert.alert('Required', 'Please select a location.');
+      return;
+    }
+    const filledRows = unitRows.filter(r => r.tag.trim());
+    if (filledRows.length === 0) {
+      Alert.alert('Required', 'Enter at least one asset tag.');
+      return;
+    }
+    // Re-validate all tags on save
+    const errors: Record<number, string> = {};
+    for (let i = 0; i < unitRows.length; i++) {
+      const t = unitRows[i].tag.trim();
+      if (!t) continue;
+      const err = checkTagError(i, t, unitRows);
+      if (err) errors[i] = err;
+    }
+    if (Object.keys(errors).length > 0) {
+      setTagErrors(errors);
+      Alert.alert('Duplicate Tags', 'Fix duplicate asset tags before saving.');
+      return;
+    }
+    if (!user || !item) return;
+
+    const locationId = addUnitsLoc.id;
+    const addedTags: string[] = [];
+
+    for (const row of unitRows) {
+      const t = row.tag.trim();
+      if (!t) continue;
+      const unitId = generateUUID();
+      const now = new Date().toISOString();
+      const unit: EquipmentUnit = {
+        id: unitId,
+        item_id: item.id,
+        asset_tag: t,
+        serial_number: row.serial.trim() || null,
+        status: 'available',
+        current_location_id: locationId,
+        current_job_id: null,
+        notes: null,
+        created_at: now,
+        updated_at: now,
+        synced_at: null,
+      };
+      upsertUnit(unit);
+      appendOutbox('INSERT', 'equipment_units', {
+        id: unitId,
+        item_id: item.id,
+        asset_tag: unit.asset_tag,
+        serial_number: unit.serial_number,
+        status: 'available',
+        current_location_id: locationId,
+        current_job_id: null,
+        notes: null,
+        created_at: now,
+        updated_at: now,
+        // synced_at intentionally omitted from outbox payload
+      });
+      addedTags.push(t);
+    }
+
+    appendLog({
+      user_id: user.id,
+      team_id: null,
+      action: 'add_units',
+      entity_type: 'item',
+      entity_id: item.id,
+      from_location_id: null,
+      to_location_id: locationId,
+      quantity: addedTags.length,
+      unit: null,
+      job_id: null,
+      note: 'units ' + addedTags.join(','),
+      metadata: null,
+      device_id: null,
+    });
+
+    closeAddUnits();
+    reload();
+  }
+
   const cat = item.unit_category as UnitCategory;
 
   return (
@@ -214,6 +366,34 @@ export default function ItemDetailScreen() {
                 )}
               </View>
 
+              {item.unit_tracked === 1 && (
+                <>
+                  <Text style={s.sectionLabel}>Registered Units</Text>
+                  <View style={s.card}>
+                    {units.length === 0 ? (
+                      <Text style={s.muted}>No units registered yet.</Text>
+                    ) : (
+                      units.map((u, i) => (
+                        <View key={u.id} style={[s.unitRow, i < units.length - 1 && s.divider]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.unitTag}>{u.asset_tag}</Text>
+                            {!!u.serial_number && <Text style={s.unitSerial}>S/N: {u.serial_number}</Text>}
+                          </View>
+                          <View style={[s.badge, s.badgeTracked]}>
+                            <Text style={[s.badgeText, s.badgeTrackedText]}>{u.status}</Text>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                  {canAddUnits && (
+                    <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={openAddUnits}>
+                      <Text style={s.btnPrimaryText}>+ Add Units</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+
               <Text style={s.sectionLabel}>Photos</Text>
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
 
@@ -226,6 +406,70 @@ export default function ItemDetailScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── Add Units Modal ────────────────────────────────────────────── */}
+      <Modal visible={addUnitsOpen} animationType="slide" onRequestClose={closeAddUnits}>
+        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Add Units — {item.name}</Text>
+              <TouchableOpacity onPress={closeAddUnits}>
+                <Text style={s.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={s.fieldLabel}>Location *</Text>
+            <SearchablePicker
+              placeholder="Search location…"
+              options={locationOptions}
+              value={addUnitsLoc}
+              onSelect={(opt) => {
+                if (addUnitsLoc !== null) setAddUnitsLoc(null);
+                else setAddUnitsLoc(opt);
+              }}
+            />
+
+            <Text style={[s.sectionLabel, { marginTop: 8 }]}>Unit Rows</Text>
+            {unitRows.map((row, i) => (
+              <View key={i} style={s.unitFormCard}>
+                <BarcodeInput
+                  label={`Asset Tag ${i + 1}`}
+                  value={row.tag}
+                  onChange={(v) => updateTag(i, v)}
+                  placeholder="Asset tag / barcode"
+                  note={tagErrors[i]}
+                  noteTone="warn"
+                />
+                <View style={{ marginTop: 10 }}>
+                  <Text style={s.fieldLabel}>Serial # (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={row.serial}
+                    onChangeText={(v) => updateSerial(i, v)}
+                    placeholder="Serial number"
+                    placeholderTextColor="#94A3B8"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+            ))}
+
+            <TouchableOpacity style={[s.btn, s.btnGhost, { marginTop: 4 }]} onPress={addUnitRow}>
+              <Text style={s.btnGhostText}>+ Add another</Text>
+            </TouchableOpacity>
+
+            <View style={s.row}>
+              <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={closeAddUnits}>
+                <Text style={s.btnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={saveUnits}>
+                <Text style={s.btnPrimaryText}>Save Units</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </>
   );
 }
@@ -310,5 +554,18 @@ const s = StyleSheet.create({
   unitReadOnly: {
     fontSize: 13, color: '#64748B', fontStyle: 'italic',
     paddingVertical: 4, paddingHorizontal: 4,
+  },
+  unitRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
+  unitTag: { fontSize: 15, color: '#1E293B', fontWeight: '600' },
+  unitSerial: { fontSize: 12, color: '#94A3B8', marginTop: 1 },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E3A5F', flex: 1, marginRight: 8 },
+  modalClose: { fontSize: 22, color: '#64748B', paddingHorizontal: 4 },
+  unitFormCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: '#EEF2F7', gap: 0,
   },
 });
