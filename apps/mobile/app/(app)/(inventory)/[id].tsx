@@ -285,7 +285,7 @@ export default function ItemDetailScreen() {
   function doRepairOut(unit: EquipmentUnit, note: string) {
     if (!user || !item) return;
     const updated = setUnitStatus(unit.id, { status: 'in_repair', notes: note.trim() || null });
-    appendOutbox('UPDATE', 'equipment_units', {
+    appendOutbox('INSERT', 'equipment_units', {
       id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
       serial_number: updated.serial_number, status: updated.status,
       current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
@@ -307,7 +307,7 @@ export default function ItemDetailScreen() {
   function doRepairIn(unit: EquipmentUnit, locationId: string) {
     if (!user || !item) return;
     const updated = setUnitStatus(unit.id, { status: 'available', current_location_id: locationId, notes: null });
-    appendOutbox('UPDATE', 'equipment_units', {
+    appendOutbox('INSERT', 'equipment_units', {
       id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
       serial_number: updated.serial_number, status: updated.status,
       current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
@@ -576,8 +576,7 @@ export default function ItemDetailScreen() {
               options={locationOptions}
               value={repairInLoc}
               onSelect={(opt) => {
-                if (repairInLoc !== null) setRepairInLoc(null);
-                else setRepairInLoc(opt);
+                setRepairInLoc(prev => (prev?.id === opt.id ? null : opt));
               }}
             />
             <View style={[s.row, { marginTop: 16 }]}>
