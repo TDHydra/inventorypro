@@ -4,6 +4,8 @@ import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../src/hooks/useSession';
 import { SyncIndicator } from '../../src/components/SyncIndicator';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
+import { setMaintenanceRole } from '../../src/db/maintenance';
+import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 
 export default function AppLayout() {
   const { user, logout } = useSession();
@@ -11,12 +13,18 @@ export default function AppLayout() {
 
   // Idle auto-logout — must be called before any early return (React rules)
   const { reset } = useIdleLogout(logout);
+  const maint = useMaintenanceMode();
 
   // Guard — redirect to login if no session
   useEffect(() => {
     if (!user) {
       router.replace('/(auth)/login');
     }
+  }, [user]);
+
+  // Keep the write-layer exempt flag in sync with the current session user
+  useEffect(() => {
+    setMaintenanceRole(user?.role ?? null);
   }, [user]);
 
   if (!user) return null;
@@ -31,6 +39,16 @@ export default function AppLayout() {
         return false;
       }}
     >
+      {maint.locked && (
+        <View style={styles.banLocked}>
+          <Text style={styles.banLockedText}>⚠ System under maintenance — read-only</Text>
+        </View>
+      )}
+      {maint.active && !maint.locked && (
+        <View style={styles.banAdmin}>
+          <Text style={styles.banAdminText}>Maintenance mode is ON — you have admin override</Text>
+        </View>
+      )}
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: '#1E3A5F' },
@@ -62,4 +80,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   switchText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  banLocked: { backgroundColor: '#B45309', paddingVertical: 8, paddingHorizontal: 12 },
+  banLockedText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
+  banAdmin: { backgroundColor: '#374151', paddingVertical: 6, paddingHorizontal: 12 },
+  banAdminText: { color: '#E5E7EB', fontSize: 12, textAlign: 'center' },
 });
