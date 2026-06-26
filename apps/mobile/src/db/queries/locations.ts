@@ -65,7 +65,7 @@ export function getLocationById(id: string): Location | null {
 export function getLocationsByOwner(ownerUserId: string): Location[] {
   const db = getDb();
   const result = db.executeSync(
-    `SELECT * FROM locations WHERE owner_user_id = ? ORDER BY name`,
+    `SELECT * FROM locations WHERE owner_user_id = ? AND active = 1 ORDER BY name`,
     [ownerUserId]
   );
   return rowsAs<Location>(result.rows);
@@ -85,7 +85,7 @@ export function getStockAtLocation(locationId: string): StockAtLocation[] {
     `SELECT s.item_id, s.location_id, s.quantity, s.updated_at, i.name
      FROM stock_by_location s
      JOIN inventory_items i ON i.id = s.item_id
-     WHERE s.location_id = ? AND s.quantity > 0
+     WHERE s.location_id = ? AND i.active = 1 AND s.quantity > 0
      ORDER BY i.name`,
     [locationId]
   );
