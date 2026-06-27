@@ -12,8 +12,12 @@ import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { colors, spacing, radii, fontSizes } from '../../theme';
+import { PrimaryButton } from '../ui/PrimaryButton';
+import { FieldLabel } from '../ui/FieldLabel';
+import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 
-const DEFAULT_COLOR = '#1E3A5F';
+const DEFAULT_COLOR = colors.brand;
 const DEFAULT_ICON = '📦';
 
 interface Props {
@@ -94,7 +98,7 @@ export default function LocationQuickAdd({ onSaved }: Props) {
         ref={nameRef}
         style={[s.input, !!nameError && s.inputError]}
         placeholder="Location name *"
-        placeholderTextColor="#94A3B8"
+        placeholderTextColor={colors.textMuted}
         value={name}
         onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
         autoFocus
@@ -103,7 +107,7 @@ export default function LocationQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
-      <Text style={s.label}>Parent location (optional)</Text>
+      <FieldLabel>Parent location (optional)</FieldLabel>
       <SearchablePicker
         placeholder="Search parent locations..."
         options={parentOptions}
@@ -111,10 +115,13 @@ export default function LocationQuickAdd({ onSaved }: Props) {
         onSelect={opt => setParentOption(prev => prev?.id === opt.id ? null : opt)}
       />
 
-      <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
-        <Text style={s.btnText}>Save &amp; add another</Text>
-      </TouchableOpacity>
-      {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
+      <PrimaryButton
+        label="Save & add another"
+        onPress={handleSave}
+        disabled={locked}
+        style={{ marginTop: spacing.md }}
+      />
+      {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
         <Text style={s.doneBtnText}>Done</Text>
       </TouchableOpacity>
@@ -125,20 +132,11 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 const s = StyleSheet.create({
   container: { gap: 10 },
   input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
+    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
   },
-  inputError: { borderColor: '#EF4444' },
-  errorText: { fontSize: 12, color: '#EF4444', marginTop: -4 },
-  label: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4,
-  },
-  btn: {
-    backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 13,
-    alignItems: 'center', marginTop: 12,
-  },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  doneBtn: { alignItems: 'center', paddingVertical: 12 },
-  doneBtnText: { color: '#64748B', fontSize: 15, fontWeight: '600' },
+  inputError: { borderColor: colors.danger },
+  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
+  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 });

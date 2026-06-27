@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Platform,
+  View, Text, StyleSheet, Platform,
   KeyboardAvoidingView, ScrollView,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -9,6 +9,9 @@ import ItemQuickAdd from '../../../src/components/quickadd/ItemQuickAdd';
 import LocationQuickAdd from '../../../src/components/quickadd/LocationQuickAdd';
 import EquipmentQuickAdd from '../../../src/components/quickadd/EquipmentQuickAdd';
 import StockQuickAdd from '../../../src/components/quickadd/StockQuickAdd';
+import { colors, spacing, fontSizes } from '../../../src/theme';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 
 type Mode = 'item' | 'location' | 'equipment' | 'stock';
 
@@ -36,9 +39,7 @@ export default function QuickAddScreen() {
         <View style={s.gate}>
           <Text style={s.gateTitle}>Not authorized</Text>
           <Text style={s.gateSub}>This screen requires administrator access.</Text>
-          <TouchableOpacity style={s.gateBtn} onPress={() => router.back()}>
-            <Text style={s.gateBtnText}>Go back</Text>
-          </TouchableOpacity>
+          <PrimaryButton label="Go back" onPress={() => router.back()} style={{ paddingHorizontal: 24 }} />
         </View>
       </>
     );
@@ -70,13 +71,12 @@ export default function QuickAddScreen() {
         {/* 4-way segmented control */}
         <View style={s.segRow}>
           {MODES.map(m => (
-            <TouchableOpacity
+            <FilterChip
               key={m.key}
-              style={[s.seg, mode === m.key && s.segActive]}
+              label={m.label}
+              active={mode === m.key}
               onPress={() => setMode(m.key)}
-            >
-              <Text style={[s.segText, mode === m.key && s.segTextActive]}>{m.label}</Text>
-            </TouchableOpacity>
+            />
           ))}
         </View>
 
@@ -104,53 +104,38 @@ export default function QuickAddScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
 
   // Toast
   toast: {
-    backgroundColor: '#16A34A',
-    paddingHorizontal: 16,
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 10,
     alignItems: 'center',
   },
-  toastText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  toastText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
 
-  // Segmented control
+  // Segmented control row
   segRow: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    margin: 12,
-    borderRadius: 12,
-    padding: 4,
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    margin: spacing.md,
   },
-  seg: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  segActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
-  segText: { fontSize: 13, fontWeight: '600', color: '#64748B' },
-  segTextActive: { color: '#1D4ED8' },
 
   // Counter
-  counterRow: { paddingHorizontal: 16, paddingBottom: 6, alignItems: 'center' },
-  counterText: { fontSize: 12, color: '#16A34A', fontWeight: '700' },
+  counterRow: { paddingHorizontal: spacing.lg, paddingBottom: 6, alignItems: 'center' },
+  counterText: { fontSize: fontSizes.caption, color: colors.success, fontWeight: '700' },
 
   // Content scroll area
   scroll: { flex: 1 },
-  content: { padding: 16, paddingBottom: 48 },
+  content: { padding: spacing.lg, paddingBottom: 48 },
 
   // Permission gate
   gate: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 32, backgroundColor: '#F8FAFF',
+    padding: spacing.xxxl, backgroundColor: colors.background,
   },
-  gateTitle: { fontSize: 20, fontWeight: '700', color: '#1E293B', marginBottom: 8 },
-  gateSub: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 24 },
-  gateBtn: {
-    backgroundColor: '#2563EB', borderRadius: 12,
-    paddingHorizontal: 24, paddingVertical: 12,
-  },
-  gateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  gateTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
+  gateSub: { fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xxl },
 });

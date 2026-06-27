@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
@@ -14,6 +14,11 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { colors, spacing, fontSizes } from '../../theme';
+import { PrimaryButton } from '../ui/PrimaryButton';
+import { AppInput } from '../ui/AppInput';
+import { FieldLabel } from '../ui/FieldLabel';
+import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 
 interface Props {
   onSaved: (label: string) => void;
@@ -105,7 +110,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
 
   return (
     <View style={s.container}>
-      <Text style={s.label}>Item (unit-tracked)</Text>
+      <FieldLabel>Item (unit-tracked)</FieldLabel>
       <SearchablePicker
         placeholder="Search tracked items..."
         options={itemOptions}
@@ -124,22 +129,19 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       />
       {!!tagError && <Text style={s.errorText}>{tagError}</Text>}
 
-      <TextInput
-        style={s.input}
+      <AppInput
         placeholder="Serial number (optional)"
-        placeholderTextColor="#94A3B8"
         value={serial}
         onChangeText={setSerial}
       />
 
-      <TouchableOpacity
-        style={[s.btn, (!selectedItem || locked) && s.btnDisabled]}
+      <PrimaryButton
+        label="Save & add another"
         onPress={handleSave}
         disabled={!selectedItem || locked}
-      >
-        <Text style={s.btnText}>Save &amp; add another</Text>
-      </TouchableOpacity>
-      {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
+        style={{ marginTop: spacing.md }}
+      />
+      {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
         <Text style={s.doneBtnText}>Done</Text>
       </TouchableOpacity>
@@ -149,22 +151,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
 
 const s = StyleSheet.create({
   container: { gap: 10 },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
-  },
-  inputError: { borderColor: '#EF4444' },
-  errorText: { fontSize: 12, color: '#EF4444', marginTop: -4 },
-  label: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4,
-  },
-  btn: {
-    backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 13,
-    alignItems: 'center', marginTop: 12,
-  },
-  btnDisabled: { backgroundColor: '#93C5FD' },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  doneBtn: { alignItems: 'center', paddingVertical: 12 },
-  doneBtnText: { color: '#64748B', fontSize: 15, fontWeight: '600' },
+  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
+  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 });
