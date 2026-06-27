@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Modal, Alert, KeyboardAvoidingView, Platform,
+  Alert, RefreshControl, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -21,6 +21,15 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
+import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { TooltipHint } from '../../../src/components/TooltipHint';
+import { syncNow } from '../../../src/sync/engine';
 
 export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
@@ -50,6 +59,16 @@ export default function LocationsScreen() {
       setLongitude(anchorCoords.longitude);
     }
   }, [anchorCoords]);
+
+  // Pull-to-refresh
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await syncNow(); } catch { /* offline — local reload still runs */ }
+    setTree(getLocationTree());
+    setRefreshing(false);
+  }, [refreshing]);
 
   const topLevel = useMemo<Location[]>(() => getTopLevelLocations(), [tree]);
 
@@ -164,10 +183,22 @@ export default function LocationsScreen() {
           </View>
         )}
 
-        <ScrollView contentContainerStyle={s.list}>
+        <TooltipHint screenKey="locations" />
+
+        <ScrollView
+          contentContainerStyle={s.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+        >
           {tree.length === 0 && (
             <Text style={s.empty}>
-              No locations yet.{canManage ? ' Tap “+ New” to add your first warehouse, shop, or van.' : ''}
+              No locations yet.{canManage ? ' Tap "+ New" to add your first warehouse, shop, or van.' : ''}
             </Text>
           )}
 
@@ -235,189 +266,161 @@ export default function LocationsScreen() {
           })}
         </ScrollView>
 
-        {/* Create modal */}
-        <Modal visible={showCreate} animationType="slide" transparent>
-          <KeyboardAvoidingView
-            style={s.overlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <View style={s.modal}>
-              <Text style={s.modalTitle}>
-                {parentName ? `New sub-area in ${parentName}` : 'New location'}
-              </Text>
-              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
-                <TextInput
-                  style={s.input}
-                  placeholder="Location name *"
-                  placeholderTextColor="#94A3B8"
-                  value={name}
-                  onChangeText={setName}
-                  autoFocus
-                />
-                {!!dup && (
-                  <Text style={s.dupWarn}>⚠ "{dup.name}" already exists here</Text>
-                )}
+        {/* Create modal — onClose ONLY hides the sheet; inputs preserved on outside-tap dismiss.
+            Reset happens in: Clear button (resetForm) and successful submit (doCreate calls resetForm). */}
+        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <Text style={s.modalTitle}>
+              {parentName ? `New sub-area in ${parentName}` : 'New location'}
+            </Text>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+              <AppInput
+                placeholder="Location name *"
+                value={name}
+                onChangeText={setName}
+                autoFocus
+              />
+              {!!dup && (
+                <Text style={s.dupWarn}>⚠ "{dup.name}" already exists here</Text>
+              )}
 
-                <Text style={s.label}>Inside</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
-                  <TouchableOpacity
-                    style={[s.chip, parentId === null && s.chipActive]}
-                    onPress={() => setParentId(null)}
-                  >
-                    <Text style={[s.chipText, parentId === null && s.chipTextActive]}>Top level</Text>
-                  </TouchableOpacity>
-                  {topLevel.map(t => (
-                    <TouchableOpacity
-                      key={t.id}
-                      style={[s.chip, parentId === t.id && s.chipActive]}
-                      onPress={() => setParentId(t.id)}
-                    >
-                      <Text style={[s.chipText, parentId === t.id && s.chipTextActive]}>{t.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <Text style={s.label}>Belongs to (optional)</Text>
-                <SearchablePicker
-                  placeholder="Search people…"
-                  options={userOptions}
-                  value={ownerOption}
-                  onSelect={(opt) => {
-                    // Tapping "Change" re-passes current value — treat as clear
-                    setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
-                  }}
-                />
-
-                <Text style={s.label}>GPS Anchor</Text>
-                {anchorStatus === 'denied' ? (
-                  <Text style={s.anchorDenied}>
-                    Location permission off — you can still save without it.
-                  </Text>
-                ) : (
-                  <TouchableOpacity
-                    style={[s.anchorBtn, latitude !== null && s.anchorBtnSet]}
-                    onPress={requestAnchor}
-                    disabled={anchorStatus === 'loading'}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[s.anchorBtnText, latitude !== null && s.anchorBtnTextSet]}>
-                      {anchorStatus === 'loading'
-                        ? '📍 Getting location…'
-                        : latitude !== null
-                        ? '📍 Anchored ✓ · re-capture'
-                        : '📍 Use my current spot'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                {latitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
-                  <Text style={s.anchorHint}>Not anchored</Text>
-                )}
-
-                <Text style={s.label}>Icon</Text>
-                <View style={s.iconGrid}>
-                  {ICON_OPTIONS.map(ic => (
-                    <TouchableOpacity
-                      key={ic}
-                      style={[s.iconCell, icon === ic && s.iconCellActive]}
-                      onPress={() => setIcon(ic)}
-                    >
-                      <Text style={s.iconCellText}>{ic}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={s.label}>Color</Text>
-                <View style={s.colorRow}>
-                  {COLOR_OPTIONS.map(c => (
-                    <TouchableOpacity
-                      key={c}
-                      style={[s.colorCell, { backgroundColor: c }, color === c && s.colorCellActive]}
-                      onPress={() => setColor(c)}
-                    >
-                      {color === c && <Text style={s.colorCheck}>✓</Text>}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TouchableOpacity style={s.btn} onPress={handleSave} disabled={locked}>
-                  <Text style={s.btnText}>Add Location</Text>
-                </TouchableOpacity>
-                {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
-                <View style={s.secondaryRow}>
-                  <TouchableOpacity style={s.linkBtn} onPress={resetForm}>
-                    <Text style={s.linkText}>Clear</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.linkBtn} onPress={() => { setShowCreate(false); resetForm(); }}>
-                    <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
+              <FieldLabel>Inside</FieldLabel>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+                <FilterChip label="Top level" active={parentId === null} onPress={() => setParentId(null)} />
+                {topLevel.map(t => (
+                  <FilterChip key={t.id} label={t.name} active={parentId === t.id} onPress={() => setParentId(t.id)} />
+                ))}
               </ScrollView>
-            </View>
+
+              <FieldLabel>Belongs to (optional)</FieldLabel>
+              <SearchablePicker
+                placeholder="Search people…"
+                options={userOptions}
+                value={ownerOption}
+                onSelect={(opt) => {
+                  // Tapping "Change" re-passes current value — treat as clear
+                  setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
+                }}
+              />
+
+              <FieldLabel>GPS Anchor</FieldLabel>
+              {anchorStatus === 'denied' ? (
+                <Text style={s.anchorDenied}>
+                  Location permission off — you can still save without it.
+                </Text>
+              ) : (
+                <TouchableOpacity
+                  style={[s.anchorBtn, latitude !== null && s.anchorBtnSet]}
+                  onPress={requestAnchor}
+                  disabled={anchorStatus === 'loading'}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[s.anchorBtnText, latitude !== null && s.anchorBtnTextSet]}>
+                    {anchorStatus === 'loading'
+                      ? '📍 Getting location…'
+                      : latitude !== null
+                      ? '📍 Anchored ✓ · re-capture'
+                      : '📍 Use my current spot'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {latitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
+                <Text style={s.anchorHint}>Not anchored</Text>
+              )}
+
+              <FieldLabel>Icon</FieldLabel>
+              <View style={s.iconGrid}>
+                {ICON_OPTIONS.map(ic => (
+                  <TouchableOpacity
+                    key={ic}
+                    style={[s.iconCell, icon === ic && s.iconCellActive]}
+                    onPress={() => setIcon(ic)}
+                  >
+                    <Text style={s.iconCellText}>{ic}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <FieldLabel>Color</FieldLabel>
+              <View style={s.colorRow}>
+                {COLOR_OPTIONS.map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[s.colorCell, { backgroundColor: c }, color === c && s.colorCellActive]}
+                    onPress={() => setColor(c)}
+                  >
+                    {color === c && <Text style={s.colorCheck}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <PrimaryButton label="Add Location" onPress={handleSave} disabled={locked} style={{ marginTop: spacing.sm }} />
+              {locked && <MaintenanceBanner />}
+              <View style={s.secondaryRow}>
+                <TouchableOpacity style={s.linkBtn} onPress={resetForm}>
+                  <Text style={s.linkText}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.linkBtn} onPress={() => { setShowCreate(false); resetForm(); }}>
+                  <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </KeyboardAvoidingView>
-        </Modal>
+        </ModalSheet>
       </View>
     </>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
-  subtitle: { fontSize: 13, color: '#64748B', fontWeight: '600' },
-  addBtn: { backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  list: { padding: 16, paddingTop: 4, gap: 10, paddingBottom: 48 },
-  empty: { textAlign: 'center', color: '#94A3B8', fontSize: 15, marginTop: 48, paddingHorizontal: 24, lineHeight: 22 },
+  container: { flex: 1, backgroundColor: colors.background },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  subtitle: { fontSize: fontSizes.body2, color: colors.textSecondary, fontWeight: '600' },
+  addBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  addBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
+  list: { padding: spacing.lg, paddingTop: spacing.xs, gap: 10, paddingBottom: 48 },
+  empty: { textAlign: 'center', color: colors.textMuted, fontSize: fontSizes.md, marginTop: 48, paddingHorizontal: 24, lineHeight: 22 },
 
   group: { gap: 0 },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, padding: 12, gap: 12, borderWidth: 1, borderColor: '#E2E8F0' },
-  cardInner: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.md, gap: spacing.md, borderWidth: 1, borderColor: colors.border },
+  cardInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
   expandBtn: { paddingHorizontal: 4, paddingVertical: 4 },
-  swatch: { width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  swatch: { width: 42, height: 42, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   swatchIcon: { fontSize: 20 },
-  name: { fontSize: 16, fontWeight: '600', color: '#1E293B' },
-  meta: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  ownerMeta: { fontSize: 11, color: '#64748B', marginTop: 2 },
-  chevron: { fontSize: 18, color: '#94A3B8', paddingHorizontal: 4 },
+  name: { fontSize: fontSizes.base, fontWeight: '600', color: colors.textPrimary },
+  meta: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
+  ownerMeta: { fontSize: fontSizes.sm, color: colors.textSecondary, marginTop: 2 },
+  chevron: { fontSize: fontSizes.lg, color: colors.textMuted, paddingHorizontal: 4 },
 
-  children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: '#E2E8F0', gap: 6 },
+  children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
   childRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
-  childDot: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  childDot: { width: 28, height: 28, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
   childIcon: { fontSize: 14 },
-  childName: { fontSize: 14, color: '#475569', fontWeight: '500' },
-  childChevron: { fontSize: 16, color: '#CBD5E1', paddingHorizontal: 2 },
+  childName: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '500' },
+  childChevron: { fontSize: fontSizes.base, color: colors.textDisabled, paddingHorizontal: 2 },
   addSub: { paddingVertical: 6, paddingHorizontal: 2 },
-  addSubText: { color: '#2563EB', fontSize: 13, fontWeight: '600' },
+  addSubText: { color: colors.primary, fontSize: fontSizes.body2, fontWeight: '600' },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
-  modal: { backgroundColor: '#F8FAFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '88%' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E293B', marginBottom: 14 },
-  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B' },
-  dupWarn: { color: '#B45309', fontSize: 13, fontWeight: '600' },
-  label: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
-  chipRow: { gap: 8, paddingRight: 8 },
-  chip: { backgroundColor: '#F1F5F9', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  chipActive: { backgroundColor: '#DBEAFE' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextActive: { color: '#1D4ED8', fontWeight: '600' },
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  iconCell: { width: 46, height: 46, borderRadius: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center' },
-  iconCellActive: { borderColor: '#2563EB', backgroundColor: '#DBEAFE' },
+  // Modal content (overlay + sheet handled by ModalSheet primitive)
+  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
+  dupWarn: { color: colors.warning, fontSize: fontSizes.body2, fontWeight: '600' },
+  chipRow: { gap: spacing.sm, paddingRight: spacing.sm },
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
   iconCellText: { fontSize: 22 },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorCell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  colorCellActive: { borderColor: '#1E293B' },
-  colorCheck: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  btn: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8 },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: 8 },
-  linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
-  cancelText: { color: '#94A3B8' },
-  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: 10, paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: '#CBD5E1', alignItems: 'center' },
+  colorCellActive: { borderColor: colors.textPrimary },
+  colorCheck: { color: '#fff', fontWeight: '800', fontSize: fontSizes.base },
+  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: spacing.sm },
+  linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },
+  cancelText: { color: colors.textMuted },
+  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: radii.md, paddingVertical: 11, paddingHorizontal: spacing.base, borderWidth: 1, borderColor: colors.textDisabled, alignItems: 'center' },
   anchorBtnSet: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
-  anchorBtnText: { fontSize: 14, color: '#475569', fontWeight: '600' },
-  anchorBtnTextSet: { color: '#166534', fontWeight: '700' },
-  anchorHint: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginTop: 2 },
-  anchorDenied: { fontSize: 12, color: '#B45309', textAlign: 'center', paddingVertical: 8 },
+  anchorBtnText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
+  anchorBtnTextSet: { color: colors.success, fontWeight: '700' },
+  anchorHint: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
+  anchorDenied: { fontSize: fontSizes.caption, color: colors.warning, textAlign: 'center', paddingVertical: spacing.sm },
 });

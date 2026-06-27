@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
-  Modal, TextInput, KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -21,6 +21,12 @@ import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
+import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
 
 export default function LocationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -312,120 +318,106 @@ export default function LocationDetailScreen() {
 
       </ScrollView>
 
-      {/* ── Edit Modal ──────────────────────────────────────────────────────── */}
-      <Modal visible={showEdit} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          style={s.overlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>Edit Location</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
-              <TextInput
-                style={s.input}
-                placeholder="Location name *"
-                placeholderTextColor="#94A3B8"
-                value={editName}
-                onChangeText={setEditName}
-                autoFocus
-              />
+      {/* ── Edit Modal — onClose ONLY hides the sheet; edit inputs are preserved on
+          outside-tap dismiss. Form is re-populated on openEdit(); no explicit Clear exists. ── */}
+      <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <Text style={s.modalTitle}>Edit Location</Text>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+            <AppInput
+              placeholder="Location name *"
+              value={editName}
+              onChangeText={setEditName}
+              autoFocus
+            />
 
-              <Text style={s.label}>Inside</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={s.chipRow}
-              >
-                <TouchableOpacity
-                  style={[s.chip, editParentId === null && s.chipActive]}
-                  onPress={() => setEditParentId(null)}
-                >
-                  <Text style={[s.chipText, editParentId === null && s.chipTextActive]}>Top level</Text>
-                </TouchableOpacity>
-                {topLevel.filter(t => t.id !== id).map(t => (
-                  <TouchableOpacity
-                    key={t.id}
-                    style={[s.chip, editParentId === t.id && s.chipActive]}
-                    onPress={() => setEditParentId(t.id)}
-                  >
-                    <Text style={[s.chipText, editParentId === t.id && s.chipTextActive]}>{t.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={s.label}>Belongs to (optional)</Text>
-              <SearchablePicker
-                placeholder="Search people…"
-                options={userOptions}
-                value={editOwnerOption}
-                onSelect={(opt) => {
-                  setEditOwnerOption(prev => (prev?.id === opt.id ? null : opt));
-                }}
-              />
-
-              <Text style={s.label}>GPS Anchor</Text>
-              {anchorStatus === 'denied' ? (
-                <Text style={s.anchorDenied}>
-                  Location permission off — you can still save without it.
-                </Text>
-              ) : (
-                <TouchableOpacity
-                  style={[s.anchorBtn, editLatitude !== null && s.anchorBtnSet]}
-                  onPress={requestAnchor}
-                  disabled={anchorStatus === 'loading'}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.anchorBtnText, editLatitude !== null && s.anchorBtnTextSet]}>
-                    {anchorStatus === 'loading'
-                      ? '📍 Getting location…'
-                      : editLatitude !== null
-                      ? '📍 Anchored ✓ · re-capture'
-                      : '📍 Use my current spot'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {editLatitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
-                <Text style={s.anchorHint}>Not anchored</Text>
-              )}
-
-              <Text style={s.label}>Icon</Text>
-              <View style={s.iconGrid}>
-                {ICON_OPTIONS.map(ic => (
-                  <TouchableOpacity
-                    key={ic}
-                    style={[s.iconCell, editIcon === ic && s.iconCellActive]}
-                    onPress={() => setEditIcon(ic)}
-                  >
-                    <Text style={s.iconCellText}>{ic}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={s.label}>Color</Text>
-              <View style={s.colorRow}>
-                {COLOR_OPTIONS.map(c => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[s.colorCell, { backgroundColor: c }, editColor === c && s.colorCellActive]}
-                    onPress={() => setEditColor(c)}
-                  >
-                    {editColor === c && <Text style={s.colorCheck}>✓</Text>}
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <TouchableOpacity style={s.saveBtn} onPress={doEdit}>
-                <Text style={s.saveBtnText}>Save Changes</Text>
-              </TouchableOpacity>
-              <View style={s.secondaryRow}>
-                <TouchableOpacity style={s.linkBtn} onPress={() => setShowEdit(false)}>
-                  <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
+            <FieldLabel>Inside</FieldLabel>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.chipRow}
+            >
+              <FilterChip label="Top level" active={editParentId === null} onPress={() => setEditParentId(null)} />
+              {topLevel.filter(t => t.id !== id).map(t => (
+                <FilterChip
+                  key={t.id}
+                  label={t.name}
+                  active={editParentId === t.id}
+                  onPress={() => setEditParentId(t.id)}
+                />
+              ))}
             </ScrollView>
-          </View>
+
+            <FieldLabel>Belongs to (optional)</FieldLabel>
+            <SearchablePicker
+              placeholder="Search people…"
+              options={userOptions}
+              value={editOwnerOption}
+              onSelect={(opt) => {
+                setEditOwnerOption(prev => (prev?.id === opt.id ? null : opt));
+              }}
+            />
+
+            <FieldLabel>GPS Anchor</FieldLabel>
+            {anchorStatus === 'denied' ? (
+              <Text style={s.anchorDenied}>
+                Location permission off — you can still save without it.
+              </Text>
+            ) : (
+              <TouchableOpacity
+                style={[s.anchorBtn, editLatitude !== null && s.anchorBtnSet]}
+                onPress={requestAnchor}
+                disabled={anchorStatus === 'loading'}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.anchorBtnText, editLatitude !== null && s.anchorBtnTextSet]}>
+                  {anchorStatus === 'loading'
+                    ? '📍 Getting location…'
+                    : editLatitude !== null
+                    ? '📍 Anchored ✓ · re-capture'
+                    : '📍 Use my current spot'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {editLatitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
+              <Text style={s.anchorHint}>Not anchored</Text>
+            )}
+
+            <FieldLabel>Icon</FieldLabel>
+            <View style={s.iconGrid}>
+              {ICON_OPTIONS.map(ic => (
+                <TouchableOpacity
+                  key={ic}
+                  style={[s.iconCell, editIcon === ic && s.iconCellActive]}
+                  onPress={() => setEditIcon(ic)}
+                >
+                  <Text style={s.iconCellText}>{ic}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <FieldLabel>Color</FieldLabel>
+            <View style={s.colorRow}>
+              {COLOR_OPTIONS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[s.colorCell, { backgroundColor: c }, editColor === c && s.colorCellActive]}
+                  onPress={() => setEditColor(c)}
+                >
+                  {editColor === c && <Text style={s.colorCheck}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <PrimaryButton label="Save Changes" onPress={doEdit} style={{ marginTop: spacing.sm }} />
+            <View style={s.secondaryRow}>
+              <TouchableOpacity style={s.linkBtn} onPress={() => setShowEdit(false)}>
+                <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
-      </Modal>
+      </ModalSheet>
 
       {/* ── Move Stock Modal ─────────────────────────────────────────────────── */}
       <MoveStockModal
@@ -443,91 +435,81 @@ export default function LocationDetailScreen() {
 }
 
 const s = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 48 },
+  content: { padding: spacing.lg, gap: spacing.md, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: '#94A3B8' },
+  muted: { fontSize: fontSizes.body, color: colors.textMuted },
 
   card: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 16,
-    borderWidth: 1, borderColor: '#EEF2F7',
+    backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg,
+    borderWidth: 1, borderColor: colors.borderDetail,
   },
 
   nameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  name: { fontSize: 22, fontWeight: '700', color: '#1E3A5F', flex: 1 },
-  editBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#EFF6FF', borderRadius: 8 },
-  editBtnText: { color: '#2563EB', fontWeight: '700', fontSize: 13 },
+  name: { fontSize: fontSizes.xl, fontWeight: '700', color: colors.brand, flex: 1 },
+  editBtn: { paddingHorizontal: spacing.md, paddingVertical: 6, backgroundColor: colors.primaryBg, borderRadius: radii.sm },
+  editBtnText: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body2 },
 
   attrRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 10,
   },
-  attrKey: { fontSize: 14, color: '#64748B' },
+  attrKey: { fontSize: fontSizes.body, color: colors.textSecondary },
   attrVal: {
-    fontSize: 14, color: '#1E293B', fontWeight: '600',
+    fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '600',
     maxWidth: '60%', textAlign: 'right',
   },
   divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
 
   sectionLabel: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
+    fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4,
   },
 
   stockRow: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', paddingVertical: 12,
+    justifyContent: 'space-between', paddingVertical: spacing.md,
   },
-  stockName: { fontSize: 15, color: '#1E293B', fontWeight: '500', flex: 1, marginRight: 8 },
-  stockQty: { fontSize: 15, fontWeight: '700', color: '#15803D' },
+  stockName: { fontSize: fontSizes.md, color: colors.textPrimary, fontWeight: '500', flex: 1, marginRight: spacing.sm },
+  stockQty: { fontSize: fontSizes.md, fontWeight: '700', color: colors.success },
 
   moveStockBtn: {
-    marginTop: 12, paddingVertical: 10, alignItems: 'center',
-    backgroundColor: '#EFF6FF', borderRadius: 10,
+    marginTop: spacing.md, paddingVertical: 10, alignItems: 'center',
+    backgroundColor: colors.primaryBg, borderRadius: radii.md,
   },
-  moveStockBtnText: { color: '#2563EB', fontWeight: '700', fontSize: 14 },
+  moveStockBtnText: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body },
 
-  btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8 },
-  btnDanger: { backgroundColor: '#FEE2E2' },
-  btnDangerText: { color: '#991B1B', fontWeight: '700', fontSize: 16 },
+  btn: { borderRadius: radii.lg, paddingVertical: 13, alignItems: 'center', marginTop: spacing.sm },
+  btnDanger: { backgroundColor: colors.dangerBg },
+  btnDangerText: { color: colors.danger, fontWeight: '700', fontSize: fontSizes.base },
   btnRestore: { backgroundColor: '#DCFCE7' },
-  btnRestoreText: { color: '#166534', fontWeight: '700', fontSize: 16 },
+  btnRestoreText: { color: colors.success, fontWeight: '700', fontSize: fontSizes.base },
 
   archivedBanner: {
-    backgroundColor: '#FEF3C7', borderRadius: 8,
+    backgroundColor: '#FEF3C7', borderRadius: radii.sm,
     paddingHorizontal: 10, paddingVertical: 4,
     marginBottom: 10, alignSelf: 'flex-start',
   },
-  archivedText: { color: '#92400E', fontWeight: '700', fontSize: 12 },
+  archivedText: { color: '#92400E', fontWeight: '700', fontSize: fontSizes.caption },
 
-  // ── Edit Modal ────────────────────────────────────────────────────────────
-  overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
-  modal: { backgroundColor: '#F8FAFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '88%' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E293B', marginBottom: 14 },
-  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B' },
-  label: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
-  chipRow: { gap: 8, paddingRight: 8 },
-  chip: { backgroundColor: '#F1F5F9', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  chipActive: { backgroundColor: '#DBEAFE' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextActive: { color: '#1D4ED8', fontWeight: '600' },
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  iconCell: { width: 46, height: 46, borderRadius: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center' },
-  iconCellActive: { borderColor: '#2563EB', backgroundColor: '#DBEAFE' },
+  // ── Edit Modal (overlay + sheet handled by ModalSheet primitive) ──────────
+  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
+  chipRow: { gap: spacing.sm, paddingRight: spacing.sm },
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
   iconCellText: { fontSize: 22 },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorCell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  colorCellActive: { borderColor: '#1E293B' },
-  colorCheck: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  saveBtn: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8 },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: 8 },
-  linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
-  cancelText: { color: '#94A3B8' },
-  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: 10, paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: '#CBD5E1', alignItems: 'center' },
+  colorCellActive: { borderColor: colors.textPrimary },
+  colorCheck: { color: '#fff', fontWeight: '800', fontSize: fontSizes.base },
+  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: spacing.sm },
+  linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },
+  cancelText: { color: colors.textMuted },
+  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: radii.md, paddingVertical: 11, paddingHorizontal: spacing.base, borderWidth: 1, borderColor: colors.textDisabled, alignItems: 'center' },
   anchorBtnSet: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
-  anchorBtnText: { fontSize: 14, color: '#475569', fontWeight: '600' },
-  anchorBtnTextSet: { color: '#166534', fontWeight: '700' },
-  anchorHint: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginTop: 2 },
-  anchorDenied: { fontSize: 12, color: '#B45309', textAlign: 'center', paddingVertical: 8 },
+  anchorBtnText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
+  anchorBtnTextSet: { color: colors.success, fontWeight: '700' },
+  anchorHint: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
+  anchorDenied: { fontSize: fontSizes.caption, color: colors.warning, textAlign: 'center', paddingVertical: spacing.sm },
 });
