@@ -54,11 +54,24 @@ Conventions that bind every program:
 - **Multi-parent / location-aware UX:** locations currently have a single `parent_id`; multi-parent is a real data-model change (join table) + UX — scope carefully, likely its own sub-spec.
 - **New deps:** react-native-maps (native). **Migration:** yes (multi-parent join). **Size:** Medium-Large.
 
-## P5 · Admin Power Tools
-**Items:** role-definition runtime editor · bulk user ops · job batch ops.
-- **Role-definition editor:** permissions are currently the compile-time `ROLE_DEFAULTS` constant; making them runtime-editable + synced is a significant change (a synced `role_permissions` store the resolver reads, admin matrix UI). Large.
-- **Bulk user / job ops:** multi-select + batch actions (deactivate, reassign, archive) on the user/job lists. Medium.
-- **New deps:** none. **Migration:** yes (role_permissions store). **Size:** Large (role editor) + Medium (bulk ops).
+## P5 · Roles, Permissions & Teams *(the admin control center — "really been lacking attention")*
+**Items:** dynamic roles & permissions editor · multi-manager teams + membership · cross-team activity visibility · bulk user ops · job batch ops.
+
+### 5a · Fully-dynamic Roles & Permissions page
+Today permission **assignment** is the compile-time `ROLE_DEFAULTS` constant; only per-user `permission_overrides` are runtime. Make assignment fully runtime-editable + synced so any feature can be turned on/off fast for any role/person, without a rebuild.
+- **Key decision (user):** permission **keys** stay hardcoded (new capabilities ship in code) — only their **on/off assignment per role** becomes dynamic. So: a synced `role_permissions(role, permission, allowed)` store that the resolver reads (falling back to `ROLE_DEFAULTS` for any key not yet in the store), behind the existing 3-level resolution (role default → team override → user override).
+- **UI:** a real **Roles & Permissions matrix** screen (admin/tier-4): roles × the ~19 permission keys, each a toggle; per-user override list (already partly exists) highlighting diffs from the role default. Synced via the migration checklist.
+- **Size:** Large. **Migration:** yes (`role_permissions`). Decompose: synced store + resolver change → matrix UI → per-user override polish.
+
+### 5b · Teams — multi-manager, membership, cross-team visibility
+- **Multiple managers per team (user):** `teams.manager_id` is single today → support **multi-select managers** (e.g. Frank *and* Todd both manage a team). Cleanest model: add `is_manager BOOLEAN` (or a `role` member/manager) to `team_members` so managers are members flagged as managers; migrate the existing single `manager_id`. Team edit screen gets a multi-select manager picker + a member picker (designate who's in the team).
+- **Cross-team activity visibility (user):** a manager (e.g. production manager) can see **what their team members do — for this team and for others**. Implement as an activity-log scope: "My team's activity" view that queries `activity_log` for the union of the manager's teams' members across all jobs/teams, gated by a `view_team_activity` permission (managed in 5a). Builds on the existing `getLogFiltered`.
+- **Size:** Medium-Large. **Migration:** yes (`team_members.is_manager`). Pairs naturally with 5a (the visibility permission lives in the dynamic permissions store).
+
+### 5c · Bulk ops
+- Multi-select + batch actions (deactivate, reassign, archive) on the user and job lists. Medium. No migration.
+
+**Note:** the user flagged this whole program as overdue ("really been lacking attention"). Sequence is currently P5-last, but **5a/5b are a candidate to pull forward** if roles/teams become the priority — say the word and I'll reorder.
 
 ---
 
