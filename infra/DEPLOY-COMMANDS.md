@@ -56,13 +56,13 @@ Migrations run automatically on API startup. You should see them apply, then
 ```ini
 POSTGRES_DB=inventorypro
 POSTGRES_USER=inventorypro
-POSTGRES_PASSWORD=***REMOVED***
+POSTGRES_PASSWORD=<secret — set in infra/.env on the server; never commit>
 
 MINIO_ROOT_USER=inventorypro
-MINIO_ROOT_PASSWORD=***REMOVED***
+MINIO_ROOT_PASSWORD=<secret — set in infra/.env on the server; never commit>
 MINIO_BUCKET=inventorypro-media
 
-JWT_SECRET=***REMOVED***
+JWT_SECRET=<secret — set in infra/.env on the server; never commit>
 
 MINIO_PUBLIC_ENDPOINT=https://s3.plexcontrol.com
 PUBLIC_MEDIA_URL=https://s3.plexcontrol.com/inventorypro-media
