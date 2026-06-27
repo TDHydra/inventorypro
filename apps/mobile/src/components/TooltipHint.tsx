@@ -6,39 +6,15 @@ import { HINTS } from '../constants/hints';
 import { useSession } from '../hooks/useSession';
 import { ROLE_TIER } from '../constants/roles';
 import type { UserRole } from '../constants/roles';
-import { getDb } from '../db/schema';
+import { getAppSetting, setAppSetting } from '../db/appSettings';
 
 interface Props {
   screenKey: string;
   style?: object;
+  onReady?: (reshow: () => void) => void;
 }
 
-function hintSeen(screenKey: string): boolean {
-  try {
-    const db = getDb();
-    const result = db.executeSync(
-      `SELECT value FROM app_settings WHERE key = ?`,
-      [`hint_seen_${screenKey}`]
-    );
-    return result.rows.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function markHintSeen(screenKey: string): void {
-  try {
-    const db = getDb();
-    db.executeSync(
-      `INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`,
-      [`hint_seen_${screenKey}`]
-    );
-  } catch {
-    // non-fatal
-  }
-}
-
-export function TooltipHint({ screenKey, style }: Props) {
+export function TooltipHint({ screenKey, style, onReady }: Props) {
   const { user } = useSession();
   const [visible, setVisible] = useState(false);
   const [opacity] = useState(new Animated.Value(0));
@@ -48,7 +24,7 @@ export function TooltipHint({ screenKey, style }: Props) {
 
   useEffect(() => {
     if (!hintText) return;
-    if (!hintSeen(screenKey)) {
+    if (getAppSetting(`hint_seen_${screenKey}`) !== '1') {
       setVisible(true);
       Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
       setTimeout(dismiss, 6000);
@@ -59,7 +35,7 @@ export function TooltipHint({ screenKey, style }: Props) {
     Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
       setVisible(false);
     });
-    markHintSeen(screenKey);
+    setAppSetting(`hint_seen_${screenKey}`, '1');
   }
 
   function reshowHint() {
@@ -68,6 +44,8 @@ export function TooltipHint({ screenKey, style }: Props) {
     Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     setTimeout(dismiss, 6000);
   }
+
+  useEffect(() => { onReady?.(reshowHint); }, []);
 
   if (!hintText) return null;
 

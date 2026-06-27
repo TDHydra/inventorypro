@@ -27,3 +27,17 @@ export function setIdleTimeoutMinutes(mins: number): void {
     [String(mins)]
   );
 }
+
+/** Reads any app_settings value, or null if unset. */
+export function getAppSetting(key: string): string | null {
+  try {
+    const rows = getDb().executeSync(`SELECT value FROM app_settings WHERE key = ?`, [key]).rows as { value: string }[];
+    return rows.length ? rows[0].value : null;
+  } catch {
+    return null;
+  }
+}
+/** Writes any app_settings value. */
+export function setAppSetting(key: string, value: string): void {
+  getDb().executeSync(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, [key, value]);
+}
