@@ -15,7 +15,8 @@ import { useSession } from '../../../src/hooks/useSession';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { TEAM_TYPES } from '../../../src/constants/teams';
+import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -43,6 +44,7 @@ export default function TeamDetailScreen() {
   const [newMemberOption, setNewMemberOption] = useState<PickerOption | null>(null);
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
+  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
@@ -222,7 +224,7 @@ export default function TeamDetailScreen() {
           <Text style={s.teamName}>{team.name}</Text>
           <View style={s.attrRow}>
             <Text style={s.attrKey}>Type</Text>
-            <Text style={s.attrVal}>{team.type}</Text>
+            <Text style={s.attrVal}>{(() => { const icon = getTypeIcon('team', team.type); return icon ? `${icon} ${team.type}` : team.type; })()}</Text>
           </View>
           {!!managerName && (
             <View style={[s.attrRow, s.divider]}>
@@ -298,12 +300,12 @@ export default function TeamDetailScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={s.chipRow}
             >
-              {TEAM_TYPES.map(t => (
+              {teamTypes.map(t => (
                 <FilterChip
-                  key={t}
-                  label={t}
-                  active={editType === t}
-                  onPress={() => setEditType(t)}
+                  key={t.label}
+                  label={`${renderIcon(t.icon)} ${t.label}`}
+                  active={editType === t.label}
+                  onPress={() => setEditType(t.label)}
                 />
               ))}
             </ScrollView>
