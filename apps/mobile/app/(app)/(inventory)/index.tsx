@@ -1,11 +1,16 @@
 import { useState, useCallback, useRef } from 'react';
 import {
   View, TextInput, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { searchItems } from '../../../src/db/queries/items';
 import { PermissionGate } from '../../../src/components/PermissionGate';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { TooltipHint } from '../../../src/components/TooltipHint';
+import { syncNow } from '../../../src/sync/engine';
+import { colors } from '../../../src/theme';
 
 interface Item {
   id: string;
@@ -32,6 +37,7 @@ export default function InventoryScreen() {
   const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback((q: string, cat: FilterCategory, newOffset: number, append = false) => {
@@ -70,6 +76,14 @@ export default function InventoryScreen() {
     router.push({ pathname: '/(app)/(checkout)', params: { itemId } });
   };
 
+  const onRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await syncNow(); } catch { /* offline — local reload still runs */ }
+    runSearch(query, filter, 0);
+    setRefreshing(false);
+  }, [refreshing, runSearch, query, filter]);
+
   return (
     <>
       <Stack.Screen options={{ title: 'Inventory', headerShown: true }} />
@@ -80,7 +94,7 @@ export default function InventoryScreen() {
             <TextInput
               style={styles.searchInput}
               placeholder="Search items or barcode..."
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.textMuted}
               value={query}
               onChangeText={handleSearch}
               autoCapitalize="none"
@@ -98,17 +112,16 @@ export default function InventoryScreen() {
 
         <View style={styles.filters}>
           {(Object.keys(FILTER_LABELS) as FilterCategory[]).map(cat => (
-            <TouchableOpacity
+            <FilterChip
               key={cat}
-              style={[styles.chip, filter === cat && styles.chipActive]}
+              label={FILTER_LABELS[cat]}
+              active={filter === cat}
               onPress={() => handleFilter(cat)}
-            >
-              <Text style={[styles.chipText, filter === cat && styles.chipTextActive]}>
-                {FILTER_LABELS[cat]}
-              </Text>
-            </TouchableOpacity>
+            />
           ))}
         </View>
+
+        <TooltipHint screenKey="inventory" />
 
         <FlatList
           data={items}
@@ -120,6 +133,14 @@ export default function InventoryScreen() {
           contentContainerStyle={styles.listContent}
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
           ListEmptyComponent={
             loading ? null : (
               <View style={styles.empty}>
@@ -138,7 +159,7 @@ export default function InventoryScreen() {
             )
           }
           ListFooterComponent={
-            loading ? <ActivityIndicator style={styles.loader} color="#2563EB" /> : null
+            loading ? <ActivityIndicator style={styles.loader} color={colors.primary} /> : null
           }
         />
 
@@ -156,37 +177,33 @@ export default function InventoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   searchRow: { flexDirection: 'row', gap: 10, padding: 12, paddingBottom: 6 },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#fff', borderRadius: 10,
-    borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, borderRadius: 10,
+    borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 12,
   },
   searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, height: 42, fontSize: 15, color: '#1E293B' },
+  searchInput: { flex: 1, height: 42, fontSize: 15, color: colors.textPrimary },
   scanBtn: {
-    width: 44, height: 44, backgroundColor: '#2563EB', borderRadius: 10,
+    width: 44, height: 44, backgroundColor: colors.primary, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center',
   },
   scanIcon: { fontSize: 20 },
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8, flexWrap: 'wrap' },
-  chip: { paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F1F5F9', borderRadius: 20 },
-  chipActive: { backgroundColor: '#DBEAFE' },
-  chipText: { fontSize: 13, color: '#64748B' },
-  chipTextActive: { color: '#1D4ED8', fontWeight: '600' },
   list: { flex: 1 },
   listContent: { padding: 12, paddingBottom: 80 },
   empty: { alignItems: 'center', marginTop: 60, gap: 16 },
-  emptyText: { fontSize: 15, color: '#94A3B8', textAlign: 'center' },
-  addItemBtn: { backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  emptyText: { fontSize: 15, color: colors.textMuted, textAlign: 'center' },
+  addItemBtn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
   addItemText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   loader: { padding: 20 },
   fab: {
     position: 'absolute', bottom: 24, right: 24,
     width: 54, height: 54, borderRadius: 27,
-    backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2, shadowRadius: 4, elevation: 5,
   },

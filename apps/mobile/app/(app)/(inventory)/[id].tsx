@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch, Modal,
+  View, Text, TouchableOpacity, StyleSheet,
+  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -22,6 +22,11 @@ import { useSession } from '../../../src/hooks/useSession';
 import { generateUUID } from '../../../src/utils/uuid';
 import { UnitRow } from '../../../src/components/UnitRow';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { colors } from '../../../src/theme';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { AppInput } from '../../../src/components/ui/AppInput';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -425,10 +430,8 @@ export default function ItemDetailScreen() {
                     <Switch value={editUnitTracked} onValueChange={setEditUnitTracked} />
                   </View>
                   {editUnitTracked && (
-                    <TextInput
-                      style={s.input}
+                    <AppInput
                       placeholder="Tag prefix (AM-, DH-, MSC-…)"
-                      placeholderTextColor="#94A3B8"
                       value={editTagPrefix}
                       onChangeText={setEditTagPrefix}
                       autoCapitalize="characters"
@@ -444,9 +447,7 @@ export default function ItemDetailScreen() {
                 <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setEditing(false)}>
                   <Text style={s.btnGhostText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={saveEdit}>
-                  <Text style={s.btnPrimaryText}>Save Changes</Text>
-                </TouchableOpacity>
+                <PrimaryButton label="Save Changes" onPress={saveEdit} style={{ flex: 1 }} />
               </View>
             </>
           ) : (
@@ -580,9 +581,7 @@ export default function ItemDetailScreen() {
                     )}
                   </View>
                   {canAddUnits && (
-                    <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={openAddUnits}>
-                      <Text style={s.btnPrimaryText}>+ Add Units</Text>
-                    </TouchableOpacity>
+                    <PrimaryButton label="+ Add Units" onPress={openAddUnits} />
                   )}
                 </>
               )}
@@ -591,9 +590,7 @@ export default function ItemDetailScreen() {
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
 
               {canEdit && (
-                <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={startEdit}>
-                  <Text style={s.btnPrimaryText}>Edit Item</Text>
-                </TouchableOpacity>
+                <PrimaryButton label="Edit Item" onPress={startEdit} />
               )}
             </>
           )}
@@ -601,57 +598,39 @@ export default function ItemDetailScreen() {
       </KeyboardAvoidingView>
 
       {/* ── Repair-Out Modal (note prompt) ─────────────────────────────── */}
-      <Modal
-        visible={repairOutUnit !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => { setRepairOutUnit(null); setRepairNote(''); }}
-      >
-        <View style={s.overlay}>
-          <View style={s.promptCard}>
-            <Text style={s.promptTitle}>Send to Repair</Text>
-            <Text style={s.promptSub}>{repairOutUnit?.asset_tag}</Text>
-            <TextInput
-              style={[s.input, { marginTop: 12 }]}
-              placeholder="Note (optional)"
-              placeholderTextColor="#94A3B8"
-              value={repairNote}
-              onChangeText={setRepairNote}
-              autoFocus
-            />
-            <View style={[s.row, { marginTop: 16 }]}>
-              <TouchableOpacity
-                style={[s.btn, s.btnGhost]}
-                onPress={() => { setRepairOutUnit(null); setRepairNote(''); }}
-              >
-                <Text style={s.btnGhostText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.btn, s.btnPrimary]}
-                onPress={() => repairOutUnit && doRepairOut(repairOutUnit, repairNote)}
-              >
-                <Text style={s.btnPrimaryText}>Confirm</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      {/* onClose only hides — repairNote is preserved on outside-tap dismiss */}
+      <ModalSheet visible={repairOutUnit !== null} onClose={() => setRepairOutUnit(null)}>
+        <Text style={s.promptTitle}>Send to Repair</Text>
+        <Text style={s.promptSub}>{repairOutUnit?.asset_tag}</Text>
+        <AppInput
+          style={{ marginTop: 12 }}
+          placeholder="Note (optional)"
+          value={repairNote}
+          onChangeText={setRepairNote}
+          autoFocus
+        />
+        <View style={[s.row, { marginTop: 16 }]}>
+          <TouchableOpacity
+            style={[s.btn, s.btnGhost]}
+            onPress={() => { setRepairOutUnit(null); setRepairNote(''); }}
+          >
+            <Text style={s.btnGhostText}>Cancel</Text>
+          </TouchableOpacity>
+          <PrimaryButton
+            label="Confirm"
+            onPress={() => repairOutUnit && doRepairOut(repairOutUnit, repairNote)}
+            style={{ flex: 1 }}
+          />
         </View>
-      </Modal>
+      </ModalSheet>
 
       {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
-      <Modal
-        visible={repairInUnit !== null}
-        animationType="slide"
-        onRequestClose={() => { setRepairInUnit(null); setRepairInLoc(null); }}
-      >
-        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
-              <TouchableOpacity onPress={() => { setRepairInUnit(null); setRepairInLoc(null); }}>
-                <Text style={s.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={s.fieldLabel}>Return to Location *</Text>
+      {/* onClose only hides — repairInLoc is preserved on outside-tap dismiss */}
+      <ModalSheet visible={repairInUnit !== null} onClose={() => setRepairInUnit(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
+            <FieldLabel style={{ marginTop: 12 }}>Return to Location *</FieldLabel>
             <SearchablePicker
               placeholder="Search location…"
               options={locationOptions}
@@ -667,109 +646,74 @@ export default function ItemDetailScreen() {
               >
                 <Text style={s.btnGhostText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.btn, s.btnPrimary]}
+              <PrimaryButton
+                label="Confirm Return"
                 onPress={() => {
                   if (!repairInLoc) { Alert.alert('Required', 'Please select a location.'); return; }
                   if (repairInUnit) doRepairIn(repairInUnit, repairInLoc.id);
                 }}
-              >
-                <Text style={s.btnPrimaryText}>Confirm Return</Text>
-              </TouchableOpacity>
+                style={{ flex: 1 }}
+              />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
-      </Modal>
+      </ModalSheet>
 
       {/* ── Edit Unit Modal ─────────────────────────────────────────────── */}
-      <Modal
-        visible={editUnit !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditUnit(null)}
-      >
-        <View style={s.overlay}>
-          <View style={s.promptCard}>
-            <Text style={s.promptTitle}>Edit Unit</Text>
-            <Text style={s.promptSub}>{editUnit?.asset_tag}</Text>
-            <Text style={[s.fieldLabel, { marginTop: 14 }]}>Asset Tag *</Text>
-            <TextInput
-              style={s.input}
-              value={editUnitTag}
-              onChangeText={setEditUnitTag}
-              placeholder="Asset tag"
-              placeholderTextColor="#94A3B8"
-              autoCapitalize="characters"
-              autoCorrect={false}
-            />
-            <Text style={[s.fieldLabel, { marginTop: 10 }]}>Serial # (optional)</Text>
-            <TextInput
-              style={s.input}
-              value={editUnitSerial}
-              onChangeText={setEditUnitSerial}
-              placeholder="Serial number"
-              placeholderTextColor="#94A3B8"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={[s.fieldLabel, { marginTop: 10 }]}>Notes (optional)</Text>
-            <TextInput
-              style={[s.input, s.multiline]}
-              value={editUnitNotes}
-              onChangeText={setEditUnitNotes}
-              placeholder="Notes"
-              placeholderTextColor="#94A3B8"
-              multiline
-            />
-            <View style={[s.row, { marginTop: 16 }]}>
-              <TouchableOpacity
-                style={[s.btn, s.btnGhost]}
-                onPress={() => setEditUnit(null)}
-              >
-                <Text style={s.btnGhostText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.btn, s.btnPrimary]}
-                onPress={saveEditUnit}
-              >
-                <Text style={s.btnPrimaryText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <ModalSheet visible={editUnit !== null} onClose={() => setEditUnit(null)}>
+        <Text style={s.promptTitle}>Edit Unit</Text>
+        <Text style={s.promptSub}>{editUnit?.asset_tag}</Text>
+        <FieldLabel style={{ marginTop: 14 }}>Asset Tag *</FieldLabel>
+        <AppInput
+          value={editUnitTag}
+          onChangeText={setEditUnitTag}
+          placeholder="Asset tag"
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
+        <AppInput
+          value={editUnitSerial}
+          onChangeText={setEditUnitSerial}
+          placeholder="Serial number"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
+        <AppInput
+          style={s.multiline}
+          value={editUnitNotes}
+          onChangeText={setEditUnitNotes}
+          placeholder="Notes"
+          multiline
+        />
+        <View style={[s.row, { marginTop: 16 }]}>
+          <TouchableOpacity
+            style={[s.btn, s.btnGhost]}
+            onPress={() => setEditUnit(null)}
+          >
+            <Text style={s.btnGhostText}>Cancel</Text>
+          </TouchableOpacity>
+          <PrimaryButton label="Save" onPress={saveEditUnit} style={{ flex: 1 }} />
         </View>
-      </Modal>
+      </ModalSheet>
 
       {/* ── Unit History Modal ──────────────────────────────────────────── */}
-      <Modal
-        visible={historyUnit !== null}
-        animationType="slide"
-        onRequestClose={() => setHistoryUnit(null)}
-      >
-        <View style={s.container}>
-          <View style={s.historyHeader}>
-            <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
-            <TouchableOpacity onPress={() => setHistoryUnit(null)}>
-              <Text style={s.modalClose}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          {historyUnit && (
-            <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
-          )}
-        </View>
-      </Modal>
+      <ModalSheet visible={historyUnit !== null} onClose={() => setHistoryUnit(null)}>
+        <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
+        {historyUnit && (
+          <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
+        )}
+      </ModalSheet>
 
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
-      <Modal visible={addUnitsOpen} animationType="slide" onRequestClose={closeAddUnits}>
-        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Add Units — {item.name}</Text>
-              <TouchableOpacity onPress={closeAddUnits}>
-                <Text style={s.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
+      {/* onClose only hides (= closeAddUnits); state is reset on next openAddUnits() */}
+      <ModalSheet visible={addUnitsOpen} onClose={closeAddUnits}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+            <Text style={s.modalTitle}>Add Units — {item.name}</Text>
 
-            <Text style={s.fieldLabel}>Location *</Text>
+            <FieldLabel>Location *</FieldLabel>
             <SearchablePicker
               placeholder="Search location…"
               options={locationOptions}
@@ -792,13 +736,11 @@ export default function ItemDetailScreen() {
                   noteTone="warn"
                 />
                 <View style={{ marginTop: 10 }}>
-                  <Text style={s.fieldLabel}>Serial # (optional)</Text>
-                  <TextInput
-                    style={s.input}
+                  <FieldLabel>Serial # (optional)</FieldLabel>
+                  <AppInput
                     value={row.serial}
                     onChangeText={(v) => updateSerial(i, v)}
                     placeholder="Serial number"
-                    placeholderTextColor="#94A3B8"
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
@@ -814,13 +756,11 @@ export default function ItemDetailScreen() {
               <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={closeAddUnits}>
                 <Text style={s.btnGhostText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={saveUnits}>
-                <Text style={s.btnPrimaryText}>Save Units</Text>
-              </TouchableOpacity>
+              <PrimaryButton label="Save Units" onPress={saveUnits} style={{ flex: 1 }} />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
-      </Modal>
+      </ModalSheet>
     </>
   );
 }
@@ -840,104 +780,78 @@ function Field(props: {
 }) {
   return (
     <View style={s.fieldWrap}>
-      <Text style={s.fieldLabel}>{props.label}</Text>
-      <TextInput
-        style={[s.input, props.multiline && s.multiline]}
+      <FieldLabel>{props.label}</FieldLabel>
+      <AppInput
+        style={props.multiline ? s.multiline : undefined}
         value={props.value}
         onChangeText={props.onChange}
         multiline={props.multiline}
         keyboardType={props.keyboardType}
         autoCapitalize={props.autoCapitalize}
         autoFocus={props.autoFocus}
-        placeholderTextColor="#94A3B8"
       />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: '#94A3B8' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#EEF2F7' },
-  name: { fontSize: 22, fontWeight: '700', color: '#1E3A5F' },
-  model: { fontSize: 14, color: '#2563EB', marginTop: 2, fontWeight: '600' },
+  muted: { fontSize: 14, color: colors.textMuted },
+  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.borderDetail },
+  name: { fontSize: 22, fontWeight: '700', color: colors.brand },
+  model: { fontSize: 14, color: colors.primary, marginTop: 2, fontWeight: '600' },
   desc: { fontSize: 14, color: '#475569', marginTop: 8, lineHeight: 20 },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 14 },
   totalNum: { fontSize: 26, fontWeight: '800', color: '#0F172A' },
-  totalLbl: { fontSize: 13, color: '#64748B' },
-  lowStock: { marginTop: 8, color: '#B91C1C', fontSize: 13, fontWeight: '600' },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  totalLbl: { fontSize: 13, color: colors.textSecondary },
+  lowStock: { marginTop: 8, color: colors.danger, fontSize: 13, fontWeight: '600' },
+  sectionLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
   attrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11 },
-  attrKey: { fontSize: 14, color: '#64748B' },
-  attrVal: { fontSize: 14, color: '#1E293B', fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
+  attrKey: { fontSize: 14, color: colors.textSecondary },
+  attrVal: { fontSize: 14, color: colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
   divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   stockRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  stockLoc: { fontSize: 15, color: '#1E293B', fontWeight: '600' },
-  stockParent: { fontSize: 12, color: '#94A3B8', marginTop: 1 },
-  stockQty: { fontSize: 15, fontWeight: '700', color: '#15803D' },
-  stockZero: { color: '#CBD5E1' },
+  stockLoc: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
+  stockParent: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
+  stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
+  stockZero: { color: colors.textDisabled },
   fieldWrap: { gap: 6 },
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
-  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B' },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
-  btnPrimary: { backgroundColor: '#2563EB' },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#CBD5E1' },
+  btnGhost: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
   badge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   badgeReturn: { backgroundColor: '#D1FAE5' },
   badgeReturnText: { color: '#065F46', fontWeight: '700', fontSize: 13 },
-  badgeConsume: { backgroundColor: '#FEE2E2' },
+  badgeConsume: { backgroundColor: colors.dangerBg },
   badgeConsumeText: { color: '#991B1B', fontWeight: '700', fontSize: 13 },
   badgeText: { fontSize: 13, fontWeight: '700' },
-  badgeTracked: { backgroundColor: '#DBEAFE' },
-  badgeTrackedText: { color: '#1D4ED8', fontWeight: '700', fontSize: 13 },
+  badgeTracked: { backgroundColor: colors.primaryBgStrong },
+  badgeTrackedText: { color: colors.primaryText, fontWeight: '700', fontSize: 13 },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  switchLabel: { fontSize: 14, color: '#1E293B', flex: 1, marginRight: 12 },
+  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
   unitReadOnly: {
-    fontSize: 13, color: '#64748B', fontStyle: 'italic',
+    fontSize: 13, color: colors.textSecondary, fontStyle: 'italic',
     paddingVertical: 4, paddingHorizontal: 4,
   },
-  unitRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
-  unitTag: { fontSize: 15, color: '#1E293B', fontWeight: '600' },
-  unitSerial: { fontSize: 12, color: '#94A3B8', marginTop: 1 },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E3A5F', flex: 1, marginRight: 8 },
-  modalClose: { fontSize: 22, color: '#64748B', paddingHorizontal: 4 },
-  unitFormCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: '#EEF2F7', gap: 0,
-  },
-  unitSummary: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
-  overlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center', justifyContent: 'center', padding: 24,
-  },
-  promptCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 20,
-    width: '100%', maxWidth: 360,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6,
-  },
-  promptTitle: { fontSize: 17, fontWeight: '700', color: '#1E3A5F' },
-  promptSub: { fontSize: 14, color: '#64748B', marginTop: 2 },
   unitActionRow: { flexDirection: 'row', gap: 8, paddingBottom: 8, paddingTop: 2, flexWrap: 'wrap' },
   unitActionBtn: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F1F5F9' },
   unitActionText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  unitActionRetireBtn: { backgroundColor: '#FEE2E2' },
+  unitActionRetireBtn: { backgroundColor: colors.dangerBg },
   unitActionRetireText: { fontSize: 12, fontWeight: '600', color: '#991B1B' },
-  historyHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 16, borderBottomWidth: 1, borderBottomColor: '#EEF2F7',
+  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.brand, marginBottom: 8 },
+  promptTitle: { fontSize: 17, fontWeight: '700', color: colors.brand },
+  promptSub: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
+  unitFormCard: {
+    backgroundColor: colors.surface, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: colors.borderDetail, gap: 0,
   },
+  unitSummary: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
 });
