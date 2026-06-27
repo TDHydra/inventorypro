@@ -9,6 +9,8 @@ import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes } from '../../../src/db/appSettings';
 import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
+import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import { ErrorView } from '../../../src/components/ui/ErrorView';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -51,6 +53,7 @@ export default function SettingsScreen() {
   const [lastSync, setLastSync] = useState('Never');
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [idleMinutes, setIdleMinutes] = useState(0);
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
 
@@ -71,10 +74,12 @@ export default function SettingsScreen() {
 
   const handleSyncNow = async () => {
     setSyncing(true);
+    setSyncError(null);
     try {
       await syncNow();
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Sync failed:', err);
+      setSyncError((err as Error).message ?? 'Sync failed. Check your connection and try again.');
     } finally {
       setSyncing(false);
       refreshStatus();
@@ -131,6 +136,9 @@ export default function SettingsScreen() {
               <Text style={s.rowSub}>Pending changes: {pending}</Text>
             </View>
           </View>
+          {!!syncError && (
+            <ErrorView message={syncError} onRetry={handleSyncNow} />
+          )}
         </View>
 
         {/* ── App info ─────────────────────────────────────────────────── */}
@@ -222,22 +230,22 @@ export default function SettingsScreen() {
 // ── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
-  content: { padding: 16, gap: 16, paddingBottom: 48 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
 
   sectionTitle: {
-    fontSize: 12,
+    fontSize: fontSizes.caption,
     fontWeight: '700',
-    color: '#64748B',
+    color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     overflow: 'hidden',
   },
 
@@ -245,40 +253,40 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.base,
   },
-  rowLabel: { fontSize: 14, color: '#1E293B', fontWeight: '500' },
-  rowSub: { fontSize: 13, color: '#64748B', marginTop: 2 },
-  chevron: { fontSize: 18, color: '#94A3B8', fontWeight: '300' },
-  muted: { color: '#94A3B8' },
-  danger: { color: '#EF4444' },
+  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
+  rowSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginTop: 2 },
+  chevron: { fontSize: 18, color: colors.textMuted, fontWeight: '300' },
+  muted: { color: colors.textMuted },
+  danger: { color: colors.danger },
 
-  divider: { height: 1, backgroundColor: '#E2E8F0', marginHorizontal: 14 },
+  divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
 
-  infoBlock: { paddingHorizontal: 14, paddingVertical: 12, gap: 4 },
+  infoBlock: { paddingHorizontal: spacing.base, paddingVertical: spacing.md, gap: 4 },
 
   // Idle-timeout chip selector
   idleRow: {
     flexDirection: 'row',
-    padding: 12,
+    padding: spacing.md,
     gap: 8,
   },
   idleChip: {
     flex: 1,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
-    backgroundColor: '#F8FAFF',
+    borderColor: colors.textDisabled,
+    backgroundColor: colors.background,
     alignItems: 'center',
   },
   idleChipActive: {
-    backgroundColor: '#1E3A5F',
-    borderColor: '#1E3A5F',
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
   },
   idleChipText: {
-    fontSize: 13,
+    fontSize: fontSizes.body2,
     fontWeight: '600',
     color: '#475569',
   },

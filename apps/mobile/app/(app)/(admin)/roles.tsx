@@ -10,6 +10,7 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
+import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 
 const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
 
@@ -85,7 +86,7 @@ export default function RolesScreen() {
       <ScrollView style={s.container} contentContainerStyle={s.content}>
         <Text style={s.intro}>
           Each role grants a default set of permissions (read-only here) and a minimum PIN length.
-          Per-user exceptions live on each user’s profile.
+          Per-user exceptions live on each user's profile.
         </Text>
 
         {ROLES_BY_TIER.map(role => {
@@ -162,33 +163,33 @@ export default function RolesScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
-  content: { padding: 16, gap: 10, paddingBottom: 48 },
-  intro: { fontSize: 13, color: '#64748B', lineHeight: 19, marginBottom: 2 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.lg, gap: 10, paddingBottom: 48 },
+  intro: { fontSize: fontSizes.body2, color: colors.textSecondary, lineHeight: 19, marginBottom: 2 },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden' },
-  cardHead: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
-  roleName: { fontSize: 16, fontWeight: '600', color: '#1E293B' },
-  roleMeta: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  tierBadge: { fontSize: 11, fontWeight: '700', color: '#2563EB', backgroundColor: '#DBEAFE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  chevron: { fontSize: 16, color: '#94A3B8' },
+  card: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  cardHead: { flexDirection: 'row', alignItems: 'center', padding: spacing.base, gap: 10 },
+  roleName: { fontSize: fontSizes.base, fontWeight: '600', color: colors.textPrimary },
+  roleMeta: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
+  tierBadge: { fontSize: fontSizes.sm, fontWeight: '700', color: colors.primary, backgroundColor: colors.primaryBgStrong, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  chevron: { fontSize: fontSizes.base, color: colors.textMuted },
 
-  pinRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 14, gap: 10 },
-  pinLabel: { fontSize: 13, color: '#1E293B', fontWeight: '500' },
-  pinHint: { fontSize: 11, color: '#94A3B8', marginTop: 1 },
-  stepper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 10 },
+  pinRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingBottom: spacing.base, gap: 10 },
+  pinLabel: { fontSize: fontSizes.body2, color: colors.textPrimary, fontWeight: '500' },
+  pinHint: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
+  stepper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: radii.md },
   stepBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   stepBtnOff: { opacity: 0.3 },
-  stepText: { fontSize: 22, color: '#1D4ED8', fontWeight: '600' },
-  pinValue: { fontSize: 16, fontWeight: '700', color: '#1E293B', minWidth: 24, textAlign: 'center' },
+  stepText: { fontSize: 22, color: colors.primaryText, fontWeight: '600' },
+  pinValue: { fontSize: fontSizes.base, fontWeight: '700', color: colors.textPrimary, minWidth: 24, textAlign: 'center' },
 
-  matrix: { borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingHorizontal: 14, paddingVertical: 8 },
+  matrix: { borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingHorizontal: spacing.base, paddingVertical: 8 },
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
-  permCheck: { width: 18, textAlign: 'center', fontSize: 14, fontWeight: '700' },
-  permYes: { color: '#16A34A' },
-  permNo: { color: '#CBD5E1' },
-  permLabel: { fontSize: 13, color: '#1E293B' },
-  permLabelOff: { color: '#94A3B8' },
+  permCheck: { width: 18, textAlign: 'center', fontSize: fontSizes.body, fontWeight: '700' },
+  permYes: { color: colors.success },
+  permNo: { color: colors.textDisabled },
+  permLabel: { fontSize: fontSizes.body2, color: colors.textPrimary },
+  permLabelOff: { color: colors.textMuted },
 
-  readOnly: { fontSize: 13, color: '#94A3B8', textAlign: 'center', marginTop: 8, lineHeight: 19 },
+  readOnly: { fontSize: fontSizes.body2, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
 });
