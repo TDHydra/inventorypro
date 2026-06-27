@@ -4,13 +4,16 @@ import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { colors } from '../../../src/theme';
 
 export default function DashboardScreen() {
   const { user } = useSession();
   const router = useRouter();
-  const lowStock = useMemo(() => getLowStockItems().slice(0, 3), []);
+  const [reshow, setReshow] = useState<(() => void) | null>(null);
+  const all = useMemo(() => getLowStockItems(), []);
+  const shown = all.slice(0, 3);
 
   if (!user) return null;
 
@@ -20,11 +23,16 @@ export default function DashboardScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* Greeting */}
         <View style={styles.greeting}>
-          <Text style={styles.hi}>Hi, {user.name.split(' ')[0]}</Text>
-          <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
+          <View style={styles.greetingText}>
+            <Text style={styles.hi}>Hi, {user.name.split(' ')[0]}</Text>
+            <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
+          </View>
+          <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>
+            <Text style={styles.questionBtnText}>?</Text>
+          </TouchableOpacity>
         </View>
 
-        <TooltipHint screenKey="dashboard" />
+        <TooltipHint screenKey="dashboard" onReady={fn => setReshow(() => fn)} />
 
         {/* Primary actions */}
         <TouchableOpacity
@@ -116,14 +124,24 @@ export default function DashboardScreen() {
         </PermissionGate>
 
         {/* Low stock alert */}
-        {lowStock.length > 0 && (
+        {shown.length > 0 && (
           <View style={styles.alert}>
             <Text style={styles.alertTitle}>⚠️ Low Stock</Text>
-            {lowStock.map(item => (
-              <Text key={item.id} style={styles.alertItem}>
-                {item.name} — {item.total_stock} {item.unit} remaining
-              </Text>
+            {shown.map(item => (
+              <TouchableOpacity
+                key={item.id}
+                onPress={() =>
+                  router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: item.id } })
+                }
+              >
+                <Text style={styles.alertItem}>
+                  {item.name} — {item.total_stock} {item.unit} remaining
+                </Text>
+              </TouchableOpacity>
             ))}
+            {all.length > 3 && (
+              <Text style={styles.alertMore}>+{all.length - 3} more</Text>
+            )}
           </View>
         )}
       </ScrollView>
@@ -132,39 +150,57 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 40 },
-  greeting: { marginBottom: 8 },
-  hi: { fontSize: 24, fontWeight: '700', color: '#1E3A5F' },
-  role: { fontSize: 13, color: '#64748B', textTransform: 'capitalize' },
+  greeting: { marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  greetingText: { flex: 1 },
+  hi: { fontSize: 24, fontWeight: '700', color: colors.brand },
+  role: { fontSize: 13, color: colors.textSecondary, textTransform: 'capitalize' },
+  questionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  questionBtnText: { fontSize: 14, fontWeight: '700', color: colors.textSecondary },
   tile: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
   },
   tilePrimary: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
     paddingVertical: 20,
   },
   tileHalf: { flex: 1 },
   tileIcon: { fontSize: 22, marginBottom: 6 },
-  tileLabel: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
+  tileLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   tileLabelPrimary: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  tileSubPrimary: { fontSize: 13, color: '#BFDBFE' },
+  tileSubPrimary: { fontSize: 13, color: colors.primaryBg },
   row: { flexDirection: 'row', gap: 10 },
   section: { gap: 8 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1, marginTop: 8 },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: 8,
+  },
   alert: {
-    backgroundColor: '#FFF7ED',
+    backgroundColor: colors.accentBg,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#FED7AA',
+    borderColor: colors.border,
     gap: 4,
   },
-  alertTitle: { fontSize: 14, fontWeight: '700', color: '#C2410C' },
-  alertItem: { fontSize: 13, color: '#9A3412' },
+  alertTitle: { fontSize: 14, fontWeight: '700', color: colors.accent },
+  alertItem: { fontSize: 13, color: colors.accent },
+  alertMore: { fontSize: 13, color: colors.accent, fontWeight: '600', marginTop: 2 },
 });

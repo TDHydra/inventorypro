@@ -6,6 +6,7 @@ import { SyncIndicator } from '../../src/components/SyncIndicator';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
+import { colors } from '../../src/theme';
 
 export default function AppLayout() {
   const { user, logout } = useSession();
@@ -51,7 +52,7 @@ export default function AppLayout() {
       )}
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: '#1E3A5F' },
+          headerStyle: { backgroundColor: colors.brand },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: '700' },
           headerRight: () => (
@@ -80,8 +81,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   switchText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  banLocked: { backgroundColor: '#B45309', paddingVertical: 8, paddingHorizontal: 12 },
+  banLocked: { backgroundColor: colors.warning, paddingVertical: 8, paddingHorizontal: 12 },
   banLockedText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
-  banAdmin: { backgroundColor: '#374151', paddingVertical: 6, paddingHorizontal: 12 },
+  banAdmin: { backgroundColor: colors.brand, paddingVertical: 6, paddingHorizontal: 12 },
   banAdminText: { color: '#E5E7EB', fontSize: 12, textAlign: 'center' },
 });
