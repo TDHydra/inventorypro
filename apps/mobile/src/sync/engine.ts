@@ -92,15 +92,14 @@ async function syncCycle(): Promise<void> {
   // A cycle is running now, so any armed fast retry is redundant.
   if (fastRetryId) { clearTimeout(fastRetryId); fastRetryId = null; }
 
-  const state = await NetInfo.fetch();
-  if (state.isConnected) {
-    try {
-      await drainOutbox();
-      await pullChanges();
-    } catch (err) {
-      console.warn('[Sync] Cycle error:', (err as Error).message);
-    }
-  }
+  // Always attempt the sync. We deliberately do NOT gate on NetInfo's
+  // isConnected: it false-negatives on some Android networks/VPNs, which would
+  // freeze background sync entirely (no error, just silently skipped — the
+  // exact "sync stopped working" symptom). The fetch inside drain/pull is the
+  // real source of truth: if we're genuinely offline it throws and is caught,
+  // costing one cheap failed request per cycle. NetInfo still drives the
+  // sync-on-reconnect listener in startSyncEngine (an optimization, not a gate).
+  await runDrainAndPull();
 
   // Try immediately (above) but if anything is still undelivered — offline,
   // a push error, or leftover entries — retry in ~10s instead of waiting for
@@ -108,8 +107,26 @@ async function syncCycle(): Promise<void> {
   if (hasDeliverableWork()) scheduleFastRetry();
 }
 
+// The actual network work: drain the outbox, then pull. Errors are caught so a
+// transient failure never escapes; offline simply throws inside the fetch and
+// is swallowed here.
+async function runDrainAndPull(): Promise<void> {
+  try {
+    await drainOutbox();
+    await pullChanges();
+  } catch (err) {
+    console.warn('[Sync] Cycle error:', (err as Error).message);
+  }
+}
+
 export async function syncNow(): Promise<void> {
-  await syncCycle();
+  // User-initiated (Settings "Sync now" / pull-to-refresh). Do NOT gate on
+  // NetInfo: its isConnected can false-negative on some Android networks/VPNs,
+  // which would silently skip the sync and make pull-to-refresh appear broken.
+  // Just attempt the network — the fetch fails fast and harmlessly if we really
+  // are offline. drainOutbox/pullChanges each no-op without a valid session.
+  await runDrainAndPull();
+  if (hasDeliverableWork()) scheduleFastRetry();
 }
 
 export function startSyncEngine(): void {
