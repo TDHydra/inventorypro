@@ -16,6 +16,7 @@ import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { AdvancedFields } from '../ui/AdvancedFields';
 
 const DEFAULT_COLOR = colors.brand;
 const DEFAULT_ICON = '📦';
@@ -107,13 +108,15 @@ export default function LocationQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
-      <FieldLabel>Parent location (optional)</FieldLabel>
-      <SearchablePicker
-        placeholder="Search parent locations..."
-        options={parentOptions}
-        value={parentOption}
-        onSelect={opt => setParentOption(prev => prev?.id === opt.id ? null : opt)}
-      />
+      <AdvancedFields>
+        <FieldLabel>Parent location (optional)</FieldLabel>
+        <SearchablePicker
+          placeholder="Search parent locations..."
+          options={parentOptions}
+          value={parentOption}
+          onSelect={opt => setParentOption(prev => prev?.id === opt.id ? null : opt)}
+        />
+      </AdvancedFields>
 
       <PrimaryButton
         label="Save & add another"

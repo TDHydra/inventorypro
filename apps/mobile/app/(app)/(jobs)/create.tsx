@@ -19,6 +19,7 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 
 export default function CreateJobScreen() {
   const { user } = useSession();
@@ -136,46 +137,48 @@ export default function CreateJobScreen() {
             />
           </View>
 
-          <View style={s.fieldWrap}>
-            <FieldLabel>Customer Name</FieldLabel>
-            <AppInput
-              value={customerName}
-              onChangeText={setCustomerName}
-              placeholder="Customer or company name"
-            />
-          </View>
+          <AdvancedFields>
+            <View style={s.fieldWrap}>
+              <FieldLabel>Customer Name</FieldLabel>
+              <AppInput
+                value={customerName}
+                onChangeText={setCustomerName}
+                placeholder="Customer or company name"
+              />
+            </View>
 
-          <View style={s.fieldWrap}>
-            <FieldLabel>Site Address</FieldLabel>
-            <AppInput
-              value={siteAddress}
-              onChangeText={setSiteAddress}
-              placeholder="Street address or description"
-            />
-          </View>
+            <View style={s.fieldWrap}>
+              <FieldLabel>Site Address</FieldLabel>
+              <AppInput
+                value={siteAddress}
+                onChangeText={setSiteAddress}
+                placeholder="Street address or description"
+              />
+            </View>
 
-          <View style={s.fieldWrap}>
-            <FieldLabel>Site Location</FieldLabel>
-            <SearchablePicker
-              placeholder="Search locations..."
-              options={locationOptions}
-              value={siteLocation}
-              onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
-            />
-          </View>
+            <View style={s.fieldWrap}>
+              <FieldLabel>Site Location</FieldLabel>
+              <SearchablePicker
+                placeholder="Search locations..."
+                options={locationOptions}
+                value={siteLocation}
+                onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
+              />
+            </View>
 
-          <View style={s.fieldWrap}>
-            <FieldLabel>Description</FieldLabel>
-            <AppInput
-              style={s.textArea}
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Job description or notes"
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-          </View>
+            <View style={s.fieldWrap}>
+              <FieldLabel>Description</FieldLabel>
+              <AppInput
+                style={s.textArea}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Job description or notes"
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+            </View>
+          </AdvancedFields>
 
           <View style={s.row}>
             <TouchableOpacity style={[s.btnGhost, { flex: 1 }]} onPress={() => router.back()}>

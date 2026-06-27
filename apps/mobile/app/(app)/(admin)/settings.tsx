@@ -9,6 +9,14 @@ import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes } from '../../../src/db/appSettings';
 import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
+import {
+  FormMode,
+  getFormMode,
+  getFormModeDefault,
+  setFormModeDefault,
+  getFormModeOverride,
+  setFormModeOverride,
+} from '../../../src/db/formMode';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
 
@@ -19,6 +27,17 @@ const IDLE_OPTIONS: { label: string; value: number }[] = [
   { label: '5 min', value: 5 },
   { label: '15 min', value: 15 },
   { label: '30 min', value: 30 },
+];
+
+const FORM_MODE_OPTIONS: { label: string; value: FormMode }[] = [
+  { label: 'Simple', value: 'simple' },
+  { label: 'Detailed', value: 'detailed' },
+];
+
+const FORM_OVERRIDE_OPTIONS: { label: string; value: FormMode | null }[] = [
+  { label: 'Simple', value: 'simple' },
+  { label: 'Detailed', value: 'detailed' },
+  { label: 'Use app default', value: null },
 ];
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
@@ -56,12 +75,18 @@ export default function SettingsScreen() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [idleMinutes, setIdleMinutes] = useState(0);
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
+  const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
+  const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
+  const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
 
   const refreshStatus = useCallback(() => {
     const { lastSync: ls, pending: p } = readSyncStatus();
     setLastSync(ls);
     setPending(p);
     setIdleMinutes(getIdleTimeoutMinutes());
+    setFormDefaultState(getFormModeDefault());
+    setFormOverrideState(getFormModeOverride());
+    setFormResolvedState(getFormMode());
   }, []);
 
   // Re-read DB values every time the screen gains focus
@@ -92,6 +117,26 @@ export default function SettingsScreen() {
       setIdleMinutes(mins);
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to save idle timeout:', err);
+    }
+  };
+
+  const handleSetFormDefault = (mode: FormMode) => {
+    try {
+      setFormModeDefault(mode);
+      setFormDefaultState(mode);
+      setFormResolvedState(getFormMode());
+    } catch (err) {
+      if (__DEV__) console.warn('[Settings] Failed to save form mode default:', err);
+    }
+  };
+
+  const handleSetFormOverride = (mode: FormMode | null) => {
+    try {
+      setFormModeOverride(mode);
+      setFormOverrideState(mode);
+      setFormResolvedState(getFormMode());
+    } catch (err) {
+      if (__DEV__) console.warn('[Settings] Failed to save form mode override:', err);
     }
   };
 
@@ -185,6 +230,37 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── Form detail (this device) ─────────────────────────────────── */}
+        <View>
+          <Text style={s.sectionTitle}>Form detail (this device)</Text>
+          <View style={s.card}>
+            <View style={s.idleRow}>
+              {FORM_OVERRIDE_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.label}
+                  style={[s.idleChip, formOverride === opt.value && s.idleChipActive]}
+                  onPress={() => handleSetFormOverride(opt.value)}
+                >
+                  <Text
+                    style={[
+                      s.idleChipText,
+                      formOverride === opt.value && s.idleChipTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={s.divider} />
+            <View style={s.infoBlock}>
+              <Text style={s.rowSub}>
+                Effective: {formResolved === 'simple' ? 'Simple' : 'Detailed'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
         {/* ── System (tier-4 only) ──────────────────────────────────────── */}
         {isTier4 && (
           <View>
@@ -201,6 +277,29 @@ export default function SettingsScreen() {
                   value={maintOn}
                   onValueChange={(v) => { try { setMaintenanceMode(v); setMaintOn(v); } catch { /* blocked write — ignore */ } }}
                 />
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.base }}>
+                <Text style={s.rowLabel}>Default form mode</Text>
+                <Text style={s.rowSub}>Applies to all devices unless a user overrides it.</Text>
+              </View>
+              <View style={s.idleRow}>
+                {FORM_MODE_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[s.idleChip, formDefault === opt.value && s.idleChipActive]}
+                    onPress={() => handleSetFormDefault(opt.value)}
+                  >
+                    <Text
+                      style={[
+                        s.idleChipText,
+                        formDefault === opt.value && s.idleChipTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </View>
           </View>

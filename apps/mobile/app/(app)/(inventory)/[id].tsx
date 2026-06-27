@@ -27,6 +27,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -669,22 +670,24 @@ export default function ItemDetailScreen() {
           autoCapitalize="characters"
           autoCorrect={false}
         />
-        <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
-        <AppInput
-          value={editUnitSerial}
-          onChangeText={setEditUnitSerial}
-          placeholder="Serial number"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
-        <AppInput
-          style={s.multiline}
-          value={editUnitNotes}
-          onChangeText={setEditUnitNotes}
-          placeholder="Notes"
-          multiline
-        />
+        <AdvancedFields>
+          <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
+          <AppInput
+            value={editUnitSerial}
+            onChangeText={setEditUnitSerial}
+            placeholder="Serial number"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
+          <AppInput
+            style={s.multiline}
+            value={editUnitNotes}
+            onChangeText={setEditUnitNotes}
+            placeholder="Notes"
+            multiline
+          />
+        </AdvancedFields>
         <View style={[s.row, { marginTop: 16 }]}>
           <TouchableOpacity
             style={[s.btn, s.btnGhost]}
@@ -732,16 +735,18 @@ export default function ItemDetailScreen() {
                   note={tagErrors[i]}
                   noteTone="warn"
                 />
-                <View style={{ marginTop: 10 }}>
-                  <FieldLabel>Serial # (optional)</FieldLabel>
-                  <AppInput
-                    value={row.serial}
-                    onChangeText={(v) => updateSerial(i, v)}
-                    placeholder="Serial number"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
+                <AdvancedFields>
+                  <View style={{ marginTop: 10 }}>
+                    <FieldLabel>Serial # (optional)</FieldLabel>
+                    <AppInput
+                      value={row.serial}
+                      onChangeText={(v) => updateSerial(i, v)}
+                      placeholder="Serial number"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                </AdvancedFields>
               </View>
             ))}
 
