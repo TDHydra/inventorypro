@@ -277,6 +277,7 @@ export default function CheckoutScreen() {
   }
   function createJob(text: string) {
     if (!user) return;
+    if (isWriteBlocked()) return; // no inline job creation during maintenance lockout
     const now = new Date().toISOString();
     const newJob: Job = {
       id: generateUUID(), name: text, status: 'open',
