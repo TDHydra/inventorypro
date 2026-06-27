@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -14,6 +14,11 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { generateUUID } from '../../../src/utils/uuid';
+import { colors } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
 export default function CreateJobScreen() {
   const { user } = useSession();
@@ -122,41 +127,35 @@ export default function CreateJobScreen() {
           </View>
 
           <View style={s.fieldWrap}>
-            <Text style={s.fieldLabel}>Job Name *</Text>
-            <TextInput
-              style={s.input}
+            <FieldLabel>Job Name *</FieldLabel>
+            <AppInput
               value={name}
               onChangeText={setName}
               placeholder="Enter job name"
-              placeholderTextColor="#94A3B8"
               autoFocus
             />
           </View>
 
           <View style={s.fieldWrap}>
-            <Text style={s.fieldLabel}>Customer Name</Text>
-            <TextInput
-              style={s.input}
+            <FieldLabel>Customer Name</FieldLabel>
+            <AppInput
               value={customerName}
               onChangeText={setCustomerName}
               placeholder="Customer or company name"
-              placeholderTextColor="#94A3B8"
             />
           </View>
 
           <View style={s.fieldWrap}>
-            <Text style={s.fieldLabel}>Site Address</Text>
-            <TextInput
-              style={s.input}
+            <FieldLabel>Site Address</FieldLabel>
+            <AppInput
               value={siteAddress}
               onChangeText={setSiteAddress}
               placeholder="Street address or description"
-              placeholderTextColor="#94A3B8"
             />
           </View>
 
           <View style={s.fieldWrap}>
-            <Text style={s.fieldLabel}>Site Location</Text>
+            <FieldLabel>Site Location</FieldLabel>
             <SearchablePicker
               placeholder="Search locations..."
               options={locationOptions}
@@ -166,13 +165,12 @@ export default function CreateJobScreen() {
           </View>
 
           <View style={s.fieldWrap}>
-            <Text style={s.fieldLabel}>Description</Text>
-            <TextInput
-              style={[s.input, s.textArea]}
+            <FieldLabel>Description</FieldLabel>
+            <AppInput
+              style={s.textArea}
               value={description}
               onChangeText={setDescription}
               placeholder="Job description or notes"
-              placeholderTextColor="#94A3B8"
               multiline
               numberOfLines={4}
               textAlignVertical="top"
@@ -180,18 +178,17 @@ export default function CreateJobScreen() {
           </View>
 
           <View style={s.row}>
-            <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => router.back()}>
+            <TouchableOpacity style={[s.btnGhost, { flex: 1 }]} onPress={() => router.back()}>
               <Text style={s.btnGhostText}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.btn, s.btnPrimary]}
+            <PrimaryButton
+              label="Create Job"
               onPress={handleSave}
               disabled={locked}
-            >
-              <Text style={s.btnPrimaryText}>Create Job</Text>
-            </TouchableOpacity>
+              style={{ flex: 1 }}
+            />
           </View>
-          {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
+          {locked && <MaintenanceBanner />}
 
         </ScrollView>
       </KeyboardAvoidingView>
@@ -200,36 +197,27 @@ export default function CreateJobScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  muted: { fontSize: 14, color: '#94A3B8', textAlign: 'center' },
+  muted: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
 
   hint: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: colors.primaryBgStrong,
     padding: 12,
   },
-  hintText: { fontSize: 13, color: '#1D4ED8' },
+  hintText: { fontSize: 13, color: colors.primaryText },
 
   fieldWrap: { gap: 6 },
-  fieldLabel: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5,
-  },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1,
-    borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44,
-    fontSize: 14, color: '#1E293B',
-  },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
 
   row: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', flex: 1 },
-  btnPrimary: { backgroundColor: '#2563EB' },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#CBD5E1' },
+  btnGhost: {
+    borderRadius: 12, paddingVertical: 13, alignItems: 'center',
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled,
+  },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
 });

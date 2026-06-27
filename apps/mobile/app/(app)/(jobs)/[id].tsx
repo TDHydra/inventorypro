@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -13,6 +13,12 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaGallery } from '../../../src/components/MediaGallery';
+import { colors } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { Card } from '../../../src/components/ui/Card';
 
 type LogWithUser = LogEntry & { user_name?: string };
 
@@ -139,12 +145,12 @@ export default function JobDetailScreen() {
     );
   }
 
-  const badgeBg = job.status === 'open' ? '#DBEAFE'
+  const badgeBg = job.status === 'open' ? colors.primaryBgStrong
     : job.status === 'closed' ? '#F1F5F9'
-    : '#FEF3C7';
-  const badgeFg = job.status === 'open' ? '#1D4ED8'
+    : colors.accentBg;
+  const badgeFg = job.status === 'open' ? colors.primaryText
     : job.status === 'closed' ? '#475569'
-    : '#92400E';
+    : colors.warning;
 
   const jobNumberLabel = job.job_number ? `# ${job.job_number}` : 'Pending #';
 
@@ -157,58 +163,49 @@ export default function JobDetailScreen() {
           {editing ? (
             <>
               <View style={s.fieldWrap}>
-                <Text style={s.fieldLabel}>Job Name *</Text>
-                <TextInput
-                  style={s.input}
+                <FieldLabel>Job Name *</FieldLabel>
+                <AppInput
                   value={editName}
                   onChangeText={setEditName}
                   autoFocus
                   placeholder="Job name"
-                  placeholderTextColor="#94A3B8"
                 />
               </View>
 
               <View style={s.fieldWrap}>
-                <Text style={s.fieldLabel}>Status</Text>
+                <FieldLabel>Status</FieldLabel>
                 <View style={s.chipRow}>
                   {(['open', 'closed', 'archived'] as const).map(st => (
-                    <TouchableOpacity
+                    <FilterChip
                       key={st}
-                      style={[s.chip, editStatus === st && s.chipActive]}
+                      label={st.charAt(0).toUpperCase() + st.slice(1)}
+                      active={editStatus === st}
                       onPress={() => setEditStatus(st)}
-                    >
-                      <Text style={[s.chipText, editStatus === st && s.chipTextActive]}>
-                        {st.charAt(0).toUpperCase() + st.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
+                    />
                   ))}
                 </View>
               </View>
 
               <View style={s.fieldWrap}>
-                <Text style={s.fieldLabel}>Customer Name</Text>
-                <TextInput
-                  style={s.input}
+                <FieldLabel>Customer Name</FieldLabel>
+                <AppInput
                   value={editCustomerName}
                   onChangeText={setEditCustomerName}
                   placeholder="Customer or company name"
-                  placeholderTextColor="#94A3B8"
                 />
               </View>
 
               <View style={s.fieldWrap}>
-                <Text style={s.fieldLabel}>Site Address</Text>
-                <TextInput
-                  style={s.input}
+                <FieldLabel>Site Address</FieldLabel>
+                <AppInput
                   value={editSiteAddress}
                   onChangeText={setEditSiteAddress}
                   placeholder="Street address or description"
-                  placeholderTextColor="#94A3B8"
                 />
               </View>
 
               <View style={s.fieldWrap}>
-                <Text style={s.fieldLabel}>Site Location</Text>
+                <FieldLabel>Site Location</FieldLabel>
                 <SearchablePicker
                   placeholder="Search locations..."
                   options={locationOptions}
@@ -220,13 +217,12 @@ export default function JobDetailScreen() {
               </View>
 
               <View style={s.fieldWrap}>
-                <Text style={s.fieldLabel}>Description</Text>
-                <TextInput
-                  style={[s.input, s.textArea]}
+                <FieldLabel>Description</FieldLabel>
+                <AppInput
+                  style={s.textArea}
                   value={editDescription}
                   onChangeText={setEditDescription}
                   placeholder="Job description or notes"
-                  placeholderTextColor="#94A3B8"
                   multiline
                   numberOfLines={4}
                   textAlignVertical="top"
@@ -234,18 +230,16 @@ export default function JobDetailScreen() {
               </View>
 
               <View style={s.row}>
-                <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setEditing(false)}>
+                <TouchableOpacity style={[s.btnGhost, { flex: 1 }]} onPress={() => setEditing(false)}>
                   <Text style={s.btnGhostText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={saveEdit}>
-                  <Text style={s.btnPrimaryText}>Save Changes</Text>
-                </TouchableOpacity>
+                <PrimaryButton label="Save Changes" onPress={saveEdit} style={{ flex: 1 }} />
               </View>
             </>
           ) : (
             <>
               {/* Header card */}
-              <View style={s.card}>
+              <Card variant="detail">
                 <View style={s.jobNumberRow}>
                   <Text style={s.jobNumber}>{jobNumberLabel}</Text>
                   {!job.job_number && (
@@ -266,27 +260,27 @@ export default function JobDetailScreen() {
 
                 {!!job.customer_name && (
                   <View style={s.metaRow}>
-                    <Text style={s.metaLabel}>Customer</Text>
+                    <FieldLabel style={{ minWidth: 60 }}>Customer</FieldLabel>
                     <Text style={s.metaValue}>{job.customer_name}</Text>
                   </View>
                 )}
                 {!!job.site_address && (
                   <View style={s.metaRow}>
-                    <Text style={s.metaLabel}>Site</Text>
+                    <FieldLabel style={{ minWidth: 60 }}>Site</FieldLabel>
                     <Text style={s.metaValue}>{job.site_address}</Text>
                   </View>
                 )}
                 {!!job.description && (
                   <View style={[s.metaRow, { alignItems: 'flex-start' }]}>
-                    <Text style={s.metaLabel}>Notes</Text>
+                    <FieldLabel style={{ minWidth: 60 }}>Notes</FieldLabel>
                     <Text style={[s.metaValue, { flex: 1 }]}>{job.description}</Text>
                   </View>
                 )}
-              </View>
+              </Card>
 
               {/* Deployed section */}
-              <Text style={s.sectionLabel}>Deployed</Text>
-              <View style={s.card}>
+              <FieldLabel>Deployed</FieldLabel>
+              <Card variant="detail">
                 {deployments.units.length === 0 && deployments.items.length === 0 ? (
                   <Text style={s.muted}>No deployed equipment or items.</Text>
                 ) : (
@@ -324,11 +318,11 @@ export default function JobDetailScreen() {
                     ))}
                   </>
                 )}
-              </View>
+              </Card>
 
               {/* Activity section */}
-              <Text style={s.sectionLabel}>Activity</Text>
-              <View style={s.card}>
+              <FieldLabel>Activity</FieldLabel>
+              <Card variant="detail">
                 {log.length === 0 ? (
                   <Text style={s.muted}>No activity yet.</Text>
                 ) : (
@@ -352,22 +346,18 @@ export default function JobDetailScreen() {
                     </View>
                   ))
                 )}
-              </View>
+              </Card>
 
               {/* Photos section */}
-              <Text style={s.sectionLabel}>Photos</Text>
+              <FieldLabel>Photos</FieldLabel>
               <MediaGallery entityType="job" entityId={id} canUpload={canUpload} />
 
               {/* Actions */}
               {(canEdit || canClose) && (
-                <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={startEdit}>
-                  <Text style={s.btnPrimaryText}>Edit Job</Text>
-                </TouchableOpacity>
+                <PrimaryButton label="Edit Job" onPress={startEdit} />
               )}
               {canEdit && job.status !== 'archived' && (
-                <TouchableOpacity style={[s.btn, s.btnDanger]} onPress={doArchive}>
-                  <Text style={s.btnDangerText}>Archive Job</Text>
-                </TouchableOpacity>
+                <PrimaryButton tone="danger" label="Archive Job" onPress={doArchive} />
               )}
             </>
           )}
@@ -378,86 +368,55 @@ export default function JobDetailScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: '#94A3B8' },
+  muted: { fontSize: 14, color: colors.textMuted },
 
-  card: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 16,
-    borderWidth: 1, borderColor: '#EEF2F7',
-  },
   jobNumberRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  jobNumber: { fontSize: 13, fontWeight: '700', color: '#2563EB' },
-  pendingHint: { fontSize: 11, color: '#94A3B8' },
-  name: { fontSize: 22, fontWeight: '700', color: '#1E3A5F' },
+  jobNumber: { fontSize: 13, fontWeight: '700', color: colors.primaryText },
+  pendingHint: { fontSize: 11, color: colors.textMuted },
+  name: { fontSize: 22, fontWeight: '700', color: colors.brand },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   statusBadgeText: { fontSize: 13, fontWeight: '700' },
-  dateText: { fontSize: 13, color: '#94A3B8' },
+  dateText: { fontSize: 13, color: colors.textMuted },
 
   metaRow: {
     flexDirection: 'row', alignItems: 'center',
     marginTop: 10, gap: 8,
   },
-  metaLabel: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5,
-    minWidth: 60,
-  },
-  metaValue: { fontSize: 14, color: '#1E293B', flexShrink: 1 },
+  metaValue: { fontSize: 14, color: colors.textPrimary, flexShrink: 1 },
 
-  sectionLabel: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4,
-  },
   divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
 
   deployRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  deployTag: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
-  deploySub: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  deployTag: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  deploySub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   typeBadge: {
-    backgroundColor: '#DBEAFE', borderRadius: 8,
+    backgroundColor: colors.primaryBgStrong, borderRadius: 8,
     paddingHorizontal: 8, paddingVertical: 3,
   },
-  typeBadgeText: { fontSize: 12, fontWeight: '700', color: '#1D4ED8' },
+  typeBadgeText: { fontSize: 12, fontWeight: '700', color: colors.primaryText },
   typeBadgeItem: { backgroundColor: '#D1FAE5' },
   typeBadgeItemText: { color: '#065F46' },
 
   logRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12 },
   logAction: {
-    fontSize: 14, fontWeight: '600', color: '#1E293B', textTransform: 'capitalize',
+    fontSize: 14, fontWeight: '600', color: colors.textPrimary, textTransform: 'capitalize',
   },
-  logUser: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  logNote: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  logDate: { fontSize: 12, color: '#94A3B8', marginLeft: 12 },
+  logUser: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  logNote: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  logDate: { fontSize: 12, color: colors.textMuted, marginLeft: 12 },
 
   fieldWrap: { gap: 6 },
-  fieldLabel: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5,
-  },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1,
-    borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44,
-    fontSize: 14, color: '#1E293B',
-  },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
   chipRow: { flexDirection: 'row', gap: 8 },
-  chip: {
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8,
-    borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#fff',
-  },
-  chipActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
-  chipText: { fontSize: 14, fontWeight: '600', color: '#64748B' },
-  chipTextActive: { color: '#fff' },
 
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
-  btnPrimary: { backgroundColor: '#2563EB' },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#CBD5E1' },
+  btnGhost: {
+    borderRadius: 12, paddingVertical: 13, alignItems: 'center',
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled,
+  },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
-  btnDanger: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
-  btnDangerText: { color: '#DC2626', fontWeight: '700', fontSize: 16 },
 });
