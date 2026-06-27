@@ -30,6 +30,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { syncNow } from '../../../src/sync/engine';
+import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 
 export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
@@ -283,75 +284,77 @@ export default function LocationsScreen() {
                 <Text style={s.dupWarn}>⚠ "{dup.name}" already exists here</Text>
               )}
 
-              <FieldLabel>Inside</FieldLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
-                <FilterChip label="Top level" active={parentId === null} onPress={() => setParentId(null)} />
-                {topLevel.map(t => (
-                  <FilterChip key={t.id} label={t.name} active={parentId === t.id} onPress={() => setParentId(t.id)} />
-                ))}
-              </ScrollView>
+              <AdvancedFields>
+                <FieldLabel>Inside</FieldLabel>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+                  <FilterChip label="Top level" active={parentId === null} onPress={() => setParentId(null)} />
+                  {topLevel.map(t => (
+                    <FilterChip key={t.id} label={t.name} active={parentId === t.id} onPress={() => setParentId(t.id)} />
+                  ))}
+                </ScrollView>
 
-              <FieldLabel>Belongs to (optional)</FieldLabel>
-              <SearchablePicker
-                placeholder="Search people…"
-                options={userOptions}
-                value={ownerOption}
-                onSelect={(opt) => {
-                  // Tapping "Change" re-passes current value — treat as clear
-                  setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
-                }}
-              />
+                <FieldLabel>Belongs to (optional)</FieldLabel>
+                <SearchablePicker
+                  placeholder="Search people…"
+                  options={userOptions}
+                  value={ownerOption}
+                  onSelect={(opt) => {
+                    // Tapping "Change" re-passes current value — treat as clear
+                    setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
+                  }}
+                />
 
-              <FieldLabel>GPS Anchor</FieldLabel>
-              {anchorStatus === 'denied' ? (
-                <Text style={s.anchorDenied}>
-                  Location permission off — you can still save without it.
-                </Text>
-              ) : (
-                <TouchableOpacity
-                  style={[s.anchorBtn, latitude !== null && s.anchorBtnSet]}
-                  onPress={requestAnchor}
-                  disabled={anchorStatus === 'loading'}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.anchorBtnText, latitude !== null && s.anchorBtnTextSet]}>
-                    {anchorStatus === 'loading'
-                      ? '📍 Getting location…'
-                      : latitude !== null
-                      ? '📍 Anchored ✓ · re-capture'
-                      : '📍 Use my current spot'}
+                <FieldLabel>GPS Anchor</FieldLabel>
+                {anchorStatus === 'denied' ? (
+                  <Text style={s.anchorDenied}>
+                    Location permission off — you can still save without it.
                   </Text>
-                </TouchableOpacity>
-              )}
-              {latitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
-                <Text style={s.anchorHint}>Not anchored</Text>
-              )}
-
-              <FieldLabel>Icon</FieldLabel>
-              <View style={s.iconGrid}>
-                {ICON_OPTIONS.map(ic => (
+                ) : (
                   <TouchableOpacity
-                    key={ic}
-                    style={[s.iconCell, icon === ic && s.iconCellActive]}
-                    onPress={() => setIcon(ic)}
+                    style={[s.anchorBtn, latitude !== null && s.anchorBtnSet]}
+                    onPress={requestAnchor}
+                    disabled={anchorStatus === 'loading'}
+                    activeOpacity={0.7}
                   >
-                    <Text style={s.iconCellText}>{ic}</Text>
+                    <Text style={[s.anchorBtnText, latitude !== null && s.anchorBtnTextSet]}>
+                      {anchorStatus === 'loading'
+                        ? '📍 Getting location…'
+                        : latitude !== null
+                        ? '📍 Anchored ✓ · re-capture'
+                        : '📍 Use my current spot'}
+                    </Text>
                   </TouchableOpacity>
-                ))}
-              </View>
+                )}
+                {latitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
+                  <Text style={s.anchorHint}>Not anchored</Text>
+                )}
 
-              <FieldLabel>Color</FieldLabel>
-              <View style={s.colorRow}>
-                {COLOR_OPTIONS.map(c => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[s.colorCell, { backgroundColor: c }, color === c && s.colorCellActive]}
-                    onPress={() => setColor(c)}
-                  >
-                    {color === c && <Text style={s.colorCheck}>✓</Text>}
-                  </TouchableOpacity>
-                ))}
-              </View>
+                <FieldLabel>Icon</FieldLabel>
+                <View style={s.iconGrid}>
+                  {ICON_OPTIONS.map(ic => (
+                    <TouchableOpacity
+                      key={ic}
+                      style={[s.iconCell, icon === ic && s.iconCellActive]}
+                      onPress={() => setIcon(ic)}
+                    >
+                      <Text style={s.iconCellText}>{ic}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <FieldLabel>Color</FieldLabel>
+                <View style={s.colorRow}>
+                  {COLOR_OPTIONS.map(c => (
+                    <TouchableOpacity
+                      key={c}
+                      style={[s.colorCell, { backgroundColor: c }, color === c && s.colorCellActive]}
+                      onPress={() => setColor(c)}
+                    >
+                      {color === c && <Text style={s.colorCheck}>✓</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </AdvancedFields>
 
               <PrimaryButton label="Add Location" onPress={handleSave} disabled={locked} style={{ marginTop: spacing.sm }} />
               {locked && <MaintenanceBanner />}

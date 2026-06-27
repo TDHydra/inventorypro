@@ -17,6 +17,7 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { AdvancedFields } from '../ui/AdvancedFields';
 
 const DEFAULT_UNIT_CAT: UnitCategory = 'piece';
 const DEFAULT_UNIT = 'each';
@@ -191,28 +192,30 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </>
       )}
 
-      <AppInput
-        placeholder="Category (optional)"
-        value={category}
-        onChangeText={setCategory}
-      />
+      <AdvancedFields>
+        <AppInput
+          placeholder="Category (optional)"
+          value={category}
+          onChangeText={setCategory}
+        />
 
-      {kind === 'equipment' && (
-        <>
-          <View style={s.switchRow}>
-            <Text style={s.switchLabel}>Track individual units</Text>
-            <Switch value={unitTracked} onValueChange={setUnitTracked} />
-          </View>
-          {unitTracked && (
-            <AppInput
-              placeholder="Tag prefix (e.g. AM-, DH-)"
-              value={tagPrefix}
-              onChangeText={setTagPrefix}
-              autoCapitalize="characters"
-            />
-          )}
-        </>
-      )}
+        {kind === 'equipment' && (
+          <>
+            <View style={s.switchRow}>
+              <Text style={s.switchLabel}>Track individual units</Text>
+              <Switch value={unitTracked} onValueChange={setUnitTracked} />
+            </View>
+            {unitTracked && (
+              <AppInput
+                placeholder="Tag prefix (e.g. AM-, DH-)"
+                value={tagPrefix}
+                onChangeText={setTagPrefix}
+                autoCapitalize="characters"
+              />
+            )}
+          </>
+        )}
+      </AdvancedFields>
 
       <PrimaryButton
         label="Save & add another"

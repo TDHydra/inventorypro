@@ -30,6 +30,7 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 
 const CATEGORIES: { value: UnitCategory; label: string }[] = [
   { value: 'liquid', label: 'Liquid (gallons, pints...)' },
@@ -315,13 +316,15 @@ export default function AddStockScreen() {
             onSelect={handleItemSelect}
             onCreate={handleItemCreate}
           />
-          <BarcodeInput
-            value={barcode}
-            onChange={setBarcode}
-            placeholder="Scan or enter barcode (optional)"
-            note={autofillItem ? `Auto-filled: ${autofillItem.name}` : undefined}
-            noteTone="info"
-          />
+          <AdvancedFields>
+            <BarcodeInput
+              value={barcode}
+              onChange={setBarcode}
+              placeholder="Scan or enter barcode (optional)"
+              note={autofillItem ? `Auto-filled: ${autofillItem.name}` : undefined}
+              noteTone="info"
+            />
+          </AdvancedFields>
 
           {/* Read-only card shown when an existing item is selected/autofilled */}
           {showReadOnly && autofillItem && (
@@ -345,14 +348,6 @@ export default function AddStockScreen() {
                 onChangeText={setName}
                 autoFocus
               />
-              <AppInput
-                style={s.multiline}
-                placeholder="Description (optional)"
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                numberOfLines={3}
-              />
 
               <FieldLabel style={{ marginTop: 12 }}>Kind</FieldLabel>
               <View style={s.unitRow}>
@@ -364,33 +359,6 @@ export default function AddStockScreen() {
                     onPress={() => setKind(k)}
                   />
                 ))}
-              </View>
-
-              <SuggestInput
-                value={supplier}
-                onChange={setSupplier}
-                suggestions={supplierOptions}
-                placeholder="Supplier / Vendor (optional)"
-              />
-              <SuggestInput
-                label=""
-                value={model}
-                onChange={setModel}
-                suggestions={modelOptions}
-                placeholder="Color / Model (optional)"
-              />
-
-              <SuggestInput
-                label="Category"
-                value={category}
-                onChange={setCategory}
-                suggestions={categoryOptions}
-                placeholder="Air Movers, Filters, Equipment Inventory…"
-              />
-
-              <View style={s.switchRow}>
-                <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
-                <Switch value={returnable} onValueChange={setReturnable} />
               </View>
 
               {kind === 'equipment' && (
@@ -437,19 +405,53 @@ export default function AddStockScreen() {
                 </>
               )}
 
-              <FieldLabel style={{ marginTop: 12 }}>Stock thresholds</FieldLabel>
-              <AppInput
-                placeholder="Low-stock alert (0 = off)"
-                value={minAlert}
-                onChangeText={setMinAlert}
-                keyboardType="decimal-pad"
-              />
-              <AppInput
-                placeholder="Reorder up to (optional)"
-                value={reorderTo}
-                onChangeText={setReorderTo}
-                keyboardType="decimal-pad"
-              />
+              <AdvancedFields>
+                <AppInput
+                  style={s.multiline}
+                  placeholder="Description (optional)"
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  numberOfLines={3}
+                />
+                <SuggestInput
+                  value={supplier}
+                  onChange={setSupplier}
+                  suggestions={supplierOptions}
+                  placeholder="Supplier / Vendor (optional)"
+                />
+                <SuggestInput
+                  label=""
+                  value={model}
+                  onChange={setModel}
+                  suggestions={modelOptions}
+                  placeholder="Color / Model (optional)"
+                />
+                <SuggestInput
+                  label="Category"
+                  value={category}
+                  onChange={setCategory}
+                  suggestions={categoryOptions}
+                  placeholder="Air Movers, Filters, Equipment Inventory…"
+                />
+                <View style={s.switchRow}>
+                  <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
+                  <Switch value={returnable} onValueChange={setReturnable} />
+                </View>
+                <FieldLabel style={{ marginTop: 12 }}>Stock thresholds</FieldLabel>
+                <AppInput
+                  placeholder="Low-stock alert (0 = off)"
+                  value={minAlert}
+                  onChangeText={setMinAlert}
+                  keyboardType="decimal-pad"
+                />
+                <AppInput
+                  placeholder="Reorder up to (optional)"
+                  value={reorderTo}
+                  onChangeText={setReorderTo}
+                  keyboardType="decimal-pad"
+                />
+              </AdvancedFields>
             </>
           )}
 
