@@ -6,7 +6,7 @@ export const ICON_ALIASES: Record<string, string> = {
   door_back: '🚪', counter: '🧾', inventory_2: '📦',
 };
 
-export const ICON_OPTIONS = ['📦', '🏭', '🏪', '🚚', '🗄️', '🚪', '🧾', '🛠️', '🧰', '🏬', '🪜', '❄️'];
+export const ICON_OPTIONS = ['📦', '🏭', '🏪', '🚚', '🗄️', '🚪', '🧾', '🛠️', '🧰', '🏬', '🪜', '❄️', '🔥', '💧', '🦠', '🧽', '🧶', '🗂️'];
 
 export const COLOR_OPTIONS = [
   '#1E3A5F', '#2E7D32', '#C62828', '#1565C0', '#6A1B9A',

@@ -15,7 +15,7 @@ interface PushBody {
 const ALLOWED_TABLES = new Set([
   'users', 'locations', 'inventory_items', 'stock_by_location',
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
-  'equipment_units', 'app_config',
+  'equipment_units', 'app_config', 'taxonomy_types',
 ]);
 
 // Upsert conflict target per table. Most are keyed by `id`, but a few use a
@@ -26,6 +26,7 @@ const CONFLICT_TARGETS: Record<string, string> = {
   team_members: 'team_id, user_id',
   role_settings: 'role',
   app_config: 'key',
+  taxonomy_types: 'id',
 };
 
 function conflictTarget(table: string): string {
@@ -39,7 +40,7 @@ function keyColumns(table: string): string[] {
 const FULL_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
-  'equipment_units', 'app_config',
+  'equipment_units', 'app_config', 'taxonomy_types',
 ];
 
 // Columns synced to devices, per table. Sensitive fields (e.g. users.pin_hash)
