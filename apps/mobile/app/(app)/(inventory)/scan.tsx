@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { BarcodeScanner } from '../../../src/components/BarcodeScanner';
 import { USBScanner } from '../../../src/components/USBScanner';
-import { getItemByBarcode } from '../../../src/db/queries/items';
+import { getItemByBarcode, getItemById } from '../../../src/db/queries/items';
+import { getUnitByTag } from '../../../src/db/queries/equipmentUnits';
+import { resolveScan } from '../../../src/scan/resolveScan';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { colors } from '../../../src/theme';
 
@@ -14,21 +16,50 @@ export default function ScanScreen() {
   const [mode, setMode] = useState<ScanMode>('camera');
 
   const handleScanned = (code: string) => {
-    const item = getItemByBarcode(code);
-    if (item) {
-      router.replace({ pathname: '/(app)/(checkout)', params: { itemId: item.id } });
+    const resolved = resolveScan(code);
+
+    if (resolved === null) {
+      // Malformed INV: token — ignore silently (camera will re-activate)
+      return;
+    }
+
+    if (resolved.kind === 'item') {
+      const item = getItemById(resolved.id);
+      if (item) {
+        router.replace({ pathname: '/(app)/(checkout)', params: { itemId: item.id } });
+      } else {
+        Alert.alert('Item Not Found', `Item "${resolved.id}" was not found in the catalog.`, [
+          { text: 'OK' },
+        ]);
+      }
+    } else if (resolved.kind === 'unit') {
+      const unit = getUnitByTag(resolved.assetTag);
+      if (unit) {
+        router.replace({ pathname: '/(app)/(inventory)/[id]', params: { id: unit.item_id } });
+      } else {
+        Alert.alert('Unit Not Found', `Asset tag "${resolved.assetTag}" was not found.`, [
+          { text: 'OK' },
+        ]);
+      }
     } else {
-      Alert.alert(
-        'Item Not Found',
-        `Barcode "${code}" is not in the catalog.`,
-        [
-          { text: 'Try Again' },
-          {
-            text: 'Add to Catalog',
-            onPress: () => router.push({ pathname: '/(app)/(inventory)/add', params: { barcode: code } }),
-          },
-        ]
-      );
+      // kind === 'barcode' — existing path, keeps "not found → add" prompt
+      const item = getItemByBarcode(resolved.code);
+      if (item) {
+        router.replace({ pathname: '/(app)/(checkout)', params: { itemId: item.id } });
+      } else {
+        Alert.alert(
+          'Item Not Found',
+          `Barcode "${resolved.code}" is not in the catalog.`,
+          [
+            { text: 'Try Again' },
+            {
+              text: 'Add to Catalog',
+              onPress: () =>
+                router.push({ pathname: '/(app)/(inventory)/add', params: { barcode: resolved.code } }),
+            },
+          ]
+        );
+      }
     }
   };
 

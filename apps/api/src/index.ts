@@ -13,6 +13,7 @@ import teamRoutes from './routes/teams';
 import userRoutes from './routes/users';
 import logRoutes from './routes/logs';
 import mediaRoutes from './routes/media';
+import labelRoutes from './routes/labels';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -60,6 +61,7 @@ async function build() {
   await fastify.register(userRoutes, { prefix: '/users' });
   await fastify.register(logRoutes, { prefix: '/logs' });
   await fastify.register(mediaRoutes, { prefix: '/media' });
+  await fastify.register(labelRoutes, { prefix: '/labels' });
 
   // Health check
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
