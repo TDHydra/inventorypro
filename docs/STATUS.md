@@ -44,6 +44,7 @@
 - Camera barcode-scan for asset tags (currently manual entry)
 - Label templates / auto-generated tags
 - Role-definition runtime editor
+- **Team type management** — admin screen in Settings (gated behind an approved permission, e.g. tier-4 `system_settings` or a new `manage_team_types`) to add / rename / remove the available Team types at runtime, replacing the hardcoded `TEAM_TYPES` constant (`src/constants/teams.ts`). Needs a synced store (new synced table or `app_config`) so type changes propagate to all devices; the teams create/edit screens read the list from it instead of the constant.
 - Server-side stock-quantity re-validation on push (multi-device race safety)
 - Postgres `synced_at` parity for `equipment_units`
 

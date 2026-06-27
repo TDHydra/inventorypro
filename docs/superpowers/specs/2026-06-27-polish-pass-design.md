@@ -208,6 +208,9 @@ reset to the explicit Clear/submit paths.
 ## Out of scope (logged follow-ups)
 - Permission-gating checkout/checkin tiles for office-managers (tier-3 `checkout_inventory:false`) — a real
   silent-fail, but a **behavior** change, not polish.
+- **Team type management** (user-requested, backlog) — a permission-gated admin screen in Settings to
+  add/rename/remove Team types at runtime (replacing the hardcoded `TEAM_TYPES`), backed by a synced store.
+  A standalone feature, not polish — logged in `docs/STATUS.md` backlog.
 - Auth/PINPad bespoke sizing (intentional, untouched).
 - Reactive post-sync auto-refresh of already-open lists without a pull gesture (pull-to-refresh covers the manual case).
 - New empty states (all already covered).
