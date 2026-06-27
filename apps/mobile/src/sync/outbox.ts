@@ -1,5 +1,6 @@
 import { getDb } from '../db/schema';
 import { generateUUID } from '../utils/uuid';
+import { assertWritable } from '../db/maintenance';
 
 export type OutboxOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 
@@ -19,6 +20,7 @@ export function appendOutbox(
   table_name: string,
   payload: Record<string, unknown>
 ): void {
+  assertWritable();
   const db = getDb();
   db.executeSync(
     `INSERT INTO outbox (id, operation, table_name, payload, created_at, attempts, last_error, synced_at)

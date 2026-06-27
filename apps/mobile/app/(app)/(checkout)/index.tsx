@@ -24,9 +24,11 @@ import {
 } from '../../../src/db/queries/equipmentUnits';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { generateUUID } from '../../../src/utils/uuid';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
@@ -51,6 +53,7 @@ interface PmSelection {
 export default function CheckoutScreen() {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const params = useLocalSearchParams<{ itemId?: string }>();
 
   const [step, setStep] = useState<Step>('find');
@@ -274,6 +277,7 @@ export default function CheckoutScreen() {
   }
   function createJob(text: string) {
     if (!user) return;
+    if (isWriteBlocked()) return; // no inline job creation during maintenance lockout
     const now = new Date().toISOString();
     const newJob: Job = {
       id: generateUUID(), name: text, status: 'open',
@@ -363,6 +367,7 @@ export default function CheckoutScreen() {
   }
 
   async function handleConfirm() {
+    if (isWriteBlocked()) return;
     if (!selectedItem || !selectedLocation || !user || !destType) return;
     const itemId = selectedItem.id;
     const source = selectedLocation.location_id;
@@ -868,9 +873,10 @@ export default function CheckoutScreen() {
           <MediaGallery entityType="activity_log" entityId={checkoutEventId} canUpload={canUploadMedia} />
         </View>
 
-        <TouchableOpacity style={s.btn} disabled={submitting} onPress={handleConfirm}>
+        <TouchableOpacity style={s.btn} disabled={submitting || locked} onPress={handleConfirm}>
           <Text style={s.btnText}>{submitting ? 'Working...' : 'Confirm ✓'}</Text>
         </TouchableOpacity>
+        {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
 
         <TouchableOpacity style={s.btnSecondary} onPress={() => setStep('dest')}>
           <Text style={s.btnSecondaryText}>← Go Back</Text>

@@ -6,6 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { generateUUID } from '../../../src/utils/uuid';
 import { getActiveCheckoutsForUser } from '../../../src/db/queries/jobs';
@@ -14,6 +15,7 @@ import { rowsAs } from '../../../src/db/schema';
 import { adjustStock, getStockQuantity } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
@@ -38,6 +40,7 @@ interface Checkout {
 export default function CheckinScreen() {
   const { user } = useSession();
   const router = useRouter();
+  const { locked } = useMaintenanceMode();
 
   // --- Count-based checkout state ---
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -130,6 +133,7 @@ export default function CheckinScreen() {
   }
 
   async function handleCheckin() {
+    if (isWriteBlocked()) return;
     if (!user || selected.size === 0 || !returnLocation) return;
 
     const toReturn = checkouts.filter(c => selected.has(c.log_id));
@@ -232,6 +236,7 @@ export default function CheckinScreen() {
   }
 
   async function handleUnitCheckin() {
+    if (isWriteBlocked()) return;
     if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
     const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
     setUnitSubmitting(true);
@@ -462,12 +467,13 @@ export default function CheckinScreen() {
               <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
-                style={[s.btn, (!returnLocation || submitting) && s.btnDisabled]}
-                disabled={!returnLocation || submitting}
+                style={[s.btn, (!returnLocation || submitting || locked) && s.btnDisabled]}
+                disabled={!returnLocation || submitting || locked}
                 onPress={handleCheckin}
               >
                 <Text style={s.btnText}>{submitting ? 'Returning...' : 'Confirm Return'}</Text>
               </TouchableOpacity>
+              {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
               <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
@@ -518,12 +524,13 @@ export default function CheckinScreen() {
               <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
               <TouchableOpacity
-                style={[s.btn, (!unitReturnLocation || unitSubmitting) && s.btnDisabled]}
-                disabled={!unitReturnLocation || unitSubmitting}
+                style={[s.btn, (!unitReturnLocation || unitSubmitting || locked) && s.btnDisabled]}
+                disabled={!unitReturnLocation || unitSubmitting || locked}
                 onPress={handleUnitCheckin}
               >
                 <Text style={s.btnText}>{unitSubmitting ? 'Returning...' : 'Confirm Return'}</Text>
               </TouchableOpacity>
+              {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
               <TouchableOpacity style={s.cancel} onPress={() => setShowUnitModal(false)}>
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>

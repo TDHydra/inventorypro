@@ -22,6 +22,8 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 
 const CATEGORIES: { value: UnitCategory; label: string }[] = [
   { value: 'liquid', label: 'Liquid (gallons, pints...)' },
@@ -33,6 +35,7 @@ const CATEGORIES: { value: UnitCategory; label: string }[] = [
 export default function AddStockScreen() {
   const router = useRouter();
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
   const { barcode: initialBarcode } = useLocalSearchParams<{ barcode?: string }>();
   const { coords, request } = useCurrentPosition();
 
@@ -209,6 +212,8 @@ export default function AddStockScreen() {
       router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: selectedItem!.id } });
       return;
     }
+
+    if (isWriteBlocked()) return;
 
     const now = new Date().toISOString();
     // Unit for the activity log: prefer the existing item's unit, fall back to form state
@@ -498,11 +503,14 @@ export default function AddStockScreen() {
               </Text>
             </View>
           )}
-          <TouchableOpacity style={s.btn} onPress={handleSave}>
+          {/* The existingUnitTracked branch only navigates (no write), so it
+              stays enabled during maintenance — only the writing modes gate. */}
+          <TouchableOpacity style={s.btn} onPress={handleSave} disabled={!existingUnitTracked && locked}>
             <Text style={s.btnText}>
               {existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
             </Text>
           </TouchableOpacity>
+          {!existingUnitTracked && locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
           <View style={s.secondaryRow}>
             <TouchableOpacity style={s.linkBtn} onPress={clearForm}>
               <Text style={s.linkText}>Clear</Text>
