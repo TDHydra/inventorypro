@@ -28,6 +28,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { generateUUID } from '../../../src/utils/uuid';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
@@ -365,6 +366,7 @@ export default function CheckoutScreen() {
   }
 
   async function handleConfirm() {
+    if (isWriteBlocked()) return;
     if (!selectedItem || !selectedLocation || !user || !destType) return;
     const itemId = selectedItem.id;
     const source = selectedLocation.location_id;

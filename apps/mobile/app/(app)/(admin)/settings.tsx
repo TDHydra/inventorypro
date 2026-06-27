@@ -4,7 +4,7 @@ import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes } from '../../../src/db/appSettings';
@@ -46,6 +46,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const isAdmin = usePermission('system_settings');
   const { user, logout } = useSession();
+  const isTier4 = user != null && ROLE_TIER[user.role] === 4;
 
   const [lastSync, setLastSync] = useState('Never');
   const [pending, setPending] = useState(0);
@@ -176,8 +177,8 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── System (admin only) ──────────────────────────────────────── */}
-        {isAdmin && (
+        {/* ── System (tier-4 only) ──────────────────────────────────────── */}
+        {isTier4 && (
           <View>
             <Text style={s.sectionTitle}>System</Text>
             <View style={s.card}>
@@ -190,7 +191,7 @@ export default function SettingsScreen() {
                 </View>
                 <Switch
                   value={maintOn}
-                  onValueChange={(v) => { setMaintenanceMode(v); setMaintOn(v); }}
+                  onValueChange={(v) => { try { setMaintenanceMode(v); setMaintOn(v); } catch { /* blocked write — ignore */ } }}
                 />
               </View>
             </View>

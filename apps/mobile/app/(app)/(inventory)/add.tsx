@@ -23,6 +23,7 @@ import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 
 const CATEGORIES: { value: UnitCategory; label: string }[] = [
   { value: 'liquid', label: 'Liquid (gallons, pints...)' },
@@ -211,6 +212,8 @@ export default function AddStockScreen() {
       router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: selectedItem!.id } });
       return;
     }
+
+    if (isWriteBlocked()) return;
 
     const now = new Date().toISOString();
     // Unit for the activity log: prefer the existing item's unit, fall back to form state

@@ -15,6 +15,7 @@ import { rowsAs } from '../../../src/db/schema';
 import { adjustStock, getStockQuantity } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
@@ -132,6 +133,7 @@ export default function CheckinScreen() {
   }
 
   async function handleCheckin() {
+    if (isWriteBlocked()) return;
     if (!user || selected.size === 0 || !returnLocation) return;
 
     const toReturn = checkouts.filter(c => selected.has(c.log_id));
@@ -234,6 +236,7 @@ export default function CheckinScreen() {
   }
 
   async function handleUnitCheckin() {
+    if (isWriteBlocked()) return;
     if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
     const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
     setUnitSubmitting(true);

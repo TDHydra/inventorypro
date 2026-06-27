@@ -7,6 +7,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { upsertJob, Job } from '../../../src/db/queries/jobs';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -31,6 +32,7 @@ export default function CreateJobScreen() {
   }, []);
 
   function handleSave() {
+    if (isWriteBlocked()) return;
     const trimmedName = name.trim();
     if (!trimmedName) {
       Alert.alert('Required', 'Job name is required.');
