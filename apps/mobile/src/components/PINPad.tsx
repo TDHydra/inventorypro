@@ -1,4 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { colors } from '../theme';
 
 interface Props {
   value: string;
@@ -74,19 +75,19 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     borderWidth: 2,
-    borderColor: '#94A3B8',
+    borderColor: colors.textMuted,
     backgroundColor: 'transparent',
   },
   dotFilled: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   dotError: {
-    borderColor: '#DC2626',
-    backgroundColor: '#FEE2E2',
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerBg,
   },
-  hint: { fontSize: 13, color: '#94A3B8', marginBottom: 24 },
-  error: { fontSize: 13, color: '#DC2626', marginBottom: 24 },
+  hint: { fontSize: 13, color: colors.textMuted, marginBottom: 24 },
+  error: { fontSize: 13, color: colors.danger, marginBottom: 24 },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -97,11 +98,11 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.borderDetail,
     alignItems: 'center',
     justifyContent: 'center',
   },
   keyEmpty: { backgroundColor: 'transparent' },
-  keyText: { fontSize: 22, fontWeight: '500', color: '#1E293B' },
-  backspace: { fontSize: 18, color: '#64748B' },
+  keyText: { fontSize: 22, fontWeight: '500', color: colors.textPrimary },
+  backspace: { fontSize: 18, color: colors.textSecondary },
 });

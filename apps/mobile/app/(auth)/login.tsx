@@ -4,6 +4,7 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { colors } from '../../src/theme';
 import { PINPad } from '../../src/components/PINPad';
 import { getAllActiveUsers, markUserPinSet, User } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
@@ -234,7 +235,7 @@ export default function LoginScreen() {
         <TextInput
           style={styles.searchInput}
           placeholder="Search name..."
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={colors.textMuted}
           value={search}
           onChangeText={setSearch}
           autoCapitalize="none"
@@ -270,21 +271,21 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFF',
+    backgroundColor: colors.background,
     paddingTop: 60,
     paddingHorizontal: 20,
   },
-  appName: { fontSize: 20, fontWeight: '700', color: '#2563EB', marginBottom: 4 },
-  heading: { fontSize: 26, fontWeight: '700', color: '#1E3A5F', marginBottom: 16 },
+  appName: { fontSize: 20, fontWeight: '700', color: colors.primaryText, marginBottom: 4 },
+  heading: { fontSize: 26, fontWeight: '700', color: colors.brand, marginBottom: 16 },
   searchBox: {
     backgroundColor: '#fff',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     paddingHorizontal: 14,
     marginBottom: 12,
   },
-  searchInput: { height: 44, fontSize: 16, color: '#1E293B' },
+  searchInput: { height: 44, fontSize: 16, color: colors.textPrimary },
   list: { flex: 1 },
   userRow: {
     flexDirection: 'row',
@@ -295,26 +296,26 @@ const styles = StyleSheet.create({
   },
   avatar: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: '#DBEAFE',
+    backgroundColor: colors.primaryBg,
     alignItems: 'center', justifyContent: 'center',
     marginRight: 12,
   },
-  avatarText: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
+  avatarText: { fontSize: 16, fontWeight: '700', color: colors.primaryText },
   userInfo: { flex: 1 },
-  userName2: { fontSize: 16, fontWeight: '600', color: '#1E293B' },
-  userRole: { fontSize: 12, color: '#64748B', textTransform: 'capitalize', marginTop: 2 },
-  chevron: { fontSize: 20, color: '#CBD5E1' },
-  separator: { height: 1, backgroundColor: '#F1F5F9', marginLeft: 66 },
-  empty: { textAlign: 'center', color: '#94A3B8', marginTop: 40, fontSize: 15 },
+  userName2: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
+  userRole: { fontSize: 12, color: colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
+  chevron: { fontSize: 20, color: colors.textDisabled },
+  separator: { height: 1, backgroundColor: colors.borderDetail, marginLeft: 66 },
+  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 40, fontSize: 15 },
   // PIN screen
   back: { marginBottom: 32 },
-  backText: { fontSize: 16, color: '#2563EB' },
-  greeting: { fontSize: 16, color: '#64748B' },
-  userName: { fontSize: 28, fontWeight: '700', color: '#1E3A5F', marginBottom: 40 },
+  backText: { fontSize: 16, color: colors.primaryText },
+  greeting: { fontSize: 16, color: colors.textSecondary },
+  userName: { fontSize: 28, fontWeight: '700', color: colors.brand, marginBottom: 40 },
   pinSection: { alignItems: 'center', width: '100%' },
-  pinLabel: { fontSize: 18, fontWeight: '600', color: '#1E293B', marginBottom: 6 },
-  pinSub: { fontSize: 13, color: '#64748B', textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
-  loading: { marginTop: 20, color: '#64748B' },
-  firstBanner: { backgroundColor: '#EFF6FF', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
-  firstBannerText: { color: '#1D4ED8', fontSize: 13, fontWeight: '700' },
+  pinLabel: { fontSize: 18, fontWeight: '600', color: colors.textPrimary, marginBottom: 6 },
+  pinSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
+  loading: { marginTop: 20, color: colors.textSecondary },
+  firstBanner: { backgroundColor: colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
+  firstBannerText: { color: colors.primaryText, fontSize: 13, fontWeight: '700' },
 });

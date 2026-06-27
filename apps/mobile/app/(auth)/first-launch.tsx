@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { colors } from '../../src/theme';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -112,7 +113,7 @@ export default function FirstLaunchScreen() {
         </>
       ) : (
         <>
-          <ActivityIndicator size="large" color="#2563EB" style={styles.spinner} />
+          <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
           <Text style={styles.heading}>Setting things up...</Text>
 
           <View style={styles.barOuter}>
@@ -141,7 +142,7 @@ export default function FirstLaunchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFF',
+    backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
@@ -149,41 +150,41 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#1E3A5F',
+    color: colors.brand,
     marginBottom: 40,
   },
   spinner: { marginBottom: 24 },
   heading: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1E3A5F',
+    color: colors.brand,
     marginBottom: 20,
   },
   barOuter: {
     width: '100%',
     height: 8,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: colors.border,
     borderRadius: 4,
     overflow: 'hidden',
     marginBottom: 8,
   },
   barInner: {
     height: '100%',
-    backgroundColor: '#2563EB',
+    backgroundColor: colors.primary,
     borderRadius: 4,
   },
   pct: {
     fontSize: 14,
-    color: '#64748B',
+    color: colors.textSecondary,
     marginBottom: 8,
   },
   tableLabel: {
     fontSize: 14,
-    color: '#475569',
+    color: colors.textSecondary,
     marginBottom: 40,
   },
   tipBox: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryBg,
     borderRadius: 12,
     padding: 16,
     width: '100%',
@@ -191,15 +192,15 @@ const styles = StyleSheet.create({
   tipTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1D4ED8',
+    color: colors.primaryText,
     marginBottom: 6,
   },
   tipBody: {
     fontSize: 13,
-    color: '#3730A3',
+    color: colors.textPrimary,
     lineHeight: 19,
   },
-  errorText: { fontSize: 18, fontWeight: '600', color: '#DC2626', marginBottom: 8 },
+  errorText: { fontSize: 18, fontWeight: '600', color: colors.danger, marginBottom: 8 },
   errorDetail: { fontSize: 13, color: '#7F1D1D', marginBottom: 20, textAlign: 'center' },
-  retry: { fontSize: 16, color: '#2563EB', fontWeight: '600' },
+  retry: { fontSize: 16, color: colors.primaryText, fontWeight: '600' },
 });
