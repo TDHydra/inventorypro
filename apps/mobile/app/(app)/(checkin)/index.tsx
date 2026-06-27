@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity,
-  StyleSheet, Alert, Modal, TextInput, ScrollView,
+  StyleSheet, Alert, TextInput, ScrollView,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -23,6 +23,11 @@ import { getDeployedUnitsForUser, getUnitByTag, setUnitStatus } from '../../../s
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
+import { colors } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { TooltipHint } from '../../../src/components/TooltipHint';
 
 interface Checkout {
   log_id: string;
@@ -120,15 +125,8 @@ export default function CheckinScreen() {
     setSelected(new Set(checkouts.map(c => c.log_id)));
   }
 
+  // Open modal — inputs are preserved across outside-tap dismiss; reset only on submit.
   function openModal() {
-    const initial: Record<string, string> = {};
-    for (const c of checkouts) {
-      if (selected.has(c.log_id)) {
-        initial[c.log_id] = String(c.quantity);
-      }
-    }
-    setReturnQtys(initial);
-    setReturnLocation(null);
     setShowModal(true);
   }
 
@@ -194,6 +192,9 @@ export default function CheckinScreen() {
 
     setSubmitting(false);
     setShowModal(false);
+    // Reset modal inputs after successful submit
+    setReturnLocation(null);
+    setReturnQtys({});
     setCheckinEventId(generateUUID());
     Alert.alert(
       'Checked In',
@@ -230,8 +231,8 @@ export default function CheckinScreen() {
     setScanNote({ text: `Added: ${unit.asset_tag}`, tone: 'info' });
   }
 
+  // Open unit modal — inputs are preserved across outside-tap dismiss; reset only on submit.
   function openUnitModal() {
-    setUnitReturnLocation(null);
     setShowUnitModal(true);
   }
 
@@ -288,6 +289,8 @@ export default function CheckinScreen() {
 
     setUnitSubmitting(false);
     setShowUnitModal(false);
+    // Reset modal inputs after successful submit
+    setUnitReturnLocation(null);
     setSelectedUnitIds(new Set());
     setUnitRefreshKey(k => k + 1);
     setUnitCheckinEventId(generateUUID());
@@ -304,6 +307,7 @@ export default function CheckinScreen() {
     <>
       <Stack.Screen options={{ title: 'Check In Items', headerShown: true }} />
       <View style={s.container}>
+        <TooltipHint screenKey="checkin" />
         {!hasAnything ? (
           <View style={s.empty}>
             <Text style={s.emptyTitle}>No Active Checkouts</Text>
@@ -346,13 +350,12 @@ export default function CheckinScreen() {
                   );
                 })}
 
-                <TouchableOpacity
-                  style={[s.btn, selected.size === 0 && s.btnDisabled]}
+                <PrimaryButton
+                  label={`Return ${selected.size > 0 ? `${selected.size} Item${selected.size !== 1 ? 's' : ''}` : 'Items'}`}
                   disabled={selected.size === 0}
                   onPress={openModal}
-                >
-                  <Text style={s.btnText}>Return {selected.size > 0 ? `${selected.size} Item${selected.size !== 1 ? 's' : ''}` : 'Items'}</Text>
-                </TouchableOpacity>
+                  style={{ marginTop: 16 }}
+                />
               </>
             )}
 
@@ -403,15 +406,12 @@ export default function CheckinScreen() {
                   );
                 })}
 
-                <TouchableOpacity
-                  style={[s.btn, selectedUnitIds.size === 0 && s.btnDisabled]}
+                <PrimaryButton
+                  label={`Return ${selectedUnitIds.size > 0 ? `${selectedUnitIds.size} Unit${selectedUnitIds.size !== 1 ? 's' : ''}` : 'Units'}`}
                   disabled={selectedUnitIds.size === 0}
                   onPress={openUnitModal}
-                >
-                  <Text style={s.btnText}>
-                    Return {selectedUnitIds.size > 0 ? `${selectedUnitIds.size} Unit${selectedUnitIds.size !== 1 ? 's' : ''}` : 'Units'}
-                  </Text>
-                </TouchableOpacity>
+                  style={{ marginTop: 16 }}
+                />
               </>
             )}
 
@@ -419,179 +419,168 @@ export default function CheckinScreen() {
           </ScrollView>
         )}
 
-        {/* Count-based return modal (unchanged) */}
-        <Modal visible={showModal} animationType="slide" transparent>
-          <View style={s.modalOverlay}>
-            <View style={s.modal}>
-              <Text style={s.modalTitle}>Return to Location</Text>
+        {/* Count-based return modal — outside-tap preserves inputs */}
+        <ModalSheet visible={showModal} onClose={() => setShowModal(false)}>
+          <View style={{ gap: 12 }}>
+            <Text style={s.modalTitle}>Return to Location</Text>
 
-              <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
-                <LocationSuggestionBanner
-                  name={nearestLocation?.name ?? null}
-                  distanceM={nearestLocation?.distanceM ?? null}
-                  onUse={() => nearestLocation && setReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
-                />
-                <SearchablePicker
-                  placeholder="Search destination location..."
-                  options={locationOptions}
-                  value={returnLocation}
-                  onSelect={(opt) => {
-                    if (returnLocation && returnLocation.id === opt.id) {
-                      setReturnLocation(null);
-                    } else {
-                      setReturnLocation(opt);
-                    }
-                  }}
-                />
+            <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+              <LocationSuggestionBanner
+                name={nearestLocation?.name ?? null}
+                distanceM={nearestLocation?.distanceM ?? null}
+                onUse={() => nearestLocation && setReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
+              />
+              <SearchablePicker
+                placeholder="Search destination location..."
+                options={locationOptions}
+                value={returnLocation}
+                onSelect={(opt) => {
+                  if (returnLocation && returnLocation.id === opt.id) {
+                    setReturnLocation(null);
+                  } else {
+                    setReturnLocation(opt);
+                  }
+                }}
+              />
 
-                {/* Per-item return quantity inputs */}
-                {checkouts.filter(c => selected.has(c.log_id)).map(item => (
-                  <View key={item.log_id} style={s.qtyRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.qtyItemName}>{item.item_name}</Text>
-                      <Text style={s.qtyMax}>max {formatQuantity(item.quantity, item.unit, item.unit_category as any)}</Text>
-                    </View>
-                    <TextInput
-                      style={s.qtyInput}
-                      keyboardType="decimal-pad"
-                      value={returnQtys[item.log_id] ?? String(item.quantity)}
-                      onChangeText={(v) => setReturnQtys(prev => ({ ...prev, [item.log_id]: v }))}
-                      selectTextOnFocus
-                    />
+              {/* Per-item return quantity inputs */}
+              {checkouts.filter(c => selected.has(c.log_id)).map(item => (
+                <View key={item.log_id} style={s.qtyRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.qtyItemName}>{item.item_name}</Text>
+                    <Text style={s.qtyMax}>max {formatQuantity(item.quantity, item.unit, item.unit_category as any)}</Text>
                   </View>
-                ))}
-              </ScrollView>
+                  <TextInput
+                    style={s.qtyInput}
+                    keyboardType="decimal-pad"
+                    value={returnQtys[item.log_id] ?? String(item.quantity)}
+                    onChangeText={(v) => setReturnQtys(prev => ({ ...prev, [item.log_id]: v }))}
+                    selectTextOnFocus
+                  />
+                </View>
+              ))}
+            </ScrollView>
 
-              {/* Optional photo — media is additive and never blocks the stock return */}
-              <Text style={s.mediaLabel}>Photo (optional)</Text>
-              <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
+            {/* Optional photo — media is additive and never blocks the stock return */}
+            <Text style={s.mediaLabel}>Photo (optional)</Text>
+            <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
 
-              <TouchableOpacity
-                style={[s.btn, (!returnLocation || submitting || locked) && s.btnDisabled]}
-                disabled={!returnLocation || submitting || locked}
-                onPress={handleCheckin}
-              >
-                <Text style={s.btnText}>{submitting ? 'Returning...' : 'Confirm Return'}</Text>
-              </TouchableOpacity>
-              {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
-              <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
-                <Text style={s.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <PrimaryButton
+              label={submitting ? 'Returning...' : 'Confirm Return'}
+              loading={submitting}
+              disabled={!returnLocation || locked}
+              onPress={handleCheckin}
+            />
+            {locked && <MaintenanceBanner />}
+            <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
+              <Text style={s.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
+        </ModalSheet>
 
-        {/* Units return modal */}
-        <Modal visible={showUnitModal} animationType="slide" transparent>
-          <View style={s.modalOverlay}>
-            <View style={s.modal}>
-              <Text style={s.modalTitle}>Return Units to Location</Text>
+        {/* Units return modal — outside-tap preserves inputs */}
+        <ModalSheet visible={showUnitModal} onClose={() => setShowUnitModal(false)}>
+          <View style={{ gap: 12 }}>
+            <Text style={s.modalTitle}>Return Units to Location</Text>
 
-              <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
-                <LocationSuggestionBanner
-                  name={nearestLocation?.name ?? null}
-                  distanceM={nearestLocation?.distanceM ?? null}
-                  onUse={() => nearestLocation && setUnitReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
-                />
-                <SearchablePicker
-                  placeholder="Search destination location..."
-                  options={locationOptions}
-                  value={unitReturnLocation}
-                  onSelect={(opt) => {
-                    if (unitReturnLocation && unitReturnLocation.id === opt.id) {
-                      setUnitReturnLocation(null);
-                    } else {
-                      setUnitReturnLocation(opt);
-                    }
-                  }}
-                />
+            <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+              <LocationSuggestionBanner
+                name={nearestLocation?.name ?? null}
+                distanceM={nearestLocation?.distanceM ?? null}
+                onUse={() => nearestLocation && setUnitReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
+              />
+              <SearchablePicker
+                placeholder="Search destination location..."
+                options={locationOptions}
+                value={unitReturnLocation}
+                onSelect={(opt) => {
+                  if (unitReturnLocation && unitReturnLocation.id === opt.id) {
+                    setUnitReturnLocation(null);
+                  } else {
+                    setUnitReturnLocation(opt);
+                  }
+                }}
+              />
 
-                {/* Selected units summary */}
-                {deployedUnits.filter(u => selectedUnitIds.has(u.id)).map(unit => (
-                  <View key={unit.id} style={s.qtyRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.qtyItemName}>{unit.asset_tag}</Text>
-                      <Text style={s.qtyMax}>
-                        {unit.item_name}{unit.job_name ? ` · ${unit.job_name}` : ''}
-                      </Text>
-                    </View>
+              {/* Selected units summary */}
+              {deployedUnits.filter(u => selectedUnitIds.has(u.id)).map(unit => (
+                <View key={unit.id} style={s.qtyRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.qtyItemName}>{unit.asset_tag}</Text>
+                    <Text style={s.qtyMax}>
+                      {unit.item_name}{unit.job_name ? ` · ${unit.job_name}` : ''}
+                    </Text>
                   </View>
-                ))}
-              </ScrollView>
+                </View>
+              ))}
+            </ScrollView>
 
-              {/* Optional photo — media is additive and never blocks the unit return */}
-              <Text style={s.mediaLabel}>Photo (optional)</Text>
-              <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
+            {/* Optional photo — media is additive and never blocks the unit return */}
+            <Text style={s.mediaLabel}>Photo (optional)</Text>
+            <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
-              <TouchableOpacity
-                style={[s.btn, (!unitReturnLocation || unitSubmitting || locked) && s.btnDisabled]}
-                disabled={!unitReturnLocation || unitSubmitting || locked}
-                onPress={handleUnitCheckin}
-              >
-                <Text style={s.btnText}>{unitSubmitting ? 'Returning...' : 'Confirm Return'}</Text>
-              </TouchableOpacity>
-              {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
-              <TouchableOpacity style={s.cancel} onPress={() => setShowUnitModal(false)}>
-                <Text style={s.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <PrimaryButton
+              label={unitSubmitting ? 'Returning...' : 'Confirm Return'}
+              loading={unitSubmitting}
+              disabled={!unitReturnLocation || locked}
+              onPress={handleUnitCheckin}
+            />
+            {locked && <MaintenanceBanner />}
+            <TouchableOpacity style={s.cancel} onPress={() => setShowUnitModal(false)}>
+              <Text style={s.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
+        </ModalSheet>
       </View>
     </>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF', padding: 16 },
+  container: { flex: 1, backgroundColor: colors.background, padding: 16 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#94A3B8' },
-  emptyText: { fontSize: 14, color: '#CBD5E1', textAlign: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.textMuted },
+  emptyText: { fontSize: 14, color: colors.textDisabled, textAlign: 'center' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  count: { fontSize: 14, color: '#64748B' },
-  selectAll: { fontSize: 14, color: '#2563EB', fontWeight: '600' },
+  count: { fontSize: 14, color: colors.textSecondary },
+  selectAll: { fontSize: 14, color: colors.primary, fontWeight: '600' },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#fff', padding: 14, borderRadius: 10,
-    borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, padding: 14, borderRadius: 10,
+    borderWidth: 1, borderColor: colors.border,
   },
-  rowSelected: { borderColor: '#2563EB', backgroundColor: '#EFF6FF' },
+  rowSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
   checkbox: {
-    width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#CBD5E1',
+    width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: colors.textDisabled,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkboxChecked: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  checkboxChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
   checkMark: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  itemName: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
-  itemSub: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  qty: { fontSize: 14, fontWeight: '600', color: '#16A34A' },
+  itemName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  itemSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  qty: { fontSize: 14, fontWeight: '600', color: colors.success },
   sep: { height: 6 },
-  btn: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 16 },
-  btnDisabled: { backgroundColor: '#93C5FD' },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modal: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 12 },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E3A5F' },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.brand },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
-  qtyItemName: { fontSize: 14, fontWeight: '600', color: '#1E293B' },
-  qtyMax: { fontSize: 11, color: '#94A3B8', marginTop: 1 },
+  qtyItemName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  qtyMax: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
   qtyInput: {
-    width: 80, backgroundColor: '#F8FAFF', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 10, height: 40, fontSize: 15, color: '#1E293B', textAlign: 'right',
+    width: 80, backgroundColor: colors.background, borderRadius: 8, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: 10, height: 40, fontSize: 15, color: colors.textPrimary, textAlign: 'right',
   },
   cancel: { alignItems: 'center', paddingVertical: 10 },
-  cancelText: { color: '#64748B', fontSize: 15 },
+  cancelText: { color: colors.textSecondary, fontSize: 15 },
   // Units section
-  sectionDivider: { height: 1, backgroundColor: '#E2E8F0', marginVertical: 20 },
+  sectionDivider: { height: 1, backgroundColor: colors.border, marginVertical: 20 },
   sectionHeader: { marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
-  unitBadge: { backgroundColor: '#DBEAFE', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  unitBadgeText: { fontSize: 12, fontWeight: '700', color: '#1D4ED8' },
-  mediaLabel: { fontSize: 13, fontWeight: '600', color: '#64748B', marginTop: 8, marginBottom: 4 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.brand },
+  unitBadge: { backgroundColor: colors.primaryBgStrong, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  unitBadgeText: { fontSize: 12, fontWeight: '700', color: colors.primaryText },
+  mediaLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 8, marginBottom: 4 },
   scanAddBtn: {
-    alignSelf: 'flex-start', backgroundColor: '#EFF6FF', borderRadius: 8,
+    alignSelf: 'flex-start', backgroundColor: colors.primaryBg, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 8, marginTop: 6,
-    borderWidth: 1, borderColor: '#BFDBFE',
+    borderWidth: 1, borderColor: colors.border,
   },
-  scanAddText: { color: '#1D4ED8', fontWeight: '700', fontSize: 14 },
+  scanAddText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
 });

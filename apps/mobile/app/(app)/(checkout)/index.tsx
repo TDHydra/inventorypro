@@ -36,6 +36,11 @@ import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
+import { colors } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { TooltipHint } from '../../../src/components/TooltipHint';
 
 type Step = 'find' | 'qty' | 'dest' | 'confirm';
 type DestType = 'job' | 'location' | 'pm';
@@ -536,8 +541,8 @@ export default function CheckoutScreen() {
       <>
         <Stack.Screen options={{ title: 'Check Out Item', headerShown: true }} />
         <View style={s.container}>
-          <TextInput
-            style={s.input}
+          <TooltipHint screenKey="checkout" />
+          <AppInput
             placeholder="Search item name or barcode..."
             value={itemSearch}
             onChangeText={setItemSearch}
@@ -611,13 +616,12 @@ export default function CheckoutScreen() {
                     onChange={setScanTag}
                     placeholder="Scan or type an asset tag..."
                   />
-                  <TouchableOpacity
-                    style={[s.addTagBtn, !scanTag.trim() && s.btnDisabled]}
+                  <PrimaryButton
+                    label="+ Add Unit by Tag"
                     disabled={!scanTag.trim()}
                     onPress={() => addUnitByTag(scanTag)}
-                  >
-                    <Text style={s.btnText}>+ Add Unit by Tag</Text>
-                  </TouchableOpacity>
+                    style={{ marginTop: 8, marginBottom: 4 }}
+                  />
 
                   {availableUnits.length === 0 ? (
                     <Text style={s.empty}>No available units at this location.</Text>
@@ -655,13 +659,12 @@ export default function CheckoutScreen() {
             </>
           )}
 
-          <TouchableOpacity
-            style={[s.btn, (isUnitTracked ? selectedUnits.length === 0 : !selectedLocation) && s.btnDisabled]}
+          <PrimaryButton
+            label="Next: Choose Destination →"
             disabled={isUnitTracked ? selectedUnits.length === 0 : !selectedLocation}
             onPress={() => { resetDest(); setStep('dest'); }}
-          >
-            <Text style={s.btnText}>Next: Choose Destination →</Text>
-          </TouchableOpacity>
+            style={{ marginTop: 20 }}
+          />
         </KeyboardAvoidingView>
       </>
     );
@@ -792,13 +795,12 @@ export default function CheckoutScreen() {
               </>
             )}
 
-            <TouchableOpacity
-              style={[s.btn, !destReady && s.btnDisabled]}
+            <PrimaryButton
+              label="Review →"
               disabled={!destReady}
               onPress={() => { setStep('confirm'); }}
-            >
-              <Text style={s.btnText}>Review →</Text>
-            </TouchableOpacity>
+              style={{ marginTop: 20 }}
+            />
             <TouchableOpacity style={s.btnSecondary} onPress={() => setStep('qty')}>
               <Text style={s.btnSecondaryText}>← Go Back</Text>
             </TouchableOpacity>
@@ -873,10 +875,14 @@ export default function CheckoutScreen() {
           <MediaGallery entityType="activity_log" entityId={checkoutEventId} canUpload={canUploadMedia} />
         </View>
 
-        <TouchableOpacity style={s.btn} disabled={submitting || locked} onPress={handleConfirm}>
-          <Text style={s.btnText}>{submitting ? 'Working...' : 'Confirm ✓'}</Text>
-        </TouchableOpacity>
-        {locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
+        <PrimaryButton
+          label="Confirm ✓"
+          loading={submitting}
+          disabled={locked}
+          onPress={handleConfirm}
+          style={{ marginTop: 20 }}
+        />
+        {locked && <MaintenanceBanner />}
 
         <TouchableOpacity style={s.btnSecondary} onPress={() => setStep('dest')}>
           <Text style={s.btnSecondaryText}>← Go Back</Text>
@@ -946,66 +952,52 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF', padding: 16 },
+  container: { flex: 1, backgroundColor: colors.background, padding: 16 },
   confirmContent: { padding: 16, gap: 16 },
-  sectionLabel: { fontSize: 18, fontWeight: '700', color: '#1E3A5F', marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 15, color: '#1E293B',
-  },
+  sectionLabel: { fontSize: 18, fontWeight: '700', color: colors.brand, marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
   qtyInput: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 14, height: 54, fontSize: 24, fontWeight: '700',
-    color: '#1E293B', textAlign: 'center',
+    color: colors.textPrimary, textAlign: 'center',
   },
   scanRow: { paddingVertical: 12, alignItems: 'center' },
-  scanText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
+  scanText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
   row: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#fff', padding: 14,
-    borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 6,
+    backgroundColor: colors.surface, padding: 14,
+    borderRadius: 10, borderWidth: 1, borderColor: colors.border, marginBottom: 6,
   },
-  rowSelected: { borderColor: '#2563EB', backgroundColor: '#EFF6FF' },
-  rowName: { fontSize: 15, fontWeight: '600', color: '#1E293B', flex: 1 },
-  rowSub: { fontSize: 11, color: '#94A3B8' },
-  rowStock: { fontSize: 14, fontWeight: '600', color: '#16A34A' },
-  sep: { height: 1, backgroundColor: '#F1F5F9' },
-  empty: { textAlign: 'center', color: '#94A3B8', marginTop: 20 },
-  btn: {
-    backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 14,
-    alignItems: 'center', marginTop: 20,
-  },
-  btnDisabled: { backgroundColor: '#93C5FD' },
-  addTagBtn: {
-    backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 11,
-    alignItems: 'center', marginTop: 8, marginBottom: 4,
-  },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  rowSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  rowName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, flex: 1 },
+  rowSub: { fontSize: 11, color: colors.textMuted },
+  rowStock: { fontSize: 14, fontWeight: '600', color: colors.success },
+  sep: { height: 1, backgroundColor: colors.borderDetail },
+  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 20 },
   btnSecondary: { alignItems: 'center', paddingVertical: 10 },
-  btnSecondaryText: { color: '#64748B', fontSize: 15 },
+  btnSecondaryText: { color: colors.textSecondary, fontSize: 15 },
   forRow: { flexDirection: 'row', gap: 8 },
   forBtn: {
     flex: 1, paddingVertical: 10, borderRadius: 8,
     backgroundColor: '#F1F5F9', alignItems: 'center',
   },
-  forBtnActive: { backgroundColor: '#DBEAFE' },
-  forBtnText: { fontSize: 14, color: '#64748B', fontWeight: '600' },
-  forBtnTextActive: { color: '#1D4ED8' },
+  forBtnActive: { backgroundColor: colors.primaryBgStrong },
+  forBtnText: { fontSize: 14, color: colors.textSecondary, fontWeight: '600' },
+  forBtnTextActive: { color: colors.primaryText },
   pmDetail: { marginBottom: 10, paddingLeft: 8, gap: 6 },
-  pmHint: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+  pmHint: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
   pmQtyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pmQtyInput: {
-    backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 12, height: 40, fontSize: 16, fontWeight: '700',
-    color: '#1E293B', textAlign: 'center', minWidth: 80,
+    color: colors.textPrimary, textAlign: 'center', minWidth: 80,
   },
-  confirmTitle: { fontSize: 22, fontWeight: '700', color: '#1E3A5F' },
+  confirmTitle: { fontSize: 22, fontWeight: '700', color: colors.brand },
   confirmCard: {
-    backgroundColor: '#fff', borderRadius: 12, borderWidth: 1,
-    borderColor: '#E2E8F0', padding: 16, gap: 12,
+    backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1,
+    borderColor: colors.border, padding: 16, gap: 12,
   },
   confirmRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  confirmLabel: { fontSize: 14, color: '#64748B' },
-  confirmValue: { fontSize: 14, fontWeight: '600', color: '#1E293B', flex: 1, textAlign: 'right' },
+  confirmLabel: { fontSize: 14, color: colors.textSecondary },
+  confirmValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary, flex: 1, textAlign: 'right' },
 });
