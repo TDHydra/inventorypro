@@ -1,5 +1,5 @@
 import { TouchableOpacity, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import { colors, radii, fontSizes } from '../../theme';
 
 interface Props { label: string; onPress: () => void; disabled?: boolean; loading?: boolean; tone?: 'primary' | 'danger'; style?: object; }
 export function PrimaryButton({ label, onPress, disabled, loading, tone = 'primary', style }: Props) {

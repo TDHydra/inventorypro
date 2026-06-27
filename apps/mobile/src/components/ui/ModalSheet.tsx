@@ -1,4 +1,4 @@
-import { Modal, View, Pressable, StyleSheet } from 'react-native';
+import { Modal, Pressable, StyleSheet } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 
 export function ModalSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
