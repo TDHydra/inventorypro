@@ -12,12 +12,15 @@ import { upsertJob, Job } from '../../../src/db/queries/jobs';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getAllLocations } from '../../../src/db/queries/locations';
+import { getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
+import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { generateUUID } from '../../../src/utils/uuid';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 
@@ -32,6 +35,12 @@ export default function CreateJobScreen() {
   const [siteAddress, setSiteAddress] = useState('');
   const [siteLocation, setSiteLocation] = useState<PickerOption | null>(null);
   const [description, setDescription] = useState('');
+
+  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const [type, setType] = useState<string | null>(() => {
+    const ts = getTaxonomyTypes('job');
+    return ts[0]?.label ?? null;
+  });
 
   const locationOptions = useMemo((): PickerOption[] => {
     return getAllLocations().map(l => ({ id: l.id, label: l.name }));
@@ -64,6 +73,7 @@ export default function CreateJobScreen() {
       site_address: siteAddress.trim() || null,
       site_location_id: siteLocation?.id ?? null,
       description: description.trim() || null,
+      type: type || null,
     };
 
     upsertJob(newJob);
@@ -81,6 +91,7 @@ export default function CreateJobScreen() {
       site_address: newJob.site_address,
       site_location_id: newJob.site_location_id,
       description: newJob.description,
+      type: newJob.type,
     });
     appendLog({
       action: 'job_created',
@@ -136,6 +147,26 @@ export default function CreateJobScreen() {
               autoFocus
             />
           </View>
+
+          {jobTypes.length > 0 && (
+            <View style={s.fieldWrap}>
+              <FieldLabel>Type</FieldLabel>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={s.chipRow}
+              >
+                {jobTypes.map(t => (
+                  <FilterChip
+                    key={t.label}
+                    label={`${renderIcon(t.icon)} ${t.label}`}
+                    active={type === t.label}
+                    onPress={() => setType(prev => prev === t.label ? null : t.label)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
 
           <AdvancedFields>
             <View style={s.fieldWrap}>
@@ -215,6 +246,7 @@ const s = StyleSheet.create({
   hintText: { fontSize: 13, color: colors.primaryText },
 
   fieldWrap: { gap: 6 },
+  chipRow: { gap: 8, paddingRight: 8 },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
 
   row: { flexDirection: 'row', gap: 12, marginTop: 8 },

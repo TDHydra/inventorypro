@@ -16,6 +16,8 @@ export interface Job {
   site_address?: string | null;
   site_location_id?: string | null;
   description?: string | null;
+  // Taxonomy type (migration 011).
+  type?: string | null;
 }
 
 export function getOpenJobs(): Job[] {
@@ -49,8 +51,8 @@ export function upsertJob(job: Job): void {
   db.executeSync(
     `INSERT OR REPLACE INTO jobs
        (id, name, status, created_by, created_at, updated_at, synced_at,
-        job_number, customer_name, site_address, site_location_id, description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        job_number, customer_name, site_address, site_location_id, description, type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([
       job.id, job.name, job.status, job.created_by, job.created_at, job.updated_at, job.synced_at,
       job.job_number ?? null,
@@ -58,6 +60,7 @@ export function upsertJob(job: Job): void {
       job.site_address ?? null,
       job.site_location_id ?? null,
       job.description ?? null,
+      job.type ?? null,
     ])
   );
 }
@@ -112,6 +115,7 @@ export function updateJobFields(
     site_address?: string | null;
     site_location_id?: string | null;
     description?: string | null;
+    type?: string | null;
   }
 ): void {
   const db = getDb();
@@ -125,6 +129,7 @@ export function updateJobFields(
   if (fields.site_address !== undefined) { sets.push('site_address = ?'); params.push(fields.site_address); }
   if (fields.site_location_id !== undefined) { sets.push('site_location_id = ?'); params.push(fields.site_location_id); }
   if (fields.description !== undefined) { sets.push('description = ?'); params.push(fields.description); }
+  if (fields.type !== undefined) { sets.push('type = ?'); params.push(fields.type); }
   if (sets.length === 0) return;
   sets.push('updated_at = ?');
   params.push(updated_at);

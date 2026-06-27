@@ -7,6 +7,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { getAllJobs, getActiveCheckoutsForUser, Job } from '../../../src/db/queries/jobs';
+import { getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { rowsAs } from '../../../src/db/schema';
 import { colors } from '../../../src/theme';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
@@ -166,29 +167,37 @@ export default function JobsScreen() {
                   colors={[colors.primary]}
                 />
               }
-              renderItem={({ item: job }) => (
-                <TouchableOpacity
-                  onPress={() =>
-                    router.push({ pathname: '/(app)/(jobs)/[id]', params: { id: job.id } })
-                  }
-                >
-                  <Card variant="list">
-                    <Text style={s.cardName}>{job.name}</Text>
-                    <View style={s.cardRow}>
-                      <View style={[
-                        s.statusDot,
-                        job.status === 'open' ? s.statusOpen
-                          : job.status === 'archived' ? s.statusArchived
-                          : undefined,
-                      ]} />
-                      <Text style={s.cardSub}>{job.status}</Text>
-                      <Text style={s.cardDate}>
-                        {new Date(job.created_at).toLocaleDateString()}
-                      </Text>
-                    </View>
-                  </Card>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item: job }) => {
+                const typeIcon = job.type ? getTypeIcon('job', job.type) : null;
+                return (
+                  <TouchableOpacity
+                    onPress={() =>
+                      router.push({ pathname: '/(app)/(jobs)/[id]', params: { id: job.id } })
+                    }
+                  >
+                    <Card variant="list">
+                      <Text style={s.cardName}>{job.name}</Text>
+                      <View style={s.cardRow}>
+                        <View style={[
+                          s.statusDot,
+                          job.status === 'open' ? s.statusOpen
+                            : job.status === 'archived' ? s.statusArchived
+                            : undefined,
+                        ]} />
+                        <Text style={s.cardSub}>{job.status}</Text>
+                        {!!job.type && (
+                          <Text style={s.cardSub}>
+                            · {typeIcon ? `${typeIcon} ${job.type}` : job.type}
+                          </Text>
+                        )}
+                        <Text style={s.cardDate}>
+                          {new Date(job.created_at).toLocaleDateString()}
+                        </Text>
+                      </View>
+                    </Card>
+                  </TouchableOpacity>
+                );
+              }}
               ListEmptyComponent={<EmptyState title="No jobs found" />}
             />
           </>

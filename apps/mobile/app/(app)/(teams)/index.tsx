@@ -13,7 +13,8 @@ import { useSession } from '../../../src/hooks/useSession';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { TEAM_TYPES } from '../../../src/constants/teams';
+import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { syncNow } from '../../../src/sync/engine';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -35,7 +36,10 @@ export default function TeamsScreen() {
 
   // Create form state
   const [name, setName] = useState('');
-  const [type, setType] = useState(TEAM_TYPES[0]);
+  const [type, setType] = useState(() => {
+    const ts = getTaxonomyTypes('team');
+    return ts[0]?.label ?? '';
+  });
   const [managerOption, setManagerOption] = useState<PickerOption | null>(null);
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
@@ -43,10 +47,11 @@ export default function TeamsScreen() {
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
   );
+  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
 
   function resetForm() {
     setName('');
-    setType(TEAM_TYPES[0]);
+    setType(teamTypes[0]?.label ?? '');
     setManagerOption(null);
   }
 
@@ -134,16 +139,19 @@ export default function TeamsScreen() {
               colors={[colors.primary]}
             />
           }
-          renderItem={({ item: team }) => (
-            <TouchableOpacity
-              onPress={() => router.push({ pathname: '/(app)/(teams)/[id]', params: { id: team.id } })}
-            >
-              <Card variant="list">
-                <Text style={s.name}>{team.name}</Text>
-                <Text style={s.type}>{team.type}</Text>
-              </Card>
-            </TouchableOpacity>
-          )}
+          renderItem={({ item: team }) => {
+            const typeIcon = getTypeIcon('team', team.type);
+            return (
+              <TouchableOpacity
+                onPress={() => router.push({ pathname: '/(app)/(teams)/[id]', params: { id: team.id } })}
+              >
+                <Card variant="list">
+                  <Text style={s.name}>{team.name}</Text>
+                  <Text style={s.type}>{typeIcon ? `${typeIcon} ${team.type}` : team.type}</Text>
+                </Card>
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyText}>
@@ -170,12 +178,12 @@ export default function TeamsScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={s.chipRow}
               >
-                {TEAM_TYPES.map(t => (
+                {teamTypes.map(t => (
                   <FilterChip
-                    key={t}
-                    label={t}
-                    active={type === t}
-                    onPress={() => setType(t)}
+                    key={t.label}
+                    label={`${renderIcon(t.icon)} ${t.label}`}
+                    active={type === t.label}
+                    onPress={() => setType(t.label)}
                   />
                 ))}
               </ScrollView>

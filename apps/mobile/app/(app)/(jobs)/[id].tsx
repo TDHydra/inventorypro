@@ -9,6 +9,8 @@ import {
 } from '../../../src/db/queries/jobs';
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
 import { getAllLocations } from '../../../src/db/queries/locations';
+import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { renderIcon } from '../../../src/constants/locationStyles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
@@ -40,7 +42,9 @@ export default function JobDetailScreen() {
   const [editSiteAddress, setEditSiteAddress] = useState('');
   const [editSiteLocation, setEditSiteLocation] = useState<PickerOption | null>(null);
   const [editDescription, setEditDescription] = useState('');
+  const [editType, setEditType] = useState<string | null>(null);
 
+  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
   const deployments = useMemo(() => getJobDeployments(id), [id]);
   const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id]);
 
@@ -67,6 +71,7 @@ export default function JobDetailScreen() {
     setEditCustomerName(job!.customer_name ?? '');
     setEditSiteAddress(job!.site_address ?? '');
     setEditDescription(job!.description ?? '');
+    setEditType(job!.type ?? null);
     // Pre-populate site location picker if set
     if (job!.site_location_id) {
       const match = locationOptions.find(l => l.id === job!.site_location_id);
@@ -89,6 +94,7 @@ export default function JobDetailScreen() {
       site_address: editSiteAddress.trim() || null,
       site_location_id: editSiteLocation?.id ?? null,
       description: editDescription.trim() || null,
+      type: editType || null,
     };
 
     updateJobFields(id, fields);
@@ -186,6 +192,26 @@ export default function JobDetailScreen() {
                 </View>
               </View>
 
+              {jobTypes.length > 0 && (
+                <View style={s.fieldWrap}>
+                  <FieldLabel>Type</FieldLabel>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={s.chipRow}
+                  >
+                    {jobTypes.map(t => (
+                      <FilterChip
+                        key={t.label}
+                        label={`${renderIcon(t.icon)} ${t.label}`}
+                        active={editType === t.label}
+                        onPress={() => setEditType(prev => prev === t.label ? null : t.label)}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               <View style={s.fieldWrap}>
                 <FieldLabel>Customer Name</FieldLabel>
                 <AppInput
@@ -274,6 +300,14 @@ export default function JobDetailScreen() {
                   <View style={[s.metaRow, { alignItems: 'flex-start' }]}>
                     <FieldLabel style={{ minWidth: 60 }}>Notes</FieldLabel>
                     <Text style={[s.metaValue, { flex: 1 }]}>{job.description}</Text>
+                  </View>
+                )}
+                {!!job.type && (
+                  <View style={s.metaRow}>
+                    <FieldLabel style={{ minWidth: 60 }}>Type</FieldLabel>
+                    <Text style={s.metaValue}>
+                      {(() => { const icon = getTypeIcon('job', job.type!); return icon ? `${icon} ${job.type}` : job.type; })()}
+                    </Text>
                   </View>
                 )}
               </Card>
