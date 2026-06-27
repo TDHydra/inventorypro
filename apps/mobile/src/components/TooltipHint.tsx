@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated,
 } from 'react-native';
+import { colors } from '../theme';
 import { HINTS } from '../constants/hints';
 import { useSession } from '../hooks/useSession';
 import { ROLE_TIER } from '../constants/roles';
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   icon: { fontSize: 16 },
-  text: { flex: 1, fontSize: 13, color: '#1D4ED8', lineHeight: 19 },
+  text: { flex: 1, fontSize: 13, color: colors.primaryText, lineHeight: 19 },
   close: { paddingLeft: 8 },
   closeText: { color: '#93C5FD', fontSize: 15 },
 });

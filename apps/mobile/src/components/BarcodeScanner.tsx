@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import { colors } from '../theme';
 
 interface Props {
   active: boolean;
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
   hint: { color: '#fff', fontSize: 14 },
   corner: {
     position: 'absolute', width: CORNER, height: CORNER,
-    borderColor: '#2563EB',
+    borderColor: colors.primary,
   },
   cornerTL: { top: 0, left: 0, borderTopWidth: CORNER_THICKNESS, borderLeftWidth: CORNER_THICKNESS },
   cornerTR: { top: 0, right: 0, borderTopWidth: CORNER_THICKNESS, borderRightWidth: CORNER_THICKNESS },
@@ -105,10 +106,10 @@ const styles = StyleSheet.create({
   closeBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   permBox: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 32, gap: 16, backgroundColor: '#F8FAFF',
+    padding: 32, gap: 16, backgroundColor: colors.background,
   },
   permText: { fontSize: 16, color: '#475569', textAlign: 'center', lineHeight: 24 },
-  btn: { backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 },
+  btn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   btnSecondary: { paddingVertical: 10 },
   btnSecondaryText: { color: '#64748B', fontSize: 15 },
