@@ -28,6 +28,8 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
+import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
+import { nextAssetTag } from '../../../src/db/queries/equipment';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,6 +37,8 @@ export default function ItemDetailScreen() {
   const canUpload = usePermission('upload_media');
   const canAddUnits = usePermission('add_inventory');
   const { user } = useSession();
+
+  const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
   const [item, setItem] = useState<InventoryItem | null>(() => getItemById(id));
   const [stock, setStock] = useState<StockByLocation[]>(() => getStockByItem(id));
@@ -74,6 +78,10 @@ export default function ItemDetailScreen() {
 
   // Unit history modal state
   const [historyUnit, setHistoryUnit] = useState<EquipmentUnit | null>(null);
+
+  // Label print sheet state
+  const [printItemSheet, setPrintItemSheet] = useState(false);
+  const [printUnit, setPrintUnit] = useState<EquipmentUnit | null>(null);
 
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
@@ -495,6 +503,11 @@ export default function ItemDetailScreen() {
                 )}
               </View>
 
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setPrintItemSheet(true)}>
+                <Text style={s.attrKey}>🏷 Print QR Label</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
+
               {item.unit_tracked === 1 ? (
                 <>
                   <Text style={s.sectionLabel}>Units on Hand</Text>
@@ -565,6 +578,9 @@ export default function ItemDetailScreen() {
                           <View style={s.unitActionRow}>
                             <TouchableOpacity style={s.unitActionBtn} onPress={() => setHistoryUnit(u)}>
                               <Text style={s.unitActionText}>History</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={s.unitActionBtn} onPress={() => setPrintUnit(u)}>
+                              <Text style={s.unitActionText}>Print label</Text>
                             </TouchableOpacity>
                             {canEdit && u.status !== 'retired' && (
                               <>
@@ -707,6 +723,24 @@ export default function ItemDetailScreen() {
         )}
       </ModalSheet>
 
+      {/* ── Print QR Label (item) ──────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={printItemSheet}
+        onClose={() => setPrintItemSheet(false)}
+        title={item.name}
+        code={item.barcode ?? item.id}
+        qrUrl={`${API}/labels/item/${item.id}/qr.png`}
+      />
+
+      {/* ── Print QR Label (unit) ──────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={printUnit !== null}
+        onClose={() => setPrintUnit(null)}
+        title={item.name}
+        code={printUnit?.asset_tag ?? ''}
+        qrUrl={`${API}/labels/unit/${printUnit?.asset_tag ?? ''}/qr.png`}
+      />
+
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
       {/* onClose only hides (= closeAddUnits); state is reset on next openAddUnits() */}
       <ModalSheet visible={addUnitsOpen} onClose={closeAddUnits}>
@@ -735,6 +769,14 @@ export default function ItemDetailScreen() {
                   note={tagErrors[i]}
                   noteTone="warn"
                 />
+                {!!item.tag_prefix && (!row.tag.trim() || row.tag.trim() === item.tag_prefix.trim()) && (
+                  <TouchableOpacity
+                    style={[s.btn, s.btnGhost, { marginTop: 6 }]}
+                    onPress={() => updateTag(i, nextAssetTag(item.tag_prefix!))}
+                  >
+                    <Text style={s.btnGhostText}>Generate {item.tag_prefix}…</Text>
+                  </TouchableOpacity>
+                )}
                 <AdvancedFields>
                   <View style={{ marginTop: 10 }}>
                     <FieldLabel>Serial # (optional)</FieldLabel>

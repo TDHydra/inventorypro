@@ -14,7 +14,8 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, fontSizes } from '../../theme';
+import { nextAssetTag } from '../../db/queries/equipment';
+import { colors, spacing, fontSizes, radii } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
@@ -127,6 +128,17 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
         onChange={t => { setAssetTag(t); if (tagError) setTagError(''); }}
         placeholder="AM-0001"
       />
+      {!!selectedItem?.sublabel && assetTag === '' && (
+        <TouchableOpacity
+          style={s.generateBtn}
+          onPress={() => {
+            setAssetTag(nextAssetTag(selectedItem.sublabel!));
+            if (tagError) setTagError('');
+          }}
+        >
+          <Text style={s.generateBtnText}>Generate</Text>
+        </TouchableOpacity>
+      )}
       {!!tagError && <Text style={s.errorText}>{tagError}</Text>}
 
       <AppInput
@@ -154,4 +166,17 @@ const s = StyleSheet.create({
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  generateBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primaryBg,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    marginTop: -spacing.xs,
+  },
+  generateBtnText: {
+    color: colors.primaryText,
+    fontSize: fontSizes.caption,
+    fontWeight: '600',
+  },
 });
