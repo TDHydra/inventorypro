@@ -16,6 +16,8 @@ hints wired on only 1 of 7 screens). So this is a **consistency + completeness**
 redesign** — same colors, same layouts, unified into a shared layer.
 
 ### Decisions locked with the user
+- **Brand palette:** rebrand to official **SERVPRO green `#183028`** (PMS 5535 C) + **orange `#F28000`**
+  (PMS 1505 C), replacing the navy/blue scheme. Green = brand + primary action; orange = accent + maintenance.
 - **Visual depth:** full adoption — every screen migrates to `theme.ts` + shared primitives.
 - **Pull-to-refresh:** pull triggers `syncNow()` (push+pull) then re-queries local data.
 - The three dimensions are applied **per screen group** (vertical slices), so each agent owns a set
@@ -25,8 +27,9 @@ redesign** — same colors, same layouts, unified into a shared layer.
 
 - Expo SDK 56 — consult `https://docs.expo.dev/versions/v56.0.0/` before native/API code.
 - op-sqlite bind params: only `string | number | null | ArrayBuffer`.
-- **No redesign, no behavior changes** beyond the explicitly listed UX fixes. Visual migration must
-  be pixel-equivalent except where a divergence is being *corrected* to the canonical value.
+- **No layout redesign, no behavior changes** beyond the explicitly listed UX fixes. Migration is
+  layout/spacing-equivalent; **colors change app-wide to the SERVPRO palette** (an approved rebrand), and
+  specific divergences (button heights, chip shapes, modal bg/title) are corrected to canonical values.
 - **Modal dismissal rule (app-wide):** every modal/bottom-sheet closes when the user taps outside it
   (on the backdrop) or presses Android back. Outside-tap dismiss **preserves the modal's input state** —
   reopening shows what was entered. Inputs are cleared ONLY by an explicit Clear button or after a
@@ -35,8 +38,10 @@ redesign** — same colors, same layouts, unified into a shared layer.
   visibility); migrating a modal means moving any state-reset OUT of the close path.
 - **No new permissions, no DB migration, no native module.** All work is JS/TS over Metro.
 - `syncNow()` is already exported from `src/sync/engine.ts` (Phase 3a). Pull-to-refresh consumes it.
-- Maintenance lockout already gates writes (Phase 3b); the new `MaintenanceBanner` primitive only
-  replaces the duplicated inline read-only string — it must render identically (`#B45309`, same copy).
+- Maintenance lockout already gates writes (Phase 3b); the new `MaintenanceBanner` primitive replaces the
+  duplicated inline read-only string. Behavior/copy unchanged, but its color is rebranded `#B45309`→`colors.warning`
+  (SERVPRO orange `#F28000`) as part of this palette change. The `_layout.tsx` lockout banners (Phase 3b)
+  also adopt the tokens (locked banner → `warning`, admin-override banner → a neutral/`brand` tone).
 - TypeScript gate only (no unit-test runner): `npx tsc --noEmit` clean (mobile) per task + manual check.
 
 ## Shared Context Pack (from the audits)
@@ -68,26 +73,38 @@ redesign** — same colors, same layouts, unified into a shared layer.
 
 ### Unit 0 — Foundation (lands FIRST; every slice depends on it)
 
-**`src/theme.ts`** — exported token objects (values straight from the audit):
+**`src/theme.ts`** — exported token objects. **Palette = official SERVPRO brand: green PMS 5535 C
+(`#183028`) + orange PMS 1505 C (`#F28000`).** Green is the brand + primary action color; orange is the
+accent (FAB, low-stock, highlights, maintenance banner). This replaces the old navy/blue scheme entirely.
 ```ts
 export const colors = {
-  background: '#F8FAFF', surface: '#fff',
-  border: '#E2E8F0', borderDetail: '#EEF2F7',
+  background: '#F6F8F7', surface: '#fff',          // neutral near-white (was blue-tinted #F8FAFF)
+  border: '#E2E8F0', borderDetail: '#EEF2F7',      // neutral slate borders (kept)
   textPrimary: '#1E293B', textSecondary: '#64748B', textMuted: '#94A3B8', textDisabled: '#CBD5E1',
-  brand: '#1E3A5F', primary: '#2563EB', primaryText: '#1D4ED8',
-  primaryBg: '#EFF6FF', primaryBgStrong: '#DBEAFE',
-  warning: '#B45309', danger: '#DC2626', dangerBg: '#FEE2E2', success: '#16A34A',
+  brand: '#183028',          // SERVPRO green — header bg, page/section titles (was #1E3A5F navy)
+  primary: '#1E7E4E',        // interactive green — primary button bg, FAB-less CTAs, active surfaces
+  primaryText: '#176B43',    // darker green for green-on-light TEXT (links, active-chip text) — AA legibility
+  primaryBg: '#E8F1ED',      // light green tint — selected/info backgrounds (was #EFF6FF)
+  primaryBgStrong: '#D3E6DC',// stronger green tint — selected chips/badges (was #DBEAFE)
+  accent: '#F28000',         // SERVPRO orange — FAB, low-stock widget, key highlights
+  accentBg: '#FFF1E6',       // light orange tint
+  warning: '#F28000',        // maintenance/read-only banner — now SERVPRO orange (was #B45309 amber)
+  danger: '#DC2626', dangerBg: '#FEE2E2',          // destructive only
+  success: '#16A34A',        // confirmation green (distinct from the near-black brand green)
 } as const;
 export const spacing = { xs: 4, sm: 8, md: 12, base: 14, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
 export const radii = { sm: 8, md: 10, lg: 12, xl: 20 } as const;
 export const fontSizes = { xs: 10, sm: 11, caption: 12, body2: 13, body: 14, md: 15, base: 16, lg: 18, xl: 22 } as const;
 ```
-(`primary` consolidates `#2563EB`+most `#1D4ED8`; keep `primaryText` `#1D4ED8` for active-chip text where
-the slightly darker tone reads better. `danger`→`#DC2626`, `success`→`#16A34A` are the single canonical picks.)
+Consolidation: all old blue primaries (`#2563EB`/`#1D4ED8`) → green `primary`/`primaryText`; the navy header
+(`#1E3A5F`) → `brand`; the three reds → `danger` `#DC2626`; the three greens → `success` `#16A34A`. The
+maintenance amber (`#B45309`, 10 sites) → `warning` `#F28000` (intentional rebrand). Backgrounds lose the
+blue tint (`#F8FAFF`→`#F6F8F7`). Neutral slate text/borders are kept (they read fine against green).
 
 **Styled primitives** (`src/components/ui/`), each replacing a verbatim-duplicated style. Stable APIs the
 slices consume:
-- `MaintenanceBanner` — `() => JSX`; renders the `#B45309` "Read-only during maintenance" text. No props.
+- `MaintenanceBanner` — `() => JSX`; renders the "Read-only during maintenance" text in `colors.warning`
+  (SERVPRO orange). No props.
 - `PrimaryButton` — `{ label: string; onPress; disabled?; loading?; tone?: 'primary'|'danger' }`. Fixes
   the 13/14 drift (canonical `paddingVertical: spacing.base-1 → 13`, `radii.lg`); `loading` shows an inline
   `ActivityIndicator` instead of the label.
@@ -141,7 +158,7 @@ reset to the explicit Clear/submit paths.
 | **S4 Teams** | `(teams)/{index,[id]}.tsx` | pull-to-refresh on `index` | render `<TooltipHint screenKey="teams">` (copy added by Unit 0) |
 | **S5 Checkout/Checkin** | `(checkout)/index.tsx`, `(checkin)/index.tsx` | fix btn padding (via PrimaryButton) | `checkout`, `checkin` hints |
 | **S6 Admin** | `(admin)/{users,roles,settings}.tsx` | **users create**: `loading` on submit (disable+spinner); **settings Sync-now**: surface failure (inline `ErrorView`/Alert, not silent) | `users` hint |
-| **S7 Dashboard/Logs** | `(dashboard)/index.tsx`, `(logs)/index.tsx` | logs All-Activity: pull-to-refresh + `ErrorView` retry; **low-stock widget tappable** (row → item detail) + show total count when >3 | header `'?'` re-show button (consumes `onReady`); render `<TooltipHint screenKey="logs">` (copy added by Unit 0) |
+| **S7 Dashboard/Logs** | `(dashboard)/index.tsx`, `(logs)/index.tsx`, `_layout.tsx` | logs All-Activity: pull-to-refresh + `ErrorView` retry; **low-stock widget tappable** (row → item detail, in `accent` orange) + show total count when >3 | header `'?'` re-show button (consumes `onReady`); render `<TooltipHint screenKey="logs">`; **recolor the nav header `headerStyle` to `colors.brand` (green)** and the Phase-3b lockout banners (`banLocked`→`warning`, `banAdmin`→`brand`) to tokens |
 | **S8 MoveStockModal** | `src/components/MoveStockModal.tsx` | **add `confirmDestructive` before the move** | primitives only |
 
 **Pull-to-refresh contract (S1–S4, S7):** wrap the list in `RefreshControl`; `onRefresh` =
@@ -174,8 +191,10 @@ reset to the explicit Clear/submit paths.
 
 ## Verification
 - `npx tsc --noEmit` clean (mobile) per slice + at the end.
-- Visual: each migrated screen renders pixel-equivalent (spot-check on device via Metro) except corrected
-  divergences (button heights uniform; chips uniform; one red/green/blue per role; maintenance banner identical).
+- Visual: each migrated screen adopts the SERVPRO palette — green brand/header/buttons, orange accents,
+  no leftover blue/navy anywhere (grep the screens for `#2563EB`/`#1D4ED8`/`#1E3A5F` → zero hits post-migration).
+  Layout/spacing pixel-equivalent except corrected divergences (button heights uniform; chips uniform; one
+  red/green per role; maintenance banner now orange and identical across all sites).
 - UX: pull-to-refresh spins + syncs + reloads on each list; Move-Stock shows a confirm before depleting;
   users-create disables+spins during the request and surfaces errors; settings Sync-now shows failures;
   logs All-Activity shows a Retry on error.
