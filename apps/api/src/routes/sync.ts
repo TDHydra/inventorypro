@@ -93,9 +93,13 @@ async function applyEntry(
     return;
   }
 
+  // `synced_at` is a device-local-only column (it does not exist on any server
+  // table). Some client flows leak it into the payload; strip it here so the
+  // generated SQL never references a nonexistent column (which would throw and
+  // strand the entry as a conflict forever).
   if (operation === 'UPDATE') {
     // Real partial update — only the columns the device actually changed.
-    const cols = Object.keys(payload).filter(k => k !== '__version' && !keys.includes(k));
+    const cols = Object.keys(payload).filter(k => k !== '__version' && k !== 'synced_at' && !keys.includes(k));
     if (cols.length === 0) return;
     const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
     const where = keys.map((k, i) => `${k} = $${cols.length + i + 1}`).join(' AND ');
@@ -109,7 +113,7 @@ async function applyEntry(
   // INSERT — full-row upsert (keyed by primary/composite key).
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
-  const allKeys = Object.keys(payload).filter(k => k !== '__version');
+  const allKeys = Object.keys(payload).filter(k => k !== '__version' && k !== 'synced_at');
   const cols = allKeys.join(', ');
   const vals = allKeys.map((_, i) => `$${i + 1}`).join(', ');
   const updates = allKeys

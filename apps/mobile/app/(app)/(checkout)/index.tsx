@@ -289,7 +289,10 @@ export default function CheckoutScreen() {
       created_by: user.id, created_at: now, updated_at: now, synced_at: null,
     };
     upsertJob(newJob);
-    appendOutbox('INSERT', 'jobs', { ...newJob });
+    // Strip the device-local-only synced_at before queueing — the server jobs
+    // table has no such column and would reject the row (stranding it + its logs).
+    const { synced_at: _sa, ...jobRow } = newJob;
+    appendOutbox('INSERT', 'jobs', jobRow);
     appendLog({
       action: 'job_created', entity_type: 'job', entity_id: newJob.id,
       user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
