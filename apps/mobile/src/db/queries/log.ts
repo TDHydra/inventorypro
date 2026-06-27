@@ -113,6 +113,43 @@ export function markLogsSynced(ids: string[]): void {
   );
 }
 
+/**
+ * Reconciles each local activity_log row's synced_at against the outbox.
+ *
+ * activity_log is push-only (it's never pulled back from the server), so a
+ * row's synced_at is ONLY ever cleared here. A row is considered synced once
+ * it no longer has an un-synced outbox entry referencing it. Idempotent, and
+ * self-heals rows left permanently "pending" by older builds that pushed the
+ * row but never updated its synced_at.
+ *
+ * Done in JS (not a json_extract subquery) so it doesn't depend on the SQLite
+ * JSON1 extension being available in op-sqlite.
+ */
+export function reconcileLogSyncState(): void {
+  const db = getDb();
+
+  const unsynced = (db.executeSync(
+    `SELECT id FROM activity_log WHERE synced_at IS NULL`
+  ).rows as { id: string }[]).map(r => r.id);
+  if (unsynced.length === 0) return;
+
+  // Row ids still awaiting a push (un-synced activity_log outbox entries).
+  const pendingRows = db.executeSync(
+    `SELECT payload FROM outbox WHERE table_name = 'activity_log' AND synced_at IS NULL`
+  ).rows as { payload: string }[];
+  const stillPending = new Set<string>();
+  for (const r of pendingRows) {
+    try {
+      const id = (JSON.parse(r.payload) as { id?: string }).id;
+      if (id) stillPending.add(String(id));
+    } catch {
+      // Unparseable payload — leave its row pending rather than guess.
+    }
+  }
+
+  markLogsSynced(unsynced.filter(id => !stillPending.has(id)));
+}
+
 export function getLogForEntity(
   entityType: string,
   entityId: string,

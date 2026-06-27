@@ -2,6 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { AppState, AppStateStatus } from 'react-native';
 import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry } from './outbox';
 import { pullChanges } from './pull';
+import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -65,6 +66,11 @@ async function drainOutbox(): Promise<void> {
     };
 
     markOutboxSynced(result.ok);
+
+    // activity_log is push-only (never pulled back), so its rows' synced_at is
+    // only cleared here. Reconcile against the outbox so pushed rows stop
+    // showing "↑ pending" — and so rows stranded by older builds self-heal.
+    reconcileLogSyncState();
 
     // Apply conflict resolutions to local DB
     // (pull.ts handles the full merge; conflicts here are rare)
