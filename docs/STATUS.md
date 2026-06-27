@@ -1,6 +1,6 @@
 # InventoryPro — Full Status
 
-*As of 2026-06-26 · branch `feat/inventory-completeness`*
+*As of 2026-06-27 · `main` (through the polish pass `5b38e4bd`)*
 
 ## ✅ Done
 
@@ -25,15 +25,18 @@
 - **F2** — Server-side permission guards on 12 write routes (jobs/locations/users/teams/items) — `26d6f25d` 🔍 in review
 - Spec + parallel plan committed
 
-## 🔄 Incomplete (queued this push)
+**Completeness push (W1–W6) — all shipped & merged:**
+- **W1** Jobs create/edit + work-order fields · **W2** Locations edit/restore + Move-Stock modal · **W3** Equipment edit/retire + repair history · **W4** admin-mutation logging + permission UI · **W5** Teams real screens (roster/create/member-assign) · **W6** Logs admin All-Activity + filters. ✅
 
-- **W1** — Jobs: dedicated create + edit screens, work-order fields in detail, `job_created/updated/archived` logging
-- **W2** — Locations: edit screen, unarchive/restore, **Move Stock** modal, activity feed, create/archive logging
-- **W3** — Equipment: unit **edit** + **retire** UI, repair/maintenance **history timeline**
-- **W4** — Users/Admin: logging on all admin mutations + add `view_financial_data` + `system_settings` to permission UI
-- **W5** — Teams: queries + roster/member-assignment/create screens (currently stubs) + team logging
-- **W6** — Logs UI: admin **All-Activity** view + date/user/action filters
-- **Integration pass:** `job_created` logging in checkout · app-wide tsc · whole-branch review · prod deploy of migration 008 + guards · APK rebuild
+**Settings program (3a/3b/3c) + Phase 4:**
+- **3a** Settings core + hardening — ✅ merged (`ad3d2236`)
+- **3b** Maintenance mode (synced app_config, migration 010, app-wide read-only lockout) — ✅ merged + deployed
+- **Polish pass** (SERVPRO rebrand + theme/primitives + UX states + onboarding + modal dismissal/keyboard) — ✅ merged (`5b38e4bd`)
+
+## 🔄 Incomplete (next on the plan)
+
+- **Phase 3c — Simple/Detailed form mode** *(next; never started)*: admin toggle in Settings; **Simple** hides optional/advanced fields across all entry forms (item add, location, job, equipment, quick-add), **Detailed** shows everything. Synced app_config flag (reuse the Phase-3b `app_config` table) or local pref. Forms read the mode and conditionally render their optional field groups.
+- **Phase 4 — Notifications**: low-stock alerts + temp-employee-expiry warnings (expo-notifications). (Also listed in backlog.)
 
 ## ➕ To be added (backlog — deferred)
 
