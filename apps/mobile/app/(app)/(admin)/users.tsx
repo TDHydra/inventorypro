@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  TextInput, Modal, ScrollView, Alert, Switch,
+  ScrollView, Alert, Switch,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import {
@@ -15,6 +15,12 @@ import { getDb } from '../../../src/db/schema';
 import { getValidJwt } from '../../../src/auth/session';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
+import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { TooltipHint } from '../../../src/components/TooltipHint';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -101,9 +107,9 @@ function userStatus(u: User): Status {
 }
 
 const STATUS_META: Record<Status, { label: string; color: string; bg: string }> = {
-  active:   { label: 'Active',   color: '#15803D', bg: '#DCFCE7' },
-  inactive: { label: 'Inactive', color: '#B91C1C', bg: '#FEE2E2' },
-  expired:  { label: 'Expired',  color: '#B45309', bg: '#FEF3C7' },
+  active:   { label: 'Active',   color: colors.success, bg: '#DCFCE7' },
+  inactive: { label: 'Inactive', color: colors.danger,  bg: colors.dangerBg },
+  expired:  { label: 'Expired',  color: colors.warning, bg: '#FEF3C7' },
 };
 
 function isoFromNowDays(days: number): string {
@@ -124,6 +130,7 @@ export default function AdminUsersScreen() {
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('mitigation_technician');
   const [newPin, setNewPin] = useState('');
+  const [creating, setCreating] = useState(false);
 
   // Edit form state (initialised when an edit sheet opens)
   const [editName, setEditName] = useState('');
@@ -281,6 +288,7 @@ export default function AdminUsersScreen() {
 
   async function doCreate() {
     let createdId: string | null = null;
+    setCreating(true);
     try {
       createdId = await createUserOnline(newName.trim(), newRole);
       refresh();
@@ -288,6 +296,8 @@ export default function AdminUsersScreen() {
       resetCreateForm();
     } catch (err) {
       Alert.alert('Could not create user', (err as Error).message);
+    } finally {
+      setCreating(false);
     }
     // Log outside the createUserOnline try/catch so a log-write failure is not
     // misreported as "could not create user" when the server already succeeded.
@@ -349,14 +359,18 @@ export default function AdminUsersScreen() {
       <Stack.Screen options={{ title: 'Users & Permissions', headerShown: true }} />
       <View style={s.container}>
         <View style={s.topBar}>
-          <TextInput
-            style={s.search} placeholder="Search users..."
-            value={search} onChangeText={setSearch}
+          <AppInput
+            style={{ flex: 1 }}
+            placeholder="Search users..."
+            value={search}
+            onChangeText={setSearch}
           />
           <TouchableOpacity style={s.addBtn} onPress={() => setShowCreate(true)}>
             <Text style={s.addBtnText}>+ New</Text>
           </TouchableOpacity>
         </View>
+
+        <TooltipHint screenKey="users" />
 
         <FlatList
           data={filtered}
@@ -390,279 +404,255 @@ export default function AdminUsersScreen() {
         />
 
         {/* Create modal */}
-        <Modal visible={showCreate} animationType="slide" transparent>
-          <View style={s.overlay}>
-            <View style={s.modal}>
-              <Text style={s.modalTitle}>New User</Text>
-              <TextInput
-                style={s.input} placeholder="Full name"
-                value={newName} onChangeText={setNewName}
-              />
-              {!!dupUser && (
-                <Text style={s.dupWarn}>⚠ "{dupUser.name}" already exists ({ROLE_DISPLAY_NAMES[dupUser.role as UserRole]})</Text>
-              )}
-              <Text style={s.label}>Role</Text>
-              <ScrollView style={{ maxHeight: 160 }}>
-                {ALL_ROLES.map(r => (
-                  <TouchableOpacity
-                    key={r}
-                    style={[s.roleRow, newRole === r && s.roleRowActive]}
-                    onPress={() => setNewRole(r)}
-                  >
-                    <Text style={[s.roleText, newRole === r && s.roleTextActive]}>
-                      {ROLE_DISPLAY_NAMES[r]}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              <View style={s.infoBox}>
-                <Text style={s.infoText}>
-                  🔐 No PIN needed here. {newName.trim() ? newName.trim().split(' ')[0] : 'The employee'} sets
-                  and confirms their own PIN the first time they sign in.
+        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
+          <Text style={s.modalTitle}>New User</Text>
+          <AppInput
+            placeholder="Full name"
+            value={newName}
+            onChangeText={setNewName}
+            style={{ marginBottom: spacing.xs }}
+          />
+          {!!dupUser && (
+            <Text style={s.dupWarn}>⚠ "{dupUser.name}" already exists ({ROLE_DISPLAY_NAMES[dupUser.role as UserRole]})</Text>
+          )}
+          <FieldLabel>Role</FieldLabel>
+          <ScrollView style={{ maxHeight: 160 }}>
+            {ALL_ROLES.map(r => (
+              <TouchableOpacity
+                key={r}
+                style={[s.roleRow, newRole === r && s.roleRowActive]}
+                onPress={() => setNewRole(r)}
+              >
+                <Text style={[s.roleText, newRole === r && s.roleTextActive]}>
+                  {ROLE_DISPLAY_NAMES[r]}
                 </Text>
-              </View>
-              <TouchableOpacity style={s.btn} onPress={handleCreate}>
-                <Text style={s.btnText}>Create User</Text>
               </TouchableOpacity>
-              <View style={s.modalActions}>
-                <TouchableOpacity style={s.cancel} onPress={resetCreateForm}>
-                  <Text style={s.cancelText}>Clear</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={s.cancel} onPress={() => { setShowCreate(false); resetCreateForm(); }}>
-                  <Text style={[s.cancelText, s.cancelStrong]}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+            ))}
+          </ScrollView>
+          <View style={s.infoBox}>
+            <Text style={s.infoText}>
+              🔐 No PIN needed here. {newName.trim() ? newName.trim().split(' ')[0] : 'The employee'} sets
+              and confirms their own PIN the first time they sign in.
+            </Text>
           </View>
-        </Modal>
+          <PrimaryButton label="Create User" onPress={handleCreate} loading={creating} />
+          <View style={s.modalActions}>
+            <TouchableOpacity style={s.cancel} onPress={resetCreateForm}>
+              <Text style={s.cancelText}>Clear</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.cancel} onPress={() => setShowCreate(false)}>
+              <Text style={[s.cancelText, s.cancelStrong]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </ModalSheet>
 
         {/* Edit / info sheet */}
-        <Modal visible={!!editUser} animationType="slide" transparent onRequestClose={() => setEditUser(null)}>
-          <View style={s.overlay}>
-            <ScrollView style={s.modal} contentContainerStyle={{ gap: 10, paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
-              {editUser && (() => {
-                const st = userStatus(editUser);
-                const isTemp = editRole === 'temporary_employee';
-                return (
-                  <>
-                    <View style={s.sheetHead}>
-                      <Text style={s.modalTitle}>{editUser.name}</Text>
-                      <View style={[s.statusPill, { backgroundColor: STATUS_META[st].bg }]}>
-                        <Text style={[s.statusText, { color: STATUS_META[st].color }]}>{STATUS_META[st].label}</Text>
+        <ModalSheet visible={!!editUser} onClose={() => setEditUser(null)}>
+          <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
+            {editUser && (() => {
+              const st = userStatus(editUser);
+              const isTemp = editRole === 'temporary_employee';
+              return (
+                <>
+                  <View style={s.sheetHead}>
+                    <Text style={s.modalTitle}>{editUser.name}</Text>
+                    <View style={[s.statusPill, { backgroundColor: STATUS_META[st].bg }]}>
+                      <Text style={[s.statusText, { color: STATUS_META[st].color }]}>{STATUS_META[st].label}</Text>
+                    </View>
+                  </View>
+
+                  {/* At-a-glance info */}
+                  <View style={s.infoGrid}>
+                    <Text style={s.infoRow}>Tier <Text style={s.infoVal}>T{ROLE_TIER[editUser.role as UserRole]}</Text></Text>
+                    <Text style={s.infoRow}>PIN <Text style={s.infoVal}>{editUser.pin_set ? 'set' : 'not set — first login'}</Text></Text>
+                    <Text style={s.infoRow}>Added <Text style={s.infoVal}>{formatDate(editUser.created_at)}</Text></Text>
+                    <Text style={s.infoRow}>Expires <Text style={s.infoVal}>{formatDate(editUser.expires_at)}</Text></Text>
+                  </View>
+
+                  <FieldLabel>Name</FieldLabel>
+                  <AppInput value={editName} onChangeText={setEditName} placeholder="Full name" />
+
+                  <FieldLabel>Role</FieldLabel>
+                  <TouchableOpacity style={s.selectRow} onPress={() => setShowRolePicker(v => !v)}>
+                    <Text style={s.selectText}>{ROLE_DISPLAY_NAMES[editRole]}</Text>
+                    <Text style={s.selectChevron}>{showRolePicker ? '▾' : '▸'}</Text>
+                  </TouchableOpacity>
+                  {showRolePicker && (
+                    <View style={s.rolePicker}>
+                      {ALL_ROLES.map(r => (
+                        <TouchableOpacity
+                          key={r}
+                          style={[s.roleRow, editRole === r && s.roleRowActive]}
+                          onPress={() => { setEditRole(r); setShowRolePicker(false); }}
+                        >
+                          <Text style={[s.roleText, editRole === r && s.roleTextActive]}>{ROLE_DISPLAY_NAMES[r]}</Text>
+                          <Text style={s.roleTierHint}>T{ROLE_TIER[r]}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Temporary employees can be given/changed an auto-deactivation date */}
+                  {isTemp && (
+                    <>
+                      <FieldLabel>Access expires</FieldLabel>
+                      <Text style={s.hint}>Temporary employees lose access automatically after this date.</Text>
+                      <View style={s.expiryRow}>
+                        <View style={s.expiryCurrent}>
+                          <Text style={s.expiryText}>{editExpiry ? formatDate(editExpiry) : 'No expiry set'}</Text>
+                        </View>
+                        {editExpiry && (
+                          <TouchableOpacity onPress={() => setEditExpiry(null)}>
+                            <Text style={s.expiryClear}>Clear</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
-                    </View>
-
-                    {/* At-a-glance info */}
-                    <View style={s.infoGrid}>
-                      <Text style={s.infoRow}>Tier <Text style={s.infoVal}>T{ROLE_TIER[editUser.role as UserRole]}</Text></Text>
-                      <Text style={s.infoRow}>PIN <Text style={s.infoVal}>{editUser.pin_set ? 'set' : 'not set — first login'}</Text></Text>
-                      <Text style={s.infoRow}>Added <Text style={s.infoVal}>{formatDate(editUser.created_at)}</Text></Text>
-                      <Text style={s.infoRow}>Expires <Text style={s.infoVal}>{formatDate(editUser.expires_at)}</Text></Text>
-                    </View>
-
-                    <Text style={s.label}>Name</Text>
-                    <TextInput style={s.input} value={editName} onChangeText={setEditName} placeholder="Full name" />
-
-                    <Text style={s.label}>Role</Text>
-                    <TouchableOpacity style={s.selectRow} onPress={() => setShowRolePicker(v => !v)}>
-                      <Text style={s.selectText}>{ROLE_DISPLAY_NAMES[editRole]}</Text>
-                      <Text style={s.selectChevron}>{showRolePicker ? '▾' : '▸'}</Text>
-                    </TouchableOpacity>
-                    {showRolePicker && (
-                      <View style={s.rolePicker}>
-                        {ALL_ROLES.map(r => (
-                          <TouchableOpacity
-                            key={r}
-                            style={[s.roleRow, editRole === r && s.roleRowActive]}
-                            onPress={() => { setEditRole(r); setShowRolePicker(false); }}
-                          >
-                            <Text style={[s.roleText, editRole === r && s.roleTextActive]}>{ROLE_DISPLAY_NAMES[r]}</Text>
-                            <Text style={s.roleTierHint}>T{ROLE_TIER[r]}</Text>
+                      <View style={s.chipWrap}>
+                        {[30, 60, 90].map(days => (
+                          <TouchableOpacity key={days} style={s.expiryChip} onPress={() => setEditExpiry(isoFromNowDays(days))}>
+                            <Text style={s.expiryChipText}>+{days} days</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
-                    )}
+                    </>
+                  )}
 
-                    {/* Temporary employees can be given/changed an auto-deactivation date */}
-                    {isTemp && (
-                      <>
-                        <Text style={s.label}>Access expires</Text>
-                        <Text style={s.hint}>Temporary employees lose access automatically after this date.</Text>
-                        <View style={s.expiryRow}>
-                          <View style={s.expiryCurrent}>
-                            <Text style={s.expiryText}>{editExpiry ? formatDate(editExpiry) : 'No expiry set'}</Text>
-                          </View>
-                          {editExpiry && (
-                            <TouchableOpacity onPress={() => setEditExpiry(null)}>
-                              <Text style={s.expiryClear}>Clear</Text>
-                            </TouchableOpacity>
-                          )}
+                  <PrimaryButton
+                    label={editDirty ? 'Save Changes' : 'No Changes'}
+                    onPress={saveEdits}
+                    disabled={!editDirty}
+                  />
+
+                  {/* Security & lifecycle actions */}
+                  <FieldLabel>Account actions</FieldLabel>
+                  <TouchableOpacity style={[s.actionBtn, busy && s.btnDisabled]} onPress={resetPin} disabled={busy}>
+                    <Text style={s.actionIcon}>🔑</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.actionTitle}>Reset PIN</Text>
+                      <Text style={s.actionSub}>User sets a new PIN at next sign-in (online)</Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.actionBtn, editUser.active ? s.actionDanger : s.actionGood]} onPress={toggleActive}>
+                    <Text style={s.actionIcon}>{editUser.active ? '🚫' : '✅'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.actionTitle, editUser.active ? s.dangerText : s.goodText]}>
+                        {editUser.active ? 'Deactivate' : 'Reactivate'}
+                      </Text>
+                      <Text style={s.actionSub}>
+                        {editUser.active ? 'Block sign-in, hide from picker' : 'Allow sign-in again'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Permission overrides */}
+                  <FieldLabel>Permission Overrides</FieldLabel>
+                  <Text style={s.hint}>Toggles here override the role default — only set what differs from the role.</Text>
+                  {ALL_PERMISSIONS.map(perm => {
+                    const ov = parseOverrides(editUser);
+                    const hasOverride = perm in ov;
+                    const val = ov[perm] ?? false;
+                    return (
+                      <View key={perm} style={s.permRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.permName}>{perm.replace(/_/g, ' ')}</Text>
+                          {hasOverride && <Text style={s.overrideBadge}>override active</Text>}
                         </View>
-                        <View style={s.chipWrap}>
-                          {[30, 60, 90].map(days => (
-                            <TouchableOpacity key={days} style={s.expiryChip} onPress={() => setEditExpiry(isoFromNowDays(days))}>
-                              <Text style={s.expiryChipText}>+{days} days</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </>
-                    )}
-
-                    <TouchableOpacity style={[s.btn, !editDirty && s.btnDisabled]} onPress={saveEdits} disabled={!editDirty}>
-                      <Text style={s.btnText}>{editDirty ? 'Save Changes' : 'No Changes'}</Text>
-                    </TouchableOpacity>
-
-                    {/* Security & lifecycle actions */}
-                    <Text style={s.label}>Account actions</Text>
-                    <TouchableOpacity style={[s.actionBtn, busy && s.btnDisabled]} onPress={resetPin} disabled={busy}>
-                      <Text style={s.actionIcon}>🔑</Text>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.actionTitle}>Reset PIN</Text>
-                        <Text style={s.actionSub}>User sets a new PIN at next sign-in (online)</Text>
+                        <Switch
+                          value={hasOverride && val}
+                          onValueChange={() => handleTogglePermission(editUser.id, perm, val)}
+                          trackColor={{ true: colors.primary, false: colors.border }}
+                        />
                       </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[s.actionBtn, editUser.active ? s.actionDanger : s.actionGood]} onPress={toggleActive}>
-                      <Text style={s.actionIcon}>{editUser.active ? '🚫' : '✅'}</Text>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[s.actionTitle, editUser.active ? s.dangerText : s.goodText]}>
-                          {editUser.active ? 'Deactivate' : 'Reactivate'}
-                        </Text>
-                        <Text style={s.actionSub}>
-                          {editUser.active ? 'Block sign-in, hide from picker' : 'Allow sign-in again'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
+                    );
+                  })}
 
-                    {/* Permission overrides */}
-                    <Text style={s.label}>Permission Overrides</Text>
-                    <Text style={s.hint}>Toggles here override the role default — only set what differs from the role.</Text>
-                    {ALL_PERMISSIONS.map(perm => {
-                      const ov = parseOverrides(editUser);
-                      const hasOverride = perm in ov;
-                      const val = ov[perm] ?? false;
-                      return (
-                        <View key={perm} style={s.permRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={s.permName}>{perm.replace(/_/g, ' ')}</Text>
-                            {hasOverride && <Text style={s.overrideBadge}>override active</Text>}
-                          </View>
-                          <Switch
-                            value={hasOverride && val}
-                            onValueChange={() => handleTogglePermission(editUser.id, perm, val)}
-                            trackColor={{ true: '#2563EB', false: '#E2E8F0' }}
-                          />
-                        </View>
-                      );
-                    })}
-
-                    <TouchableOpacity style={s.cancel} onPress={() => setEditUser(null)}>
-                      <Text style={[s.cancelText, s.cancelStrong]}>Close</Text>
-                    </TouchableOpacity>
-                  </>
-                );
-              })()}
-            </ScrollView>
-          </View>
-        </Modal>
+                  <TouchableOpacity style={s.cancel} onPress={() => setEditUser(null)}>
+                    <Text style={[s.cancelText, s.cancelStrong]}>Close</Text>
+                  </TouchableOpacity>
+                </>
+              );
+            })()}
+          </ScrollView>
+        </ModalSheet>
       </View>
     </>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
-  topBar: { flexDirection: 'row', padding: 12, gap: 10 },
-  search: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 10,
-    borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 42, fontSize: 14, color: '#1E293B',
-  },
-  addBtn: { backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center' },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  list: { padding: 12, gap: 8 },
+  container: { flex: 1, backgroundColor: colors.background },
+  topBar: { flexDirection: 'row', padding: spacing.md, gap: 10 },
+  addBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
+  addBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
+  list: { padding: spacing.md, gap: 8 },
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#fff', padding: 12, borderRadius: 10,
-    borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, padding: spacing.md, borderRadius: radii.md,
+    borderWidth: 1, borderColor: colors.border,
   },
   avatar: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.primaryBgStrong, alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
-  name: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
-  role: { fontSize: 12, color: '#64748B', marginTop: 1 },
+  avatarText: { fontSize: fontSizes.base, fontWeight: '700', color: colors.primary },
+  name: { fontSize: fontSizes.md, fontWeight: '600', color: colors.textPrimary },
+  role: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 1 },
   tier: {
-    fontSize: 11, fontWeight: '700', color: '#94A3B8',
+    fontSize: fontSizes.sm, fontWeight: '700', color: colors.textMuted,
     backgroundColor: '#F1F5F9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
-  chevron: { fontSize: 18, color: '#CBD5E1' },
-  empty: { textAlign: 'center', marginTop: 40, color: '#94A3B8', fontSize: 14 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modal: {
-    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, maxHeight: '85%',
-  },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1E3A5F', marginBottom: 8 },
-  roleSub: { fontSize: 13, color: '#64748B', marginBottom: 12 },
-  label: {
-    fontSize: 11, fontWeight: '700', color: '#94A3B8',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4,
-  },
-  hint: { fontSize: 12, color: '#94A3B8', lineHeight: 17, marginBottom: 8 },
-  input: {
-    backgroundColor: '#F8FAFF', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
-  },
+  chevron: { fontSize: 18, color: colors.textDisabled },
+  empty: { textAlign: 'center', marginTop: 40, color: colors.textMuted, fontSize: fontSizes.body },
+  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.brand, marginBottom: 8 },
+  roleSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginBottom: 12 },
+  hint: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 17, marginBottom: 8 },
   roleRow: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 6 },
-  roleRowActive: { backgroundColor: '#EFF6FF' },
-  roleText: { fontSize: 14, color: '#475569' },
-  roleTextActive: { color: '#1D4ED8', fontWeight: '600' },
-  btn: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8 },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  roleRowActive: { backgroundColor: colors.primaryBg },
+  roleText: { fontSize: fontSizes.body, color: '#475569' },
+  roleTextActive: { color: colors.primaryText, fontWeight: '600' },
   cancel: { alignItems: 'center', paddingVertical: 10, flex: 1 },
-  cancelText: { color: '#64748B', fontSize: 14 },
-  cancelStrong: { color: '#94A3B8', fontWeight: '600' },
-  modalActions: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
-  dupWarn: { color: '#B45309', fontSize: 12, marginTop: -4 },
-  infoBox: { backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12 },
-  infoText: { color: '#1D4ED8', fontSize: 13, lineHeight: 19 },
+  cancelText: { color: colors.textSecondary, fontSize: fontSizes.body },
+  cancelStrong: { color: colors.textMuted, fontWeight: '600' },
+  modalActions: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: spacing.sm },
+  dupWarn: { color: colors.warning, fontSize: fontSizes.caption, marginTop: -4 },
+  infoBox: { backgroundColor: colors.primaryBg, borderRadius: radii.md, padding: spacing.md },
+  infoText: { color: colors.primaryText, fontSize: fontSizes.body2, lineHeight: 19 },
   permRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
   },
-  permName: { fontSize: 13, color: '#1E293B', textTransform: 'capitalize' },
-  overrideBadge: { fontSize: 10, color: '#F59E0B', marginTop: 2 },
+  permName: { fontSize: fontSizes.body2, color: colors.textPrimary, textTransform: 'capitalize' },
+  overrideBadge: { fontSize: fontSizes.xs, color: '#F59E0B', marginTop: 2 },
 
   cardMuted: { opacity: 0.6 },
   cardSub: { flexDirection: 'row', alignItems: 'center', marginTop: 1, gap: 4 },
-  pinPending: { fontSize: 11, color: '#B45309', fontWeight: '600' },
+  pinPending: { fontSize: fontSizes.sm, color: colors.warning, fontWeight: '600' },
   statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusText: { fontSize: 11, fontWeight: '700' },
+  statusText: { fontSize: fontSizes.sm, fontWeight: '700' },
 
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#F8FAFF', borderRadius: 10, padding: 12, rowGap: 6 },
-  infoRow: { width: '50%', fontSize: 12, color: '#94A3B8' },
-  infoVal: { color: '#1E293B', fontWeight: '600' },
-  selectRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F8FAFF', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44 },
-  selectText: { fontSize: 14, color: '#1E293B', fontWeight: '500' },
-  selectChevron: { fontSize: 16, color: '#94A3B8' },
-  rolePicker: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden' },
-  roleTierHint: { fontSize: 11, fontWeight: '700', color: '#CBD5E1' },
+  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: colors.background, borderRadius: radii.md, padding: spacing.md, rowGap: 6 },
+  infoRow: { width: '50%', fontSize: fontSizes.caption, color: colors.textMuted },
+  infoVal: { color: colors.textPrimary, fontWeight: '600' },
+  selectRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.base, height: 44 },
+  selectText: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
+  selectChevron: { fontSize: fontSizes.base, color: colors.textMuted },
+  rolePicker: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  roleTierHint: { fontSize: fontSizes.sm, fontWeight: '700', color: colors.textDisabled },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  expiryCurrent: { flex: 1, backgroundColor: '#F8FAFF', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 14, height: 44, justifyContent: 'center' },
-  expiryText: { fontSize: 14, color: '#1E293B' },
-  expiryClear: { color: '#B91C1C', fontSize: 14, fontWeight: '600', paddingHorizontal: 6 },
+  expiryCurrent: { flex: 1, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.base, height: 44, justifyContent: 'center' },
+  expiryText: { fontSize: fontSizes.body, color: colors.textPrimary },
+  expiryClear: { color: colors.danger, fontSize: fontSizes.body, fontWeight: '600', paddingHorizontal: 6 },
   chipWrap: { flexDirection: 'row', gap: 8 },
-  expiryChip: { backgroundColor: '#EFF6FF', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  expiryChipText: { color: '#1D4ED8', fontSize: 13, fontWeight: '600' },
+  expiryChip: { backgroundColor: colors.primaryBg, borderRadius: 16, paddingHorizontal: spacing.base, paddingVertical: 8 },
+  expiryChipText: { color: colors.primaryText, fontSize: fontSizes.body2, fontWeight: '600' },
   btnDisabled: { opacity: 0.45 },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F8FAFF', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', padding: 12 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
   actionIcon: { fontSize: 20 },
-  actionTitle: { fontSize: 14, fontWeight: '600', color: '#1E293B' },
-  actionSub: { fontSize: 11, color: '#94A3B8', marginTop: 1 },
+  actionTitle: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
+  actionSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
   actionDanger: { borderColor: '#FECACA', backgroundColor: '#FEF2F2' },
   actionGood: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
-  dangerText: { color: '#B91C1C' },
-  goodText: { color: '#15803D' },
+  dangerText: { color: colors.danger },
+  goodText: { color: colors.success },
 });

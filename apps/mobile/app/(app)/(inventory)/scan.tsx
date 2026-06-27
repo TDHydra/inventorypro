@@ -4,6 +4,8 @@ import { Stack, useRouter } from 'expo-router';
 import { BarcodeScanner } from '../../../src/components/BarcodeScanner';
 import { USBScanner } from '../../../src/components/USBScanner';
 import { getItemByBarcode } from '../../../src/db/queries/items';
+import { TooltipHint } from '../../../src/components/TooltipHint';
+import { colors } from '../../../src/theme';
 
 type ScanMode = 'camera' | 'usb';
 
@@ -54,6 +56,8 @@ export default function ScanScreen() {
           </TouchableOpacity>
         </View>
 
+        <TooltipHint screenKey="scan" />
+
         {mode === 'camera' ? (
           <BarcodeScanner
             active={true}
@@ -90,16 +94,16 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 8, borderRadius: 8,
     alignItems: 'center',
   },
-  modeBtnActive: { backgroundColor: '#2563EB' },
-  modeBtnText: { color: '#94A3B8', fontSize: 14, fontWeight: '600' },
+  modeBtnActive: { backgroundColor: colors.primary },
+  modeBtnText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
   modeBtnTextActive: { color: '#fff' },
   usbMode: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#F8FAFF', gap: 12, padding: 32,
+    backgroundColor: colors.background, gap: 12, padding: 32,
   },
   usbIcon: { fontSize: 60 },
-  usbTitle: { fontSize: 22, fontWeight: '700', color: '#1E3A5F' },
-  usbHint: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 22 },
+  usbTitle: { fontSize: 22, fontWeight: '700', color: colors.brand },
+  usbHint: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
   backBtn: {
     marginTop: 16, backgroundColor: '#F1F5F9', borderRadius: 10,
     paddingHorizontal: 32, paddingVertical: 12,

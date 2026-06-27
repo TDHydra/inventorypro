@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
@@ -24,6 +24,12 @@ import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
+import { colors } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
 const CATEGORIES: { value: UnitCategory; label: string }[] = [
   { value: 'liquid', label: 'Liquid (gallons, pints...)' },
@@ -301,7 +307,7 @@ export default function AddStockScreen() {
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
 
           {/* ── ITEM ─────────────────────────────────────────────────────── */}
-          <Text style={s.label}>Item</Text>
+          <FieldLabel>Item</FieldLabel>
           <SearchablePicker
             placeholder="Search existing items..."
             options={itemOptions}
@@ -333,36 +339,30 @@ export default function AddStockScreen() {
           {/* Editable catalog fields for new item creation */}
           {isCreatingNew && (
             <>
-              <TextInput
-                style={s.input}
+              <AppInput
                 placeholder="Item name *"
-                placeholderTextColor="#94A3B8"
                 value={name}
                 onChangeText={setName}
                 autoFocus
               />
-              <TextInput
-                style={[s.input, s.multiline]}
+              <AppInput
+                style={s.multiline}
                 placeholder="Description (optional)"
-                placeholderTextColor="#94A3B8"
                 value={description}
                 onChangeText={setDescription}
                 multiline
                 numberOfLines={3}
               />
 
-              <Text style={s.label}>Kind</Text>
+              <FieldLabel style={{ marginTop: 12 }}>Kind</FieldLabel>
               <View style={s.unitRow}>
                 {(['product', 'equipment'] as const).map(k => (
-                  <TouchableOpacity
+                  <FilterChip
                     key={k}
-                    style={[s.chip, kind === k && s.chipActive]}
+                    label={k.charAt(0).toUpperCase() + k.slice(1)}
+                    active={kind === k}
                     onPress={() => setKind(k)}
-                  >
-                    <Text style={[s.chipText, kind === k && s.chipTextActive]}>
-                      {k.charAt(0).toUpperCase() + k.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
+                  />
                 ))}
               </View>
 
@@ -400,10 +400,8 @@ export default function AddStockScreen() {
                     <Switch value={unitTracked} onValueChange={setUnitTracked} />
                   </View>
                   {unitTracked && (
-                    <TextInput
-                      style={s.input}
+                    <AppInput
                       placeholder="Tag prefix (AM-, DH-, MSC-…)"
-                      placeholderTextColor="#94A3B8"
                       value={tagPrefix}
                       onChangeText={setTagPrefix}
                       autoCapitalize="characters"
@@ -412,7 +410,7 @@ export default function AddStockScreen() {
                 </>
               )}
 
-              <Text style={s.label}>Units</Text>
+              <FieldLabel style={{ marginTop: 12 }}>Units</FieldLabel>
               {kind === 'equipment' ? (
                 <Text style={s.unitReadOnly}>Unit: each (piece)</Text>
               ) : (
@@ -428,31 +426,26 @@ export default function AddStockScreen() {
                   ))}
                   <View style={s.unitRow}>
                     {UNIT_OPTIONS[unitCat].map(u => (
-                      <TouchableOpacity
+                      <FilterChip
                         key={u}
-                        style={[s.chip, unit === u && s.chipActive]}
+                        label={u}
+                        active={unit === u}
                         onPress={() => setUnit(u)}
-                      >
-                        <Text style={[s.chipText, unit === u && s.chipTextActive]}>{u}</Text>
-                      </TouchableOpacity>
+                      />
                     ))}
                   </View>
                 </>
               )}
 
-              <Text style={s.label}>Stock thresholds</Text>
-              <TextInput
-                style={s.input}
+              <FieldLabel style={{ marginTop: 12 }}>Stock thresholds</FieldLabel>
+              <AppInput
                 placeholder="Low-stock alert (0 = off)"
-                placeholderTextColor="#94A3B8"
                 value={minAlert}
                 onChangeText={setMinAlert}
                 keyboardType="decimal-pad"
               />
-              <TextInput
-                style={s.input}
+              <AppInput
                 placeholder="Reorder up to (optional)"
-                placeholderTextColor="#94A3B8"
                 value={reorderTo}
                 onChangeText={setReorderTo}
                 keyboardType="decimal-pad"
@@ -463,7 +456,7 @@ export default function AddStockScreen() {
           {/* ── LOCATION ─────────────────────────────────────────────────── */}
           {!isUnitTracked && (
             <>
-              <Text style={s.label}>Location</Text>
+              <FieldLabel style={{ marginTop: 12 }}>Location</FieldLabel>
               <LocationSuggestionBanner
                 name={nearestLocation?.name ?? null}
                 distanceM={nearestLocation?.distanceM ?? null}
@@ -481,11 +474,9 @@ export default function AddStockScreen() {
           {/* ── QUANTITY ─────────────────────────────────────────────────── */}
           {!isUnitTracked && (
             <>
-              <Text style={s.label}>Quantity to Add</Text>
-              <TextInput
-                style={s.input}
+              <FieldLabel style={{ marginTop: 12 }}>Quantity to Add</FieldLabel>
+              <AppInput
                 placeholder="Enter quantity"
-                placeholderTextColor="#94A3B8"
                 value={quantity}
                 onChangeText={setQuantity}
                 keyboardType="decimal-pad"
@@ -505,12 +496,13 @@ export default function AddStockScreen() {
           )}
           {/* The existingUnitTracked branch only navigates (no write), so it
               stays enabled during maintenance — only the writing modes gate. */}
-          <TouchableOpacity style={s.btn} onPress={handleSave} disabled={!existingUnitTracked && locked}>
-            <Text style={s.btnText}>
-              {existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
-            </Text>
-          </TouchableOpacity>
-          {!existingUnitTracked && locked && <Text style={{ color: '#B45309', marginTop: 8 }}>Read-only during maintenance</Text>}
+          <PrimaryButton
+            label={existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
+            onPress={handleSave}
+            disabled={!existingUnitTracked && locked}
+            style={{ marginTop: 20 }}
+          />
+          {!existingUnitTracked && locked && <MaintenanceBanner />}
           <View style={s.secondaryRow}>
             <TouchableOpacity style={s.linkBtn} onPress={clearForm}>
               <Text style={s.linkText}>Clear</Text>
@@ -527,61 +519,44 @@ export default function AddStockScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 48 },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
-  },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
-  label: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 12,
-  },
   readonlyCard: {
-    backgroundColor: '#EFF6FF', borderRadius: 10, borderWidth: 1,
-    borderColor: '#BFDBFE', paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: colors.primaryBg, borderRadius: 10, borderWidth: 1,
+    borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 10,
   },
-  readonlyName: { fontSize: 14, fontWeight: '700', color: '#1E293B' },
-  readonlyMeta: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  readonlyName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  readonlyMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   opt: { backgroundColor: '#F1F5F9', borderRadius: 8, padding: 10 },
-  optActive: { backgroundColor: '#DBEAFE' },
+  optActive: { backgroundColor: colors.primaryBgStrong },
   optText: { fontSize: 14, color: '#475569' },
-  optTextActive: { color: '#1D4ED8', fontWeight: '600' },
+  optTextActive: { color: colors.primaryText, fontWeight: '600' },
   unitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
-  chip: { backgroundColor: '#F1F5F9', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  chipActive: { backgroundColor: '#DBEAFE' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextActive: { color: '#1D4ED8', fontWeight: '600' },
-  btn: {
-    backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 13,
-    alignItems: 'center', marginTop: 20,
-  },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 12 },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
-  cancelText: { color: '#94A3B8' },
+  linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: colors.textMuted },
   noteBox: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: colors.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 4,
   },
   noteText: {
     fontSize: 13,
-    color: '#1D4ED8',
+    color: colors.primaryText,
     lineHeight: 18,
   },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  switchLabel: { fontSize: 14, color: '#1E293B', flex: 1, marginRight: 12 },
+  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
   unitReadOnly: {
     fontSize: 14, color: '#475569', fontStyle: 'italic',
     paddingVertical: 8, paddingHorizontal: 4,

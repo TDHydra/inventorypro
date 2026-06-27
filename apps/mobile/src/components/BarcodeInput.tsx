@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { BarcodeScanner } from './BarcodeScanner';
+import { colors } from '../theme';
 
 interface Props {
   label?: string;
@@ -25,7 +26,7 @@ export function BarcodeInput({ label, value, onChange, placeholder, note, noteTo
           value={value}
           onChangeText={onChange}
           placeholder={placeholder ?? 'Barcode'}
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -51,20 +52,20 @@ export function BarcodeInput({ label, value, onChange, placeholder, note, noteTo
 
 const s = StyleSheet.create({
   wrap: { gap: 6 },
-  label: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
+  label: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   row: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   input: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
+    flex: 1, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: 14, height: 44, fontSize: 14, color: colors.textPrimary,
   },
   scanBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#EFF6FF', borderRadius: 10, borderWidth: 1, borderColor: '#BFDBFE',
+    backgroundColor: colors.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: colors.primaryBgStrong,
     paddingHorizontal: 14, height: 44,
   },
   scanIcon: { fontSize: 16 },
-  scanText: { color: '#1D4ED8', fontWeight: '700', fontSize: 14 },
+  scanText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
   note: { fontSize: 12, marginTop: 2 },
   noteWarn: { color: '#B45309' },
-  noteInfo: { color: '#64748B' },
+  noteInfo: { color: colors.textSecondary },
 });

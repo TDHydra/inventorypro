@@ -3,6 +3,7 @@ import {
   View, Image, TouchableOpacity, StyleSheet, Text, Modal,
   Dimensions, Alert, ActivityIndicator,
 } from 'react-native';
+import { colors } from '../theme';
 import * as ImagePicker from 'expo-image-picker';
 // SDK 54+ moved uploadAsync to the /legacy entry point. BINARY_CONTENT streams
 // the file straight to the presigned URL natively — avoids RN's "creating blobs
@@ -162,7 +163,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
         {canUpload && (
           <TouchableOpacity style={styles.addBtn} onPress={showOptions} disabled={uploading}>
             {uploading ? (
-              <ActivityIndicator color="#2563EB" />
+              <ActivityIndicator color={colors.primary} />
             ) : (
               <>
                 <Text style={styles.addIcon}>+</Text>
@@ -193,11 +194,11 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
 const styles = StyleSheet.create({
   container: { marginVertical: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: '#E2E8F0' },
-  thumbPrimary: { borderWidth: 2, borderColor: '#2563EB' },
+  thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: colors.border },
+  thumbPrimary: { borderWidth: 2, borderColor: colors.primary },
   primaryBadge: {
     position: 'absolute', top: 4, left: 4,
-    backgroundColor: '#2563EB', borderRadius: 8, width: 16, height: 16,
+    backgroundColor: colors.primary, borderRadius: 8, width: 16, height: 16,
     alignItems: 'center', justifyContent: 'center',
   },
   primaryText: { color: '#fff', fontSize: 10 },
@@ -209,11 +210,11 @@ const styles = StyleSheet.create({
   videoIcon: { color: '#fff', fontSize: 24 },
   addBtn: {
     width: THUMB, height: THUMB, borderRadius: 8,
-    borderWidth: 2, borderColor: '#E2E8F0', borderStyle: 'dashed',
-    alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFF',
+    borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background,
   },
-  addIcon: { fontSize: 24, color: '#94A3B8' },
-  addText: { fontSize: 12, color: '#94A3B8' },
+  addIcon: { fontSize: 24, color: colors.textMuted },
+  addText: { fontSize: 12, color: colors.textMuted },
   lightbox: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
     alignItems: 'center', justifyContent: 'center',

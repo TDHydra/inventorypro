@@ -1,8 +1,14 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, StyleSheet,
-  TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert,
+  View, Text, TouchableOpacity, StyleSheet,
+  ScrollView, Alert,
 } from 'react-native';
+import { colors } from '../theme';
+import { ModalSheet } from './ui/ModalSheet';
+import { PrimaryButton } from './ui/PrimaryButton';
+import { AppInput } from './ui/AppInput';
+import { FieldLabel } from './ui/FieldLabel';
+import { confirmDestructive } from '../lib/confirm';
 import { getStockAtLocation, getAllLocations } from '../db/queries/locations';
 import { adjustStock, getStockQuantity, getItemById } from '../db/queries/items';
 import { appendLog } from '../db/queries/log';
@@ -104,51 +110,60 @@ export default function MoveStockModal({
     const intendedFromQty = Math.max(0, currentOnHand - qty);
     const intendedToQty = destCurrentQty + qty;
 
-    const now = new Date().toISOString();
-
-    // Adjust stock (adjustStock handles the INSERT OR REPLACE in SQLite)
-    adjustStock(itemId, fromLocationId, -qty);
-    adjustStock(itemId, destLoc.id, qty);
-
-    // Outbox both stock_by_location rows with intended final quantities.
-    // Use INSERT (the server's upsert path: ON CONFLICT (item_id,location_id) DO
-    // UPDATE) — a plain UPDATE would match 0 rows when the destination location
-    // has no existing row for this item, silently dropping the increment.
-    appendOutbox('INSERT', 'stock_by_location', {
-      item_id: itemId,
-      location_id: fromLocationId,
-      quantity: intendedFromQty,
-      updated_at: now,
-    });
-    appendOutbox('INSERT', 'stock_by_location', {
-      item_id: itemId,
-      location_id: destLoc.id,
-      quantity: intendedToQty,
-      updated_at: now,
-    });
-
-    // Log the transfer; fetch the item's unit for display in the feed.
+    // Pre-read unit for the confirm message
     const item = getItemById(itemId);
     const unit = item?.unit ?? null;
+    const unitLabel = unit ? ` ${unit}` : '';
 
-    appendLog({
-      action: 'transfer',
-      entity_type: 'item',
-      entity_id: itemId,
-      from_location_id: fromLocationId,
-      to_location_id: destLoc.id,
-      quantity: qty,
-      unit,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: null,
-      metadata: null,
-      device_id: null,
+    confirmDestructive({
+      title: 'Move stock?',
+      message: `Move ${qty}${unitLabel} from ${fromLocationName} to ${destLoc.label}? This updates stock at both locations.`,
+      confirmLabel: 'Move',
+      onConfirm: () => {
+        const now = new Date().toISOString();
+
+        // Adjust stock (adjustStock handles the INSERT OR REPLACE in SQLite)
+        adjustStock(itemId, fromLocationId, -qty);
+        adjustStock(itemId, destLoc.id, qty);
+
+        // Outbox both stock_by_location rows with intended final quantities.
+        // Use INSERT (the server's upsert path: ON CONFLICT (item_id,location_id) DO
+        // UPDATE) — a plain UPDATE would match 0 rows when the destination location
+        // has no existing row for this item, silently dropping the increment.
+        appendOutbox('INSERT', 'stock_by_location', {
+          item_id: itemId,
+          location_id: fromLocationId,
+          quantity: intendedFromQty,
+          updated_at: now,
+        });
+        appendOutbox('INSERT', 'stock_by_location', {
+          item_id: itemId,
+          location_id: destLoc.id,
+          quantity: intendedToQty,
+          updated_at: now,
+        });
+
+        // Log the transfer; unit already read above for the confirm message.
+        appendLog({
+          action: 'transfer',
+          entity_type: 'item',
+          entity_id: itemId,
+          from_location_id: fromLocationId,
+          to_location_id: destLoc.id,
+          quantity: qty,
+          unit,
+          user_id: user?.id ?? null,
+          team_id: null,
+          job_id: null,
+          note: null,
+          metadata: null,
+          device_id: null,
+        });
+
+        reset();
+        onDone();
+      },
     });
-
-    reset();
-    onDone();
   }
 
   const selectedStockRow = selectedItem
@@ -156,109 +171,73 @@ export default function MoveStockModal({
     : null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <KeyboardAvoidingView
-        style={s.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <ModalSheet visible={visible} onClose={onClose}>
+      <Text style={s.title}>Move Stock</Text>
+      <Text style={s.fromLabel}>From: {fromLocationName}</Text>
+
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ gap: 14 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={s.modal}>
-          <Text style={s.title}>Move Stock</Text>
-          <Text style={s.fromLabel}>From: {fromLocationName}</Text>
+        <FieldLabel>Item to move</FieldLabel>
+        {stock.length === 0 ? (
+          <Text style={s.muted}>No stock available at this location.</Text>
+        ) : (
+          <SearchablePicker
+            placeholder="Search items…"
+            options={itemOptions}
+            value={selectedItem}
+            onSelect={(opt) => {
+              // Tapping "Change" re-passes the current selection — treat as clear
+              setSelectedItem(prev => (prev?.id === opt.id ? null : opt));
+              setQtyText('');
+            }}
+          />
+        )}
 
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ gap: 14 }}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={s.label}>Item to move</Text>
-            {stock.length === 0 ? (
-              <Text style={s.muted}>No stock available at this location.</Text>
-            ) : (
-              <SearchablePicker
-                placeholder="Search items…"
-                options={itemOptions}
-                value={selectedItem}
-                onSelect={(opt) => {
-                  // Tapping "Change" re-passes the current selection — treat as clear
-                  setSelectedItem(prev => (prev?.id === opt.id ? null : opt));
-                  setQtyText('');
-                }}
-              />
-            )}
+        <FieldLabel>Destination</FieldLabel>
+        <SearchablePicker
+          placeholder="Search locations…"
+          options={locOptions}
+          value={destLoc}
+          onSelect={(opt) => setDestLoc(prev => (prev?.id === opt.id ? null : opt))}
+        />
 
-            <Text style={s.label}>Destination</Text>
-            <SearchablePicker
-              placeholder="Search locations…"
-              options={locOptions}
-              value={destLoc}
-              onSelect={(opt) => setDestLoc(prev => (prev?.id === opt.id ? null : opt))}
-            />
-
-            <View>
-              <Text style={s.label}>Quantity</Text>
-              {selectedStockRow != null && (
-                <Text style={s.onHand}>{selectedStockRow.quantity} on hand</Text>
-              )}
-            </View>
-            <TextInput
-              style={s.input}
-              placeholder="Quantity *"
-              placeholderTextColor="#94A3B8"
-              value={qtyText}
-              onChangeText={setQtyText}
-              keyboardType="numeric"
-            />
-
-            <TouchableOpacity style={s.btn} onPress={handleConfirm}>
-              <Text style={s.btnText}>Move Stock</Text>
-            </TouchableOpacity>
-            <View style={s.secondaryRow}>
-              <TouchableOpacity style={s.linkBtn} onPress={handleClose}>
-                <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+        <View>
+          <FieldLabel>Quantity</FieldLabel>
+          {selectedStockRow != null && (
+            <Text style={s.onHand}>{selectedStockRow.quantity} on hand</Text>
+          )}
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        <AppInput
+          placeholder="Quantity *"
+          value={qtyText}
+          onChangeText={setQtyText}
+          keyboardType="numeric"
+        />
+
+        <PrimaryButton label="Move Stock" onPress={handleConfirm} style={s.moveBtn} />
+        <View style={s.secondaryRow}>
+          <TouchableOpacity style={s.linkBtn} onPress={handleClose}>
+            <Text style={s.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </ModalSheet>
   );
 }
 
 const s = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    justifyContent: 'flex-end',
-  },
-  modal: {
-    backgroundColor: '#F8FAFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '88%',
-  },
-  title: { fontSize: 18, fontWeight: '700', color: '#1E293B', marginBottom: 2 },
-  fromLabel: { fontSize: 13, color: '#64748B', marginBottom: 14 },
-  label: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5,
-  },
-  onHand: { fontSize: 12, color: '#16A34A', fontWeight: '600', marginTop: 4 },
-  muted: { fontSize: 14, color: '#94A3B8' },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
-  },
-  btn: {
-    backgroundColor: '#2563EB', borderRadius: 12,
-    paddingVertical: 13, alignItems: 'center', marginTop: 8,
-  },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 2 },
+  fromLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 14 },
+  onHand: { fontSize: 12, color: colors.success, fontWeight: '600', marginTop: 4 },
+  muted: { fontSize: 14, color: colors.textMuted },
+  moveBtn: { marginTop: 8 },
   secondaryRow: {
     flexDirection: 'row', justifyContent: 'center',
     gap: 28, marginTop: 4, marginBottom: 8,
   },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
-  cancelText: { color: '#94A3B8' },
+  cancelText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
 });

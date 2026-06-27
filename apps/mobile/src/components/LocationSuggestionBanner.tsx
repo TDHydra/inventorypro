@@ -1,4 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { colors } from '../theme';
 
 interface Props {
   name: string | null;
@@ -31,18 +32,18 @@ const s = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: colors.primaryBgStrong,
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 8,
   },
-  text: { flex: 1, fontSize: 13, color: '#1D4ED8', lineHeight: 18 },
+  text: { flex: 1, fontSize: 13, color: colors.primaryText, lineHeight: 18 },
   bold: { fontWeight: '700' },
   btn: {
-    backgroundColor: '#2563EB',
+    backgroundColor: colors.primary,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,

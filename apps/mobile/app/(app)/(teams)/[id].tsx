@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Modal, Alert, KeyboardAvoidingView, Platform,
+  Alert,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -16,6 +16,13 @@ import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { TEAM_TYPES } from '../../../src/constants/teams';
+import { colors } from '../../../src/theme';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { Card } from '../../../src/components/ui/Card';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -144,7 +151,7 @@ export default function TeamDetailScreen() {
       device_id: null,
     });
     setMembers(getTeamMembers(team.id));
-    setNewMemberOption(null);
+    setNewMemberOption(null); // clear only after successful submit
     setShowAddMember(false);
   }
 
@@ -211,7 +218,7 @@ export default function TeamDetailScreen() {
       <ScrollView contentContainerStyle={s.content}>
 
         {/* Header card */}
-        <View style={s.card}>
+        <Card variant="detail">
           <Text style={s.teamName}>{team.name}</Text>
           <View style={s.attrRow}>
             <Text style={s.attrKey}>Type</Text>
@@ -228,19 +235,19 @@ export default function TeamDetailScreen() {
               <Text style={s.editBtnText}>Edit Team</Text>
             </TouchableOpacity>
           )}
-        </View>
+        </Card>
 
         {/* Roster */}
         <View style={s.sectionHeader}>
           <Text style={s.sectionLabel}>Members ({members.length})</Text>
           {canManage && (
-            <TouchableOpacity onPress={() => { setNewMemberOption(null); setShowAddMember(true); }}>
+            <TouchableOpacity onPress={() => setShowAddMember(true)}>
               <Text style={s.addLink}>+ Add</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        <View style={s.card}>
+        <Card variant="detail">
           {members.length === 0 ? (
             <Text style={s.muted}>
               No members yet{canManage ? '. Tap "+ Add" to add someone.' : '.'}
@@ -270,109 +277,89 @@ export default function TeamDetailScreen() {
               </View>
             ))
           )}
-        </View>
+        </Card>
 
       </ScrollView>
 
-      {/* Edit team modal */}
-      <Modal visible={showEdit} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          style={s.overlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>Edit Team</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
-              <TextInput
-                style={s.input}
-                placeholder="Team name *"
-                placeholderTextColor="#94A3B8"
-                value={editName}
-                onChangeText={setEditName}
-                autoFocus
-              />
+      {/* Edit team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
+      <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
+          <Text style={s.modalTitle}>Edit Team</Text>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+            <AppInput
+              placeholder="Team name *"
+              value={editName}
+              onChangeText={setEditName}
+              autoFocus
+            />
 
-              <Text style={s.label}>Type</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={s.chipRow}
-              >
-                {TEAM_TYPES.map(t => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[s.chip, editType === t && s.chipActive]}
-                    onPress={() => setEditType(t)}
-                  >
-                    <Text style={[s.chipText, editType === t && s.chipTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+            <FieldLabel>Type</FieldLabel>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.chipRow}
+            >
+              {TEAM_TYPES.map(t => (
+                <FilterChip
+                  key={t}
+                  label={t}
+                  active={editType === t}
+                  onPress={() => setEditType(t)}
+                />
+              ))}
+            </ScrollView>
 
-              <Text style={s.label}>Manager (optional)</Text>
+            <FieldLabel>Manager (optional)</FieldLabel>
+            <SearchablePicker
+              placeholder="Search people…"
+              options={userOptions}
+              value={editManagerOption}
+              onSelect={(opt) => {
+                setEditManagerOption(prev => (prev?.id === opt.id ? null : opt));
+              }}
+            />
+
+            <PrimaryButton label="Save Changes" onPress={handleSaveEdit} style={{ marginTop: 8 }} />
+            <TouchableOpacity
+              style={s.cancelRow}
+              onPress={() => setShowEdit(false)}
+            >
+              <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
+            </TouchableOpacity>
+          </ScrollView>
+      </ModalSheet>
+
+      {/* Add member modal — onClose only hides; selection preserved on outside-tap dismiss */}
+      <ModalSheet visible={showAddMember} onClose={() => setShowAddMember(false)}>
+          <Text style={s.modalTitle}>Add Team Member</Text>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+            {nonMemberOptions.length === 0 ? (
+              <Text style={s.muted}>All active users are already on this team.</Text>
+            ) : (
               <SearchablePicker
                 placeholder="Search people…"
-                options={userOptions}
-                value={editManagerOption}
+                options={nonMemberOptions}
+                value={newMemberOption}
                 onSelect={(opt) => {
-                  setEditManagerOption(prev => (prev?.id === opt.id ? null : opt));
+                  setNewMemberOption(prev => (prev?.id === opt.id ? null : opt));
                 }}
+                autoFocus
               />
+            )}
 
-              <TouchableOpacity style={s.btn} onPress={handleSaveEdit}>
-                <Text style={s.btnText}>Save Changes</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.cancelRow}
-                onPress={() => setShowEdit(false)}
-              >
-                <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Add member modal */}
-      <Modal visible={showAddMember} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          style={s.overlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>Add Team Member</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
-              {nonMemberOptions.length === 0 ? (
-                <Text style={s.muted}>All active users are already on this team.</Text>
-              ) : (
-                <SearchablePicker
-                  placeholder="Search people…"
-                  options={nonMemberOptions}
-                  value={newMemberOption}
-                  onSelect={(opt) => {
-                    setNewMemberOption(prev => (prev?.id === opt.id ? null : opt));
-                  }}
-                  autoFocus
-                />
-              )}
-
-              <TouchableOpacity
-                style={[s.btn, !newMemberOption && s.btnDisabled]}
-                onPress={handleAddMember}
-                disabled={!newMemberOption}
-              >
-                <Text style={s.btnText}>Add to Team</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.cancelRow}
-                onPress={() => { setShowAddMember(false); setNewMemberOption(null); }}
-              >
-                <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+            <PrimaryButton
+              label="Add to Team"
+              onPress={handleAddMember}
+              disabled={!newMemberOption}
+              style={{ marginTop: 8 }}
+            />
+            <TouchableOpacity
+              style={s.cancelRow}
+              onPress={() => setShowAddMember(false)}
+            >
+              <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
+            </TouchableOpacity>
+          </ScrollView>
+      </ModalSheet>
     </>
   );
 }
@@ -380,73 +367,46 @@ export default function TeamDetailScreen() {
 const s = StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: '#94A3B8' },
+  muted: { fontSize: 14, color: colors.textMuted },
 
-  card: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 16,
-    borderWidth: 1, borderColor: '#EEF2F7',
-  },
-  teamName: { fontSize: 22, fontWeight: '700', color: '#1E3A5F', marginBottom: 8 },
+  teamName: { fontSize: 22, fontWeight: '700', color: colors.brand, marginBottom: 8 },
 
   attrRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 10,
   },
-  attrKey: { fontSize: 14, color: '#64748B' },
+  attrKey: { fontSize: 14, color: colors.textSecondary },
   attrVal: {
-    fontSize: 14, color: '#1E293B', fontWeight: '600',
+    fontSize: 14, color: colors.textPrimary, fontWeight: '600',
     maxWidth: '60%', textAlign: 'right', textTransform: 'capitalize',
   },
   divider: { borderTopWidth: 1, borderTopColor: '#F1F5F9' },
 
   editBtn: {
-    marginTop: 12, backgroundColor: '#EFF6FF', borderRadius: 10,
+    marginTop: 12, backgroundColor: colors.primaryBg, borderRadius: 10,
     paddingVertical: 10, alignItems: 'center',
   },
-  editBtnText: { color: '#1D4ED8', fontWeight: '700', fontSize: 14 },
+  editBtnText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
 
   sectionHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
   sectionLabel: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
+    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  addLink: { color: '#2563EB', fontSize: 14, fontWeight: '700' },
+  addLink: { color: colors.primary, fontSize: 14, fontWeight: '700' },
 
   memberRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
   },
-  memberName: { fontSize: 15, color: '#1E293B', fontWeight: '600' },
-  memberRole: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  removeText: { color: '#DC2626', fontSize: 13, fontWeight: '600' },
+  memberName: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
+  memberRole: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  removeText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
-  modal: {
-    backgroundColor: '#F8FAFF', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, maxHeight: '85%',
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1E293B', marginBottom: 14 },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
-  },
-  label: {
-    fontSize: 12, fontWeight: '700', color: '#64748B',
-    textTransform: 'uppercase', letterSpacing: 0.5,
-  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
   chipRow: { gap: 8, paddingRight: 8 },
-  chip: { backgroundColor: '#F1F5F9', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  chipActive: { backgroundColor: '#DBEAFE' },
-  chipText: { fontSize: 13, color: '#475569' },
-  chipTextActive: { color: '#1D4ED8', fontWeight: '600' },
-  btn: {
-    backgroundColor: '#2563EB', borderRadius: 12,
-    paddingVertical: 13, alignItems: 'center', marginTop: 8,
-  },
-  btnDisabled: { backgroundColor: '#94A3B8' },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   cancelRow: { paddingVertical: 10, alignItems: 'center', marginBottom: 4 },
-  linkText: { color: '#2563EB', fontSize: 15, fontWeight: '600' },
-  cancelText: { color: '#94A3B8' },
+  linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: colors.textMuted },
 });

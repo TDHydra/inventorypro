@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { colors } from '../theme';
 import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
 import { getStockByItem } from '../db/queries/items';
@@ -111,7 +112,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     overflow: 'hidden',
     marginBottom: 8,
   },
@@ -122,11 +123,11 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flex: 1, marginLeft: 10 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  name: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
-  barcode: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
-  stock: { fontSize: 14, fontWeight: '600', color: '#16A34A' },
-  stockLow: { color: '#DC2626' },
-  chevron: { fontSize: 11, color: '#94A3B8' },
+  name: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  barcode: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  stock: { fontSize: 14, fontWeight: '600', color: colors.success },
+  stockLow: { color: colors.danger },
+  chevron: { fontSize: 11, color: colors.textMuted },
   expanded: {
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
@@ -134,7 +135,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 6,
   },
-  noStock: { fontSize: 13, color: '#94A3B8', textAlign: 'center', paddingVertical: 8 },
+  noStock: { fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
   locationRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -142,13 +143,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   locationInfo: { flex: 1 },
-  parentName: { fontSize: 11, color: '#94A3B8' },
+  parentName: { fontSize: 11, color: colors.textMuted },
   locationName: { fontSize: 13, color: '#475569' },
   locationQty: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  locationQtyZero: { color: '#CBD5E1' },
+  locationQtyZero: { color: colors.textDisabled },
   actions: { flexDirection: 'row', gap: 8, marginTop: 8 },
   btnPrimary: {
-    flex: 1, backgroundColor: '#2563EB', borderRadius: 8,
+    flex: 1, backgroundColor: colors.primary, borderRadius: 8,
     paddingVertical: 9, alignItems: 'center',
   },
   btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },

@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -14,6 +15,10 @@ import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getValidJwt } from '../../../src/auth/session';
+import { syncNow } from '../../../src/sync/engine';
+import { TooltipHint } from '../../../src/components/TooltipHint';
+import { ErrorView } from '../../../src/components/ui/ErrorView';
+import { colors } from '../../../src/theme';
 
 // Local ACTION_ICONS removed — imported from ActivityFeed (single source of truth).
 
@@ -48,6 +53,20 @@ export default function LogsScreen() {
   const [serverLoading, setServerLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
+  // Refetch key — increment to re-trigger the server fetch useEffect
+  const [refetchKey, setRefetchKey] = useState(0);
+  const refetch = useCallback(() => setRefetchKey(k => k + 1), []);
+
+  // Pull-to-refresh state for the All-Activity list
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await syncNow(); } catch { /* offline — refetch still runs */ }
+    refetch();
+    setRefreshing(false);
+  }, [refreshing, refetch]);
+
   // User options for the user picker (only loaded when admin can see all activity)
   const userOptions = useMemo<PickerOption[]>(() => {
     if (!canViewAll) return [];
@@ -76,7 +95,7 @@ export default function LogsScreen() {
     return getLogForUser(user.id, 50);
   }, [user, filter]);
 
-  // Server fetch for the All-Activity tab — re-runs whenever tab or filters change
+  // Server fetch for the All-Activity tab — re-runs whenever tab, filters, or refetchKey change
   useEffect(() => {
     if (filter !== 'all') return;
 
@@ -129,7 +148,7 @@ export default function LogsScreen() {
     })();
 
     return () => { cancelled = true; };
-  }, [filter, filterUser, filterAction, sinceVal, untilVal]);
+  }, [filter, filterUser, filterAction, sinceVal, untilVal, refetchKey]);
 
   function clearAllFilters() {
     setFilterUser(null);
@@ -176,6 +195,8 @@ export default function LogsScreen() {
           )}
         </View>
 
+        <TooltipHint screenKey="logs" />
+
         {/* ── All-Activity filter controls (admin only) ─────────────── */}
         {filter === 'all' && (
           <View style={s.filterControls}>
@@ -199,7 +220,7 @@ export default function LogsScreen() {
               <TextInput
                 style={[s.dateInput, s.flex1]}
                 placeholder="From YYYY-MM-DD"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={colors.textMuted}
                 value={filterSince}
                 onChangeText={setFilterSince}
                 keyboardType="numbers-and-punctuation"
@@ -208,7 +229,7 @@ export default function LogsScreen() {
               <TextInput
                 style={[s.dateInput, s.flex1]}
                 placeholder="To YYYY-MM-DD"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={colors.textMuted}
                 value={filterUntil}
                 onChangeText={setFilterUntil}
                 keyboardType="numbers-and-punctuation"
@@ -227,11 +248,11 @@ export default function LogsScreen() {
         {filter === 'all' ? (
           serverLoading ? (
             <View style={s.empty}>
-              <ActivityIndicator size="large" color="#2563EB" />
+              <ActivityIndicator size="large" color={colors.primary} />
             </View>
           ) : serverError ? (
             <View style={s.empty}>
-              <Text style={s.emptyText}>{serverError}</Text>
+              <ErrorView message={serverError} onRetry={refetch} />
             </View>
           ) : (
             <FlatList<ServerLogRow>
@@ -239,6 +260,14 @@ export default function LogsScreen() {
               keyExtractor={l => l.id}
               contentContainerStyle={s.list}
               keyboardShouldPersistTaps="handled"
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              }
               renderItem={({ item: log }) => (
                 <View style={s.row}>
                   <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
@@ -301,7 +330,7 @@ export default function LogsScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF' },
+  container: { flex: 1, backgroundColor: colors.background },
   filterRow: { flexDirection: 'row', gap: 8, padding: 12, flexWrap: 'wrap' },
   chip: {
     paddingHorizontal: 14,
@@ -309,9 +338,9 @@ const s = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderRadius: 20,
   },
-  chipActive: { backgroundColor: '#DBEAFE' },
-  chipText: { fontSize: 13, color: '#64748B' },
-  chipTextActive: { color: '#1D4ED8', fontWeight: '600' },
+  chipActive: { backgroundColor: colors.primaryBgStrong },
+  chipText: { fontSize: 13, color: colors.textSecondary },
+  chipTextActive: { color: colors.primaryText, fontWeight: '600' },
 
   // All-Activity filter panel
   filterControls: {
@@ -321,18 +350,18 @@ const s = StyleSheet.create({
   },
   dateRow: { flexDirection: 'row', gap: 8 },
   dateInput: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     paddingHorizontal: 12,
     height: 44,
     fontSize: 13,
-    color: '#1E293B',
+    color: colors.textPrimary,
   },
   flex1: { flex: 1 },
   clearBtn: { alignSelf: 'flex-end', paddingVertical: 4 },
-  clearBtnText: { fontSize: 13, color: '#2563EB', fontWeight: '600' },
+  clearBtnText: { fontSize: 13, color: colors.primaryText, fontWeight: '600' },
 
   // Log rows
   list: { padding: 12, gap: 8 },
@@ -340,26 +369,26 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
   },
   icon: { fontSize: 20, width: 28, textAlign: 'center' },
   middle: { flex: 1 },
   action: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1E293B',
+    color: colors.textPrimary,
     textTransform: 'capitalize',
   },
-  user: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  qty: { fontSize: 12, color: '#16A34A', marginTop: 2 },
-  note: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  user: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  qty: { fontSize: 12, color: colors.success, marginTop: 2 },
+  note: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   right: { alignItems: 'flex-end', gap: 4 },
-  date: { fontSize: 11, color: '#94A3B8' },
+  date: { fontSize: 11, color: colors.textMuted },
   pending: { fontSize: 10, color: '#F59E0B', fontWeight: '600' },
   empty: { alignItems: 'center', paddingTop: 40 },
-  emptyText: { fontSize: 14, color: '#94A3B8' },
+  emptyText: { fontSize: 14, color: colors.textMuted },
 });

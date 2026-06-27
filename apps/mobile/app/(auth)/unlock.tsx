@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { colors } from '../../src/theme';
 import { useSession } from '../../src/hooks/useSession';
 import { promptBiometric } from '../../src/auth/biometric';
 import {
@@ -53,7 +54,7 @@ export default function UnlockScreen() {
 
       {busy ? (
         <>
-          <ActivityIndicator size="large" color="#2563EB" style={styles.spinner} />
+          <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
           <Text style={styles.heading}>Unlocking{name ? ` for ${name}` : ''}…</Text>
         </>
       ) : (
@@ -80,17 +81,17 @@ export default function UnlockScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFF', alignItems: 'center', justifyContent: 'center', padding: 32 },
-  appName: { fontSize: 20, fontWeight: '700', color: '#2563EB', marginBottom: 40 },
+  container: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  appName: { fontSize: 20, fontWeight: '700', color: colors.primaryText, marginBottom: 40 },
   spinner: { marginBottom: 24 },
   lockIcon: { fontSize: 48, marginBottom: 16 },
-  heading: { fontSize: 22, fontWeight: '700', color: '#1E3A5F', marginBottom: 8 },
-  sub: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 36 },
+  heading: { fontSize: 22, fontWeight: '700', color: colors.brand, marginBottom: 8 },
+  sub: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 36 },
   primaryBtn: {
-    backgroundColor: '#2563EB', paddingVertical: 14, paddingHorizontal: 48,
+    backgroundColor: colors.primary, paddingVertical: 14, paddingHorizontal: 48,
     borderRadius: 12, marginBottom: 16,
   },
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   secondaryBtn: { paddingVertical: 10 },
-  secondaryBtnText: { color: '#2563EB', fontSize: 15 },
+  secondaryBtnText: { color: colors.primaryText, fontSize: 15 },
 });

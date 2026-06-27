@@ -40,4 +40,16 @@ export const HINTS: Record<string, Record<number, string>> = {
     3: 'Closed jobs are archived. Open jobs show active checkouts.',
     4: 'Jobs are created offline and sync automatically. Status can be changed any time.',
   },
+  locations: {
+    1: 'Browse storage locations here. Tap one to see what stock it holds.',
+    2: 'Manage warehouses, shops, and vans. Tap "+ New" to add a location or sub-area.',
+  },
+  teams: {
+    1: 'Your teams appear here. Tap a team to see its roster.',
+    3: 'Create teams and assign members. Managers can set per-team permission overrides.',
+  },
+  logs: {
+    1: 'Every action you take is logged here for accountability.',
+    3: 'Filter the full activity log by user, action, or date across the whole org.',
+  },
 };
