@@ -301,6 +301,17 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+              <View style={s.divider} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/manage-types')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>⚙️ Manage Types</Text>
+                  <Text style={s.rowSub}>Edit team & job types (label + icon), synced to all devices.</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
