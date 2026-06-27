@@ -62,18 +62,24 @@ async function drainOutbox(): Promise<void> {
 
     const result = await res.json() as {
       ok: string[];
-      conflicts: Array<{ id: string; resolution: Record<string, unknown> }>;
+      conflicts: Array<{ id: string; error?: string }>;
     };
 
     markOutboxSynced(result.ok);
+
+    // The server returns entries it could NOT apply (e.g. a bad column or an
+    // FK to a not-yet-synced row) in `conflicts`. Previously these were dropped
+    // silently — they stayed pending at attempts=0 and were re-sent every cycle
+    // forever, keeping the indicator stuck with no diagnostic. Count the attempt
+    // and record the error so they're bounded by MAX_ATTEMPTS and visible.
+    for (const c of result.conflicts ?? []) {
+      incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
+    }
 
     // activity_log is push-only (never pulled back), so its rows' synced_at is
     // only cleared here. Reconcile against the outbox so pushed rows stop
     // showing "↑ pending" — and so rows stranded by older builds self-heal.
     reconcileLogSyncState();
-
-    // Apply conflict resolutions to local DB
-    // (pull.ts handles the full merge; conflicts here are rare)
   } catch (err) {
     // Network errors — will retry on next tick
     console.warn('[Sync] Outbox drain failed:', (err as Error).message);
