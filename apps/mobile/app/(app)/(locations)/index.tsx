@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, RefreshControl, KeyboardAvoidingView, Platform,
+  Alert, RefreshControl,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -269,7 +269,6 @@ export default function LocationsScreen() {
         {/* Create modal — onClose ONLY hides the sheet; inputs preserved on outside-tap dismiss.
             Reset happens in: Clear button (resetForm) and successful submit (doCreate calls resetForm). */}
         <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Text style={s.modalTitle}>
               {parentName ? `New sub-area in ${parentName}` : 'New location'}
             </Text>
@@ -365,7 +364,6 @@ export default function LocationsScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </KeyboardAvoidingView>
         </ModalSheet>
       </View>
     </>

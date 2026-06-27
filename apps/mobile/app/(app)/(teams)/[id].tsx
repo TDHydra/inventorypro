@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, KeyboardAvoidingView, Platform,
+  Alert,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
@@ -283,7 +283,6 @@ export default function TeamDetailScreen() {
 
       {/* Edit team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
       <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <Text style={s.modalTitle}>Edit Team</Text>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             <AppInput
@@ -327,12 +326,10 @@ export default function TeamDetailScreen() {
               <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
             </TouchableOpacity>
           </ScrollView>
-        </KeyboardAvoidingView>
       </ModalSheet>
 
       {/* Add member modal — onClose only hides; selection preserved on outside-tap dismiss */}
       <ModalSheet visible={showAddMember} onClose={() => setShowAddMember(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <Text style={s.modalTitle}>Add Team Member</Text>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             {nonMemberOptions.length === 0 ? (
@@ -362,7 +359,6 @@ export default function TeamDetailScreen() {
               <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
             </TouchableOpacity>
           </ScrollView>
-        </KeyboardAvoidingView>
       </ModalSheet>
     </>
   );

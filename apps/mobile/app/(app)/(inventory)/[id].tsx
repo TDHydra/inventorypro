@@ -627,7 +627,6 @@ export default function ItemDetailScreen() {
       {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
       {/* onClose only hides — repairInLoc is preserved on outside-tap dismiss */}
       <ModalSheet visible={repairInUnit !== null} onClose={() => setRepairInUnit(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
             <FieldLabel style={{ marginTop: 12 }}>Return to Location *</FieldLabel>
@@ -656,7 +655,6 @@ export default function ItemDetailScreen() {
               />
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
       </ModalSheet>
 
       {/* ── Edit Unit Modal ─────────────────────────────────────────────── */}
@@ -709,7 +707,6 @@ export default function ItemDetailScreen() {
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
       {/* onClose only hides (= closeAddUnits); state is reset on next openAddUnits() */}
       <ModalSheet visible={addUnitsOpen} onClose={closeAddUnits}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
             <Text style={s.modalTitle}>Add Units — {item.name}</Text>
 
@@ -759,7 +756,6 @@ export default function ItemDetailScreen() {
               <PrimaryButton label="Save Units" onPress={saveUnits} style={{ flex: 1 }} />
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
       </ModalSheet>
     </>
   );

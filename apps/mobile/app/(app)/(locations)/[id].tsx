@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
-  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -321,7 +320,6 @@ export default function LocationDetailScreen() {
       {/* ── Edit Modal — onClose ONLY hides the sheet; edit inputs are preserved on
           outside-tap dismiss. Form is re-populated on openEdit(); no explicit Clear exists. ── */}
       <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <Text style={s.modalTitle}>Edit Location</Text>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             <AppInput
@@ -416,7 +414,6 @@ export default function LocationDetailScreen() {
               </TouchableOpacity>
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
       </ModalSheet>
 
       {/* ── Move Stock Modal ─────────────────────────────────────────────────── */}

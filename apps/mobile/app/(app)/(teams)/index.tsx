@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Alert, KeyboardAvoidingView, Platform, ScrollView, RefreshControl,
+  Alert, ScrollView, RefreshControl,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -155,7 +155,6 @@ export default function TeamsScreen() {
 
         {/* Create team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
         <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Text style={s.modalTitle}>New Team</Text>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
               <AppInput
@@ -204,7 +203,6 @@ export default function TeamsScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </KeyboardAvoidingView>
         </ModalSheet>
       </View>
     </>
