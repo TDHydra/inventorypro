@@ -43,7 +43,7 @@ export default function InventoryScreen() {
   const runSearch = useCallback((q: string, cat: FilterCategory, newOffset: number, append = false) => {
     setLoading(true);
     const catFilter = cat === 'all' ? undefined : cat;
-    const rows = searchItems(q, PAGE_SIZE, newOffset, catFilter) as Item[];
+    const rows = searchItems(q, PAGE_SIZE, newOffset, catFilter).filter(r => r.kind === 'product') as Item[];
     if (append) {
       setItems(prev => [...prev, ...rows]);
     } else {

@@ -26,7 +26,11 @@ export default function ScanScreen() {
     if (resolved.kind === 'item') {
       const item = getItemById(resolved.id);
       if (item) {
-        router.replace({ pathname: '/(app)/(checkout)', params: { itemId: item.id } });
+        if (item.kind === 'equipment') {
+          router.replace({ pathname: '/(app)/(equipment)/[id]', params: { id: item.id } });
+        } else {
+          router.replace({ pathname: '/(app)/(checkout)', params: { itemId: item.id } });
+        }
       } else {
         Alert.alert('Item Not Found', `Item "${resolved.id}" was not found in the catalog.`, [
           { text: 'OK' },
@@ -35,7 +39,12 @@ export default function ScanScreen() {
     } else if (resolved.kind === 'unit') {
       const unit = getUnitByTag(resolved.assetTag);
       if (unit) {
-        router.replace({ pathname: '/(app)/(inventory)/[id]', params: { id: unit.item_id } });
+        const model = getItemById(unit.item_id);
+        if (model && model.kind === 'equipment') {
+          router.replace({ pathname: '/(app)/(equipment)/[id]', params: { id: unit.item_id } });
+        } else {
+          router.replace({ pathname: '/(app)/(inventory)/[id]', params: { id: unit.item_id } });
+        }
       } else {
         Alert.alert('Unit Not Found', `Asset tag "${resolved.assetTag}" was not found.`, [
           { text: 'OK' },

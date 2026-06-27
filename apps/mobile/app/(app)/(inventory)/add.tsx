@@ -56,7 +56,6 @@ export default function AddStockScreen() {
   // New-item catalog fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [kind, setKind] = useState<'product' | 'equipment'>('product');
   const [supplier, setSupplier] = useState('');
   const [model, setModel] = useState('');
   const [unitCat, setUnitCat] = useState<UnitCategory>('piece');
@@ -65,9 +64,6 @@ export default function AddStockScreen() {
   const [category, setCategory] = useState('');
   // Whether this item is expected back via Check In
   const [returnable, setReturnable] = useState(false);
-  // Equipment-only: per-unit tracking toggle and optional asset-tag prefix
-  const [unitTracked, setUnitTracked] = useState(false);
-  const [tagPrefix, setTagPrefix] = useState('');
   const [minAlert, setMinAlert] = useState('0');
   const [reorderTo, setReorderTo] = useState('');
 
@@ -76,7 +72,7 @@ export default function AddStockScreen() {
   const [quantity, setQuantity] = useState('');
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  const allItems = useMemo(() => searchItems('', 100), []);
+  const allItems = useMemo(() => searchItems('', 100).filter(i => i.kind !== 'equipment'), []);
   const itemOptions: PickerOption[] = useMemo(
     () => allItems.map(i => ({ id: i.id, label: i.name, sublabel: i.barcode ?? i.kind })),
     [allItems],
@@ -135,19 +131,6 @@ export default function AddStockScreen() {
     }
   }, [barcode]);
 
-  // ── Kind change: lock units for equipment; set returnable default ─────────
-  useEffect(() => {
-    if (kind === 'equipment') {
-      setUnitCat('piece');
-      setUnit('each');
-      setReturnable(true);
-    } else {
-      setReturnable(false);
-      setUnitTracked(false);
-      setTagPrefix('');
-    }
-  }, [kind]);
-
   // ── Handlers ──────────────────────────────────────────────────────────────
   function handleItemSelect(opt: PickerOption) {
     if (selectedItem && selectedItem.id === opt.id) {
@@ -184,11 +167,10 @@ export default function AddStockScreen() {
     setAutofillItem(null);
     setIsCreatingNew(false);
     setBarcode('');
-    setName(''); setDescription(''); setKind('product');
+    setName(''); setDescription('');
     setSupplier(''); setModel('');
     setUnitCat('piece'); setUnit('each');
     setCategory(''); setReturnable(false);
-    setUnitTracked(false); setTagPrefix('');
     setMinAlert('0'); setReorderTo('');
     setSelectedLocation(null);
     setQuantity('');
@@ -240,7 +222,7 @@ export default function AddStockScreen() {
         sku: null as string | null,
         supplier: supplier.trim() || null,
         model: model.trim() || null,
-        kind,
+        kind: 'product' as const,
         category: category.trim() || null,
         returnable: (returnable ? 1 : 0) as number,
         unit_category: unitCat,
@@ -248,18 +230,9 @@ export default function AddStockScreen() {
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
       };
-      upsertItem({ ...payload, unit_tracked: unitTracked ? 1 : 0, tag_prefix: tagPrefix.trim() || null, active: 1, updated_at: now, synced_at: null });
-      // Outbox: send returnable + unit_tracked as real booleans (Postgres columns are BOOLEAN)
-      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable, unit_tracked: unitTracked, tag_prefix: tagPrefix.trim() || null });
-    }
-
-    // When unit-tracking is enabled for a new equipment item, skip stock adjustment.
-    // Units are added individually from the item screen.
-    if (isUnitTrackedNew) {
-      Alert.alert('Item Created', 'Open the item screen to add individual units.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
-      return;
+      upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
+      // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
+      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable, unit_tracked: false, tag_prefix: null });
     }
 
     const locationId = selectedLocation!.id;
@@ -293,13 +266,11 @@ export default function AddStockScreen() {
   }
 
   const showReadOnly = !isCreatingNew && autofillItem !== null;
-  // Equipment new-item with unit tracking: skip location/qty; create catalog entry only
-  const isUnitTrackedNew = isCreatingNew && kind === 'equipment' && unitTracked;
   // Existing unit-tracked item (selected via picker or barcode autofill): its on-hand
   // is the count of available units — it must NEVER write stock_by_location.
   const existingUnitTracked = autofillItem?.unit_tracked === 1;
-  // Any unit-tracked path (new or existing): hide Location/Quantity, no stock write.
-  const isUnitTracked = isUnitTrackedNew || existingUnitTracked;
+  // Unit-tracked path: hide Location/Quantity, no stock write.
+  const isUnitTracked = existingUnitTracked;
 
   return (
     <>
@@ -349,61 +320,26 @@ export default function AddStockScreen() {
                 autoFocus
               />
 
-              <FieldLabel style={{ marginTop: 12 }}>Kind</FieldLabel>
+              <FieldLabel style={{ marginTop: 12 }}>Units</FieldLabel>
+              {CATEGORIES.map(c => (
+                <TouchableOpacity
+                  key={c.value}
+                  style={[s.opt, unitCat === c.value && s.optActive]}
+                  onPress={() => { setUnitCat(c.value); setUnit(UNIT_OPTIONS[c.value][0]); }}
+                >
+                  <Text style={[s.optText, unitCat === c.value && s.optTextActive]}>{c.label}</Text>
+                </TouchableOpacity>
+              ))}
               <View style={s.unitRow}>
-                {(['product', 'equipment'] as const).map(k => (
+                {UNIT_OPTIONS[unitCat].map(u => (
                   <FilterChip
-                    key={k}
-                    label={k.charAt(0).toUpperCase() + k.slice(1)}
-                    active={kind === k}
-                    onPress={() => setKind(k)}
+                    key={u}
+                    label={u}
+                    active={unit === u}
+                    onPress={() => setUnit(u)}
                   />
                 ))}
               </View>
-
-              {kind === 'equipment' && (
-                <>
-                  <View style={s.switchRow}>
-                    <Text style={s.switchLabel}>Track individual units</Text>
-                    <Switch value={unitTracked} onValueChange={setUnitTracked} />
-                  </View>
-                  {unitTracked && (
-                    <AppInput
-                      placeholder="Tag prefix (AM-, DH-, MSC-…)"
-                      value={tagPrefix}
-                      onChangeText={setTagPrefix}
-                      autoCapitalize="characters"
-                    />
-                  )}
-                </>
-              )}
-
-              <FieldLabel style={{ marginTop: 12 }}>Units</FieldLabel>
-              {kind === 'equipment' ? (
-                <Text style={s.unitReadOnly}>Unit: each (piece)</Text>
-              ) : (
-                <>
-                  {CATEGORIES.map(c => (
-                    <TouchableOpacity
-                      key={c.value}
-                      style={[s.opt, unitCat === c.value && s.optActive]}
-                      onPress={() => { setUnitCat(c.value); setUnit(UNIT_OPTIONS[c.value][0]); }}
-                    >
-                      <Text style={[s.optText, unitCat === c.value && s.optTextActive]}>{c.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                  <View style={s.unitRow}>
-                    {UNIT_OPTIONS[unitCat].map(u => (
-                      <FilterChip
-                        key={u}
-                        label={u}
-                        active={unit === u}
-                        onPress={() => setUnit(u)}
-                      />
-                    ))}
-                  </View>
-                </>
-              )}
 
               <AdvancedFields>
                 <AppInput
@@ -490,16 +426,14 @@ export default function AddStockScreen() {
           {isUnitTracked && (
             <View style={s.noteBox}>
               <Text style={s.noteText}>
-                {existingUnitTracked
-                  ? 'This item tracks individual units. Open the item to add or manage its units.'
-                  : 'Save the item, then add its units from the item screen.'}
+                This item tracks individual units. Open the item to add or manage its units.
               </Text>
             </View>
           )}
           {/* The existingUnitTracked branch only navigates (no write), so it
               stays enabled during maintenance — only the writing modes gate. */}
           <PrimaryButton
-            label={existingUnitTracked ? 'Open item to add units' : isUnitTrackedNew ? 'Save Item' : 'Add Stock'}
+            label={existingUnitTracked ? 'Open item to add units' : 'Add Stock'}
             onPress={handleSave}
             disabled={!existingUnitTracked && locked}
             style={{ marginTop: 20 }}
@@ -559,8 +493,4 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
   },
   switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
-  unitReadOnly: {
-    fontSize: 14, color: '#475569', fontStyle: 'italic',
-    paddingVertical: 8, paddingHorizontal: 4,
-  },
 });
