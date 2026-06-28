@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { useState, useRef, useEffect } from 'react';
+import {
+  View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Platform,
+} from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { colors } from '../theme';
 
@@ -10,23 +12,48 @@ interface Props {
 }
 
 const DEBOUNCE_MS = 1500;
+const FRAME_W = 280;
+const FRAME_H = 210;
+const TOP_INSET = (Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 44) + 8;
 
 export function BarcodeScanner({ active, onScanned, onClose }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
+  const [torch, setTorch] = useState(false);
   const lastScanTime = useRef<number>(0);
   const lastCode = useRef<string>('');
+  const scanLine = useRef(new Animated.Value(0)).current;
+
+  // Sweep the scan line while the camera is live — the "alive" affordance the
+  // old flat overlay lacked.
+  useEffect(() => {
+    if (!active || !permission?.granted) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanLine, { toValue: 1, duration: 1900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(scanLine, { toValue: 0, duration: 1900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, permission?.granted, scanLine]);
 
   if (!active) return null;
 
   if (!permission?.granted) {
     return (
       <View style={styles.permBox}>
-        <Text style={styles.permText}>Camera access is needed for barcode scanning.</Text>
-        <TouchableOpacity style={styles.btn} onPress={requestPermission}>
-          <Text style={styles.btnText}>Allow Camera</Text>
+        <View style={styles.permIconWrap}>
+          <Text style={styles.permIcon}>📷</Text>
+        </View>
+        <Text style={styles.permTitle}>Camera access</Text>
+        <Text style={styles.permText}>
+          InventoryPro needs the camera to scan barcodes and QR labels.
+        </Text>
+        <TouchableOpacity style={styles.btn} onPress={requestPermission} activeOpacity={0.85}>
+          <Text style={styles.btnText}>Enable camera</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.btnSecondary} onPress={onClose}>
-          <Text style={styles.btnSecondaryText}>Cancel</Text>
+          <Text style={styles.btnSecondaryText}>Not now</Text>
         </TouchableOpacity>
       </View>
     );
@@ -40,77 +67,123 @@ export function BarcodeScanner({ active, onScanned, onClose }: Props) {
     onScanned(result.data);
   };
 
+  const lineTranslate = scanLine.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, FRAME_H - 10],
+  });
+
   return (
     <View style={styles.container}>
       <CameraView
-        style={styles.camera}
+        style={StyleSheet.absoluteFill}
         facing="back"
+        enableTorch={torch}
         barcodeScannerSettings={{
-          barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'upc_a', 'qr'],
+          barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e', 'qr', 'datamatrix'],
         }}
         onBarcodeScanned={handleBarcode}
       />
 
-      {/* Viewfinder overlay */}
-      <View style={styles.overlay}>
-        <View style={styles.topOverlay} />
-        <View style={styles.middleRow}>
-          <View style={styles.sideOverlay} />
-          <View style={styles.viewfinder}>
+      {/* Dim mask with a clear cut-out window */}
+      <View style={styles.overlay} pointerEvents="box-none">
+        <View style={styles.maskTop} />
+        <View style={styles.maskMiddle}>
+          <View style={styles.maskSide} />
+          <View style={styles.frame}>
             <View style={[styles.corner, styles.cornerTL]} />
             <View style={[styles.corner, styles.cornerTR]} />
             <View style={[styles.corner, styles.cornerBL]} />
             <View style={[styles.corner, styles.cornerBR]} />
+            <Animated.View style={[styles.scanLine, { transform: [{ translateY: lineTranslate }] }]} />
           </View>
-          <View style={styles.sideOverlay} />
+          <View style={styles.maskSide} />
         </View>
-        <View style={styles.bottomOverlay}>
-          <Text style={styles.hint}>Point camera at barcode</Text>
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <Text style={styles.closeBtnText}>Cancel</Text>
-          </TouchableOpacity>
+        <View style={styles.maskBottom}>
+          <View style={styles.hintPill}>
+            <Text style={styles.hintText}>Align the barcode or QR inside the frame</Text>
+          </View>
         </View>
+      </View>
+
+      {/* Top bar: close + torch */}
+      <View style={[styles.topBar, { paddingTop: TOP_INSET }]} pointerEvents="box-none">
+        <TouchableOpacity style={styles.iconBtn} onPress={onClose} accessibilityLabel="Close scanner" hitSlop={hit}>
+          <Text style={styles.iconBtnText}>✕</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Scan</Text>
+        <TouchableOpacity
+          style={[styles.iconBtn, torch && styles.iconBtnActive]}
+          onPress={() => setTorch(t => !t)}
+          accessibilityLabel={torch ? 'Turn flashlight off' : 'Turn flashlight on'}
+          hitSlop={hit}
+        >
+          <Text style={styles.iconBtnText}>{torch ? '🔦' : '💡'}</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-const CORNER = 20;
-const CORNER_THICKNESS = 3;
+const hit = { top: 8, bottom: 8, left: 8, right: 8 };
+const CORNER = 30;
+const CT = 4;
+const MASK = 'rgba(0,0,0,0.55)';
 
 const styles = StyleSheet.create({
-  container: { flex: 1, position: 'relative' },
-  camera: { flex: 1 },
+  container: { flex: 1, position: 'relative', backgroundColor: '#000' },
   overlay: { ...StyleSheet.absoluteFill },
-  topOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
-  middleRow: { flexDirection: 'row', height: 200 },
-  sideOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
-  viewfinder: { width: 250, height: 200, position: 'relative' },
-  bottomOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center', justifyContent: 'center', gap: 16,
+  maskTop: { flex: 1, backgroundColor: MASK },
+  maskMiddle: { flexDirection: 'row', height: FRAME_H },
+  maskSide: { flex: 1, backgroundColor: MASK },
+  maskBottom: { flex: 1, backgroundColor: MASK, alignItems: 'center', paddingTop: 28 },
+  frame: { width: FRAME_W, height: FRAME_H, borderRadius: 18, overflow: 'hidden' },
+  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: colors.primary },
+  cornerTL: { top: 0, left: 0, borderTopWidth: CT, borderLeftWidth: CT, borderTopLeftRadius: 18 },
+  cornerTR: { top: 0, right: 0, borderTopWidth: CT, borderRightWidth: CT, borderTopRightRadius: 18 },
+  cornerBL: { bottom: 0, left: 0, borderBottomWidth: CT, borderLeftWidth: CT, borderBottomLeftRadius: 18 },
+  cornerBR: { bottom: 0, right: 0, borderBottomWidth: CT, borderRightWidth: CT, borderBottomRightRadius: 18 },
+  scanLine: {
+    position: 'absolute', left: 10, right: 10, height: 2.5, borderRadius: 2,
+    backgroundColor: colors.accent,
+    shadowColor: colors.accent, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
   },
-  hint: { color: '#fff', fontSize: 14 },
-  corner: {
-    position: 'absolute', width: CORNER, height: CORNER,
-    borderColor: colors.primary,
+  hintPill: {
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 999,
+    paddingHorizontal: 18, paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.18)',
   },
-  cornerTL: { top: 0, left: 0, borderTopWidth: CORNER_THICKNESS, borderLeftWidth: CORNER_THICKNESS },
-  cornerTR: { top: 0, right: 0, borderTopWidth: CORNER_THICKNESS, borderRightWidth: CORNER_THICKNESS },
-  cornerBL: { bottom: 0, left: 0, borderBottomWidth: CORNER_THICKNESS, borderLeftWidth: CORNER_THICKNESS },
-  cornerBR: { bottom: 0, right: 0, borderBottomWidth: CORNER_THICKNESS, borderRightWidth: CORNER_THICKNESS },
-  closeBtn: {
-    backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 8,
-    paddingHorizontal: 24, paddingVertical: 10,
+  hintText: { color: '#fff', fontSize: 13.5, fontWeight: '500' },
+  topBar: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 12,
   },
-  closeBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  title: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
+  iconBtn: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.2)',
+  },
+  iconBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  iconBtnText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  // Permission screen
   permBox: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 32, gap: 16, backgroundColor: colors.background,
+    padding: 32, gap: 14, backgroundColor: colors.background,
   },
-  permText: { fontSize: 16, color: '#475569', textAlign: 'center', lineHeight: 24 },
-  btn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  permIconWrap: {
+    width: 88, height: 88, borderRadius: 44, backgroundColor: colors.accentBg,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  permIcon: { fontSize: 40 },
+  permTitle: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
+  permText: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, maxWidth: 300 },
+  btn: {
+    backgroundColor: colors.primary, borderRadius: 12,
+    paddingHorizontal: 28, paddingVertical: 14, marginTop: 8, minWidth: 220, alignItems: 'center',
+  },
+  btnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   btnSecondary: { paddingVertical: 10 },
-  btnSecondaryText: { color: '#64748B', fontSize: 15 },
+  btnSecondaryText: { color: colors.textSecondary, fontSize: 15, fontWeight: '600' },
 });
