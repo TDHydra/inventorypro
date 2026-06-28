@@ -9,8 +9,8 @@ import type { InventoryItem } from '../../db/queries/items';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
-import { getProductClasses, getTaxonomyTypes } from '../../db/queries/taxonomy';
-import { PRODUCT_CLASS_IDS } from '../../constants/units';
+import { getTaxonomyTypes } from '../../db/queries/taxonomy';
+import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -19,8 +19,24 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 
-// Pieces class id (migration 012) — the sensible default product unit class.
+// Pieces class id (migration 012) — the default unit class when no item type is
+// selected (most products are counted in pieces).
 const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
+
+// item_category.meta carries the type's curated units + the product_class it maps
+// to (migration 018): { units: [...], classId: "<product_class uuid>" }.
+function parseItemTypeMeta(meta: string | null | undefined): { units: string[]; classId: string | null } {
+  if (!meta) return { units: [], classId: null };
+  try {
+    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown };
+    return {
+      units: Array.isArray(p.units) ? p.units.filter((u): u is string => typeof u === 'string') : [],
+      classId: typeof p.classId === 'string' ? p.classId : null,
+    };
+  } catch {
+    return { units: [], classId: null };
+  }
+}
 
 interface Props {
   onSaved: (label: string) => void;
@@ -32,27 +48,46 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
-  // Configurable product (unit) classes; default to Pieces.
-  const productClasses = useMemo(() => getProductClasses(), []);
-  const pieceClass = productClasses.find(c => c.id === CLASS_PIECE_ID) ?? productClasses[0] ?? null;
-
-  // Admin-managed Item Type taxonomy (PPE, Filters, Consumables, …) — the chosen
-  // label is stored in the item's `category`. Equipment is NOT here; it has its
-  // own tab. Items created here are always kind='product' so they show in Inventory.
+  // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
+  // unit class in meta. Equipment is NOT here (own tab); items are kind='product'.
   const itemTypes = useMemo(() => getTaxonomyTypes('item_category'), []);
 
   const [name, setName] = useState('');
-  // unit_category stores a product_class id (stable taxonomy id).
-  const [unitCat, setUnitCat] = useState<string>(pieceClass?.id ?? CLASS_PIECE_ID);
-  const [unit, setUnit] = useState<string>(pieceClass?.units[0] ?? 'each');
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
+  // unit_category stores a product_class id (drives formatQuantity decimals).
+  const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
+  const [unit, setUnit] = useState<string>(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
   const [nameError, setNameError] = useState('');
+
+  // Units available for the current selection: the selected item type's curated
+  // list, falling back to the unit class's units (or piece) when none/empty.
+  const selectedType = itemTypes.find(t => t.label === itemType) ?? null;
+  const typeUnits = selectedType ? parseItemTypeMeta(selectedType.meta).units : [];
+  const unitOptions = typeUnits.length > 0 ? typeUnits : getUnitsForClass(unitCat);
+
+  // Pick/clear an item type — selecting one auto-sets the units + unit class to
+  // whatever that type allows (the whole point of this screen).
+  function selectItemType(t: { label: string; meta: string | null }) {
+    if (itemType === t.label) {
+      // Tap again to clear → back to the default piece class + units.
+      setItemType('');
+      setUnitCat(CLASS_PIECE_ID);
+      setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
+      return;
+    }
+    const m = parseItemTypeMeta(t.meta);
+    const cls = m.classId ?? CLASS_PIECE_ID;
+    const opts = m.units.length > 0 ? m.units : getUnitsForClass(cls);
+    setItemType(t.label);
+    setUnitCat(cls);
+    setUnit(opts[0] ?? '');
+  }
 
   function clearForm() {
     setName('');
-    setUnitCat(pieceClass?.id ?? CLASS_PIECE_ID);
-    setUnit(pieceClass?.units[0] ?? 'each');
     setItemType('');
+    setUnitCat(CLASS_PIECE_ID);
+    setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
     setNameError('');
   }
 
@@ -119,10 +154,6 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     setTimeout(() => nameRef.current?.focus(), 100);
   }
 
-  // Curated units for the selected class; empty → free-text unit entry.
-  const selectedClass = productClasses.find(c => c.id === unitCat) ?? null;
-  const unitOptions = selectedClass?.units ?? [];
-
   return (
     <View style={s.container}>
       <TextInput
@@ -147,25 +178,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
                 key={t.id}
                 label={t.icon ? `${t.icon} ${t.label}` : t.label}
                 active={itemType === t.label}
-                // Tap again to clear (item type is optional).
-                onPress={() => setItemType(prev => (prev === t.label ? '' : t.label))}
+                onPress={() => selectItemType(t)}
               />
             ))}
           </View>
         </>
       )}
 
-      <FieldLabel>Unit category</FieldLabel>
-      <View style={s.chipRow}>
-        {productClasses.map(c => (
-          <FilterChip
-            key={c.id}
-            label={c.label}
-            active={unitCat === c.id}
-            onPress={() => { setUnitCat(c.id); setUnit(c.units[0] ?? ''); }}
-          />
-        ))}
-      </View>
+      <FieldLabel>Unit</FieldLabel>
       {unitOptions.length > 0 ? (
         <View style={s.chipRow}>
           {unitOptions.map(u => (
