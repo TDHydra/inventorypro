@@ -21,7 +21,8 @@ export interface Location {
 }
 
 export interface LocationWithChildren extends Location {
-  children: Location[];
+  children: LocationWithChildren[];
+  depth: number;
 }
 
 export function getAllLocations(): Location[] {
@@ -49,6 +50,9 @@ export function getSubAreas(parentId: string): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+// Full recursive tree (arbitrary depth). `depth` is the 0-based nesting level,
+// for indentation. A visited set guards against any cyclic parent_id data so the
+// recursion can't loop forever.
 export function getLocationTree(): LocationWithChildren[] {
   const all = getAllLocations();
   const byParent = new Map<string | null, Location[]>();
@@ -57,10 +61,49 @@ export function getLocationTree(): LocationWithChildren[] {
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key)!.push(loc);
   }
-  return (byParent.get(null) ?? []).map(loc => ({
-    ...loc,
-    children: byParent.get(loc.id) ?? [],
-  }));
+  const build = (loc: Location, depth: number, seen: Set<string>): LocationWithChildren => {
+    seen.add(loc.id);
+    const kids = (byParent.get(loc.id) ?? []).filter(c => !seen.has(c.id));
+    return { ...loc, depth, children: kids.map(c => build(c, depth + 1, seen)) };
+  };
+  return (byParent.get(null) ?? []).map(loc => build(loc, 0, new Set()));
+}
+
+// Ancestor path as "Top › Mid › Leaf" (the location itself last). Walks parent_id
+// up via the in-memory set; cycle-guarded.
+export function getLocationPath(id: string, sep = ' › '): string {
+  const all = getAllLocations();
+  const byId = new Map(all.map(l => [l.id, l]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let cur = byId.get(id) ?? null;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(cur.name);
+    cur = cur.parent_id ? byId.get(cur.parent_id) ?? null : null;
+  }
+  return names.join(sep);
+}
+
+// IDs of a location plus all its descendants — used to exclude invalid parent
+// choices (can't re-parent a location under itself or one of its descendants).
+export function getDescendantIds(id: string): Set<string> {
+  const all = getAllLocations();
+  const byParent = new Map<string | null, Location[]>();
+  for (const loc of all) {
+    const key = loc.parent_id ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(loc);
+  }
+  const out = new Set<string>([id]);
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const c of byParent.get(cur) ?? []) {
+      if (!out.has(c.id)) { out.add(c.id); stack.push(c.id); }
+    }
+  }
+  return out;
 }
 
 export function getLocationById(id: string): Location | null {
