@@ -32,6 +32,7 @@ function buildHtml(initial?: PickedCoords | null): string {
   html,body,#map{height:100%;margin:0;padding:0}
   #use{position:absolute;left:12px;right:12px;bottom:16px;z-index:1000;background:#2563EB;color:#fff;
        border:none;border-radius:10px;padding:14px;font-size:16px;font-weight:600}
+  #use:disabled{background:#94A3B8}
   #hint{position:absolute;left:12px;right:12px;top:12px;z-index:1000;background:rgba(0,0,0,0.6);color:#fff;
         border-radius:8px;padding:8px 10px;font-size:13px;text-align:center}
 </style></head><body>
@@ -41,13 +42,17 @@ function buildHtml(initial?: PickedCoords | null): string {
 <script>
   var sel = { latitude: ${lat}, longitude: ${lng} };
   var hasInitial = ${initial ? 'true' : 'false'};
+  var useBtn = document.getElementById('use');
+  // Without an initial pin, require an explicit tap/drag before the button works
+  // (so we never post the default map centre the user never chose).
+  useBtn.disabled = !hasInitial;
   var map = L.map('map').setView([${lat}, ${lng}], ${zoom});
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '© OpenStreetMap'
   }).addTo(map);
   var marker = L.marker([${lat}, ${lng}], { draggable: true });
   if (hasInitial) marker.addTo(map);
-  function set(latlng){ sel = { latitude: latlng.lat, longitude: latlng.lng }; if(!map.hasLayer(marker)) marker.addTo(map); marker.setLatLng(latlng); }
+  function set(latlng){ sel = { latitude: latlng.lat, longitude: latlng.lng }; if(!map.hasLayer(marker)) marker.addTo(map); marker.setLatLng(latlng); useBtn.disabled = false; }
   map.on('click', function(e){ set(e.latlng); });
   marker.on('dragend', function(){ set(marker.getLatLng()); });
   document.getElementById('use').addEventListener('click', function(){
