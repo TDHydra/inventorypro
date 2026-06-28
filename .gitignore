@@ -10,8 +10,10 @@ apps/mobile/.expo/
 # Build output
 apps/api/dist/
 
-# Large artifacts (image tarballs are shipped out-of-band)
+# Large artifacts (image tarballs + APKs are shipped out-of-band, never committed —
+# a stray 124MB APK in a commit exceeds GitHub's 100MB limit and bloats history)
 *.tar.gz
+*.apk
 
 # Env files (keep the *.example ones)
 **/.env
