@@ -38,13 +38,18 @@ export function searchItems(
   query: string,
   limit = 20,
   offset = 0,
-  category?: string
+  category?: string,
+  kind?: string
 ): ItemWithTotalStock[] {
   const db = getDb();
   const pattern = `%${query}%`;
   const catClause = category ? `AND i.unit_category = ?` : '';
+  // kind filter applied IN-SQL so LIMIT/OFFSET paginate the filtered set (a
+  // post-query .filter() truncates pages + drifts the offset — see equipment split).
+  const kindClause = kind ? `AND i.kind = ?` : '';
   const params: (string | number)[] = [pattern, pattern, pattern];
   if (category) params.push(category);
+  if (kind) params.push(kind);
   params.push(query, `${query}%`, limit, offset);
 
   const result = db.executeSync(
@@ -58,6 +63,7 @@ export function searchItems(
      WHERE i.active = 1
        AND (i.name LIKE ? OR i.barcode LIKE ? OR i.description LIKE ?)
        ${catClause}
+       ${kindClause}
      GROUP BY i.id
      ORDER BY
        CASE WHEN LOWER(i.name) = LOWER(?) THEN 0
