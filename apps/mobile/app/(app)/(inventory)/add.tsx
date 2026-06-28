@@ -10,7 +10,7 @@ import {
   adjustStock, getStockQuantity,
 } from '../../../src/db/queries/items';
 import type { InventoryItem } from '../../../src/db/queries/items';
-import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
@@ -37,7 +37,8 @@ export default function AddStockScreen() {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
-  const { barcode: initialBarcode } = useLocalSearchParams<{ barcode?: string }>();
+  const { barcode: initialBarcode, locationId: initialLocationId } =
+    useLocalSearchParams<{ barcode?: string; locationId?: string }>();
   const { coords, request } = useCurrentPosition();
 
   // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
@@ -68,6 +69,9 @@ export default function AddStockScreen() {
   const [returnable, setReturnable] = useState(false);
   const [minAlert, setMinAlert] = useState('0');
   const [reorderTo, setReorderTo] = useState('');
+  // Optional "home" location for a newly-created item (where it belongs). Nullable.
+  // Distinct from the add-stock target location below.
+  const [homeLocation, setHomeLocation] = useState<PickerOption | null>(null);
 
   // ── Location + quantity state ─────────────────────────────────────────────
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null);
@@ -109,6 +113,12 @@ export default function AddStockScreen() {
     }),
     [sortedLocations, locationById],
   );
+  // Home-location options: every location labeled by its full breadcrumb path
+  // (Shop › Aisle 3 › Shelf B), independent of proximity sorting.
+  const homeLocationOptions: PickerOption[] = useMemo(
+    () => allLocations.map(l => ({ id: l.id, label: getLocationPath(l.id) })),
+    [allLocations],
+  );
 
   // Units available for the current selection: the selected item type's curated
   // list, falling back to the unit class's units (or piece) when none/empty.
@@ -140,6 +150,15 @@ export default function AddStockScreen() {
   // ── Position: request once on mount (fire-and-forget; never blocks UI) ────
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void request(); }, []);
+
+  // ── "Add stock here": pre-select the add-stock target from the locationId
+  // route param (set when arriving from a location detail screen). Runs once the
+  // param/location map is available; the normal (no-param) flow is untouched.
+  useEffect(() => {
+    if (!initialLocationId) return;
+    const loc = locationById.get(initialLocationId);
+    if (loc) setSelectedLocation({ id: loc.id, label: loc.name });
+  }, [initialLocationId, locationById]);
 
   // ── Barcode autofill ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -200,6 +219,7 @@ export default function AddStockScreen() {
     setUnitCat(CLASS_PIECE_ID); setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
     setReturnable(false);
     setMinAlert('0'); setReorderTo('');
+    setHomeLocation(null);
     setSelectedLocation(null);
     setQuantity('');
   }
@@ -257,6 +277,7 @@ export default function AddStockScreen() {
         unit,
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
+        home_location_id: homeLocation?.id ?? null,
       };
       upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
       // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
@@ -383,6 +404,14 @@ export default function AddStockScreen() {
                   onChangeText={setUnit}
                 />
               )}
+
+              <FieldLabel style={{ marginTop: 12 }}>Home location (where it belongs)</FieldLabel>
+              <SearchablePicker
+                placeholder="Search locations… (optional)"
+                options={homeLocationOptions}
+                value={homeLocation}
+                onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+              />
 
               <AdvancedFields>
                 <AppInput

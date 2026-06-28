@@ -20,7 +20,8 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
+import { getLocationTypes } from '../../../src/db/queries/taxonomy';
+import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -36,6 +37,7 @@ export default function LocationDetailScreen() {
   const router = useRouter();
   const canManage = usePermission('manage_locations');
   const canUpload = usePermission('upload_media');
+  const canAddStock = usePermission('edit_inventory');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
@@ -48,6 +50,7 @@ export default function LocationDetailScreen() {
   const [editParentId, setEditParentId] = useState<string | null>(null);
   const [editColor, setEditColor] = useState(COLOR_OPTIONS[0]);
   const [editIcon, setEditIcon] = useState(ICON_OPTIONS[0]);
+  const [editLocType, setEditLocType] = useState<string | null>(null);
   const [editOwnerOption, setEditOwnerOption] = useState<PickerOption | null>(null);
   const [editLatitude, setEditLatitude] = useState<number | null>(null);
   const [editLongitude, setEditLongitude] = useState<number | null>(null);
@@ -55,6 +58,14 @@ export default function LocationDetailScreen() {
 
   // ── Move stock modal state ──────────────────────────────────────────────────
   const [showMoveStock, setShowMoveStock] = useState(false);
+
+  // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
+  // and a label→icon map (incl. archived) for rendering the header badge.
+  const locationTypes = useMemo(() => getLocationTypes(), []);
+  const typeIconByLabel = useMemo(
+    () => new Map(getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon])),
+    [],
+  );
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
   const userMap = useMemo<Map<string, string>>(
@@ -115,6 +126,7 @@ export default function LocationDetailScreen() {
     setEditParentId(location.parent_id);
     setEditColor(location.color ?? COLOR_OPTIONS[0]);
     setEditIcon(ICON_OPTIONS.includes(resolvedIcon) ? resolvedIcon : ICON_OPTIONS[0]);
+    setEditLocType(location.type ?? null);
     setEditOwnerOption(
       location.owner_user_id
         ? (userOptions.find(u => u.id === location.owner_user_id) ?? null)
@@ -141,6 +153,7 @@ export default function LocationDetailScreen() {
     const changes = {
       name: editName.trim(),
       parent_id: editParentId,
+      type: editLocType ?? null,
       color: editColor,
       icon: editIcon,
       owner_user_id: editOwnerOption?.id ?? null,
@@ -278,6 +291,14 @@ export default function LocationDetailScreen() {
               </TouchableOpacity>
             )}
           </View>
+          {!!location.type && (
+            <View style={[s.attrRow, s.divider]}>
+              <Text style={s.attrKey}>Type</Text>
+              <Text style={s.attrVal}>
+                {renderIcon(typeIconByLabel.get(location.type) ?? null)} {location.type}
+              </Text>
+            </View>
+          )}
           {!!parentName && (
             <View style={[s.attrRow, s.divider]}>
               <Text style={s.attrKey}>Sub-area of</Text>
@@ -307,6 +328,14 @@ export default function LocationDetailScreen() {
                 <Text style={s.stockQty}>{row.quantity}</Text>
               </View>
             ))
+          )}
+          {canAddStock && location.active === 1 && (
+            <TouchableOpacity
+              style={s.addStockBtn}
+              onPress={() => router.push({ pathname: '/(app)/(inventory)/add', params: { locationId: id } })}
+            >
+              <Text style={s.addStockBtnText}>+ Add Stock Here</Text>
+            </TouchableOpacity>
           )}
           {canManage && stock.length > 0 && (
             <TouchableOpacity
@@ -370,6 +399,22 @@ export default function LocationDetailScreen() {
               // search reopens and a different parent can be picked.
               onSelect={(opt) => setEditParentId(prev => (prev === opt.id ? null : opt.id))}
             />
+
+            {locationTypes.length > 0 && (
+              <>
+                <FieldLabel>Type</FieldLabel>
+                <View style={s.chipRow}>
+                  {locationTypes.map(t => (
+                    <FilterChip
+                      key={t.id}
+                      label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                      active={editLocType === t.label}
+                      onPress={() => setEditLocType(prev => (prev === t.label ? null : t.label))}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
 
             <FieldLabel>{ownerRequired ? 'Belongs to (required)' : 'Belongs to (optional)'}</FieldLabel>
             <SearchablePicker
@@ -497,6 +542,12 @@ const s = StyleSheet.create({
     backgroundColor: colors.primaryBg, borderRadius: radii.md,
   },
   moveStockBtnText: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body },
+  addStockBtn: {
+    marginTop: spacing.md, paddingVertical: 12, alignItems: 'center',
+    backgroundColor: colors.primary, borderRadius: radii.md,
+  },
+  addStockBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 
   btn: { borderRadius: radii.lg, paddingVertical: 13, alignItems: 'center', marginTop: spacing.sm },
   btnDanger: { backgroundColor: colors.dangerBg },

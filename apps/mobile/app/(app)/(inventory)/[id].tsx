@@ -8,6 +8,7 @@ import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
   InventoryItem, StockByLocation,
 } from '../../../src/db/queries/items';
+import { getAllLocations, getLocationPath } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
@@ -20,6 +21,8 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { SearchablePicker } from '../../../src/components/SearchablePicker';
+import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 
 export default function ItemDetailScreen() {
@@ -43,11 +46,19 @@ export default function ItemDetailScreen() {
   const [editItemType, setEditItemType] = useState('');
   const [editUnitCat, setEditUnitCat] = useState<string>(PRODUCT_CLASS_IDS.piece);
   const [editUnit, setEditUnit] = useState('');
+  // Optional "home" location (where the item belongs). Nullable.
+  const [editHomeLocation, setEditHomeLocation] = useState<PickerOption | null>(null);
 
   // Admin-managed Item Types (PPE, Filters, …) and product classes (unit class
   // override). Each item type carries its curated units + unit class in meta.
   const itemTypes = useMemo(() => getItemTypes(), []);
   const productClasses = useMemo(() => getProductClasses(), []);
+  // Home-location options: every location labeled by its full breadcrumb path
+  // (Shop › Aisle 3 › Shelf B).
+  const homeLocationOptions = useMemo<PickerOption[]>(
+    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
+    [],
+  );
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
@@ -114,6 +125,12 @@ export default function ItemDetailScreen() {
     setEditUnit(item.unit ?? '');
     const matched = itemTypes.find(t => t.label === item.category);
     setEditItemType(matched ? matched.label : '');
+    // Seed the home-location picker from the stored id (resolved to its path).
+    setEditHomeLocation(
+      item.home_location_id
+        ? { id: item.home_location_id, label: getLocationPath(item.home_location_id) }
+        : null,
+    );
     setEditing(true);
   }
 
@@ -164,6 +181,7 @@ export default function ItemDetailScreen() {
       // stay correct; never write an empty unit (fall back to the existing one).
       unit_category: editUnitCat || PRODUCT_CLASS_IDS.piece,
       unit: editUnit.trim() || item.unit,
+      home_location_id: editHomeLocation?.id ?? null,
     };
     const synced = updateItemFields(item.id, fields);
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
@@ -200,6 +218,15 @@ export default function ItemDetailScreen() {
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
               <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
               <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
+              <View style={s.fieldWrap}>
+                <FieldLabel>Home location (where it belongs)</FieldLabel>
+                <SearchablePicker
+                  placeholder="Search locations… (optional)"
+                  options={homeLocationOptions}
+                  value={editHomeLocation}
+                  onSelect={(opt) => setEditHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+                />
+              </View>
               {itemTypes.length > 0 && (
                 <View style={s.fieldWrap}>
                   <FieldLabel>Item type</FieldLabel>
@@ -284,6 +311,14 @@ export default function ItemDetailScreen() {
                 <Text style={s.name}>{item.name}</Text>
                 {!!item.model && <Text style={s.model}>{item.model}</Text>}
                 {!!item.description && <Text style={s.desc}>{item.description}</Text>}
+                {!!item.home_location_id && (() => {
+                  const homePath = getLocationPath(item.home_location_id);
+                  return (
+                    <Text style={s.belongsAt}>
+                      📍 Belongs at: {homePath || '(archived location)'}
+                    </Text>
+                  );
+                })()}
                 <View style={s.totalRow}>
                   <Text style={s.totalNum}>{formatQuantity(total, item.unit, cat)}</Text>
                   <Text style={s.totalLbl}>on hand</Text>
@@ -397,6 +432,7 @@ const s = StyleSheet.create({
   name: { fontSize: 22, fontWeight: '700', color: colors.brand },
   model: { fontSize: 14, color: colors.primary, marginTop: 2, fontWeight: '600' },
   desc: { fontSize: 14, color: '#475569', marginTop: 8, lineHeight: 20 },
+  belongsAt: { fontSize: 13, color: colors.primary, marginTop: 8, fontWeight: '600' },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 14 },
   totalNum: { fontSize: 26, fontWeight: '800', color: '#0F172A' },
   totalLbl: { fontSize: 13, color: colors.textSecondary },

@@ -1,11 +1,12 @@
 import { useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
-import { upsertItem } from '../../db/queries/items';
+import { upsertItem, getItemBySku } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
+import { getAllLocations, getLocationPath } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -18,6 +19,8 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { SearchablePicker } from '../SearchablePicker';
+import type { PickerOption } from '../SearchablePicker';
 
 // Pieces class id (migration 012) — the default unit class when no item type is
 // selected (most products are counted in pieces).
@@ -43,7 +46,33 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // unit_category stores a product_class id (drives formatQuantity decimals).
   const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
   const [unit, setUnit] = useState<string>(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
+  // Optional "home" location (where the item belongs, e.g. a shelf). Nullable.
+  const [homeLocation, setHomeLocation] = useState<PickerOption | null>(null);
   const [nameError, setNameError] = useState('');
+
+  // Every location, labeled by its full breadcrumb path (Shop › Aisle 3 › Shelf B).
+  const homeLocationOptions = useMemo<PickerOption[]>(
+    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
+    [],
+  );
+
+  // Duplicate detection: does the typed item # already exist in the catalog?
+  const skuMatch = useMemo(() => getItemBySku(sku), [sku]);
+
+  // Tapping the "already in system" warning offers to cancel adding the duplicate
+  // (or jump to the existing item to add stock to it instead).
+  function onDuplicateTap() {
+    if (!skuMatch) return;
+    Alert.alert(
+      'Item # already in system',
+      `"${skuMatch.name}" already uses item # ${skuMatch.sku}. Add stock to it instead of creating a duplicate?`,
+      [
+        { text: 'Keep adding new', style: 'cancel' },
+        { text: 'Open existing item', onPress: () => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: skuMatch.id } }) },
+        { text: 'Cancel', style: 'destructive', onPress: () => router.back() },
+      ],
+    );
+  }
 
   // Units available for the current selection: the selected item type's curated
   // list, falling back to the unit class's units (or piece) when none/empty.
@@ -75,6 +104,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     setItemType('');
     setUnitCat(CLASS_PIECE_ID);
     setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
+    setHomeLocation(null);
     setNameError('');
   }
 
@@ -109,6 +139,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       active: 1,
       updated_at: now,
       synced_at: null,
+      home_location_id: homeLocation?.id ?? null,
     };
 
     upsertItem(item);
@@ -162,9 +193,13 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         onChangeText={setSku}
         autoCapitalize="characters"
       />
-      {!sku.trim() && (
+      {sku.trim() && skuMatch ? (
+        <TouchableOpacity onPress={onDuplicateTap} activeOpacity={0.7}>
+          <Text style={s.skuDup}>⚠️ Item # already in system: {skuMatch.name} — tap if this is a duplicate</Text>
+        </TouchableOpacity>
+      ) : !sku.trim() ? (
         <Text style={s.skuHint}>💡 Most items have a part # — adding it makes them quicker to find.</Text>
-      )}
+      ) : null}
 
       {itemTypes.length > 0 && (
         <>
@@ -202,6 +237,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         />
       )}
 
+      <FieldLabel>Home location (where it belongs)</FieldLabel>
+      <SearchablePicker
+        placeholder="Search locations… (optional)"
+        options={homeLocationOptions}
+        value={homeLocation}
+        onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+      />
+
       <PrimaryButton
         label="Save & add another"
         onPress={handleSave}
@@ -225,6 +268,7 @@ const s = StyleSheet.create({
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
   skuHint: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: -4, marginBottom: 2 },
+  skuDup: { fontSize: fontSizes.caption, color: colors.accent, fontWeight: '600', marginTop: -4, marginBottom: 2 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },

@@ -20,7 +20,8 @@ import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
+import { getLocationTypes } from '../../../src/db/queries/taxonomy';
+import { ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -42,9 +43,21 @@ export default function LocationsScreen() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showCreate, setShowCreate] = useState(false);
 
+  // Location-type taxonomy (Shop, Vehicle, Locker, …) for the create-form picker,
+  // the list section filter, and per-row type badges. Active types only.
+  const locationTypes = useMemo(() => getLocationTypes(), []);
+  // label → icon, used to render a row's type badge from its stored `type` label.
+  const typeIconByLabel = useMemo(
+    () => new Map(locationTypes.map(t => [t.label, t.icon])),
+    [locationTypes],
+  );
+  // Section filter: null = All (show full tree); a label = flat list of that type.
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+
   // Create form state
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState<string | null>(null);
+  const [type, setType] = useState<string | null>(null);
   const [color, setColor] = useState(COLOR_OPTIONS[0]);
   const [icon, setIcon] = useState(ICON_OPTIONS[0]);
   const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null);
@@ -105,7 +118,7 @@ export default function LocationsScreen() {
   }
 
   function resetForm() {
-    setName(''); setParentId(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]); setOwnerOption(null);
+    setName(''); setParentId(null); setType(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]); setOwnerOption(null);
     setLatitude(null); setLongitude(null);
   }
 
@@ -122,6 +135,7 @@ export default function LocationsScreen() {
     const trimmed = name.trim();
     const payload = {
       id, name: trimmed, parent_id: parentId,
+      type: type ?? null,
       color, icon, updated_at: now, owner_user_id: ownerOption?.id ?? null,
       active: true,
       latitude: latitude ?? null,
@@ -175,6 +189,43 @@ export default function LocationsScreen() {
 
   const parentName = parentId ? (getLocationPath(parentId) || 'location') : null;
 
+  // When a type filter is active we show a flat list (across the whole tree) of
+  // matching locations instead of the nested tree, giving Vehicles/Lockers/etc.
+  // "sections".
+  const filteredLocations = useMemo(
+    () => (typeFilter ? getAllLocations().filter(l => l.type === typeFilter) : []),
+    [typeFilter, tree],
+  );
+
+  // Flat card for a single location (used by the type-filtered view).
+  function renderFlatCard(loc: typeof filteredLocations[number]) {
+    return (
+      <View key={loc.id} style={s.card}>
+        <TouchableOpacity
+          style={s.cardInner}
+          onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: loc.id } })}
+          activeOpacity={0.7}
+        >
+          <MediaThumbnail entityType="location" entityId={loc.id} size={40} />
+          <View style={{ flex: 1 }}>
+            <Text style={s.name}>{loc.name}</Text>
+            {!!loc.type && (
+              <Text style={s.typeMeta}>
+                {renderIcon(typeIconByLabel.get(loc.type) ?? null)} {loc.type}
+              </Text>
+            )}
+            {!!getLocationPath(loc.id) && getLocationPath(loc.id) !== loc.name && (
+              <Text style={s.meta} numberOfLines={1}>{getLocationPath(loc.id)}</Text>
+            )}
+            {!!loc.owner_user_id && (
+              <Text style={s.ownerMeta}>Owner: {userMap.get(loc.owner_user_id) ?? loc.owner_user_id}</Text>
+            )}
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   // Recursive tree node — renders a location card indented by depth, an
   // expand/collapse chevron when it has children, and (when open) its children
   // recursively + an "Add sub-area" affordance at any level.
@@ -195,6 +246,11 @@ export default function LocationsScreen() {
             <MediaThumbnail entityType="location" entityId={node.id} size={node.depth > 0 ? 30 : 40} />
             <View style={{ flex: 1 }}>
               <Text style={s.name}>{node.name}</Text>
+              {!!node.type && (
+                <Text style={s.typeMeta}>
+                  {renderIcon(typeIconByLabel.get(node.type) ?? null)} {node.type}
+                </Text>
+              )}
               <Text style={s.meta}>
                 {hasKids
                   ? `${node.children.length} sub-area${node.children.length === 1 ? '' : 's'}`
@@ -245,6 +301,25 @@ export default function LocationsScreen() {
 
         <TooltipHint screenKey="locations" />
 
+        {locationTypes.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.filterRow}
+            style={s.filterRowWrap}
+          >
+            <FilterChip label="All" active={typeFilter === null} onPress={() => setTypeFilter(null)} />
+            {locationTypes.map(t => (
+              <FilterChip
+                key={t.id}
+                label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                active={typeFilter === t.label}
+                onPress={() => setTypeFilter(prev => (prev === t.label ? null : t.label))}
+              />
+            ))}
+          </ScrollView>
+        )}
+
         <ScrollView
           contentContainerStyle={s.list}
           refreshControl={
@@ -262,7 +337,15 @@ export default function LocationsScreen() {
             </Text>
           )}
 
-          {tree.map(node => renderNode(node))}
+          {typeFilter ? (
+            filteredLocations.length === 0 ? (
+              <Text style={s.empty}>No {typeFilter} locations.</Text>
+            ) : (
+              filteredLocations.map(loc => renderFlatCard(loc))
+            )
+          ) : (
+            tree.map(node => renderNode(node))
+          )}
         </ScrollView>
 
         {/* Create modal — onClose ONLY hides the sheet; inputs preserved on outside-tap dismiss.
@@ -280,6 +363,22 @@ export default function LocationsScreen() {
               />
               {!!dup && (
                 <Text style={s.dupWarn}>⚠ "{dup.name}" already exists here</Text>
+              )}
+
+              {locationTypes.length > 0 && (
+                <>
+                  <FieldLabel>Type</FieldLabel>
+                  <View style={s.chipRow}>
+                    {locationTypes.map(t => (
+                      <FilterChip
+                        key={t.id}
+                        label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                        active={type === t.label}
+                        onPress={() => setType(prev => (prev === t.label ? null : t.label))}
+                      />
+                    ))}
+                  </View>
+                </>
               )}
 
               <AdvancedFields>
@@ -369,6 +468,9 @@ const s = StyleSheet.create({
   subtitle: { fontSize: fontSizes.body2, color: colors.textSecondary, fontWeight: '600' },
   addBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
+  filterRowWrap: { flexGrow: 0, maxHeight: 52 },
+  filterRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   list: { padding: spacing.lg, paddingTop: spacing.xs, gap: 10, paddingBottom: 48 },
   empty: { textAlign: 'center', color: colors.textMuted, fontSize: fontSizes.md, marginTop: 48, paddingHorizontal: 24, lineHeight: 22 },
 
@@ -379,6 +481,7 @@ const s = StyleSheet.create({
   swatch: { width: 42, height: 42, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   swatchIcon: { fontSize: 20 },
   name: { fontSize: fontSizes.base, fontWeight: '600', color: colors.textPrimary },
+  typeMeta: { fontSize: fontSizes.sm, color: colors.textSecondary, fontWeight: '600', marginTop: 2 },
   meta: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
   ownerMeta: { fontSize: fontSizes.sm, color: colors.textSecondary, marginTop: 2 },
   chevron: { fontSize: fontSizes.lg, color: colors.textMuted, paddingHorizontal: 4 },

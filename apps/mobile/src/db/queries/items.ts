@@ -100,6 +100,20 @@ export function getItemByBarcode(barcode: string): InventoryItem | null {
   return (result.rows[0] as unknown as InventoryItem) ?? null;
 }
 
+// Find an existing item by its item # / part # (sku), case-insensitively, for
+// duplicate detection on the add forms. Returns the first active match or null.
+export function getItemBySku(sku: string): InventoryItem | null {
+  const trimmed = sku.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM inventory_items WHERE active = 1 AND sku IS NOT NULL
+       AND LOWER(sku) = LOWER(?) LIMIT 1`,
+    [trimmed]
+  );
+  return (result.rows[0] as unknown as InventoryItem) ?? null;
+}
+
 export function getItemById(id: string): InventoryItem | null {
   const db = getDb();
   const result = db.executeSync(
