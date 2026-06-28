@@ -13,8 +13,8 @@ import type { InventoryItem } from '../../../src/db/queries/items';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
-import { getProductClasses } from '../../../src/db/queries/taxonomy';
-import { PRODUCT_CLASS_IDS } from '../../../src/constants/units';
+import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
+import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
@@ -40,10 +40,12 @@ export default function AddStockScreen() {
   const { barcode: initialBarcode } = useLocalSearchParams<{ barcode?: string }>();
   const { coords, request } = useCurrentPosition();
 
-  // Configurable product classes (category 'product_class'); each carries its
-  // curated unit list. Default to the first class for new items.
-  const productClasses = useMemo(() => getProductClasses(), []);
-  const defaultClass = productClasses[0] ?? null;
+  // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
+  // unit class in meta. Selecting a type drives the unit class, unit options, and
+  // the item's catalog category (mirrors quick-add). Equipment is NOT here.
+  const itemTypes = useMemo(() => getItemTypes(), []);
+  // Pieces class id — the default unit class when no item type is selected.
+  const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
   // ── Item selection state ──────────────────────────────────────────────────
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null);
@@ -57,11 +59,11 @@ export default function AddStockScreen() {
   const [description, setDescription] = useState('');
   const [supplier, setSupplier] = useState('');
   const [model, setModel] = useState('');
-  // unit_category now stores a product_class id (stable taxonomy id), not a legacy enum.
-  const [unitCat, setUnitCat] = useState<string>(defaultClass?.id ?? PRODUCT_CLASS_IDS.piece);
-  const [unit, setUnit] = useState<string>(defaultClass?.units[0] ?? 'each');
-  // Item catalog category (free-text, e.g. "Air Movers", "Filters")
-  const [category, setCategory] = useState('');
+  // Selected item_category label → becomes the item's catalog category.
+  const [itemType, setItemType] = useState<string>('');
+  // unit_category stores a product_class id (drives formatQuantity decimals).
+  const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
+  const [unit, setUnit] = useState<string>(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
   // Whether this item is expected back via Check In
   const [returnable, setReturnable] = useState(false);
   const [minAlert, setMinAlert] = useState('0');
@@ -108,16 +110,32 @@ export default function AddStockScreen() {
     [sortedLocations, locationById],
   );
 
-  // Curated units for the currently selected class; empty → free-text unit entry.
-  const selectedClass = useMemo(
-    () => productClasses.find(c => c.id === unitCat) ?? null,
-    [productClasses, unitCat],
-  );
-  const unitOptions = selectedClass?.units ?? [];
+  // Units available for the current selection: the selected item type's curated
+  // list, falling back to the unit class's units (or piece) when none/empty.
+  const selectedType = itemTypes.find(t => t.label === itemType) ?? null;
+  const typeUnits = selectedType ? parseItemTypeMeta(selectedType.meta).units : [];
+  const unitOptions = typeUnits.length > 0 ? typeUnits : getUnitsForClass(unitCat);
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
-  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
+
+  // Pick/clear an item type — selecting one auto-sets the units + unit class +
+  // catalog category to whatever that type allows (mirrors quick-add).
+  function selectItemType(t: { label: string; meta: string | null }) {
+    if (itemType === t.label) {
+      // Tap again to clear → back to the default piece class + units.
+      setItemType('');
+      setUnitCat(CLASS_PIECE_ID);
+      setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
+      return;
+    }
+    const m = parseItemTypeMeta(t.meta);
+    const cls = m.classId ?? CLASS_PIECE_ID;
+    const opts = m.units.length > 0 ? m.units : getUnitsForClass(cls);
+    setItemType(t.label);
+    setUnitCat(cls);
+    setUnit(opts[0] ?? '');
+  }
 
   // ── Position: request once on mount (fire-and-forget; never blocks UI) ────
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,8 +196,9 @@ export default function AddStockScreen() {
     setBarcode('');
     setName(''); setDescription('');
     setSupplier(''); setModel('');
-    setUnitCat(defaultClass?.id ?? PRODUCT_CLASS_IDS.piece); setUnit(defaultClass?.units[0] ?? 'each');
-    setCategory(''); setReturnable(false);
+    setItemType('');
+    setUnitCat(CLASS_PIECE_ID); setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
+    setReturnable(false);
     setMinAlert('0'); setReorderTo('');
     setSelectedLocation(null);
     setQuantity('');
@@ -232,7 +251,7 @@ export default function AddStockScreen() {
         supplier: supplier.trim() || null,
         model: model.trim() || null,
         kind: 'product' as const,
-        category: category.trim() || null,
+        category: itemType || null,
         returnable: (returnable ? 1 : 0) as number,
         unit_category: unitCat,
         unit,
@@ -329,18 +348,23 @@ export default function AddStockScreen() {
                 autoFocus
               />
 
-              <FieldLabel style={{ marginTop: 12 }}>Units</FieldLabel>
-              {productClasses.map(c => (
-                <TouchableOpacity
-                  key={c.id}
-                  style={[s.opt, unitCat === c.id && s.optActive]}
-                  onPress={() => { setUnitCat(c.id); setUnit(c.units[0] ?? ''); }}
-                >
-                  <Text style={[s.optText, unitCat === c.id && s.optTextActive]}>
-                    {c.icon ? `${c.icon} ` : ''}{c.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {itemTypes.length > 0 && (
+                <>
+                  <FieldLabel style={{ marginTop: 12 }}>Item type</FieldLabel>
+                  <View style={s.unitRow}>
+                    {itemTypes.map(t => (
+                      <FilterChip
+                        key={t.id}
+                        label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                        active={itemType === t.label}
+                        onPress={() => selectItemType(t)}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+
+              <FieldLabel style={{ marginTop: 12 }}>Unit</FieldLabel>
               {unitOptions.length > 0 ? (
                 <View style={s.unitRow}>
                   {unitOptions.map(u => (
@@ -381,13 +405,6 @@ export default function AddStockScreen() {
                   onChange={setModel}
                   suggestions={modelOptions}
                   placeholder="Color / Model (optional)"
-                />
-                <SuggestInput
-                  label="Category"
-                  value={category}
-                  onChange={setCategory}
-                  suggestions={categoryOptions}
-                  placeholder="Air Movers, Filters, Equipment Inventory…"
                 />
                 <View style={s.switchRow}>
                   <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
@@ -483,10 +500,6 @@ const s = StyleSheet.create({
   },
   readonlyName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   readonlyMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  opt: { backgroundColor: '#F1F5F9', borderRadius: 8, padding: 10 },
-  optActive: { backgroundColor: colors.primaryBgStrong },
-  optText: { fontSize: 14, color: '#475569' },
-  optTextActive: { color: colors.primaryText, fontWeight: '600' },
   unitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 12 },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },

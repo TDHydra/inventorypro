@@ -16,6 +16,8 @@ import {
   setTaxonomyIcon,
   setTaxonomyActive,
   reorderTaxonomyType,
+  parseItemTypeMeta,
+  setTaxonomyUnits,
 } from '../../../src/db/queries/taxonomy';
 import { loadClassConfigCache } from '../../../src/constants/units';
 import { ICON_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
@@ -143,6 +145,7 @@ export default function ManageTypesScreen() {
   // Product-class units editor (only populated when editing a product_class)
   const [editClass, setEditClass] = useState<ProductClass | null>(null);
   const [editUnits, setEditUnits] = useState<string[]>([]);
+  const [editUnitsOriginal, setEditUnitsOriginal] = useState<string[]>([]);
   const [editAllowDecimals, setEditAllowDecimals] = useState(true);
   const [newUnit, setNewUnit] = useState('');
 
@@ -199,11 +202,20 @@ export default function ManageTypesScreen() {
     if (item.category === 'product_class') {
       const cls = getProductClassById(item.id);
       setEditClass(cls);
-      setEditUnits(cls ? [...cls.units] : []);
+      const units = cls ? [...cls.units] : [];
+      setEditUnits(units);
+      setEditUnitsOriginal(units);
       setEditAllowDecimals(cls ? cls.allowDecimals : true);
+    } else if (item.category === 'item_category') {
+      const units = parseItemTypeMeta(item.meta).units;
+      setEditClass(null);
+      setEditUnits([...units]);
+      setEditUnitsOriginal([...units]);
+      setEditAllowDecimals(true);
     } else {
       setEditClass(null);
       setEditUnits([]);
+      setEditUnitsOriginal([]);
       setEditAllowDecimals(true);
     }
     setNewUnit('');
@@ -215,8 +227,27 @@ export default function ManageTypesScreen() {
     setEditIcon(null);
     setEditClass(null);
     setEditUnits([]);
+    setEditUnitsOriginal([]);
     setEditAllowDecimals(true);
     setNewUnit('');
+  }
+
+  function handleMoveUnitUp(index: number) {
+    if (index <= 0) return;
+    setEditUnits(prev => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }
+
+  function handleMoveUnitDown(index: number) {
+    setEditUnits(prev => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index + 1], next[index]] = [next[index], next[index + 1]];
+      return next;
+    });
   }
 
   function handleAddUnit() {
@@ -253,6 +284,9 @@ export default function ManageTypesScreen() {
         });
         // Refresh the decimals cache so formatQuantity() reflects the change now.
         loadClassConfigCache();
+      } else if (editType.category === 'item_category' && unitsDirty) {
+        // Persist ONLY the units array; setTaxonomyUnits preserves classId.
+        setTaxonomyUnits(editType.id, editUnits);
       }
       refresh();
       closeEdit();
@@ -367,11 +401,16 @@ export default function ManageTypesScreen() {
       editUnits.length !== editClass.units.length ||
       editUnits.some((u, i) => u !== editClass.units[i]));
 
+  const unitsDirty =
+    editUnits.length !== editUnitsOriginal.length ||
+    editUnits.some((u, i) => u !== editUnitsOriginal[i]);
+
   const editDirty =
     !!editType &&
     (editLabel.trim() !== editType.label ||
       editIcon !== editType.icon ||
-      metaDirty);
+      metaDirty ||
+      unitsDirty);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -436,7 +475,8 @@ export default function ManageTypesScreen() {
               <Text style={s.fieldLabel}>Icon</Text>
               <IconPicker selected={editIcon} onSelect={icon => setEditIcon(icon)} />
 
-              {editType.category === 'product_class' && (
+              {(editType.category === 'product_class' ||
+                editType.category === 'item_category') && (
                 <>
                   <Text style={s.fieldLabel}>Units</Text>
                   {editUnits.length === 0 ? (
@@ -444,16 +484,49 @@ export default function ManageTypesScreen() {
                       No units yet. Add curated units below.
                     </Text>
                   ) : (
-                    <View style={s.unitChipWrap}>
-                      {editUnits.map(unit => (
-                        <View key={unit} style={s.unitChip}>
-                          <Text style={s.unitChipText}>{unit}</Text>
+                    <View style={s.unitList}>
+                      {editUnits.map((unit, index) => (
+                        <View key={unit} style={s.unitListRow}>
+                          <Text style={s.unitListText} numberOfLines={1}>
+                            {unit}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => handleMoveUnitUp(index)}
+                            disabled={locked || index === 0}
+                            style={s.unitReorderBtn}
+                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                          >
+                            <Text
+                              style={[
+                                s.unitReorderArrow,
+                                (locked || index === 0) && s.arrowDisabled,
+                              ]}
+                            >
+                              ▲
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleMoveUnitDown(index)}
+                            disabled={locked || index === editUnits.length - 1}
+                            style={s.unitReorderBtn}
+                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                          >
+                            <Text
+                              style={[
+                                s.unitReorderArrow,
+                                (locked || index === editUnits.length - 1) && s.arrowDisabled,
+                              ]}
+                            >
+                              ▼
+                            </Text>
+                          </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleRemoveUnit(unit)}
                             disabled={locked}
-                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            style={s.unitReorderBtn}
+                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                           >
-                            <Text style={s.unitChipRemove}>×</Text>
+                            <Text style={s.unitListRemove}>×</Text>
                           </TouchableOpacity>
                         </View>
                       ))}
@@ -478,19 +551,21 @@ export default function ManageTypesScreen() {
                       <Text style={s.addUnitBtnText}>Add</Text>
                     </TouchableOpacity>
                   </View>
-                  <View style={s.decimalsRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.rowLabel}>Allow decimals</Text>
-                      <Text style={s.rowSub}>
-                        Permit fractional quantities (e.g. 1.5) for this class.
-                      </Text>
+                  {editType.category === 'product_class' && (
+                    <View style={s.decimalsRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.rowLabel}>Allow decimals</Text>
+                        <Text style={s.rowSub}>
+                          Permit fractional quantities (e.g. 1.5) for this class.
+                        </Text>
+                      </View>
+                      <Switch
+                        value={editAllowDecimals}
+                        onValueChange={setEditAllowDecimals}
+                        disabled={locked}
+                      />
                     </View>
-                    <Switch
-                      value={editAllowDecimals}
-                      onValueChange={setEditAllowDecimals}
-                      disabled={locked}
-                    />
-                  </View>
+                  )}
                 </>
               )}
 
@@ -617,18 +692,33 @@ const s = StyleSheet.create({
 
   // Product-class units editor
   unitsEmpty: { fontSize: fontSizes.body2, color: colors.textMuted },
-  unitChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  unitChip: {
+
+  // Reorderable units list
+  unitList: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  unitListRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    paddingHorizontal: spacing.base,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
-  unitChipText: { fontSize: fontSizes.body2, fontWeight: '600', color: colors.primaryText },
-  unitChipRemove: { fontSize: 18, lineHeight: 18, fontWeight: '700', color: colors.primaryText },
+  unitListText: {
+    flex: 1,
+    fontSize: fontSizes.body2,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  unitReorderBtn: { padding: 4 },
+  unitReorderArrow: { fontSize: 13, color: colors.textSecondary, fontWeight: '700' },
+  unitListRemove: { fontSize: 18, lineHeight: 18, fontWeight: '700', color: colors.danger },
   addUnitRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   addUnitBtn: {
     backgroundColor: colors.primary,

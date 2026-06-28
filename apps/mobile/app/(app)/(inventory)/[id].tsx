@@ -10,8 +10,8 @@ import {
 } from '../../../src/db/queries/items';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { UnitCategory, formatQuantity } from '../../../src/constants/units';
-import { getProductClassById } from '../../../src/db/queries/taxonomy';
+import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
+import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType } from '../../../src/db/queries/taxonomy';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
@@ -19,6 +19,7 @@ import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 
 export default function ItemDetailScreen() {
@@ -36,6 +37,17 @@ export default function ItemDetailScreen() {
   // Edit-mode state for fields outside the string-keyed form record
   const [editCategory, setEditCategory] = useState('');
   const [editReturnable, setEditReturnable] = useState(false);
+  // Item-type / units edit-mode state. editItemType is the selected item_category
+  // label ('' = none highlighted). editUnitCat stays a real product_class id so
+  // formatQuantity decimals stay correct; editUnit is the chosen unit string.
+  const [editItemType, setEditItemType] = useState('');
+  const [editUnitCat, setEditUnitCat] = useState<string>(PRODUCT_CLASS_IDS.piece);
+  const [editUnit, setEditUnit] = useState('');
+
+  // Admin-managed Item Types (PPE, Filters, …) and product classes (unit class
+  // override). Each item type carries its curated units + unit class in meta.
+  const itemTypes = useMemo(() => getItemTypes(), []);
+  const productClasses = useMemo(() => getProductClasses(), []);
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
@@ -94,7 +106,44 @@ export default function ItemDetailScreen() {
     });
     setEditCategory(item.category ?? '');
     setEditReturnable(item.returnable === 1);
+    // Seed units from the item as-is (data safety: never destroy an existing
+    // unit_category/unit). Preselect the item type only when the current
+    // category matches a known type — otherwise leave none highlighted and keep
+    // the existing class/unit untouched until the user actually picks a type.
+    setEditUnitCat(item.unit_category || PRODUCT_CLASS_IDS.piece);
+    setEditUnit(item.unit ?? '');
+    const matched = itemTypes.find(t => t.label === item.category);
+    setEditItemType(matched ? matched.label : '');
     setEditing(true);
+  }
+
+  // Pick/clear an item type — selecting one auto-sets the unit class + units +
+  // category to whatever that type allows (mirrors quick-add). Tapping the
+  // selected type again clears back to the default piece class.
+  function selectItemType(t: TaxonomyType) {
+    if (editItemType === t.label) {
+      setEditItemType('');
+      setEditCategory('');
+      setEditUnitCat(PRODUCT_CLASS_IDS.piece);
+      setEditUnit(getUnitsForClass(PRODUCT_CLASS_IDS.piece)[0] ?? 'each');
+      return;
+    }
+    const m = parseItemTypeMeta(t.meta);
+    const cls = m.classId ?? PRODUCT_CLASS_IDS.piece;
+    const opts = m.units.length > 0 ? m.units : getUnitsForClass(cls);
+    setEditItemType(t.label);
+    setEditCategory(t.label);
+    setEditUnitCat(cls);
+    setEditUnit(opts[0] ?? '');
+  }
+
+  // Manual unit-class override — breaks the item-type linkage (the type's class
+  // may differ) but keeps the free-text category intact.
+  function selectUnitClass(classId: string) {
+    setEditUnitCat(classId);
+    setEditItemType('');
+    const opts = getUnitsForClass(classId);
+    setEditUnit(opts[0] ?? '');
   }
 
   function saveEdit() {
@@ -111,6 +160,10 @@ export default function ItemDetailScreen() {
       reorder_to: form.reorder_to.trim() ? parseFloat(form.reorder_to) : null,
       category: editCategory.trim() || null,
       returnable: (editReturnable ? 1 : 0) as number,
+      // Keep unit_category a real product_class id so formatQuantity decimals
+      // stay correct; never write an empty unit (fall back to the existing one).
+      unit_category: editUnitCat || PRODUCT_CLASS_IDS.piece,
+      unit: editUnit.trim() || item.unit,
     };
     const synced = updateItemFields(item.id, fields);
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
@@ -122,6 +175,17 @@ export default function ItemDetailScreen() {
   const setField = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const cat = item.unit_category as UnitCategory;
+
+  // Unit options for the edit-mode picker: the selected item type's curated
+  // units, else the chosen unit class's units. Always include the current
+  // editUnit so an existing (possibly custom/legacy) unit stays visible and
+  // selected rather than being silently dropped.
+  const selectedEditType = itemTypes.find(t => t.label === editItemType) ?? null;
+  const editTypeUnits = selectedEditType ? parseItemTypeMeta(selectedEditType.meta).units : [];
+  const editBaseUnits = editTypeUnits.length > 0 ? editTypeUnits : getUnitsForClass(editUnitCat);
+  const editUnitOptions = editUnit && !editBaseUnits.includes(editUnit)
+    ? [editUnit, ...editBaseUnits]
+    : editBaseUnits;
 
   return (
     <>
@@ -136,13 +200,70 @@ export default function ItemDetailScreen() {
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
               <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
               <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
+              {itemTypes.length > 0 && (
+                <View style={s.fieldWrap}>
+                  <FieldLabel>Item type</FieldLabel>
+                  <View style={s.chipRow}>
+                    {itemTypes.map(t => (
+                      <FilterChip
+                        key={t.id}
+                        label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                        active={editItemType === t.label}
+                        onPress={() => selectItemType(t)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
               <SuggestInput
                 label="Category"
                 value={editCategory}
-                onChange={setEditCategory}
+                // Keep the Item Type chip highlight in sync with the typed
+                // category so the two inputs can't diverge (typing a non-type
+                // category clears the highlight; typing a type's name selects it).
+                onChange={(v) => {
+                  setEditCategory(v);
+                  setEditItemType(itemTypes.find(t => t.label === v)?.label ?? '');
+                }}
                 suggestions={categoryOptions}
                 placeholder="Air Movers, Filters, Equipment Inventory…"
               />
+              {productClasses.length > 0 && (
+                <View style={s.fieldWrap}>
+                  <FieldLabel>Unit type (override)</FieldLabel>
+                  <View style={s.chipRow}>
+                    {productClasses.map(c => (
+                      <FilterChip
+                        key={c.id}
+                        label={c.icon ? `${c.icon} ${c.label}` : c.label}
+                        active={editUnitCat === c.id}
+                        onPress={() => selectUnitClass(c.id)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
+              <View style={s.fieldWrap}>
+                <FieldLabel>Unit</FieldLabel>
+                {editUnitOptions.length > 0 && (
+                  <View style={s.chipRow}>
+                    {editUnitOptions.map(u => (
+                      <FilterChip
+                        key={u}
+                        label={u}
+                        active={editUnit === u}
+                        onPress={() => setEditUnit(u)}
+                      />
+                    ))}
+                  </View>
+                )}
+                <AppInput
+                  value={editUnit}
+                  onChangeText={setEditUnit}
+                  placeholder="Unit (e.g. each)"
+                  autoCapitalize="none"
+                />
+              </View>
               <View style={s.switchRow}>
                 <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
                 <Switch value={editReturnable} onValueChange={setEditReturnable} />
@@ -291,6 +412,7 @@ const s = StyleSheet.create({
   stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
   stockZero: { color: colors.textDisabled },
   fieldWrap: { gap: 6 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
