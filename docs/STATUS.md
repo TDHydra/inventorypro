@@ -85,9 +85,15 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 points at prod and is sufficient to field-test notifications directly.
 
 **Optional future (explicitly deferred / out of scope):**
-- P3 v2 — server-scheduled push + `device_push_tokens` (migration → sync checklist) for when the app is closed.
-- P5 5c "Send push" user-bulk action — builds on P3 v1.
+- P3 v2 / server push — **dropped (no Firebase, user's call 2026-06-28).**
 - P4 multi-parent locations — decided out of scope (deep single-parent nesting suffices).
+
+## 🐞 Known bugs / backlog
+- **Maintenance mode blocks admin login** *(reported 2026-06-28)* — when maintenance mode is ON, logging in as
+  an admin fails with **"connection required."** Admins/tier-4 must be able to sign in *during* maintenance (to
+  turn it off / manage). Likely the maintenance write-guard (`assertWritable`) or a server-side maintenance gate is
+  firing on the online PIN auth (`POST /auth/token`) path. Fix: exempt the auth/login path (and tier-4) from the
+  maintenance lockout. Check `apps/api` maintenance handling + the mobile login flow's session writes.
 
 ---
 
