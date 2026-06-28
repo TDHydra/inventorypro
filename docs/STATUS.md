@@ -72,13 +72,17 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 
 ## ⏭️ Remaining
 
-**All six roadmap programs (P1–P6) are code-complete and merged to `main`.** What's left is operational, not feature work:
+**All six roadmap programs (P1–P6) are code-complete and merged to `main`. The release APK is built and the API is deployed.**
 
-1. **Native rebuild** — `expo-notifications` is a native module, so notifications (and the latest JS) only run after a
-   dev-client + release-APK rebuild. Process (per memory): `npx expo prebuild --clean` → re-pin Gradle 8.13 in
-   `android/gradle/wrapper/gradle-wrapper.properties` → `./gradlew assembleRelease` (+ dev-client for on-device dev).
-2. **Deploy API** with migration 016 (insurance_carrier) → prod (`docker compose build api` → save|gzip → scp → load → up -d).
-3. **On-device verification** of P3 notifications (fire-once dedup, recover-refire) after the rebuild.
+1. ✅ **Native rebuild** — `npx expo prebuild --clean` → re-pinned Gradle 8.13 → `assembleRelease` against prod URL.
+   Output: `~/inventorypro/inventorypro-preview.apk` (130MB, 2026-06-28; Hermes; prod URL + POST_NOTIFICATIONS verified baked in).
+2. ✅ **API deployed** — image rebuilt, shipped to Unraid, migration 016 (insurance_carrier) applied; `schema_migrations` max=16;
+   `https://api.plexcontrol.com/health` = ok; `jobs.insurance_carrier` confirmed in prod.
+3. ⏳ **On-device verification** (user) — install `inventorypro-preview.apk`, accept the notification permission, and confirm
+   P3 alerts fire once per episode (low-stock + temp-employee expiry) and re-fire after recovery.
+
+*Optional / deferred:* a **dev-client** APK rebuild is only needed for Metro-connected development — the preview APK above
+points at prod and is sufficient to field-test notifications directly.
 
 **Optional future (explicitly deferred / out of scope):**
 - P3 v2 — server-scheduled push + `device_push_tokens` (migration → sync checklist) for when the app is closed.
