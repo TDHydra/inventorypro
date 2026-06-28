@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -26,6 +26,9 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
 export default function LocationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +36,7 @@ export default function LocationDetailScreen() {
   const canManage = usePermission('manage_locations');
   const canUpload = usePermission('upload_media');
   const { user } = useSession();
+  const { locked } = useMaintenanceMode();
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));
   const [stock, setStock] = useState<StockAtLocation[]>(() => getStockAtLocation(id));
@@ -46,6 +50,7 @@ export default function LocationDetailScreen() {
   const [editOwnerOption, setEditOwnerOption] = useState<PickerOption | null>(null);
   const [editLatitude, setEditLatitude] = useState<number | null>(null);
   const [editLongitude, setEditLongitude] = useState<number | null>(null);
+  const [editRequireOwner, setEditRequireOwner] = useState(false);
 
   const { coords: anchorCoords, status: anchorStatus, request: requestAnchor } = useCurrentPosition();
 
@@ -70,6 +75,14 @@ export default function LocationDetailScreen() {
     [allUsers],
   );
   const topLevel = useMemo(() => getTopLevelLocations(), []);
+
+  // Owner becomes mandatory when the selected parent has subareas_require_owner=1.
+  // Reactive to editParentId so re-parenting under a flagged parent updates the gate.
+  const ownerRequired = useMemo<boolean>(() => {
+    if (!editParentId) return false;
+    return getLocationById(editParentId)?.subareas_require_owner === 1;
+  }, [editParentId]);
+  const ownerMissing = ownerRequired && !editOwnerOption;
 
   const parentName = useMemo<string | null>(() => {
     if (!location?.parent_id) return null;
@@ -110,13 +123,19 @@ export default function LocationDetailScreen() {
     );
     setEditLatitude(location.latitude ?? null);
     setEditLongitude(location.longitude ?? null);
+    setEditRequireOwner(location.subareas_require_owner === 1);
     setShowEdit(true);
   }
 
   function doEdit() {
     if (!location) return;
+    if (isWriteBlocked()) return;
     if (!editName.trim()) {
       Alert.alert('Required', 'Enter a location name.');
+      return;
+    }
+    if (ownerMissing) {
+      Alert.alert('Owner required', 'This sub-area requires an owner. Pick a person before saving.');
       return;
     }
     const now = new Date().toISOString();
@@ -129,8 +148,17 @@ export default function LocationDetailScreen() {
       latitude: editLatitude ?? null,
       longitude: editLongitude ?? null,
     };
-    upsertLocation({ ...location, ...changes, active: 1, updated_at: now, synced_at: null });
-    appendOutbox('UPDATE', 'locations', { id, ...changes, active: true, updated_at: now });
+    // subareas_require_owner: real boolean in the outbox, INTEGER locally (mirrors `active`).
+    upsertLocation({
+      ...location, ...changes,
+      subareas_require_owner: editRequireOwner ? 1 : 0,
+      active: 1, updated_at: now, synced_at: null,
+    });
+    appendOutbox('UPDATE', 'locations', {
+      id, ...changes,
+      subareas_require_owner: editRequireOwner,
+      active: true, updated_at: now,
+    });
     appendLog({
       action: 'location_updated',
       entity_type: 'location',
@@ -346,7 +374,7 @@ export default function LocationDetailScreen() {
               ))}
             </ScrollView>
 
-            <FieldLabel>Belongs to (optional)</FieldLabel>
+            <FieldLabel>{ownerRequired ? 'Belongs to (required)' : 'Belongs to (optional)'}</FieldLabel>
             <SearchablePicker
               placeholder="Search people…"
               options={userOptions}
@@ -355,6 +383,11 @@ export default function LocationDetailScreen() {
                 setEditOwnerOption(prev => (prev?.id === opt.id ? null : opt));
               }}
             />
+            {ownerMissing && (
+              <Text style={s.ownerError}>
+                This sub-area's parent requires an owner — pick a person to save.
+              </Text>
+            )}
 
             <FieldLabel>GPS Anchor</FieldLabel>
             {anchorStatus === 'denied' ? (
@@ -407,7 +440,18 @@ export default function LocationDetailScreen() {
               ))}
             </View>
 
-            <PrimaryButton label="Save Changes" onPress={doEdit} style={{ marginTop: spacing.sm }} />
+            <View style={s.switchRow}>
+              <Text style={s.switchLabel}>Subareas require an owner</Text>
+              <Switch value={editRequireOwner} onValueChange={setEditRequireOwner} disabled={locked} />
+            </View>
+
+            <PrimaryButton
+              label="Save Changes"
+              onPress={doEdit}
+              disabled={locked || ownerMissing}
+              style={{ marginTop: spacing.sm }}
+            />
+            {locked && <MaintenanceBanner />}
             <View style={s.secondaryRow}>
               <TouchableOpacity style={s.linkBtn} onPress={() => setShowEdit(false)}>
                 <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
@@ -509,4 +553,11 @@ const s = StyleSheet.create({
   anchorBtnTextSet: { color: colors.success, fontWeight: '700' },
   anchorHint: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
   anchorDenied: { fontSize: fontSizes.caption, color: colors.warning, textAlign: 'center', paddingVertical: spacing.sm },
+  switchRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
+  ownerError: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
 });

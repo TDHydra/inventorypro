@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, TextInput, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
   RefreshControl,
@@ -6,6 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { searchItems } from '../../../src/db/queries/items';
+import { getProductClasses } from '../../../src/db/queries/taxonomy';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { TooltipHint } from '../../../src/components/TooltipHint';
@@ -23,16 +24,22 @@ interface Item {
 
 const PAGE_SIZE = 20;
 
-type FilterCategory = 'all' | 'liquid' | 'piece' | 'length' | 'weight';
-
-const FILTER_LABELS: Record<FilterCategory, string> = {
-  all: 'All', liquid: 'Liquids', piece: 'Pieces', length: 'Length', weight: 'Weight',
-};
+// Filter value 'all' = no filter; any other value is a product_class id matched
+// against inventory_items.unit_category (a stable taxonomy id after migration 012).
+const ALL_FILTER = 'all';
 
 export default function InventoryScreen() {
   const router = useRouter();
+  // Chips: "All" + one per configurable product class (label = class label, value = class id).
+  const filterChips = useMemo(
+    () => [
+      { id: ALL_FILTER, label: 'All' },
+      ...getProductClasses().map(c => ({ id: c.id, label: c.label })),
+    ],
+    [],
+  );
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<FilterCategory>('all');
+  const [filter, setFilter] = useState<string>(ALL_FILTER);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -40,9 +47,9 @@ export default function InventoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const runSearch = useCallback((q: string, cat: FilterCategory, newOffset: number, append = false) => {
+  const runSearch = useCallback((q: string, cat: string, newOffset: number, append = false) => {
     setLoading(true);
-    const catFilter = cat === 'all' ? undefined : cat;
+    const catFilter = cat === ALL_FILTER ? undefined : cat;
     // kind='product' filtered IN-SQL so pagination (LIMIT/OFFSET + hasMore) is correct.
     const rows = searchItems(q, PAGE_SIZE, newOffset, catFilter, 'product') as Item[];
     if (append) {
@@ -63,7 +70,7 @@ export default function InventoryScreen() {
     }, 150);
   };
 
-  const handleFilter = (cat: FilterCategory) => {
+  const handleFilter = (cat: string) => {
     setFilter(cat);
     runSearch(query, cat, 0);
   };
@@ -112,12 +119,12 @@ export default function InventoryScreen() {
         </View>
 
         <View style={styles.filters}>
-          {(Object.keys(FILTER_LABELS) as FilterCategory[]).map(cat => (
+          {filterChips.map(chip => (
             <FilterChip
-              key={cat}
-              label={FILTER_LABELS[cat]}
-              active={filter === cat}
-              onPress={() => handleFilter(cat)}
+              key={chip.id}
+              label={chip.label}
+              active={filter === chip.id}
+              onPress={() => handleFilter(chip.id)}
             />
           ))}
         </View>

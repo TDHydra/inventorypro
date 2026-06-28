@@ -6,7 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
-  getLocationTree, getTopLevelLocations, upsertLocation,
+  getLocationTree, getTopLevelLocations, upsertLocation, getLocationById,
   Location, LocationWithChildren,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -94,6 +94,13 @@ export default function LocationsScreen() {
     return siblings.find(l => l.name.trim().toLowerCase() === n) ?? null;
   }, [name, parentId, tree]);
 
+  // Conditional Owner: when the chosen parent has "subareas require an owner"
+  // on, an owner must be picked before the sub-area can be created.
+  const parentRequiresOwner = useMemo(
+    () => (parentId ? !!getLocationById(parentId)?.subareas_require_owner : false),
+    [parentId],
+  );
+
   function toggle(id: string) {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -151,6 +158,10 @@ export default function LocationsScreen() {
   function handleSave() {
     if (!name.trim()) {
       Alert.alert('Required', 'Enter a location name.');
+      return;
+    }
+    if (parentRequiresOwner && !ownerOption) {
+      Alert.alert('Owner required', `Sub-areas under "${parentName}" must have an owner. Pick one under "Owner".`);
       return;
     }
     if (dup) {
@@ -293,7 +304,7 @@ export default function LocationsScreen() {
                   ))}
                 </ScrollView>
 
-                <FieldLabel>Belongs to (optional)</FieldLabel>
+                <FieldLabel>{parentRequiresOwner ? 'Owner *' : 'Belongs to (optional)'}</FieldLabel>
                 <SearchablePicker
                   placeholder="Search people…"
                   options={userOptions}
@@ -303,6 +314,9 @@ export default function LocationsScreen() {
                     setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
                   }}
                 />
+                {parentRequiresOwner && !ownerOption && (
+                  <Text style={s.dupWarn}>⚠ Sub-areas here require an owner.</Text>
+                )}
 
                 <FieldLabel>GPS Anchor</FieldLabel>
                 {anchorStatus === 'denied' ? (

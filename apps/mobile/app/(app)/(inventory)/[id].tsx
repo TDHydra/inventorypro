@@ -10,7 +10,8 @@ import {
 } from '../../../src/db/queries/items';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { UnitCategory, UNIT_CATEGORY_LABELS, formatQuantity } from '../../../src/constants/units';
+import { UnitCategory, formatQuantity } from '../../../src/constants/units';
+import { getProductClassById } from '../../../src/db/queries/taxonomy';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
@@ -173,7 +174,7 @@ export default function ItemDetailScreen() {
 
               <View style={s.card}>
                 {!!item.category && <Row k="Category" v={item.category} />}
-                <Row k="Unit Type" v={UNIT_CATEGORY_LABELS[cat]} />
+                <Row k="Unit Type" v={getProductClassById(item.unit_category)?.label ?? item.unit_category} />
                 <Row k="Unit" v={item.unit} />
                 <Row k="Barcode" v={item.barcode ?? '—'} />
                 <Row k="SKU / Part #" v={item.sku ?? '—'} />
