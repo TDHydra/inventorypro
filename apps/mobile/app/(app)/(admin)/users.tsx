@@ -5,10 +5,12 @@ import {
 } from 'react-native';
 import { Stack } from 'expo-router';
 import {
-  getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings, User,
+  getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings,
+  getRolePermissionOverrides, User,
 } from '../../../src/db/queries/users';
 import {
   ROLE_DISPLAY_NAMES, UserRole, ROLE_TIER, PIN_LENGTH_BY_TIER, Permission,
+  ROLE_DEFAULTS,
 } from '../../../src/constants/roles';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getDb } from '../../../src/db/schema';
@@ -140,6 +142,10 @@ export default function AdminUsersScreen() {
   const [busy, setBusy] = useState(false);
 
   const roleMinPins = useMemo(() => getRoleSettings(), [users]);
+  // Per-role permission deviations (the dynamic role default). User overrides are
+  // diffed against ROLE_DEFAULTS merged with these, so a user override only reads
+  // as "modified" when it differs from the role's CURRENT effective value.
+  const roleOverrides = useMemo(() => getRolePermissionOverrides(), [users]);
 
   function refresh() { setUsers(getAllUsers()); }
 
@@ -333,18 +339,29 @@ export default function AdminUsersScreen() {
     doCreate();
   }
 
-  function handleTogglePermission(userId: string, permission: Permission, currentVal: boolean) {
+  function handleTogglePermission(
+    userId: string,
+    permission: Permission,
+    nextVal: boolean,
+    roleEffective: boolean,
+  ) {
     const u = users.find(x => x.id === userId);
     if (!u) return;
     const overrides = parseOverrides(u);
-    overrides[permission] = !currentVal;
+    // Toggling to the role's CURRENT effective value clears the override (clean
+    // reset) instead of storing a redundant key.
+    if (nextVal === roleEffective) {
+      delete overrides[permission];
+    } else {
+      overrides[permission] = nextVal;
+    }
     savePermissionOverrides(userId, overrides);
     appendLog({
       action: 'user_permission_changed',
       entity_type: 'user',
       entity_id: userId,
       user_id: sessionUser?.id ?? null,
-      note: `${permission}: ${!currentVal}`,
+      note: `${permission}: ${nextVal}`,
       team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
     });
@@ -547,24 +564,35 @@ export default function AdminUsersScreen() {
                   {/* Permission overrides */}
                   <FieldLabel>Permission Overrides</FieldLabel>
                   <Text style={s.hint}>Toggles here override the role default — only set what differs from the role.</Text>
-                  {ALL_PERMISSIONS.map(perm => {
+                  {(() => {
+                    const roleOv = roleOverrides[editUser.role] ?? {};
                     const ov = parseOverrides(editUser);
-                    const hasOverride = perm in ov;
-                    const val = ov[perm] ?? false;
-                    return (
-                      <View key={perm} style={s.permRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={s.permName}>{perm.replace(/_/g, ' ')}</Text>
-                          {hasOverride && <Text style={s.overrideBadge}>override active</Text>}
+                    return ALL_PERMISSIONS.map(perm => {
+                      // Role's CURRENT effective value: ROLE_DEFAULTS merged with the
+                      // role-level override (the dynamic default).
+                      const roleEffective = perm in roleOv
+                        ? roleOv[perm]
+                        : (ROLE_DEFAULTS[editUser.role]?.[perm] ?? false);
+                      const hasUserKey = perm in ov;
+                      const effective = hasUserKey ? ov[perm] : roleEffective;
+                      // Only a deviation from the role's current effective value is a
+                      // real override.
+                      const isModified = hasUserKey && ov[perm] !== roleEffective;
+                      return (
+                        <View key={perm} style={s.permRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.permName}>{perm.replace(/_/g, ' ')}</Text>
+                            {isModified && <Text style={s.overrideBadge}>override active</Text>}
+                          </View>
+                          <Switch
+                            value={effective}
+                            onValueChange={() => handleTogglePermission(editUser.id, perm, !effective, roleEffective)}
+                            trackColor={{ true: colors.primary, false: colors.border }}
+                          />
                         </View>
-                        <Switch
-                          value={hasOverride && val}
-                          onValueChange={() => handleTogglePermission(editUser.id, perm, val)}
-                          trackColor={{ true: colors.primary, false: colors.border }}
-                        />
-                      </View>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
 
                   <TouchableOpacity style={s.cancel} onPress={() => setEditUser(null)}>
                     <Text style={[s.cancelText, s.cancelStrong]}>Close</Text>
