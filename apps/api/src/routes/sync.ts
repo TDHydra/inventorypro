@@ -207,9 +207,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const results: Record<string, { rows: unknown[] }> = {};
 
     for (const table of FULL_TABLES) {
-      const col = table === 'team_members' ? 'joined_at' : 'updated_at';
-      const hasUpdatedAt = !['media'].includes(table) || col === 'joined_at';
-      const dateCol = table === 'media' ? 'created_at' : col;
+      const dateCol = table === 'media' ? 'created_at' : 'updated_at';
       const { rows } = await fastify.pg.query(
         `SELECT ${selectColsFor(table)} FROM ${table} WHERE ${dateCol} > $1`,
         [since]
