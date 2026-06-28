@@ -245,8 +245,25 @@ const routes: FastifyPluginAsync = async (fastify) => {
         await applyEntry(fastify.pg, entry);
         ok.push(entry.id);
       } catch (err) {
+        // Log the offending entry so a stuck/rejected outbox row is diagnosable
+        // (the client only stores the reason locally; conflicts aren't otherwise
+        // visible server-side). Include table + operation + payload keys.
+        request.log.warn(
+          {
+            entryId: entry.id,
+            table: entry.table_name,
+            operation: entry.operation,
+            payloadKeys: entry.payload ? Object.keys(entry.payload) : [],
+            error: (err as Error).message,
+          },
+          'sync push entry rejected',
+        );
         conflicts.push({ id: entry.id, error: (err as Error).message });
       }
+    }
+
+    if (conflicts.length > 0) {
+      request.log.warn({ count: conflicts.length }, 'sync push had conflicts');
     }
 
     return { ok, conflicts };
