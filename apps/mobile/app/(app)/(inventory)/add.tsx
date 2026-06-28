@@ -76,6 +76,8 @@ export default function AddStockScreen() {
   // ── Location + quantity state ─────────────────────────────────────────────
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null);
   const [quantity, setQuantity] = useState('');
+  const [packSize, setPackSize] = useState(''); // new item: units per pack
+  const [packMode, setPackMode] = useState<'packs' | 'units'>('packs');
 
   // ── Data ──────────────────────────────────────────────────────────────────
   // DB-backed product search (not a capped pre-load) so the full catalog is
@@ -222,7 +224,20 @@ export default function AddStockScreen() {
     setHomeLocation(null);
     setSelectedLocation(null);
     setQuantity('');
+    setPackSize('');
+    setPackMode('packs');
   }
+
+  // Pack size in play for the current add: an existing item's stored pack_size,
+  // or (when creating) the entered value. >1 means the Packs/Units toggle applies.
+  const newItemPackSize = (() => {
+    const n = parseInt(packSize, 10);
+    return Number.isFinite(n) && n > 1 ? n : null;
+  })();
+  const effectivePackSize = selectedItem
+    ? (autofillItem?.pack_size ?? null)
+    : (isCreatingNew ? newItemPackSize : null);
+  const usePacks = !!effectivePackSize && effectivePackSize > 1 && packMode === 'packs';
 
   function handleSave() {
     if (!selectedItem && !isCreatingNew) {
@@ -237,7 +252,10 @@ export default function AddStockScreen() {
       Alert.alert('Required', 'Select a location.');
       return;
     }
-    const qty = parseFloat(quantity) || 0;
+    // Entered value is packs or base units depending on the toggle; stock is
+    // always written in BASE units (entered × pack_size when adding packs).
+    const entered = parseFloat(quantity) || 0;
+    const qty = usePacks ? entered * (effectivePackSize as number) : entered;
     if (!isUnitTracked && qty <= 0) {
       Alert.alert('Required', 'Enter a quantity greater than 0.');
       return;
@@ -278,6 +296,7 @@ export default function AddStockScreen() {
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
         home_location_id: homeLocation?.id ?? null,
+        pack_size: newItemPackSize,
       };
       upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
       // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
@@ -405,6 +424,14 @@ export default function AddStockScreen() {
                 />
               )}
 
+              <FieldLabel style={{ marginTop: 12 }}>Pack size (optional)</FieldLabel>
+              <AppInput
+                placeholder={`Units per pack — e.g. 4 = a 4-${unit || 'unit'} pack`}
+                value={packSize}
+                onChangeText={setPackSize}
+                keyboardType="decimal-pad"
+              />
+
               <FieldLabel style={{ marginTop: 12 }}>Home location (where it belongs)</FieldLabel>
               <SearchablePicker
                 placeholder="Search locations… (optional)"
@@ -478,12 +505,31 @@ export default function AddStockScreen() {
           {!isUnitTracked && (
             <>
               <FieldLabel style={{ marginTop: 12 }}>Quantity to Add</FieldLabel>
+              {!!effectivePackSize && effectivePackSize > 1 && (
+                <View style={s.packModeRow}>
+                  <FilterChip
+                    label={`Packs of ${effectivePackSize}`}
+                    active={packMode === 'packs'}
+                    onPress={() => setPackMode('packs')}
+                  />
+                  <FilterChip
+                    label={`Loose ${autofillItem?.unit ?? unit}`}
+                    active={packMode === 'units'}
+                    onPress={() => setPackMode('units')}
+                  />
+                </View>
+              )}
               <AppInput
-                placeholder="Enter quantity"
+                placeholder={usePacks ? 'Number of packs' : 'Enter quantity'}
                 value={quantity}
                 onChangeText={setQuantity}
                 keyboardType="decimal-pad"
               />
+              {usePacks && !!parseFloat(quantity) && (
+                <Text style={s.packHint}>
+                  = {parseFloat(quantity) * (effectivePackSize as number)} {autofillItem?.unit ?? unit}
+                </Text>
+              )}
             </>
           )}
 
@@ -523,6 +569,8 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 48 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
+  packModeRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  packHint: { fontSize: 13, color: colors.primary, fontWeight: '600', marginTop: 4 },
   readonlyCard: {
     backgroundColor: colors.primaryBg, borderRadius: 10, borderWidth: 1,
     borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 10,

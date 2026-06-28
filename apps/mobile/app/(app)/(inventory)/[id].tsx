@@ -114,6 +114,7 @@ export default function ItemDetailScreen() {
       supplier: item.supplier ?? '',
       min_qty_alert: String(item.min_qty_alert ?? 0),
       reorder_to: item.reorder_to != null ? String(item.reorder_to) : '',
+      pack_size: item.pack_size != null ? String(item.pack_size) : '',
     });
     setEditCategory(item.category ?? '');
     setEditReturnable(item.returnable === 1);
@@ -182,6 +183,10 @@ export default function ItemDetailScreen() {
       unit_category: editUnitCat || PRODUCT_CLASS_IDS.piece,
       unit: editUnit.trim() || item.unit,
       home_location_id: editHomeLocation?.id ?? null,
+      pack_size: (() => {
+        const n = parseInt(form.pack_size ?? '', 10);
+        return Number.isFinite(n) && n > 1 ? n : null;
+      })(),
     };
     const synced = updateItemFields(item.id, fields);
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
@@ -297,6 +302,7 @@ export default function ItemDetailScreen() {
               </View>
               <Field label="Low-stock alert" value={form.min_qty_alert} onChange={setField('min_qty_alert')} keyboardType="decimal-pad" />
               <Field label="Reorder up to" value={form.reorder_to} onChange={setField('reorder_to')} keyboardType="decimal-pad" />
+              <Field label={`Pack size (units per pack, optional)`} value={form.pack_size ?? ''} onChange={setField('pack_size')} keyboardType="decimal-pad" />
 
               <View style={s.row}>
                 <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setEditing(false)}>
@@ -332,6 +338,9 @@ export default function ItemDetailScreen() {
                 {!!item.category && <Row k="Category" v={item.category} />}
                 <Row k="Unit Type" v={getProductClassById(item.unit_category)?.label ?? item.unit_category} />
                 <Row k="Unit" v={item.unit} />
+                {!!item.pack_size && item.pack_size > 1 && (
+                  <Row k="Pack size" v={`${item.pack_size} ${item.unit} per pack`} />
+                )}
                 <Row k="Barcode" v={item.barcode ?? '—'} />
                 <Row k="SKU / Part #" v={item.sku ?? '—'} />
                 <Row k="Supplier" v={item.supplier ?? '—'} />

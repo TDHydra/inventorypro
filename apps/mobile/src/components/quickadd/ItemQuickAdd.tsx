@@ -42,6 +42,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   const [name, setName] = useState('');
   const [sku, setSku] = useState(''); // item # / part #
+  const [packSize, setPackSize] = useState(''); // units per pack (optional)
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
   // unit_category stores a product_class id (drives formatQuantity decimals).
   const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
@@ -101,6 +102,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   function clearForm() {
     setName('');
     setSku('');
+    setPackSize('');
     setItemType('');
     setUnitCat(CLASS_PIECE_ID);
     setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
@@ -140,6 +142,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       updated_at: now,
       synced_at: null,
       home_location_id: homeLocation?.id ?? null,
+      pack_size: (() => { const n = parseInt(packSize, 10); return Number.isFinite(n) && n > 1 ? n : null; })(),
     };
 
     upsertItem(item);
@@ -236,6 +239,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
           onChangeText={setUnit}
         />
       )}
+
+      <FieldLabel>Pack size (optional)</FieldLabel>
+      <AppInput
+        placeholder={`Units per pack — e.g. 4 = a 4-${unit || 'unit'} pack`}
+        value={packSize}
+        onChangeText={setPackSize}
+        keyboardType="decimal-pad"
+      />
 
       <FieldLabel>Home location (where it belongs)</FieldLabel>
       <SearchablePicker
