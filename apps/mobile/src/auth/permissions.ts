@@ -1,6 +1,23 @@
 import { UserRole, Permission, ROLE_DEFAULTS } from '../constants/roles';
+import { getRolePermissionOverrides } from '../db/queries/users';
 
 export type { Permission } from '../constants/roles';
+
+// Module-level cache of per-role permission deviations from ROLE_DEFAULTS, keyed
+// by role. Populated by loadRolePermissionCache() at boot and after each sync, so
+// hasPermission() can stay synchronous (unchanged signature) instead of hitting
+// the DB on every call.
+let roleOverridesCache: Record<string, Record<string, boolean>> = {};
+
+// Refresh roleOverridesCache from role_settings. Safe to call before the DB is
+// ready (or before migration 014) — failures leave the existing cache in place.
+export function loadRolePermissionCache(): void {
+  try {
+    roleOverridesCache = getRolePermissionOverrides();
+  } catch {
+    // DB not initialized / column missing — keep whatever we have.
+  }
+}
 
 export interface TeamContext {
   team_id: string;
@@ -23,8 +40,9 @@ export interface UserSession {
  *
  * Resolution order (last match wins):
  * 1. Role default
- * 2. Team override (if teamId provided — set by dept manager, scoped to team)
- * 3. Global user override (set by Admin/HR — always wins)
+ * 2. Role-level override (runtime, synced via role_settings)
+ * 3. Team override (if teamId provided — set by dept manager, scoped to team)
+ * 4. Global user override (set by Admin/HR — always wins)
  */
 export function hasPermission(
   user: UserSession,
@@ -33,6 +51,12 @@ export function hasPermission(
 ): boolean {
   // 1. Role default
   let result = ROLE_DEFAULTS[user.role]?.[permission] ?? false;
+
+  // 1b. Role-level override (runtime deviation from ROLE_DEFAULTS)
+  const roleOv = roleOverridesCache[user.role];
+  if (roleOv && permission in roleOv) {
+    result = roleOv[permission];
+  }
 
   // 2. Team-level override (only if a team context is active)
   if (teamId && user.team_contexts) {

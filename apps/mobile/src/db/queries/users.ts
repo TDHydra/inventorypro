@@ -1,5 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { UserRole } from '../../constants/roles';
+import { appendOutbox } from '../../sync/outbox';
 
 export interface User {
   id: string;
@@ -107,6 +108,60 @@ export function getUsersByRole(role: string): User[] {
     [role]
   );
   return rowsAs<User>(result.rows);
+}
+
+// Read all role-level permission deviations from ROLE_DEFAULTS, keyed by role.
+// Each value is that role's override map ({perm: bool}); empty = pure default.
+// JSON is parsed per row with a safe {} fallback so one bad/null row can't break
+// the rest.
+export function getRolePermissionOverrides(): Record<string, Record<string, boolean>> {
+  const db = getDb();
+  const result = db.executeSync(`SELECT role, permission_overrides FROM role_settings`);
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const r of result.rows as { role: string; permission_overrides: string | null }[]) {
+    try {
+      out[r.role] = r.permission_overrides ? JSON.parse(r.permission_overrides) : {};
+    } catch {
+      out[r.role] = {};
+    }
+  }
+  return out;
+}
+
+// Toggle a single role→permission deviation. `allowed === null` DELETES the key
+// (clean reset to the ROLE_DEFAULTS value); a boolean sets it. Read-modify-write
+// the role's override map, INSERT OR REPLACE preserving min_pin_length, and mirror
+// the JSON object to the outbox (real booleans; synced_at stripped). Returns the
+// updated_at stamp.
+export function setRolePermission(role: string, perm: string, allowed: boolean | null): string {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const existing = db.executeSync(
+    `SELECT min_pin_length, permission_overrides FROM role_settings WHERE role = ?`,
+    [role]
+  );
+  const cur = existing.rows[0] as
+    | { min_pin_length: number; permission_overrides: string | null }
+    | undefined;
+  const minPin = cur?.min_pin_length ?? 4;
+  let overrides: Record<string, boolean> = {};
+  try {
+    overrides = cur?.permission_overrides ? JSON.parse(cur.permission_overrides) : {};
+  } catch {
+    overrides = {};
+  }
+  if (allowed === null) {
+    delete overrides[perm];
+  } else {
+    overrides[perm] = allowed;
+  }
+  db.executeSync(
+    `INSERT OR REPLACE INTO role_settings (role, min_pin_length, permission_overrides, updated_at)
+     VALUES (?, ?, ?, ?)`,
+    [role, minPin, JSON.stringify(overrides), now]
+  );
+  appendOutbox('UPDATE', 'role_settings', { role, permission_overrides: overrides, updated_at: now });
+  return now;
 }
 
 export function setRoleMinPin(role: string, minPinLength: number): string {

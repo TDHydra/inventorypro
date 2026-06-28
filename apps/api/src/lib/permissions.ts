@@ -115,24 +115,36 @@ export const ROLE_DEFAULTS: Record<string, PermissionMap> = {
   temporary_employee:       tempEmployee,
 };
 
+// Resolution order (last match wins): ROLE_DEFAULTS → role override → user override.
+// roleOverrides is the role_settings.permission_overrides deviation map (may be
+// null when the role has no row / no deviations).
 export function userHasPermission(
   role: string,
-  overrides: Record<string, boolean> | null,
+  userOverrides: Record<string, boolean> | null,
   perm: string,
+  roleOverrides?: Record<string, boolean> | null,
 ): boolean {
-  if (overrides && perm in overrides) return !!overrides[perm]; // user override wins
-  return ROLE_DEFAULTS[role]?.[perm] ?? false;
+  // 1. Role default
+  let result = ROLE_DEFAULTS[role]?.[perm] ?? false;
+  // 2. Role-level override (runtime deviation from ROLE_DEFAULTS)
+  if (roleOverrides && perm in roleOverrides) result = !!roleOverrides[perm];
+  // 3. User override (always wins)
+  if (userOverrides && perm in userOverrides) result = !!userOverrides[perm];
+  return result;
 }
 
 export function requirePermission(perm: string) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const userId = (request.user as { sub: string }).sub;
     const { rows } = await (request.server as any).pg.query(
-      'SELECT role, permission_overrides FROM users WHERE id = $1',
+      `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+         FROM users u
+         LEFT JOIN role_settings rs ON rs.role = u.role
+        WHERE u.id = $1`,
       [userId],
     );
     const u = rows[0];
-    if (!u || !userHasPermission(u.role, u.permission_overrides, perm)) {
+    if (!u || !userHasPermission(u.role, u.permission_overrides, perm, u.role_overrides)) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
   };
