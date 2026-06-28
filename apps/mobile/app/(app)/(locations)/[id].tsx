@@ -55,6 +55,7 @@ export default function LocationDetailScreen() {
   const [editLatitude, setEditLatitude] = useState<number | null>(null);
   const [editLongitude, setEditLongitude] = useState<number | null>(null);
   const [editRequireOwner, setEditRequireOwner] = useState(false);
+  const [editHasShelves, setEditHasShelves] = useState(false);
 
   // ── Move stock modal state ──────────────────────────────────────────────────
   const [showMoveStock, setShowMoveStock] = useState(false);
@@ -139,6 +140,7 @@ export default function LocationDetailScreen() {
     setEditLatitude(location.latitude ?? null);
     setEditLongitude(location.longitude ?? null);
     setEditRequireOwner(location.subareas_require_owner === 1);
+    setEditHasShelves(location.has_shelves === 1);
     setShowEdit(true);
   }
 
@@ -170,11 +172,13 @@ export default function LocationDetailScreen() {
     upsertLocation({
       ...location, ...changes,
       subareas_require_owner: editRequireOwner ? 1 : 0,
+      has_shelves: editHasShelves ? 1 : 0,
       active: 1, updated_at: now, synced_at: null,
     });
     appendOutbox('UPDATE', 'locations', {
       id, ...changes,
       subareas_require_owner: editRequireOwner,
+      has_shelves: editHasShelves,
       active: true, updated_at: now,
     });
     appendLog({
@@ -498,6 +502,11 @@ export default function LocationDetailScreen() {
             <View style={s.switchRow}>
               <Text style={s.switchLabel}>Subareas require an owner</Text>
               <Switch value={editRequireOwner} onValueChange={setEditRequireOwner} disabled={locked} />
+            </View>
+
+            <View style={s.switchRow}>
+              <Text style={s.switchLabel}>Has shelves (type a shelf when adding stock here)</Text>
+              <Switch value={editHasShelves} onValueChange={setEditHasShelves} disabled={locked} />
             </View>
 
             <PrimaryButton

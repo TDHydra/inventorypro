@@ -10,7 +10,7 @@ import {
   adjustStock, getStockQuantity,
 } from '../../../src/db/queries/items';
 import type { InventoryItem } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath, getShelfLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations, getShelvesForParent, findOrCreateShelf } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
@@ -75,6 +75,7 @@ export default function AddStockScreen() {
 
   // ── Location + quantity state ─────────────────────────────────────────────
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null);
+  const [shelfValue, setShelfValue] = useState<PickerOption | null>(null); // shelf within the location
   const [quantity, setQuantity] = useState('');
   const [packSize, setPackSize] = useState(''); // new item: units per pack
   const [packMode, setPackMode] = useState<'packs' | 'units'>('packs');
@@ -206,12 +207,23 @@ export default function AddStockScreen() {
   }
 
   function handleLocationSelect(opt: PickerOption) {
+    setShelfValue(null); // shelf is per-location — reset when the location changes
     if (selectedLocation && selectedLocation.id === opt.id) {
       setSelectedLocation(null);
     } else {
       setSelectedLocation(opt);
     }
   }
+
+  // The selected location's "has shelves" flag drives the Shelf field.
+  const selectedLocFull = selectedLocation ? locationById.get(selectedLocation.id) : undefined;
+  const locationHasShelves = selectedLocFull?.has_shelves === 1;
+  const shelfOptions: PickerOption[] = useMemo(
+    () => (locationHasShelves && selectedLocation)
+      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
+      : [],
+    [locationHasShelves, selectedLocation],
+  );
 
   function clearForm() {
     setSelectedItem(null);
@@ -226,6 +238,7 @@ export default function AddStockScreen() {
     setMinAlert('0'); setReorderTo('');
     setHomeLocation(null);
     setSelectedLocation(null);
+    setShelfValue(null);
     setQuantity('');
     setPackSize('');
     setPackMode('packs');
@@ -306,7 +319,11 @@ export default function AddStockScreen() {
       appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable, unit_tracked: false, tag_prefix: null });
     }
 
-    const locationId = selectedLocation!.id;
+    // If the location has shelves and one was chosen/typed, stock goes to that
+    // shelf (a child location, find-or-created). Otherwise to the location itself.
+    const locationId = (locationHasShelves && shelfValue?.label)
+      ? findOrCreateShelf(selectedLocation!.id, shelfValue.label)
+      : selectedLocation!.id;
     adjustStock(itemId, locationId, qty);
     const newQty = getStockQuantity(itemId, locationId);
     appendOutbox('INSERT', 'stock_by_location', {
@@ -501,6 +518,18 @@ export default function AddStockScreen() {
                 value={selectedLocation}
                 onSelect={handleLocationSelect}
               />
+              {locationHasShelves && (
+                <>
+                  <FieldLabel style={{ marginTop: 12 }}>Shelf</FieldLabel>
+                  <SearchablePicker
+                    placeholder="Type or pick a shelf (e.g. A1)…"
+                    options={shelfOptions}
+                    value={shelfValue}
+                    onSelect={(opt) => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
+                    onCreate={(text) => setShelfValue({ id: '__new__', label: text })}
+                  />
+                </>
+              )}
             </>
           )}
 

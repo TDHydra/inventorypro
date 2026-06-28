@@ -1,4 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { appendOutbox } from '../../sync/outbox';
+import { generateUUID } from '../../utils/uuid';
 
 export interface Location {
   id: string;
@@ -21,6 +23,8 @@ export interface Location {
   // location_type taxonomy label (migration 017): Shop, Vehicle, Locker, … Optional
   // so existing literals stay valid; upsertLocation coalesces undefined → null.
   type?: string | null;
+  // When 1, add-stock offers a Shelf field (migration 020). INTEGER locally.
+  has_shelves?: number;
 }
 
 export interface LocationWithChildren extends Location {
@@ -156,14 +160,55 @@ export function getShelfLocations(): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+// Shelf child-locations of a given parent, for the add-stock Shelf typeahead.
+export function getShelvesForParent(parentId: string): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ? ORDER BY name`,
+    [parentId],
+  );
+  return rowsAs<Location>(result.rows);
+}
+
+// Find (case-insensitive) or create a Shelf child of `parentId` named `name`,
+// returning its location id. Newly created shelves are written locally + queued
+// to the sync outbox (real boolean for active/has_shelves). Stock is then tracked
+// against the returned shelf location id.
+export function findOrCreateShelf(parentId: string, name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return parentId;
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ?
+       AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [parentId, trimmed],
+  ).rows)[0];
+  if (existing) return existing.id;
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  const shelf: Location = {
+    id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
+    owner_user_id: null, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
+  };
+  upsertLocation(shelf);
+  appendOutbox('INSERT', 'locations', {
+    id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
+    owner_user_id: null, active: true, updated_at: now,
+    latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
+  });
+  return id;
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(
-    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type, has_shelves)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([location.id, location.name, location.parent_id, location.color,
      location.icon, location.owner_user_id, location.active, location.updated_at, location.synced_at,
      location.latitude ?? null, location.longitude ?? null, location.subareas_require_owner ?? 0,
-     location.type ?? null])
+     location.type ?? null, location.has_shelves ?? 0])
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, RefreshControl,
+  Alert, RefreshControl, Switch,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -63,6 +63,7 @@ export default function LocationsScreen() {
   const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [hasShelves, setHasShelves] = useState(false);
 
   // Pull-to-refresh
   const [refreshing, setRefreshing] = useState(false);
@@ -125,7 +126,7 @@ export default function LocationsScreen() {
   }
 
   function resetForm() {
-    setName(''); setParentId(null); setType(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]); setOwnerOption(null);
+    setName(''); setParentId(null); setType(null); setColor(COLOR_OPTIONS[0]); setIcon(ICON_OPTIONS[0]); setOwnerOption(null); setHasShelves(false);
     setLatitude(null); setLongitude(null);
   }
 
@@ -147,8 +148,9 @@ export default function LocationsScreen() {
       active: true,
       latitude: latitude ?? null,
       longitude: longitude ?? null,
+      has_shelves: hasShelves,
     };
-    upsertLocation({ ...payload, active: 1, synced_at: null });
+    upsertLocation({ ...payload, active: 1, has_shelves: hasShelves ? 1 : 0, synced_at: null });
     appendOutbox('INSERT', 'locations', payload);
     appendLog({
       action: 'location_created',
@@ -443,6 +445,11 @@ export default function LocationsScreen() {
                   </>
                 )}
 
+                <View style={s.shelfToggleRow}>
+                  <Text style={s.shelfToggleLabel}>Has shelves (type a shelf when adding stock here)</Text>
+                  <Switch value={hasShelves} onValueChange={setHasShelves} disabled={locked} />
+                </View>
+
                 <FieldLabel>Icon</FieldLabel>
                 <View style={s.iconGrid}>
                   {ICON_OPTIONS.map(ic => (
@@ -519,6 +526,8 @@ const s = StyleSheet.create({
   modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
   dupWarn: { color: colors.warning, fontSize: fontSizes.body2, fontWeight: '600' },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  shelfToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.xs },
+  shelfToggleLabel: { flex: 1, fontSize: fontSizes.body, color: colors.textPrimary },
   iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
   iconCellText: { fontSize: 22 },
