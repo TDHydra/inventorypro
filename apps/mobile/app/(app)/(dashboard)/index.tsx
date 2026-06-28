@@ -68,6 +68,10 @@ export default function DashboardScreen() {
               <Text style={styles.tileIcon}>+</Text>
               <Text style={styles.tileLabel}>Add Stock to Location</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(equipment)')}>
+              <Text style={styles.tileIcon}>🛠️</Text>
+              <Text style={styles.tileLabel}>Equipment</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(locations)')}>
               <Text style={styles.tileIcon}>⇄</Text>
               <Text style={styles.tileLabel}>Manage Locations</Text>

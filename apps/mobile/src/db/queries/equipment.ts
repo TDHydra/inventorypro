@@ -1,4 +1,21 @@
 import { getDb, rowsAs } from '../schema';
+import { InventoryItem } from './items';
+import { countUnitsByStatus } from './equipmentUnits';
+
+export type EquipmentModel = InventoryItem & {
+  counts: { available: number; deployed: number; in_repair: number; retired: number };
+};
+
+export function getEquipmentModels(q?: string): EquipmentModel[] {
+  const db = getDb();
+  const hasQuery = q != null && q.length > 0;
+  const sql = hasQuery
+    ? `SELECT * FROM inventory_items WHERE kind='equipment' AND active=1 AND name LIKE '%'||?||'%' ORDER BY name`
+    : `SELECT * FROM inventory_items WHERE kind='equipment' AND active=1 ORDER BY name`;
+  const params = hasQuery ? [q] : [];
+  const items = rowsAs<InventoryItem>(db.executeSync(sql, params).rows);
+  return items.map(item => ({ ...item, counts: countUnitsByStatus(item.id) }));
+}
 
 /**
  * Returns the next available asset tag for the given prefix.

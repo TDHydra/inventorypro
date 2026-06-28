@@ -43,7 +43,8 @@ export default function InventoryScreen() {
   const runSearch = useCallback((q: string, cat: FilterCategory, newOffset: number, append = false) => {
     setLoading(true);
     const catFilter = cat === 'all' ? undefined : cat;
-    const rows = searchItems(q, PAGE_SIZE, newOffset, catFilter) as Item[];
+    // kind='product' filtered IN-SQL so pagination (LIMIT/OFFSET + hasMore) is correct.
+    const rows = searchItems(q, PAGE_SIZE, newOffset, catFilter, 'product') as Item[];
     if (append) {
       setItems(prev => [...prev, ...rows]);
     } else {
