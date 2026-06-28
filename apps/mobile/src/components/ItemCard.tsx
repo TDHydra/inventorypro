@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../theme';
 import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
-import { getStockByItem } from '../db/queries/items';
+import { getStockByItem, getItemById, InventoryItem } from '../db/queries/items';
+import { getLocationPath } from '../db/queries/locations';
 import { usePermission } from '../hooks/usePermission';
 import { MediaThumbnail } from './MediaThumbnail';
 
@@ -28,23 +29,47 @@ interface Props {
   onCheckout?: (itemId: string) => void;
 }
 
+function Stat({ k, v }: { k: string; v: string }) {
+  return (
+    <View style={styles.statRow}>
+      <Text style={styles.statKey}>{k}</Text>
+      <Text style={styles.statVal} numberOfLines={1}>{v}</Text>
+    </View>
+  );
+}
+
 export function ItemCard({ item, onCheckout }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [stock, setStock] = useState<StockRow[] | null>(null);
+  const [full, setFull] = useState<InventoryItem | null>(null);
   const router = useRouter();
   const canCheckout = usePermission('checkout_inventory');
   const canEdit = usePermission('edit_inventory');
 
   function toggle() {
     if (!expanded && stock === null) {
-      const rows = getStockByItem(item.id);
-      setStock(rows as unknown as StockRow[]);
+      setStock(getStockByItem(item.id) as unknown as StockRow[]);
+      setFull(getItemById(item.id));
     }
     setExpanded(e => !e);
   }
 
   const totalDisplay = formatQuantity(item.total_stock, item.unit, item.unit_category as any);
   const lowStock = item.total_stock <= 0;
+  const homePath = full?.home_location_id ? getLocationPath(full.home_location_id) : '';
+  const unitLabel = full?.pack_size && full.pack_size > 1
+    ? `${full.unit} · pack of ${full.pack_size}`
+    : (full?.unit ?? item.unit);
+
+  function reportRepair() {
+    router.push({
+      pathname: '/(app)/(repairs)/new',
+      params: { entityType: 'item', entityId: item.id, entityLabel: item.name },
+    });
+  }
+  function openDetail() {
+    router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: item.id } });
+  }
 
   return (
     <View style={styles.card}>
@@ -62,44 +87,52 @@ export function ItemCard({ item, onCheckout }: Props) {
 
       {expanded && (
         <View style={styles.expanded}>
+          {/* Quick stats / details */}
+          {full && (
+            <View style={styles.stats}>
+              {!!full.sku && <Stat k="Item #" v={full.sku} />}
+              {!!full.category && <Stat k="Type" v={full.category} />}
+              <Stat k="Unit" v={unitLabel} />
+              {!!homePath && <Stat k="Belongs at" v={homePath} />}
+              {full.min_qty_alert > 0 && (
+                <Stat k="Low-stock alert" v={`${full.min_qty_alert} ${full.unit}`} />
+              )}
+            </View>
+          )}
+
+          {/* Stock by location */}
+          <Text style={styles.sectionLabel}>On hand by location</Text>
           {stock === null || stock.length === 0 ? (
             <Text style={styles.noStock}>No stock tracked at any location</Text>
           ) : (
             stock.map(s => (
               <View key={s.location_id} style={styles.locationRow}>
                 <View style={styles.locationInfo}>
-                  {s.parent_name && (
-                    <Text style={styles.parentName}>{s.parent_name} ›</Text>
-                  )}
+                  {s.parent_name && <Text style={styles.parentName}>{s.parent_name} ›</Text>}
                   <Text style={styles.locationName}>{s.location_name}</Text>
                 </View>
-                <Text style={[
-                  styles.locationQty,
-                  s.quantity <= 0 && styles.locationQtyZero,
-                ]}>
+                <Text style={[styles.locationQty, s.quantity <= 0 && styles.locationQtyZero]}>
                   {formatQuantity(s.quantity, item.unit, item.unit_category as any)}
                 </Text>
               </View>
             ))
           )}
 
+          {/* Quick actions — do everything to the item from here */}
           <View style={styles.actions}>
             {canCheckout && onCheckout && (
-              <TouchableOpacity
-                style={styles.btnPrimary}
-                onPress={() => onCheckout(item.id)}
-              >
-                <Text style={styles.btnPrimaryText}>Check Out</Text>
+              <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={() => onCheckout(item.id)}>
+                <Text style={styles.actPrimaryText}>Check Out</Text>
               </TouchableOpacity>
             )}
             {canEdit && (
-              <TouchableOpacity
-                style={styles.btnSecondary}
-                onPress={() => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: item.id } })}
-              >
-                <Text style={styles.btnSecondaryText}>Edit</Text>
+              <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={reportRepair}>
+                <Text style={styles.actGhostText}>🔧 Report repair</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={openDetail}>
+              <Text style={styles.actGhostText}>{canEdit ? 'Edit / details' : 'Details'}</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -116,11 +149,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 8,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 14 },
   headerLeft: { flex: 1, marginLeft: 10 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   name: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
@@ -133,29 +162,31 @@ const styles = StyleSheet.create({
     borderTopColor: '#F1F5F9',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    gap: 6,
+    gap: 4,
   },
+  stats: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 6,
+    gap: 2,
+  },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
+  statKey: { fontSize: 12, color: colors.textMuted },
+  statVal: { fontSize: 12, fontWeight: '600', color: '#334155', flexShrink: 1, marginLeft: 12, textAlign: 'right' },
+  sectionLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginTop: 2 },
   noStock: { fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
-  locationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
+  locationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   locationInfo: { flex: 1 },
   parentName: { fontSize: 11, color: colors.textMuted },
   locationName: { fontSize: 13, color: '#475569' },
   locationQty: { fontSize: 13, fontWeight: '600', color: '#334155' },
   locationQtyZero: { color: colors.textDisabled },
-  actions: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  btnPrimary: {
-    flex: 1, backgroundColor: colors.primary, borderRadius: 8,
-    paddingVertical: 9, alignItems: 'center',
-  },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  btnSecondary: {
-    paddingHorizontal: 16, backgroundColor: '#F1F5F9', borderRadius: 8,
-    paddingVertical: 9, alignItems: 'center',
-  },
-  btnSecondaryText: { color: '#475569', fontWeight: '600', fontSize: 14 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  actBtn: { borderRadius: 8, paddingVertical: 9, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  actPrimary: { flexGrow: 1, backgroundColor: colors.primary },
+  actPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  actGhost: { backgroundColor: '#F1F5F9' },
+  actGhostText: { color: '#475569', fontWeight: '600', fontSize: 13 },
 });
