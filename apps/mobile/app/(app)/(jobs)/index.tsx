@@ -275,7 +275,7 @@ export default function JobsScreen() {
                     }}
                     delayLongPress={300}
                   >
-                    <Card variant="list">
+                    <Card variant="list" style={selected ? s.cardSelected : undefined}>
                       <View style={s.nameRow}>
                         {ms.active && (
                           <View style={[s.checkbox, selected && s.checkboxOn]}>
@@ -364,6 +364,7 @@ const s = StyleSheet.create({
 
   list: { padding: 12, gap: 8, paddingBottom: 80 },
   listSelecting: { paddingBottom: 180 },
+  cardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   checkbox: {
     width: 20, height: 20, borderRadius: 6, borderWidth: 2,
