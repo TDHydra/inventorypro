@@ -58,6 +58,45 @@ export function getLocationTypes(opts?: { includeInactive?: boolean }): Taxonomy
   return getTaxonomyTypes(LOCATION_TYPE, opts);
 }
 
+export const REPAIR_STATUS = 'repair_status';
+
+// Admin-editable repair statuses (Open, Awaiting Parts, In Progress, Repaired, …).
+export function getRepairStatuses(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(REPAIR_STATUS, opts);
+}
+
+// Whether a repair_status label "counts as completed" (meta.terminal). Unknown
+// labels are treated as non-terminal.
+export function isTerminalStatus(label: string): boolean {
+  const row = getTaxonomyTypes(REPAIR_STATUS, { includeInactive: true }).find(t => t.label === label);
+  if (!row?.meta) return false;
+  try { return (JSON.parse(row.meta) as { terminal?: unknown }).terminal === true; } catch { return false; }
+}
+
+// Set ONLY the terminal flag inside a repair_status row's meta (preserves any
+// other meta keys), + outbox — mirrors setTaxonomyClassId.
+export function setTaxonomyTerminal(id: string, terminal: boolean): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  meta.terminal = terminal;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  db.executeSync(
+    `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([existing.id, existing.category, existing.label, existing.icon, existing.sort_order, existing.active, updated_at, metaStr]),
+  );
+  appendOutbox('INSERT', 'taxonomy_types', {
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
 // Update ONLY the `units` array inside a taxonomy row's meta, preserving every
 // other meta key (e.g. item_category's classId). Used by the Manage Types units
 // editor for item types so editing units doesn't wipe the class mapping.
