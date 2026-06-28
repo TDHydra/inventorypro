@@ -43,6 +43,7 @@ export default function JobDetailScreen() {
   const [editSiteLocation, setEditSiteLocation] = useState<PickerOption | null>(null);
   const [editDescription, setEditDescription] = useState('');
   const [editType, setEditType] = useState<string | null>(null);
+  const [editReferenceNumber, setEditReferenceNumber] = useState('');
 
   const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
   const deployments = useMemo(() => getJobDeployments(id), [id]);
@@ -72,6 +73,7 @@ export default function JobDetailScreen() {
     setEditSiteAddress(job!.site_address ?? '');
     setEditDescription(job!.description ?? '');
     setEditType(job!.type ?? null);
+    setEditReferenceNumber(job!.reference_number ?? '');
     // Pre-populate site location picker if set
     if (job!.site_location_id) {
       const match = locationOptions.find(l => l.id === job!.site_location_id);
@@ -95,6 +97,7 @@ export default function JobDetailScreen() {
       site_location_id: editSiteLocation?.id ?? null,
       description: editDescription.trim() || null,
       type: editType || null,
+      reference_number: editReferenceNumber.trim() || null,
     };
 
     updateJobFields(id, fields);
@@ -243,6 +246,16 @@ export default function JobDetailScreen() {
               </View>
 
               <View style={s.fieldWrap}>
+                <FieldLabel>Reference # (external)</FieldLabel>
+                <AppInput
+                  value={editReferenceNumber}
+                  onChangeText={setEditReferenceNumber}
+                  placeholder="Insurance claim / customer PO #"
+                  autoCapitalize="characters"
+                />
+              </View>
+
+              <View style={s.fieldWrap}>
                 <FieldLabel>Description</FieldLabel>
                 <AppInput
                   style={s.textArea}
@@ -284,6 +297,12 @@ export default function JobDetailScreen() {
                   </Text>
                 </View>
 
+                {!!job.reference_number && (
+                  <View style={s.metaRow}>
+                    <FieldLabel style={{ minWidth: 60 }}>Ref #</FieldLabel>
+                    <Text style={s.metaValue}>{job.reference_number}</Text>
+                  </View>
+                )}
                 {!!job.customer_name && (
                   <View style={s.metaRow}>
                     <FieldLabel style={{ minWidth: 60 }}>Customer</FieldLabel>

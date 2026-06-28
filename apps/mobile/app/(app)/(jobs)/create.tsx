@@ -35,6 +35,7 @@ export default function CreateJobScreen() {
   const [siteAddress, setSiteAddress] = useState('');
   const [siteLocation, setSiteLocation] = useState<PickerOption | null>(null);
   const [description, setDescription] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
 
   const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
   const [type, setType] = useState<string | null>(() => {
@@ -74,6 +75,7 @@ export default function CreateJobScreen() {
       site_location_id: siteLocation?.id ?? null,
       description: description.trim() || null,
       type: type || null,
+      reference_number: referenceNumber.trim() || null,
     };
 
     upsertJob(newJob);
@@ -92,6 +94,7 @@ export default function CreateJobScreen() {
       site_location_id: newJob.site_location_id,
       description: newJob.description,
       type: newJob.type,
+      reference_number: newJob.reference_number,
     });
     appendLog({
       action: 'job_created',
@@ -194,6 +197,16 @@ export default function CreateJobScreen() {
                 options={locationOptions}
                 value={siteLocation}
                 onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
+              />
+            </View>
+
+            <View style={s.fieldWrap}>
+              <FieldLabel>Reference # (external)</FieldLabel>
+              <AppInput
+                value={referenceNumber}
+                onChangeText={setReferenceNumber}
+                placeholder="Insurance claim / customer PO #"
+                autoCapitalize="characters"
               />
             </View>
 
