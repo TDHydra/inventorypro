@@ -19,6 +19,11 @@ export function loadRolePermissionCache(): void {
   }
 }
 
+// Self-lockout floor: full_admin ALWAYS retains these regardless of any
+// role/user override, so the system can never lose permission management.
+// Authoritative (not just UI-disabled). KEEP IN SYNC with apps/api/src/lib/permissions.ts.
+const FULL_ADMIN_FLOOR: Permission[] = ['manage_roles_permissions', 'system_settings'];
+
 export interface TeamContext {
   team_id: string;
   team_permission_overrides: Record<string, boolean>;
@@ -49,6 +54,9 @@ export function hasPermission(
   permission: Permission,
   teamId?: string | null
 ): boolean {
+  // 0. Self-lockout floor — full_admin can never lose these (overrides ignored).
+  if (user.role === 'full_admin' && FULL_ADMIN_FLOOR.includes(permission)) return true;
+
   // 1. Role default
   let result = ROLE_DEFAULTS[user.role]?.[permission] ?? false;
 

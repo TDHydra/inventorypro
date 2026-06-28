@@ -4,6 +4,12 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 
 type PermissionMap = Record<string, boolean>;
 
+// Self-lockout floor: full_admin ALWAYS retains the permissions needed to
+// recover/manage the system, regardless of any role/user override. Authoritative
+// (not just UI-disabled) so a stray override in role_settings can never lock
+// everyone out of permission management. KEEP IN SYNC with mobile.
+const FULL_ADMIN_FLOOR = new Set(['manage_roles_permissions', 'system_settings']);
+
 const tier4: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
@@ -124,6 +130,8 @@ export function userHasPermission(
   perm: string,
   roleOverrides?: Record<string, boolean> | null,
 ): boolean {
+  // 0. Self-lockout floor — full_admin can never lose these (overrides ignored).
+  if (role === 'full_admin' && FULL_ADMIN_FLOOR.has(perm)) return true;
   // 1. Role default
   let result = ROLE_DEFAULTS[role]?.[perm] ?? false;
   // 2. Role-level override (runtime deviation from ROLE_DEFAULTS)
