@@ -13,6 +13,7 @@ import {
 } from '../../../src/db/queries/log';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
+import { MovePhotoThumb } from '../../../src/components/MovePhotoThumb';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getValidJwt } from '../../../src/auth/session';
 import { syncNow } from '../../../src/sync/engine';
@@ -284,6 +285,7 @@ export default function LogsScreen() {
                   <View style={s.right}>
                     <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
                   </View>
+                  <MovePhotoThumb logId={log.id} />
                 </View>
               )}
               ListEmptyComponent={
@@ -315,6 +317,7 @@ export default function LogsScreen() {
                   <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
                   {!log.synced_at && <Text style={s.pending}>↑ pending</Text>}
                 </View>
+                <MovePhotoThumb logId={log.id} />
               </View>
             )}
             ListEmptyComponent={
