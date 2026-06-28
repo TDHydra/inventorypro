@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch,
 } from 'react-native';
@@ -18,7 +18,7 @@ import { getDb } from '../../../src/db/schema';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
-import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
+import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -51,16 +51,6 @@ export default function LocationDetailScreen() {
   const [editLatitude, setEditLatitude] = useState<number | null>(null);
   const [editLongitude, setEditLongitude] = useState<number | null>(null);
   const [editRequireOwner, setEditRequireOwner] = useState(false);
-
-  const { coords: anchorCoords, status: anchorStatus, request: requestAnchor } = useCurrentPosition();
-
-  // Sync GPS coords into form state when a capture completes
-  useEffect(() => {
-    if (anchorCoords !== null) {
-      setEditLatitude(anchorCoords.latitude);
-      setEditLongitude(anchorCoords.longitude);
-    }
-  }, [anchorCoords]);
 
   // ── Move stock modal state ──────────────────────────────────────────────────
   const [showMoveStock, setShowMoveStock] = useState(false);
@@ -390,29 +380,11 @@ export default function LocationDetailScreen() {
             )}
 
             <FieldLabel>GPS Anchor</FieldLabel>
-            {anchorStatus === 'denied' ? (
-              <Text style={s.anchorDenied}>
-                Location permission off — you can still save without it.
-              </Text>
-            ) : (
-              <TouchableOpacity
-                style={[s.anchorBtn, editLatitude !== null && s.anchorBtnSet]}
-                onPress={requestAnchor}
-                disabled={anchorStatus === 'loading'}
-                activeOpacity={0.7}
-              >
-                <Text style={[s.anchorBtnText, editLatitude !== null && s.anchorBtnTextSet]}>
-                  {anchorStatus === 'loading'
-                    ? '📍 Getting location…'
-                    : editLatitude !== null
-                    ? '📍 Anchored ✓ · re-capture'
-                    : '📍 Use my current spot'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {editLatitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
-              <Text style={s.anchorHint}>Not anchored</Text>
-            )}
+            <GpsAnchorField
+              value={editLatitude !== null && editLongitude !== null ? { latitude: editLatitude, longitude: editLongitude } : null}
+              onChange={(c) => { setEditLatitude(c?.latitude ?? null); setEditLongitude(c?.longitude ?? null); }}
+              disabled={locked}
+            />
 
             <FieldLabel>Icon</FieldLabel>
             <View style={s.iconGrid}>
@@ -547,12 +519,6 @@ const s = StyleSheet.create({
   linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },
   cancelText: { color: colors.textMuted },
-  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: radii.md, paddingVertical: 11, paddingHorizontal: spacing.base, borderWidth: 1, borderColor: colors.textDisabled, alignItems: 'center' },
-  anchorBtnSet: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
-  anchorBtnText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
-  anchorBtnTextSet: { color: colors.success, fontWeight: '700' },
-  anchorHint: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
-  anchorDenied: { fontSize: fontSizes.caption, color: colors.warning, textAlign: 'center', paddingVertical: spacing.sm },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
