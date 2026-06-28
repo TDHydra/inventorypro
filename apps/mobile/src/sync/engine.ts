@@ -4,6 +4,7 @@ import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry
 import { pullChanges } from './pull';
 import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
+import { loadClassConfigCache } from '../constants/units';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const MAX_ATTEMPTS = 5;
@@ -114,6 +115,9 @@ async function runDrainAndPull(): Promise<void> {
   try {
     await drainOutbox();
     await pullChanges();
+    // A pull may have changed product_class units/decimals — refresh the cache
+    // that formatQuantity() reads so quantities reflect the latest config.
+    loadClassConfigCache();
   } catch (err) {
     console.warn('[Sync] Cycle error:', (err as Error).message);
   }

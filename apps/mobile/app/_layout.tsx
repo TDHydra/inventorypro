@@ -6,6 +6,7 @@ import { SessionContext, SessionContextValue } from '../src/hooks/useSession';
 import { UserSession } from '../src/auth/permissions';
 import { clearSession } from '../src/auth/session';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
+import { loadClassConfigCache } from '../src/constants/units';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -15,6 +16,7 @@ export default function RootLayout() {
     initDb()
       .then(() => {
         setDbReady(true);
+        loadClassConfigCache();
         startSyncEngine();
       })
       .catch(err => console.error('[DB] Init failed:', err));
