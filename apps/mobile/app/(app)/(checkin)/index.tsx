@@ -12,7 +12,7 @@ import { generateUUID } from '../../../src/utils/uuid';
 import { getActiveCheckoutsForUser } from '../../../src/db/queries/jobs';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { rowsAs } from '../../../src/db/schema';
-import { adjustStock, getStockQuantity } from '../../../src/db/queries/items';
+import { adjustStock } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { isWriteBlocked } from '../../../src/db/maintenance';
@@ -161,10 +161,10 @@ export default function CheckinScreen() {
 
       adjustStock(item.entity_id, returnLocation.id, returnQty);
 
-      appendOutbox('INSERT', 'stock_by_location', {
+      appendOutbox('ADJUST', 'stock_by_location', {
         item_id: item.entity_id,
         location_id: returnLocation.id,
-        quantity: getStockQuantity(item.entity_id, returnLocation.id),
+        delta: returnQty,
         updated_at: now,
       });
 

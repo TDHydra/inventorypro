@@ -2,7 +2,7 @@ import { getDb } from '../db/schema';
 import { generateUUID } from '../utils/uuid';
 import { assertWritable } from '../db/maintenance';
 
-export type OutboxOperation = 'INSERT' | 'UPDATE' | 'DELETE';
+export type OutboxOperation = 'INSERT' | 'UPDATE' | 'DELETE' | 'ADJUST';
 
 export interface OutboxEntry {
   id: string;
