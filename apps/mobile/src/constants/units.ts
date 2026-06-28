@@ -23,13 +23,6 @@ export const UNIT_OPTIONS: Record<UnitCategory, string[]> = {
   weight: ['lb', 'oz', 'kg', 'g'],
 };
 
-export const UNIT_CATEGORY_LABELS: Record<UnitCategory, string> = {
-  liquid: 'Liquid',
-  piece:  'Pieces / PPE',
-  length: 'Length',
-  weight: 'Weight',
-};
-
 // Whether partial quantities (decimals) are allowed
 export const ALLOWS_DECIMALS: Record<UnitCategory, boolean> = {
   liquid: true,
@@ -50,7 +43,9 @@ let classDecimalsCache: Record<string, boolean> = {};
 export function loadClassConfigCache(): void {
   try {
     const next: Record<string, boolean> = {};
-    for (const cls of getProductClasses()) {
+    // includeInactive: items can still reference an archived class; keep its
+    // decimals policy so quantities don't silently start rendering decimals.
+    for (const cls of getProductClasses({ includeInactive: true })) {
       next[cls.id] = cls.allowDecimals;
     }
     classDecimalsCache = next;

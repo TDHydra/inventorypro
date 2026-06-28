@@ -14,6 +14,7 @@ import { getAllLocations } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getProductClasses } from '../../../src/db/queries/taxonomy';
+import { PRODUCT_CLASS_IDS } from '../../../src/constants/units';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
@@ -57,7 +58,7 @@ export default function AddStockScreen() {
   const [supplier, setSupplier] = useState('');
   const [model, setModel] = useState('');
   // unit_category now stores a product_class id (stable taxonomy id), not a legacy enum.
-  const [unitCat, setUnitCat] = useState<string>(defaultClass?.id ?? 'piece');
+  const [unitCat, setUnitCat] = useState<string>(defaultClass?.id ?? PRODUCT_CLASS_IDS.piece);
   const [unit, setUnit] = useState<string>(defaultClass?.units[0] ?? 'each');
   // Item catalog category (free-text, e.g. "Air Movers", "Filters")
   const [category, setCategory] = useState('');
@@ -176,7 +177,7 @@ export default function AddStockScreen() {
     setBarcode('');
     setName(''); setDescription('');
     setSupplier(''); setModel('');
-    setUnitCat(defaultClass?.id ?? 'piece'); setUnit(defaultClass?.units[0] ?? 'each');
+    setUnitCat(defaultClass?.id ?? PRODUCT_CLASS_IDS.piece); setUnit(defaultClass?.units[0] ?? 'each');
     setCategory(''); setReturnable(false);
     setMinAlert('0'); setReorderTo('');
     setSelectedLocation(null);
