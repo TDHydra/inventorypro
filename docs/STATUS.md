@@ -89,11 +89,10 @@ points at prod and is sufficient to field-test notifications directly.
 - P4 multi-parent locations — decided out of scope (deep single-parent nesting suffices).
 
 ## 🐞 Known bugs / backlog
-- **Maintenance mode blocks admin login** *(reported 2026-06-28)* — when maintenance mode is ON, logging in as
-  an admin fails with **"connection required."** Admins/tier-4 must be able to sign in *during* maintenance (to
-  turn it off / manage). Likely the maintenance write-guard (`assertWritable`) or a server-side maintenance gate is
-  firing on the online PIN auth (`POST /auth/token`) path. Fix: exempt the auth/login path (and tier-4) from the
-  maintenance lockout. Check `apps/api` maintenance handling + the mobile login flow's session writes.
+- ✅ **Maintenance mode blocks admin login** *(fixed 2026-06-28)* — the cause was `enterApp` writing a `login`
+  activity-log via the outbox before the session role was wired, so the maintenance write-guard threw and aborted
+  sign-in (shown as "connection required"). Fixed in `app/(auth)/login.tsx`: wire `setMaintenanceRole(session.role)`
+  first + make the login audit best-effort (try/catch). Sign-in is no longer treated as a blocked write. Client-only.
 - ✅ **Job site map** *(done 2026-06-28)* — job detail shows a **view-only Leaflet map** (`MapDisplay`) geocoded from
   `site_address` (`expo-location`), ~35-mile extent pin, no API key. *(Decoupling `site_location_id` from the form is
   still optional/open; the map is address-driven as requested.)*
