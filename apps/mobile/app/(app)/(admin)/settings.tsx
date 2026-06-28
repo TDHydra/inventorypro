@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Alert } from 'react-native';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -7,7 +7,8 @@ import { useSession } from '../../../src/hooks/useSession';
 import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
-import { getIdleTimeoutMinutes, setIdleTimeoutMinutes } from '../../../src/db/appSettings';
+import { getIdleTimeoutMinutes, setIdleTimeoutMinutes, getAppSetting, setAppSetting } from '../../../src/db/appSettings';
+import { ensureNotificationPermission } from '../../../src/notifications/localAlerts';
 import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
 import {
   FormMode,
@@ -74,6 +75,8 @@ export default function SettingsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [idleMinutes, setIdleMinutes] = useState(0);
+  // Default ON when the pref is unset.
+  const [notifEnabled, setNotifEnabled] = useState<boolean>(() => getAppSetting('notifications_enabled') !== 'false');
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
@@ -84,6 +87,7 @@ export default function SettingsScreen() {
     setLastSync(ls);
     setPending(p);
     setIdleMinutes(getIdleTimeoutMinutes());
+    setNotifEnabled(getAppSetting('notifications_enabled') !== 'false');
     setFormDefaultState(getFormModeDefault());
     setFormOverrideState(getFormModeOverride());
     setFormResolvedState(getFormMode());
@@ -117,6 +121,26 @@ export default function SettingsScreen() {
       setIdleMinutes(mins);
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to save idle timeout:', err);
+    }
+  };
+
+  const handleToggleNotifications = async (enabled: boolean) => {
+    try {
+      setAppSetting('notifications_enabled', enabled ? 'true' : 'false');
+      setNotifEnabled(enabled);
+      // Turning ON: make sure we actually hold OS permission, otherwise nothing
+      // will surface. If denied, point the user at the OS settings.
+      if (enabled) {
+        const granted = await ensureNotificationPermission();
+        if (!granted) {
+          Alert.alert(
+            'Notifications are off',
+            'To get low-stock and expiry alerts, enable notifications for InventoryPro in your device Settings.'
+          );
+        }
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[Settings] Failed to toggle notifications:', err);
     }
   };
 
@@ -226,6 +250,25 @@ export default function SettingsScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
+            </View>
+          </View>
+        </View>
+
+        {/* ── Notifications ─────────────────────────────────────────────── */}
+        <View>
+          <Text style={s.sectionTitle}>Notifications</Text>
+          <View style={s.card}>
+            <View style={s.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>Stock & expiry alerts</Text>
+                <Text style={s.rowSub}>
+                  Get a notification when an item runs low or a temporary employee's access is about to expire.
+                </Text>
+              </View>
+              <Switch
+                value={notifEnabled}
+                onValueChange={(v) => { void handleToggleNotifications(v); }}
+              />
             </View>
           </View>
         </View>

@@ -29,6 +29,25 @@ export function getAllActiveUsers(): User[] {
   return rowsAs<User>(result.rows);
 }
 
+// Active users whose access expires within the next `days` days (now < expires_at
+// <= now+days). Drives the temp-employee-expiry local alert. Mirrors the bind
+// style of getAllActiveUsers (ISO-string comparisons against expires_at).
+export function getExpiringUsers(days: number): User[] {
+  const db = getDb();
+  const now = new Date();
+  const until = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  const result = db.executeSync(
+    `SELECT * FROM users
+     WHERE active = 1
+       AND expires_at IS NOT NULL
+       AND expires_at > ?
+       AND expires_at <= ?
+     ORDER BY expires_at`,
+    [now.toISOString(), until.toISOString()]
+  );
+  return rowsAs<User>(result.rows);
+}
+
 // Admin list needs EVERYONE — including deactivated/expired users, so they can
 // be reactivated. (getAllActiveUsers is for the login picker, which must not.)
 export function getAllUsers(): User[] {

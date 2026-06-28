@@ -62,7 +62,8 @@
           "locationWhenInUsePermission": "Used only to suggest the nearest location while you're using the app — never tracked in the background."
         }
       ],
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true
