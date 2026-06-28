@@ -9,7 +9,7 @@ import type { InventoryItem } from '../../db/queries/items';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
-import { getTaxonomyTypes } from '../../db/queries/taxonomy';
+import { getItemTypes, parseItemTypeMeta } from '../../db/queries/taxonomy';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
@@ -23,21 +23,6 @@ import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 // selected (most products are counted in pieces).
 const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
-// item_category.meta carries the type's curated units + the product_class it maps
-// to (migration 018): { units: [...], classId: "<product_class uuid>" }.
-function parseItemTypeMeta(meta: string | null | undefined): { units: string[]; classId: string | null } {
-  if (!meta) return { units: [], classId: null };
-  try {
-    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown };
-    return {
-      units: Array.isArray(p.units) ? p.units.filter((u): u is string => typeof u === 'string') : [],
-      classId: typeof p.classId === 'string' ? p.classId : null,
-    };
-  } catch {
-    return { units: [], classId: null };
-  }
-}
-
 interface Props {
   onSaved: (label: string) => void;
 }
@@ -50,7 +35,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
   // unit class in meta. Equipment is NOT here (own tab); items are kind='product'.
-  const itemTypes = useMemo(() => getTaxonomyTypes('item_category'), []);
+  const itemTypes = useMemo(() => getItemTypes(), []);
 
   const [name, setName] = useState('');
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category

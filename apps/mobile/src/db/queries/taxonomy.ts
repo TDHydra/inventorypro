@@ -26,6 +26,54 @@ export type ProductClass = {
 };
 
 const PRODUCT_CLASS_CATEGORY = 'product_class';
+export const ITEM_CATEGORY = 'item_category';
+
+// item_category.meta shape (migration 018): the type's curated units + the
+// product_class it maps to (stored as the item's unit_category for formatting).
+export type ItemTypeMeta = { units: string[]; classId: string | null };
+
+export function parseItemTypeMeta(meta: string | null | undefined): ItemTypeMeta {
+  if (!meta) return { units: [], classId: null };
+  try {
+    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown };
+    return {
+      units: Array.isArray(p.units) ? p.units.filter((u): u is string => typeof u === 'string') : [],
+      classId: typeof p.classId === 'string' ? p.classId : null,
+    };
+  } catch {
+    return { units: [], classId: null };
+  }
+}
+
+// Active item types (PPE, Filters, …) for the catalog forms.
+export function getItemTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(ITEM_CATEGORY, opts);
+}
+
+// Update ONLY the `units` array inside a taxonomy row's meta, preserving every
+// other meta key (e.g. item_category's classId). Used by the Manage Types units
+// editor for item types so editing units doesn't wipe the class mapping.
+export function setTaxonomyUnits(id: string, units: string[]): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  meta.units = units;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  db.executeSync(
+    `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([existing.id, existing.category, existing.label, existing.icon, existing.sort_order, existing.active, updated_at, metaStr]),
+  );
+  appendOutbox('INSERT', 'taxonomy_types', {
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
 
 // Parse a taxonomy_types.meta JSON blob into the units/allowDecimals shape.
 // Tolerant: null, empty, or malformed JSON falls back to {units:[], allowDecimals:true}.
