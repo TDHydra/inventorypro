@@ -118,8 +118,10 @@ export default function InventoryScreen() {
   // ── Bulk multi-select (gated on edit_inventory, matching the detail edit) ──
   const reloadList = useCallback(() => runSearch(query, filter, 0), [runSearch, query, filter]);
 
-  const categoryOptions = useMemo<PickerOption[]>(
-    () => getDistinctValues('category').map(v => ({ id: v, label: v })),
+  // Item-type options for the bulk "Set item type" backfill (so existing items
+  // get a real type and become filterable). Falls back to any free-typed value.
+  const itemTypeOptions = useMemo<PickerOption[]>(
+    () => getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
     [],
   );
   const supplierOptions = useMemo<PickerOption[]>(
@@ -184,7 +186,7 @@ export default function InventoryScreen() {
   }, [ms, reloadList, logItem, minQtyValue]);
 
   const bulkActions = useMemo<BulkAction[]>(() => [
-    { key: 'category', label: 'Set category', onPress: () => setCategoryPickerOpen(true) },
+    { key: 'category', label: 'Set item type', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
     { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
   ], []);
@@ -325,12 +327,12 @@ export default function InventoryScreen() {
           />
         )}
 
-        {/* Bulk: set category (free entry allowed) */}
+        {/* Bulk: set item type (backfill) — pick a managed type or free-type a value */}
         <ModalSheet visible={categoryPickerOpen} onClose={() => setCategoryPickerOpen(false)}>
-          <Text style={styles.sheetTitle}>Set category for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <Text style={styles.sheetTitle}>Set item type for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
           <SearchablePicker
-            placeholder="Search or type a category…"
-            options={categoryOptions}
+            placeholder="Pick an item type…"
+            options={itemTypeOptions}
             value={null}
             onSelect={(opt) => applyCategory(opt.id)}
             onCreate={(text) => applyCategory(text)}

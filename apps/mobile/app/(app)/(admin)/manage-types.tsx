@@ -18,6 +18,7 @@ import {
   reorderTaxonomyType,
   parseItemTypeMeta,
   setTaxonomyUnits,
+  setTaxonomyClassId,
 } from '../../../src/db/queries/taxonomy';
 import { loadClassConfigCache } from '../../../src/constants/units';
 import { ICON_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
@@ -148,6 +149,9 @@ export default function ManageTypesScreen() {
   const [editUnitsOriginal, setEditUnitsOriginal] = useState<string[]>([]);
   const [editAllowDecimals, setEditAllowDecimals] = useState(true);
   const [newUnit, setNewUnit] = useState('');
+  // Item-type unit-class mapping (item_category.meta.classId).
+  const [editClassId, setEditClassId] = useState<string>('');
+  const [editClassIdOriginal, setEditClassIdOriginal] = useState<string>('');
 
   function refresh() {
     setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
@@ -207,11 +211,13 @@ export default function ManageTypesScreen() {
       setEditUnitsOriginal(units);
       setEditAllowDecimals(cls ? cls.allowDecimals : true);
     } else if (item.category === 'item_category') {
-      const units = parseItemTypeMeta(item.meta).units;
+      const m = parseItemTypeMeta(item.meta);
       setEditClass(null);
-      setEditUnits([...units]);
-      setEditUnitsOriginal([...units]);
+      setEditUnits([...m.units]);
+      setEditUnitsOriginal([...m.units]);
       setEditAllowDecimals(true);
+      setEditClassId(m.classId ?? '');
+      setEditClassIdOriginal(m.classId ?? '');
     } else {
       setEditClass(null);
       setEditUnits([]);
@@ -230,6 +236,8 @@ export default function ManageTypesScreen() {
     setEditUnitsOriginal([]);
     setEditAllowDecimals(true);
     setNewUnit('');
+    setEditClassId('');
+    setEditClassIdOriginal('');
   }
 
   function handleMoveUnitUp(index: number) {
@@ -284,9 +292,14 @@ export default function ManageTypesScreen() {
         });
         // Refresh the decimals cache so formatQuantity() reflects the change now.
         loadClassConfigCache();
-      } else if (editType.category === 'item_category' && unitsDirty) {
-        // Persist ONLY the units array; setTaxonomyUnits preserves classId.
-        setTaxonomyUnits(editType.id, editUnits);
+      } else if (editType.category === 'item_category') {
+        // Persist units (preserves classId) and/or the class mapping (preserves
+        // units), independently.
+        if (unitsDirty) setTaxonomyUnits(editType.id, editUnits);
+        if (classIdDirty && editClassId) {
+          setTaxonomyClassId(editType.id, editClassId);
+          loadClassConfigCache();
+        }
       }
       refresh();
       closeEdit();
@@ -405,12 +418,16 @@ export default function ManageTypesScreen() {
     editUnits.length !== editUnitsOriginal.length ||
     editUnits.some((u, i) => u !== editUnitsOriginal[i]);
 
+  const classIdDirty =
+    editType?.category === 'item_category' && editClassId !== editClassIdOriginal;
+
   const editDirty =
     !!editType &&
     (editLabel.trim() !== editType.label ||
       editIcon !== editType.icon ||
       metaDirty ||
-      unitsDirty);
+      unitsDirty ||
+      classIdDirty);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -566,6 +583,25 @@ export default function ManageTypesScreen() {
                       />
                     </View>
                   )}
+                  {editType.category === 'item_category' && (
+                    <>
+                      <Text style={s.fieldLabel}>Unit class</Text>
+                      <Text style={s.rowSub}>
+                        Sets how quantities format (e.g. liquid allows decimals). New
+                        items of this type default to its unit list above.
+                      </Text>
+                      <View style={s.classChipRow}>
+                        {classTypes.filter(c => c.active === 1).map(c => (
+                          <FilterChip
+                            key={c.id}
+                            label={c.label}
+                            active={editClassId === c.id}
+                            onPress={() => setEditClassId(c.id)}
+                          />
+                        ))}
+                      </View>
+                    </>
+                  )}
                 </>
               )}
 
@@ -692,6 +728,7 @@ const s = StyleSheet.create({
 
   // Product-class units editor
   unitsEmpty: { fontSize: fontSizes.body2, color: colors.textMuted },
+  classChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
 
   // Reorderable units list
   unitList: {

@@ -166,6 +166,31 @@ export function setClassMeta(
   });
 }
 
+// Update ONLY the classId inside an item_category row's meta, preserving the
+// units array. Lets admins remap which unit class a type uses (e.g. Chemicals →
+// liquid) from Manage Types.
+export function setTaxonomyClassId(id: string, classId: string): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  meta.classId = classId;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  db.executeSync(
+    `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([existing.id, existing.category, existing.label, existing.icon, existing.sort_order, existing.active, updated_at, metaStr]),
+  );
+  appendOutbox('INSERT', 'taxonomy_types', {
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
 export function getTaxonomyTypes(
   category: string,
   opts?: { includeInactive?: boolean },
