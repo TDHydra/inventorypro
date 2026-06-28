@@ -6,8 +6,8 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
-  getLocationTree, getTopLevelLocations, upsertLocation, getLocationById,
-  Location, LocationWithChildren,
+  getLocationTree, upsertLocation, getLocationById, getAllLocations, getLocationPath,
+  LocationWithChildren,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -61,7 +61,13 @@ export default function LocationsScreen() {
     setRefreshing(false);
   }, [refreshing]);
 
-  const topLevel = useMemo<Location[]>(() => getTopLevelLocations(), [tree]);
+  // All active locations as parent options, labelled by full path (e.g.
+  // "Site A › Floor 2"). Locations are a bounded set, so client-side filtering in
+  // the picker is fine (unlike the 1000+ item catalog).
+  const parentOptions = useMemo<PickerOption[]>(
+    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
+    [tree],
+  );
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
   const userOptions = useMemo<PickerOption[]>(
@@ -78,9 +84,8 @@ export default function LocationsScreen() {
   const dup = useMemo(() => {
     const n = name.trim().toLowerCase();
     if (!n) return null;
-    const siblings = parentId
-      ? tree.find(t => t.id === parentId)?.children ?? []
-      : tree;
+    // Siblings = locations sharing the chosen parent (works at any depth).
+    const siblings = getAllLocations().filter(l => (l.parent_id ?? null) === parentId);
     return siblings.find(l => l.name.trim().toLowerCase() === n) ?? null;
   }, [name, parentId, tree]);
 
@@ -168,9 +173,62 @@ export default function LocationsScreen() {
     doCreate();
   }
 
-  const parentName = parentId
-    ? topLevel.find(t => t.id === parentId)?.name ?? 'location'
-    : null;
+  const parentName = parentId ? (getLocationPath(parentId) || 'location') : null;
+
+  // Recursive tree node — renders a location card indented by depth, an
+  // expand/collapse chevron when it has children, and (when open) its children
+  // recursively + an "Add sub-area" affordance at any level.
+  function renderNode(node: LocationWithChildren) {
+    const isOpen = expanded.has(node.id);
+    const hasKids = node.children.length > 0;
+    // Expandable when it has children, or when a manager could add one — so any
+    // node can be opened to nest a sub-area under it.
+    const expandable = hasKids || canManage;
+    return (
+      <View key={node.id} style={[s.group, node.depth > 0 && { marginLeft: 16 }]}>
+        <View style={s.card}>
+          <TouchableOpacity
+            style={s.cardInner}
+            onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: node.id } })}
+            activeOpacity={0.7}
+          >
+            <MediaThumbnail entityType="location" entityId={node.id} size={node.depth > 0 ? 30 : 40} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.name}>{node.name}</Text>
+              <Text style={s.meta}>
+                {hasKids
+                  ? `${node.children.length} sub-area${node.children.length === 1 ? '' : 's'}`
+                  : 'No sub-areas'}
+              </Text>
+              {!!node.owner_user_id && (
+                <Text style={s.ownerMeta}>Owner: {userMap.get(node.owner_user_id) ?? node.owner_user_id}</Text>
+              )}
+            </View>
+          </TouchableOpacity>
+          {expandable && (
+            <TouchableOpacity
+              onPress={() => toggle(node.id)}
+              style={s.expandBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={s.chevron}>{isOpen ? '▾' : '▸'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {isOpen && (
+          <View style={s.children}>
+            {node.children.map(child => renderNode(child))}
+            {canManage && (
+              <TouchableOpacity style={s.addSub} onPress={() => openCreate(node.id)}>
+                <Text style={s.addSubText}>+ Add sub-area</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
 
   return (
     <>
@@ -204,68 +262,7 @@ export default function LocationsScreen() {
             </Text>
           )}
 
-          {tree.map(loc => {
-            const isOpen = expanded.has(loc.id);
-            return (
-              <View key={loc.id} style={s.group}>
-                <View style={s.card}>
-                  <TouchableOpacity
-                    style={s.cardInner}
-                    onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: loc.id } })}
-                    activeOpacity={0.7}
-                  >
-                    <MediaThumbnail entityType="location" entityId={loc.id} size={40} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.name}>{loc.name}</Text>
-                      <Text style={s.meta}>
-                        {loc.children.length > 0
-                          ? `${loc.children.length} sub-area${loc.children.length === 1 ? '' : 's'}`
-                          : 'No sub-areas'}
-                      </Text>
-                      {!!loc.owner_user_id && (
-                        <Text style={s.ownerMeta}>Owner: {userMap.get(loc.owner_user_id) ?? loc.owner_user_id}</Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                  {loc.children.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => toggle(loc.id)}
-                      style={s.expandBtn}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Text style={s.chevron}>{isOpen ? '▾' : '▸'}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {isOpen && (
-                  <View style={s.children}>
-                    {loc.children.map(child => (
-                      <TouchableOpacity
-                        key={child.id}
-                        style={s.childRow}
-                        onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: child.id } })}
-                      >
-                        <MediaThumbnail entityType="location" entityId={child.id} size={28} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={s.childName}>{child.name}</Text>
-                          {!!child.owner_user_id && (
-                            <Text style={s.ownerMeta}>Owner: {userMap.get(child.owner_user_id) ?? child.owner_user_id}</Text>
-                          )}
-                        </View>
-                        <Text style={s.childChevron}>›</Text>
-                      </TouchableOpacity>
-                    ))}
-                    {canManage && (
-                      <TouchableOpacity style={s.addSub} onPress={() => openCreate(loc.id)}>
-                        <Text style={s.addSubText}>+ Add sub-area</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
-              </View>
-            );
-          })}
+          {tree.map(node => renderNode(node))}
         </ScrollView>
 
         {/* Create modal — onClose ONLY hides the sheet; inputs preserved on outside-tap dismiss.
@@ -287,12 +284,19 @@ export default function LocationsScreen() {
 
               <AdvancedFields>
                 <FieldLabel>Inside</FieldLabel>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
-                  <FilterChip label="Top level" active={parentId === null} onPress={() => setParentId(null)} />
-                  {topLevel.map(t => (
-                    <FilterChip key={t.id} label={t.name} active={parentId === t.id} onPress={() => setParentId(t.id)} />
-                  ))}
-                </ScrollView>
+                <FilterChip
+                  label="⌂ Top level (no parent)"
+                  active={parentId === null}
+                  onPress={() => setParentId(null)}
+                />
+                <SearchablePicker
+                  placeholder="…or nest inside a location"
+                  options={parentOptions}
+                  value={parentId ? { id: parentId, label: getLocationPath(parentId) } : null}
+                  // Tapping "Change" re-passes the current id — treat as clear so the
+                  // search reopens and a different parent can be picked.
+                  onSelect={(opt) => setParentId(prev => (prev === opt.id ? null : opt.id))}
+                />
 
                 <FieldLabel>{parentRequiresOwner ? 'Owner *' : 'Belongs to (optional)'}</FieldLabel>
                 <SearchablePicker
@@ -380,18 +384,12 @@ const s = StyleSheet.create({
   chevron: { fontSize: fontSizes.lg, color: colors.textMuted, paddingHorizontal: 4 },
 
   children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
-  childRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
-  childDot: { width: 28, height: 28, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
-  childIcon: { fontSize: 14 },
-  childName: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '500' },
-  childChevron: { fontSize: fontSizes.base, color: colors.textDisabled, paddingHorizontal: 2 },
   addSub: { paddingVertical: 6, paddingHorizontal: 2 },
   addSubText: { color: colors.primary, fontSize: fontSizes.body2, fontWeight: '600' },
 
   // Modal content (overlay + sheet handled by ModalSheet primitive)
   modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
   dupWarn: { color: colors.warning, fontSize: fontSizes.body2, fontWeight: '600' },
-  chipRow: { gap: spacing.sm, paddingRight: spacing.sm },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },

@@ -4,7 +4,8 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  getLocationById, getStockAtLocation, getTopLevelLocations, upsertLocation,
+  getLocationById, getStockAtLocation, upsertLocation,
+  getAllLocations, getLocationPath, getDescendantIds,
   StockAtLocation, Location,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -64,7 +65,15 @@ export default function LocationDetailScreen() {
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
   );
-  const topLevel = useMemo(() => getTopLevelLocations(), []);
+  // Valid parent choices = all active locations EXCEPT this one and its
+  // descendants (re-parenting under a descendant would create a cycle), labelled
+  // by full path. Locations are bounded → client-side filtering is fine.
+  const parentOptions = useMemo<PickerOption[]>(() => {
+    const blocked = getDescendantIds(id);
+    return getAllLocations()
+      .filter(l => !blocked.has(l.id))
+      .map(l => ({ id: l.id, label: getLocationPath(l.id) }));
+  }, [id]);
 
   // Owner becomes mandatory when the selected parent has subareas_require_owner=1.
   // Reactive to editParentId so re-parenting under a flagged parent updates the gate.
@@ -76,8 +85,8 @@ export default function LocationDetailScreen() {
 
   const parentName = useMemo<string | null>(() => {
     if (!location?.parent_id) return null;
-    const parent = getLocationById(location.parent_id);
-    return parent?.name ?? null;
+    // Full ancestor path of the parent (e.g. "Site A › Floor 2").
+    return getLocationPath(location.parent_id) || null;
   }, [location?.parent_id]);
 
   const ownerName = useMemo<string | null>(() => {
@@ -348,21 +357,19 @@ export default function LocationDetailScreen() {
             />
 
             <FieldLabel>Inside</FieldLabel>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.chipRow}
-            >
-              <FilterChip label="Top level" active={editParentId === null} onPress={() => setEditParentId(null)} />
-              {topLevel.filter(t => t.id !== id).map(t => (
-                <FilterChip
-                  key={t.id}
-                  label={t.name}
-                  active={editParentId === t.id}
-                  onPress={() => setEditParentId(t.id)}
-                />
-              ))}
-            </ScrollView>
+            <FilterChip
+              label="⌂ Top level (no parent)"
+              active={editParentId === null}
+              onPress={() => setEditParentId(null)}
+            />
+            <SearchablePicker
+              placeholder="…or nest inside a location"
+              options={parentOptions}
+              value={editParentId ? { id: editParentId, label: getLocationPath(editParentId) } : null}
+              // Tapping "Change" re-passes the current id — treat as clear so the
+              // search reopens and a different parent can be picked.
+              onSelect={(opt) => setEditParentId(prev => (prev === opt.id ? null : opt.id))}
+            />
 
             <FieldLabel>{ownerRequired ? 'Belongs to (required)' : 'Belongs to (optional)'}</FieldLabel>
             <SearchablePicker
@@ -506,7 +513,6 @@ const s = StyleSheet.create({
 
   // ── Edit Modal (overlay + sheet handled by ModalSheet primitive) ──────────
   modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
-  chipRow: { gap: spacing.sm, paddingRight: spacing.sm },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
