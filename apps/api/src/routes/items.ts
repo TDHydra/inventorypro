@@ -11,7 +11,8 @@ interface CreateItemBody {
   kind?: 'product' | 'equipment';
   category?: string;
   returnable?: boolean;
-  unit_category: 'liquid' | 'piece' | 'length' | 'weight';
+  // Now a configurable product_class id (taxonomy_types). Legacy keys remapped in migration 012.
+  unit_category: string;
   unit: string;
   min_qty_alert?: number;
   reorder_to?: number;

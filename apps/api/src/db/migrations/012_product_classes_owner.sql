@@ -31,6 +31,13 @@ VALUES ('00000000-0000-4000-8000-000000000c04', 'product_class', 'Weight', NULL,
         '{"units":["lb","oz","kg","g"],"allowDecimals":true}')
 ON CONFLICT (id) DO NOTHING;
 
+-- Postgres-only: unit_category is an ENUM ('liquid','piece','length','weight') here (it's plain
+-- TEXT on mobile SQLite). Product classes are now configurable, so convert the column to TEXT
+-- before remapping to class UUIDs, then drop the now-unused enum type. Idempotent: a no-op cast
+-- once the column is already TEXT / the type already dropped.
+ALTER TABLE inventory_items ALTER COLUMN unit_category TYPE TEXT USING unit_category::text;
+DROP TYPE IF EXISTS unit_category;
+
 -- Remap items from the 4 legacy enum keys to the fixed class UUIDs (idempotent — re-running matches nothing).
 UPDATE inventory_items SET unit_category = '00000000-0000-4000-8000-000000000c01' WHERE unit_category = 'liquid';
 UPDATE inventory_items SET unit_category = '00000000-0000-4000-8000-000000000c02' WHERE unit_category = 'piece';
