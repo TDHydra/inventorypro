@@ -7,11 +7,10 @@ Each **program** below is an independent subsystem that gets its own
 used for Settings 3a/3b/3c and the polish pass). This doc is the meta-plan; it is NOT a
 single implementation plan. Build order (locked with user): **P2 → P1 → P6 → P3 → P4 → P5**.
 
-> **Progress (verified 2026-06-28 vs `main` + prod migrations 001–016):**
-> ✅ **P2** · ✅ **P1** · ✅ **P6** · ✅ **P4** (P4a GPS + P4b deep nesting; multi-parent decided out of scope) ·
-> ✅ **P5** (5a + override-diff polish, 5b, 5c phases 1+2 + insurance field; "Send push" deferred to P3) ·
-> ❌ **P3 Notifications — the only program left.**
-> See `docs/STATUS.md` for per-merge evidence and the P3 plan.
+> **Progress (2026-06-28): ALL SIX PROGRAMS CODE-COMPLETE & MERGED to `main`.**
+> ✅ **P1** · ✅ **P2** · ✅ **P3** (notifications v1 — needs APK rebuild for the native module) · ✅ **P4** (multi-parent out of scope) ·
+> ✅ **P5** (5a+polish, 5b, 5c phases 1+2 + insurance; "Send push" → P3 v2) · ✅ **P6**.
+> Remaining is operational: native APK rebuild + deploy API migration 016. See `docs/STATUS.md`.
 
 Conventions that bind every program:
 - **Sync-migration checklist** (`docs/SYNC-MIGRATION-CHECKLIST.md`): any migration adding a *synced*

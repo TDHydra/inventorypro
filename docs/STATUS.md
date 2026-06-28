@@ -17,7 +17,7 @@ the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Un
 | **P2** Labeling & Scanning | ✅ done + deployed | merge `eb9949d`, deps reconcile `64dc211`; `/labels/*` live |
 | **P1** Configurable Taxonomies | ✅ done + deployed | merges `225fa4b` (team+job types), `a0895d5` (equipment system), `980fcf3` (product classes + conditional owner), fix `08ebd8b`; migrations 011, 012 |
 | **P6** Data & Sync Hardening | ✅ done + deployed | merge `c9dbdfb`; migration 013 |
-| **P3** Notifications | ❌ not started | — |
+| **P3** Notifications | ✅ code-complete (needs APK rebuild) | merge `30eeadf`; on-device local low-stock + expiry alerts; `expo-notifications@~56.0.18` (native → rebuild) |
 | **P4** Locations | ✅ done | merges `e703a69` (P4a GPS modes), `3264f01` (P4b deep nesting). Multi-parent join **decided out of scope** (deep single-`parent_id` nesting + any-parent picker covers the need) |
 | **P5** Roles/Perms/Teams | ✅ done (one deferred sub-item) | 5a dynamic roles (`937bdc0`) + override-diff polish (`268925b`), 5b multi-manager teams (`a8b6abd`), 5c bulk ops phases 1+2 (`f59f04b`, `6590bae`) + phase-3 insurance field (`0debf29`, migration 016). **Deferred:** 5c "Send push" user-bulk action → ships with P3 |
 
@@ -70,14 +70,20 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 
 ---
 
-## ⏭️ Remaining — correct info to finish the rest
+## ⏭️ Remaining
 
-**P3 · Notifications** *(next — the only program left)* — `expo-notifications` (**native dep → dev-client + APK rebuild**).
-v1 = on-device local notifications computed after each sync: check `getLowStockItems()` and temp-employee `expires_at`,
-schedule/fire, dedupe so they don't re-fire. v2 (optional) = server cron + `device_push_tokens` table (migration → sync checklist).
-Bundles the deferred **5c "Send push"** user-bulk action once notifications exist.
+**All six roadmap programs (P1–P6) are code-complete and merged to `main`.** What's left is operational, not feature work:
 
-*(P4 multi-parent: decided out of scope. P5: complete except the P3-dependent Send-push.)*
+1. **Native rebuild** — `expo-notifications` is a native module, so notifications (and the latest JS) only run after a
+   dev-client + release-APK rebuild. Process (per memory): `npx expo prebuild --clean` → re-pin Gradle 8.13 in
+   `android/gradle/wrapper/gradle-wrapper.properties` → `./gradlew assembleRelease` (+ dev-client for on-device dev).
+2. **Deploy API** with migration 016 (insurance_carrier) → prod (`docker compose build api` → save|gzip → scp → load → up -d).
+3. **On-device verification** of P3 notifications (fire-once dedup, recover-refire) after the rebuild.
+
+**Optional future (explicitly deferred / out of scope):**
+- P3 v2 — server-scheduled push + `device_push_tokens` (migration → sync checklist) for when the app is closed.
+- P5 5c "Send push" user-bulk action — builds on P3 v1.
+- P4 multi-parent locations — decided out of scope (deep single-parent nesting suffices).
 
 ---
 
