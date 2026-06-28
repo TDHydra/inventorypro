@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Alert, RefreshControl,
@@ -19,7 +19,7 @@ import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
-import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
+import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { ICON_OPTIONS, COLOR_OPTIONS } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -50,16 +50,6 @@ export default function LocationsScreen() {
   const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
-
-  const { coords: anchorCoords, status: anchorStatus, request: requestAnchor } = useCurrentPosition();
-
-  // Sync GPS coords into form state when a capture completes
-  useEffect(() => {
-    if (anchorCoords !== null) {
-      setLatitude(anchorCoords.latitude);
-      setLongitude(anchorCoords.longitude);
-    }
-  }, [anchorCoords]);
 
   // Pull-to-refresh
   const [refreshing, setRefreshing] = useState(false);
@@ -319,29 +309,11 @@ export default function LocationsScreen() {
                 )}
 
                 <FieldLabel>GPS Anchor</FieldLabel>
-                {anchorStatus === 'denied' ? (
-                  <Text style={s.anchorDenied}>
-                    Location permission off — you can still save without it.
-                  </Text>
-                ) : (
-                  <TouchableOpacity
-                    style={[s.anchorBtn, latitude !== null && s.anchorBtnSet]}
-                    onPress={requestAnchor}
-                    disabled={anchorStatus === 'loading'}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[s.anchorBtnText, latitude !== null && s.anchorBtnTextSet]}>
-                      {anchorStatus === 'loading'
-                        ? '📍 Getting location…'
-                        : latitude !== null
-                        ? '📍 Anchored ✓ · re-capture'
-                        : '📍 Use my current spot'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                {latitude === null && anchorStatus !== 'denied' && anchorStatus !== 'loading' && (
-                  <Text style={s.anchorHint}>Not anchored</Text>
-                )}
+                <GpsAnchorField
+                  value={latitude !== null && longitude !== null ? { latitude, longitude } : null}
+                  onChange={(c) => { setLatitude(c?.latitude ?? null); setLongitude(c?.longitude ?? null); }}
+                  disabled={locked}
+                />
 
                 <FieldLabel>Icon</FieldLabel>
                 <View style={s.iconGrid}>
@@ -432,10 +404,4 @@ const s = StyleSheet.create({
   linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },
   cancelText: { color: colors.textMuted },
-  anchorBtn: { backgroundColor: '#F1F5F9', borderRadius: radii.md, paddingVertical: 11, paddingHorizontal: spacing.base, borderWidth: 1, borderColor: colors.textDisabled, alignItems: 'center' },
-  anchorBtnSet: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
-  anchorBtnText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
-  anchorBtnTextSet: { color: colors.success, fontWeight: '700' },
-  anchorHint: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
-  anchorDenied: { fontSize: fontSizes.caption, color: colors.warning, textAlign: 'center', paddingVertical: spacing.sm },
 });
