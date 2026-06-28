@@ -44,6 +44,7 @@ export default function JobDetailScreen() {
   const [editDescription, setEditDescription] = useState('');
   const [editType, setEditType] = useState<string | null>(null);
   const [editReferenceNumber, setEditReferenceNumber] = useState('');
+  const [editInsuranceCarrier, setEditInsuranceCarrier] = useState('');
 
   const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
   const deployments = useMemo(() => getJobDeployments(id), [id]);
@@ -74,6 +75,7 @@ export default function JobDetailScreen() {
     setEditDescription(job!.description ?? '');
     setEditType(job!.type ?? null);
     setEditReferenceNumber(job!.reference_number ?? '');
+    setEditInsuranceCarrier(job!.insurance_carrier ?? '');
     // Pre-populate site location picker if set
     if (job!.site_location_id) {
       const match = locationOptions.find(l => l.id === job!.site_location_id);
@@ -98,6 +100,7 @@ export default function JobDetailScreen() {
       description: editDescription.trim() || null,
       type: editType || null,
       reference_number: editReferenceNumber.trim() || null,
+      insurance_carrier: editInsuranceCarrier.trim() || null,
     };
 
     updateJobFields(id, fields);
@@ -256,6 +259,15 @@ export default function JobDetailScreen() {
               </View>
 
               <View style={s.fieldWrap}>
+                <FieldLabel>Insurance carrier</FieldLabel>
+                <AppInput
+                  value={editInsuranceCarrier}
+                  onChangeText={setEditInsuranceCarrier}
+                  placeholder="Insurance company"
+                />
+              </View>
+
+              <View style={s.fieldWrap}>
                 <FieldLabel>Description</FieldLabel>
                 <AppInput
                   style={s.textArea}
@@ -301,6 +313,12 @@ export default function JobDetailScreen() {
                   <View style={s.metaRow}>
                     <FieldLabel style={{ minWidth: 60 }}>Ref #</FieldLabel>
                     <Text style={s.metaValue}>{job.reference_number}</Text>
+                  </View>
+                )}
+                {!!job.insurance_carrier && (
+                  <View style={s.metaRow}>
+                    <FieldLabel style={{ minWidth: 60 }}>Insurer</FieldLabel>
+                    <Text style={s.metaValue}>{job.insurance_carrier}</Text>
                   </View>
                 )}
                 {!!job.customer_name && (

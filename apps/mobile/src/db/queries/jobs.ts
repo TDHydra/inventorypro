@@ -21,6 +21,9 @@ export interface Job {
   // External reference # — insurance claim / customer PO (migration 013).
   // Distinct from the server-assigned internal job_number; user-supplied.
   reference_number?: string | null;
+  // Insurance carrier/company name (migration 016). Distinct from
+  // reference_number which holds the claim #/customer PO.
+  insurance_carrier?: string | null;
 }
 
 export function getOpenJobs(): Job[] {
@@ -54,8 +57,8 @@ export function upsertJob(job: Job): void {
   db.executeSync(
     `INSERT OR REPLACE INTO jobs
        (id, name, status, created_by, created_at, updated_at, synced_at,
-        job_number, customer_name, site_address, site_location_id, description, type, reference_number)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([
       job.id, job.name, job.status, job.created_by, job.created_at, job.updated_at, job.synced_at,
       job.job_number ?? null,
@@ -65,6 +68,7 @@ export function upsertJob(job: Job): void {
       job.description ?? null,
       job.type ?? null,
       job.reference_number ?? null,
+      job.insurance_carrier ?? null,
     ])
   );
 }
@@ -121,6 +125,7 @@ export function updateJobFields(
     description?: string | null;
     type?: string | null;
     reference_number?: string | null;
+    insurance_carrier?: string | null;
   }
 ): void {
   const db = getDb();
@@ -136,6 +141,7 @@ export function updateJobFields(
   if (fields.description !== undefined) { sets.push('description = ?'); params.push(fields.description); }
   if (fields.type !== undefined) { sets.push('type = ?'); params.push(fields.type); }
   if (fields.reference_number !== undefined) { sets.push('reference_number = ?'); params.push(fields.reference_number); }
+  if (fields.insurance_carrier !== undefined) { sets.push('insurance_carrier = ?'); params.push(fields.insurance_carrier); }
   if (sets.length === 0) return;
   sets.push('updated_at = ?');
   params.push(updated_at);

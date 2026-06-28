@@ -36,6 +36,7 @@ export default function CreateJobScreen() {
   const [siteLocation, setSiteLocation] = useState<PickerOption | null>(null);
   const [description, setDescription] = useState('');
   const [referenceNumber, setReferenceNumber] = useState('');
+  const [insuranceCarrier, setInsuranceCarrier] = useState('');
 
   const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
   const [type, setType] = useState<string | null>(() => {
@@ -76,6 +77,7 @@ export default function CreateJobScreen() {
       description: description.trim() || null,
       type: type || null,
       reference_number: referenceNumber.trim() || null,
+      insurance_carrier: insuranceCarrier.trim() || null,
     };
 
     upsertJob(newJob);
@@ -95,6 +97,7 @@ export default function CreateJobScreen() {
       description: newJob.description,
       type: newJob.type,
       reference_number: newJob.reference_number,
+      insurance_carrier: newJob.insurance_carrier,
     });
     appendLog({
       action: 'job_created',
@@ -207,6 +210,15 @@ export default function CreateJobScreen() {
                 onChangeText={setReferenceNumber}
                 placeholder="Insurance claim / customer PO #"
                 autoCapitalize="characters"
+              />
+            </View>
+
+            <View style={s.fieldWrap}>
+              <FieldLabel>Insurance carrier</FieldLabel>
+              <AppInput
+                value={insuranceCarrier}
+                onChangeText={setInsuranceCarrier}
+                placeholder="Insurance company"
               />
             </View>
 
