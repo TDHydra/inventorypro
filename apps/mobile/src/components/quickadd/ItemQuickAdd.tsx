@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Switch,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
@@ -9,7 +9,7 @@ import type { InventoryItem } from '../../db/queries/items';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
-import { getProductClasses } from '../../db/queries/taxonomy';
+import { getProductClasses, getTaxonomyTypes } from '../../db/queries/taxonomy';
 import { PRODUCT_CLASS_IDS } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
@@ -18,10 +18,8 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
-import { AdvancedFields } from '../ui/AdvancedFields';
 
-// Equipment is always pieces/each, so it stores the stable Pieces class id
-// (migration 012) rather than a legacy enum string.
+// Pieces class id (migration 012) — the sensible default product unit class.
 const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
 interface Props {
@@ -34,39 +32,27 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
-  // Configurable product classes (category 'product_class'); default to Pieces.
+  // Configurable product (unit) classes; default to Pieces.
   const productClasses = useMemo(() => getProductClasses(), []);
   const pieceClass = productClasses.find(c => c.id === CLASS_PIECE_ID) ?? productClasses[0] ?? null;
 
+  // Admin-managed Item Type taxonomy (PPE, Filters, Consumables, …) — the chosen
+  // label is stored in the item's `category`. Equipment is NOT here; it has its
+  // own tab. Items created here are always kind='product' so they show in Inventory.
+  const itemTypes = useMemo(() => getTaxonomyTypes('item_category'), []);
+
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<'product' | 'equipment'>('product');
-  // unit_category now stores a product_class id (stable taxonomy id), not a legacy enum.
+  // unit_category stores a product_class id (stable taxonomy id).
   const [unitCat, setUnitCat] = useState<string>(pieceClass?.id ?? CLASS_PIECE_ID);
   const [unit, setUnit] = useState<string>(pieceClass?.units[0] ?? 'each');
-  const [category, setCategory] = useState('');
-  const [unitTracked, setUnitTracked] = useState(false);
-  const [tagPrefix, setTagPrefix] = useState('');
+  const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
   const [nameError, setNameError] = useState('');
-
-  // When kind changes: lock unit for equipment; reset equipment fields for product
-  useEffect(() => {
-    if (kind === 'equipment') {
-      setUnitCat(CLASS_PIECE_ID);
-      setUnit('each');
-    } else {
-      setUnitTracked(false);
-      setTagPrefix('');
-    }
-  }, [kind]);
 
   function clearForm() {
     setName('');
-    setKind('product');
     setUnitCat(pieceClass?.id ?? CLASS_PIECE_ID);
     setUnit(pieceClass?.units[0] ?? 'each');
-    setCategory('');
-    setUnitTracked(false);
-    setTagPrefix('');
+    setItemType('');
     setNameError('');
   }
 
@@ -80,7 +66,6 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
     const now = new Date().toISOString();
     const id = generateUUID();
-    const isEquipment = kind === 'equipment';
 
     const item: InventoryItem = {
       id,
@@ -90,11 +75,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       sku: null,
       supplier: null,
       model: null,
-      kind,
-      category: category.trim() || null,
+      kind: 'product',
+      category: itemType || null,
       returnable: 0,
-      unit_tracked: isEquipment && unitTracked ? 1 : 0,
-      tag_prefix: tagPrefix.trim() || null,
+      unit_tracked: 0,
+      tag_prefix: null,
       unit_category: unitCat,
       unit,
       min_qty_alert: 0,
@@ -105,8 +90,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     };
 
     upsertItem(item);
-    // synced_at is a local-only column — the server table has none, and the
-    // dynamic push INSERT would error on it. Strip it from the outbox payload.
+    // synced_at is a local-only column — strip it from the outbox payload.
     const { synced_at: _s, ...itemRow } = item;
     appendOutbox('INSERT', 'inventory_items', {
       ...itemRow,
@@ -154,80 +138,52 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
-      <FieldLabel>Kind</FieldLabel>
-      <View style={s.chipRow}>
-        {(['product', 'equipment'] as const).map(k => (
-          <FilterChip
-            key={k}
-            label={k.charAt(0).toUpperCase() + k.slice(1)}
-            active={kind === k}
-            onPress={() => setKind(k)}
-          />
-        ))}
-      </View>
-
-      {kind === 'equipment' ? (
-        <View style={s.unitReadOnlyRow}>
-          <Text style={s.unitReadOnly}>Unit: each (piece)</Text>
-        </View>
-      ) : (
+      {itemTypes.length > 0 && (
         <>
-          <FieldLabel>Unit category</FieldLabel>
+          <FieldLabel>Item type</FieldLabel>
           <View style={s.chipRow}>
-            {productClasses.map(c => (
+            {itemTypes.map(t => (
               <FilterChip
-                key={c.id}
-                label={c.label}
-                active={unitCat === c.id}
-                onPress={() => { setUnitCat(c.id); setUnit(c.units[0] ?? ''); }}
+                key={t.id}
+                label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                active={itemType === t.label}
+                // Tap again to clear (item type is optional).
+                onPress={() => setItemType(prev => (prev === t.label ? '' : t.label))}
               />
             ))}
           </View>
-          {unitOptions.length > 0 ? (
-            <View style={s.chipRow}>
-              {unitOptions.map(u => (
-                <FilterChip
-                  key={u}
-                  label={u}
-                  active={unit === u}
-                  onPress={() => setUnit(u)}
-                />
-              ))}
-            </View>
-          ) : (
-            <AppInput
-              placeholder="Unit (e.g. each)"
-              value={unit}
-              onChangeText={setUnit}
-            />
-          )}
         </>
       )}
 
-      <AdvancedFields>
+      <FieldLabel>Unit category</FieldLabel>
+      <View style={s.chipRow}>
+        {productClasses.map(c => (
+          <FilterChip
+            key={c.id}
+            label={c.label}
+            active={unitCat === c.id}
+            onPress={() => { setUnitCat(c.id); setUnit(c.units[0] ?? ''); }}
+          />
+        ))}
+      </View>
+      {unitOptions.length > 0 ? (
+        <View style={s.chipRow}>
+          {unitOptions.map(u => (
+            <FilterChip
+              key={u}
+              label={u}
+              active={unit === u}
+              onPress={() => setUnit(u)}
+            />
+          ))}
+        </View>
+      ) : (
         <AppInput
-          placeholder="Category (optional)"
-          value={category}
-          onChangeText={setCategory}
+          placeholder="Unit (e.g. each)"
+          value={unit}
+          onChangeText={setUnit}
         />
-
-        {kind === 'equipment' && (
-          <>
-            <View style={s.switchRow}>
-              <Text style={s.switchLabel}>Track individual units</Text>
-              <Switch value={unitTracked} onValueChange={setUnitTracked} />
-            </View>
-            {unitTracked && (
-              <AppInput
-                placeholder="Tag prefix (e.g. AM-, DH-)"
-                value={tagPrefix}
-                onChangeText={setTagPrefix}
-                autoCapitalize="characters"
-              />
-            )}
-          </>
-        )}
-      </AdvancedFields>
+      )}
 
       <PrimaryButton
         label="Save & add another"
@@ -252,14 +208,6 @@ const s = StyleSheet.create({
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  unitReadOnlyRow: { paddingVertical: spacing.xs },
-  unitReadOnly: { fontSize: fontSizes.body, color: colors.textSecondary, fontStyle: 'italic' },
-  switchRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, paddingVertical: 10,
-  },
-  switchLabel: { fontSize: fontSizes.body, color: colors.textPrimary, flex: 1, marginRight: spacing.md },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 });

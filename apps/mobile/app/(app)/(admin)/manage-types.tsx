@@ -109,6 +109,7 @@ const CATEGORY_NOUN: Record<string, string> = {
   team: 'Team Type',
   job: 'Job Type',
   product_class: 'Product Class',
+  item_category: 'Item Type',
 };
 
 export default function ManageTypesScreen() {
@@ -124,6 +125,9 @@ export default function ManageTypesScreen() {
   );
   const [classTypes, setClassTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('product_class', { includeInactive: true }),
+  );
+  const [itemCatTypes, setItemCatTypes] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('item_category', { includeInactive: true }),
   );
 
   // Add modal
@@ -146,6 +150,7 @@ export default function ManageTypesScreen() {
     setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
     setJobTypes(getTaxonomyTypes('job', { includeInactive: true }));
     setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
+    setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
   }
 
   // ── Add handlers ────────────────────────────────────────────────────────────
@@ -386,6 +391,7 @@ export default function ManageTypesScreen() {
           {renderSection('Team Types', 'team', teamTypes, '+ Add Team Type')}
           {renderSection('Job Types', 'job', jobTypes, '+ Add Job Type')}
           {renderSection('Product Classes', 'product_class', classTypes, '+ Add Product Class')}
+          {renderSection('Item Types', 'item_category', itemCatTypes, '+ Add Item Type')}
         </ScrollView>
       )}
 
