@@ -98,6 +98,16 @@ points at prod and is sufficient to field-test notifications directly.
   reuse the internal location picker. It just needs a **street address** field + a **map with a pin** showing where
   the job is, rendered on a **~35-mile-radius** map view. Decouple `jobs.site_location_id` UX from the warehouse
   location tree (keep `site_address`; the map pin can reuse the existing lat/lng + react-native-maps from P4a).
+- **Location-type form rules** *(requested 2026-06-28)* — the location create/edit form should adapt to the selected
+  type (drive from config on the `location_type` taxonomy meta — e.g. `{gps, requiresOwner}` — so it stays adjustable):
+  - selecting a type **auto-sets the icon** to that type's icon;
+  - **Vehicle**: hide the GPS anchor; **owner ("Belongs to") is required** (a vehicle belongs to a PM);
+  - **Locker**: minimal — just the name (one Locker location covers all 4 lockers; no GPS, no owner, no sub-areas);
+  - **Maintenance**: it's at the shop and uses **labeled shelves** (normal location; relies on the shelf/home-location system).
+- **Home location = shelf typeahead** *(requested 2026-06-28)* — the item **Home Location** picker (edit/add/quick-add)
+  should **search a table of shelves as you type**, not a deep breadcrumb tree. Shelves are entered with **prefixes per
+  warehouse/shop** (e.g. `WH-A1`, `SHOP-B3`) so selection stays simple. Likely: filter `locations` of type `Shelf`
+  (or a dedicated shelf label field) and typeahead on the prefix/name.
 
 ---
 
