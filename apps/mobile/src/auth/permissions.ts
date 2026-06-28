@@ -9,14 +9,34 @@ export type { Permission } from '../constants/roles';
 // the DB on every call.
 let roleOverridesCache: Record<string, Record<string, boolean>> = {};
 
+// Reactivity: a version counter + listeners so usePermission (via
+// useSyncExternalStore) re-renders when role overrides change. Without this the
+// cache updates silently after a sync/edit but gated UI keeps showing stale
+// permissions until the screen happens to remount — i.e. "role permission changes
+// don't update". KEEP synced config that gates UI reactive, not just cached.
+let cacheVersion = 0;
+const listeners = new Set<() => void>();
+
+export function subscribeRolePermissions(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+}
+
+export function getRolePermissionsVersion(): number {
+  return cacheVersion;
+}
+
 // Refresh roleOverridesCache from role_settings. Safe to call before the DB is
 // ready (or before migration 014) — failures leave the existing cache in place.
+// Always bumps the version + notifies subscribers so the UI re-resolves.
 export function loadRolePermissionCache(): void {
   try {
     roleOverridesCache = getRolePermissionOverrides();
   } catch {
     // DB not initialized / column missing — keep whatever we have.
   }
+  cacheVersion++;
+  listeners.forEach(l => l());
 }
 
 // Self-lockout floor: full_admin ALWAYS retains these regardless of any
