@@ -18,8 +18,8 @@ the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Un
 | **P1** Configurable Taxonomies | ✅ done + deployed | merges `225fa4b` (team+job types), `a0895d5` (equipment system), `980fcf3` (product classes + conditional owner), fix `08ebd8b`; migrations 011, 012 |
 | **P6** Data & Sync Hardening | ✅ done + deployed | merge `c9dbdfb`; migration 013 |
 | **P3** Notifications | ❌ not started | — |
-| **P4** Locations | ◑ partial | merges `e703a69` (P4a GPS modes), `3264f01` (P4b deep nesting); **multi-parent join NOT built** (P4b did recursive single-`parent_id` nesting instead) |
-| **P5** Roles/Perms/Teams | ◑ 5a+5b done, 5c phase-1 done | merges `937bdc0` (5a dynamic roles), `a8b6abd` (5b multi-manager teams + cross-team activity), fix `cc0f185`; migrations 014, 015. **5c phase-1 bulk ops** (users+jobs) on `feat/p5c-bulk-ops` (`25b8a36`); phases 2/3 remain |
+| **P4** Locations | ✅ done | merges `e703a69` (P4a GPS modes), `3264f01` (P4b deep nesting). Multi-parent join **decided out of scope** (deep single-`parent_id` nesting + any-parent picker covers the need) |
+| **P5** Roles/Perms/Teams | ✅ done (one deferred sub-item) | 5a dynamic roles (`937bdc0`) + override-diff polish (`268925b`), 5b multi-manager teams (`a8b6abd`), 5c bulk ops phases 1+2 (`f59f04b`, `6590bae`) + phase-3 insurance field (`0debf29`, migration 016). **Deferred:** 5c "Send push" user-bulk action → ships with P3 |
 
 ---
 
@@ -72,18 +72,12 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 
 ## ⏭️ Remaining — correct info to finish the rest
 
-**P3 · Notifications** *(next program, not started)* — `expo-notifications` (**native dep → dev-client + APK rebuild**).
+**P3 · Notifications** *(next — the only program left)* — `expo-notifications` (**native dep → dev-client + APK rebuild**).
 v1 = on-device local notifications computed after each sync: check `getLowStockItems()` and temp-employee `expires_at`,
 schedule/fire, dedupe so they don't re-fire. v2 (optional) = server cron + `device_push_tokens` table (migration → sync checklist).
+Bundles the deferred **5c "Send push"** user-bulk action once notifications exist.
 
-**P4 · multi-parent locations** *(open decision)* — P4b shipped deep **single-parent** nesting; true multi-parent needs a
-`location_parents` join table + UX. Decide: keep single-parent tree (likely sufficient) or build the join. If built: migration → sync checklist.
-
-**P5 · 5c phases 2 & 3** *(after 5c phase 1)* —
-- Phase 2: extend the same multi-select framework to **Inventory + Equipment** lists (JS-only, reuse Unit 1).
-- Phase 3: Jobs **Insurance** field (migration) + Users **Send push** (depends on P3).
-
-**P5 · 5a polish** — per-user override list highlighting diffs from role default (partly exists).
+*(P4 multi-parent: decided out of scope. P5: complete except the P3-dependent Send-push.)*
 
 ---
 
