@@ -750,7 +750,11 @@ export default function AdminUsersScreen() {
                   {(() => {
                     const roleOv = roleOverrides[editUser.role] ?? {};
                     const ov = parseOverrides(editUser);
-                    return ALL_PERMISSIONS.map(perm => {
+                    const roleName = ROLE_DISPLAY_NAMES[editUser.role as UserRole];
+                    // Resolve each row once so the diff summary and the per-row
+                    // markers share the exact same baseline (role default merged
+                    // with the role-level override).
+                    const rows = ALL_PERMISSIONS.map(perm => {
                       // Role's CURRENT effective value: ROLE_DEFAULTS merged with the
                       // role-level override (the dynamic default).
                       const roleEffective = perm in roleOv
@@ -761,20 +765,51 @@ export default function AdminUsersScreen() {
                       // Only a deviation from the role's current effective value is a
                       // real override.
                       const isModified = hasUserKey && ov[perm] !== roleEffective;
-                      return (
-                        <View key={perm} style={s.permRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={s.permName}>{perm.replace(/_/g, ' ')}</Text>
-                            {isModified && <Text style={s.overrideBadge}>override active</Text>}
-                          </View>
-                          <Switch
-                            value={effective}
-                            onValueChange={() => handleTogglePermission(editUser.id, perm, !effective, roleEffective)}
-                            trackColor={{ true: colors.primary, false: colors.border }}
-                          />
-                        </View>
-                      );
+                      return { perm, roleEffective, effective, isModified };
                     });
+                    const diffCount = rows.filter(r => r.isModified).length;
+                    return (
+                      <>
+                        <Text
+                          style={[s.overrideSummary, diffCount > 0 && s.overrideSummaryActive]}
+                          accessibilityLabel={
+                            diffCount === 0
+                              ? `All permissions match the ${roleName} default`
+                              : `${diffCount} permission${diffCount === 1 ? '' : 's'} differ from the ${roleName} default`
+                          }
+                        >
+                          {diffCount === 0
+                            ? `Matches ${roleName} default`
+                            : `${diffCount} override${diffCount === 1 ? '' : 's'} differ from ${roleName} default`}
+                        </Text>
+                        {rows.map(({ perm, roleEffective, effective, isModified }) => {
+                          const label = perm.replace(/_/g, ' ');
+                          return (
+                            <View key={perm} style={s.permRow}>
+                              {isModified && <View style={s.overrideDot} />}
+                              <View style={{ flex: 1 }}>
+                                <Text style={s.permName}>{label}</Text>
+                                {isModified && (
+                                  <Text style={s.overrideBadge}>
+                                    changed · role default {roleEffective ? 'on' : 'off'}
+                                  </Text>
+                                )}
+                              </View>
+                              <Switch
+                                value={effective}
+                                onValueChange={() => handleTogglePermission(editUser.id, perm, !effective, roleEffective)}
+                                trackColor={{ true: colors.primary, false: colors.border }}
+                                accessibilityLabel={
+                                  isModified
+                                    ? `${label}, changed from ${roleName} default of ${roleEffective ? 'on' : 'off'}`
+                                    : `${label}, matches ${roleName} default`
+                                }
+                              />
+                            </View>
+                          );
+                        })}
+                      </>
+                    );
                   })()}
 
                   <TouchableOpacity style={s.cancel} onPress={() => setEditUser(null)}>
@@ -879,7 +914,10 @@ const s = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
   },
   permName: { fontSize: fontSizes.body2, color: colors.textPrimary, textTransform: 'capitalize' },
-  overrideBadge: { fontSize: fontSizes.xs, color: '#F59E0B', marginTop: 2 },
+  overrideBadge: { fontSize: fontSizes.xs, color: colors.accent, marginTop: 2, fontWeight: '600' },
+  overrideDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent, marginRight: 8 },
+  overrideSummary: { fontSize: fontSizes.caption, color: colors.textMuted, fontWeight: '600', marginBottom: 6 },
+  overrideSummaryActive: { color: colors.accent },
 
   cardMuted: { opacity: 0.6 },
   cardSub: { flexDirection: 'row', alignItems: 'center', marginTop: 1, gap: 4 },
