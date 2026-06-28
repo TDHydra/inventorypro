@@ -492,11 +492,6 @@ export default function EquipmentModelDetailScreen() {
                       <UnitRow
                         unit={u}
                         locationName={u.current_location_id ? (locationMap.get(u.current_location_id) ?? null) : null}
-                        onRepairIn={
-                          canEdit && u.status === 'in_repair'
-                            ? () => { setRepairInUnit(u); setRepairInLoc(null); }
-                            : undefined
-                        }
                       />
                       <View style={s.unitActionRow}>
                         <TouchableOpacity style={s.unitActionBtn} onPress={() => setHistoryUnit(u)}>
@@ -517,6 +512,14 @@ export default function EquipmentModelDetailScreen() {
                             })}
                           >
                             <Text style={s.unitActionText}>Report repair</Text>
+                          </TouchableOpacity>
+                        )}
+                        {canEdit && u.status === 'in_repair' && (
+                          <TouchableOpacity
+                            style={s.unitActionBtn}
+                            onPress={() => { setRepairInUnit(u); setRepairInLoc(null); }}
+                          >
+                            <Text style={s.unitActionText}>Return from repair</Text>
                           </TouchableOpacity>
                         )}
                         {canEdit && u.status !== 'retired' && (
