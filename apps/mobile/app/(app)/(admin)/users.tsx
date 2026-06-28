@@ -6,17 +6,24 @@ import {
 import { Stack } from 'expo-router';
 import {
   getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings,
-  getRolePermissionOverrides, User,
+  getRolePermissionOverrides, setUserActive, setUserRole, User,
 } from '../../../src/db/queries/users';
 import {
   ROLE_DISPLAY_NAMES, UserRole, ROLE_TIER, PIN_LENGTH_BY_TIER, Permission,
   ROLE_DEFAULTS,
 } from '../../../src/constants/roles';
+import { getAllTeams, addTeamMember } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getDb } from '../../../src/db/schema';
 import { getValidJwt } from '../../../src/auth/session';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -125,9 +132,14 @@ function formatDate(iso: string | null): string {
 
 export default function AdminUsersScreen() {
   const { user: sessionUser } = useSession();
+  const canManageUsers = usePermission('manage_users');
+  const { locked } = useMaintenanceMode();
+  const sel = useMultiSelect<User>();
   const [users, setUsers] = useState<User[]>(() => getAllUsers());
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulkRolePicker, setShowBulkRolePicker] = useState(false);
+  const [showBulkTeamPicker, setShowBulkTeamPicker] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('mitigation_technician');
@@ -277,6 +289,164 @@ export default function AdminUsersScreen() {
     );
   }
 
+  // ── Bulk multi-select actions (gated on manage_users) ──────────────────────
+
+  const roleOptions = useMemo<PickerOption[]>(
+    () => ALL_ROLES.map(r => ({ id: r, label: ROLE_DISPLAY_NAMES[r], sublabel: `Tier ${ROLE_TIER[r]}` })),
+    [],
+  );
+  const teamOptions = useMemo<PickerOption[]>(
+    () => getAllTeams().map(t => ({ id: t.id, label: t.name, sublabel: t.type })),
+    [users],
+  );
+
+  function bulkSetActive(active: boolean) {
+    if (isWriteBlocked()) return;
+    const ids = [...sel.selected];
+    if (ids.length === 0) return;
+    const adminId = sessionUser?.id ?? null;
+    for (const id of ids) {
+      const u = users.find(x => x.id === id);
+      setUserActive(id, active);
+      appendLog({
+        action: 'user_updated',
+        entity_type: 'user',
+        entity_id: id,
+        user_id: adminId,
+        note: `${u?.name ?? id}: ${active ? 'reactivated' : 'deactivated'}`,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
+    }
+    refresh();
+    sel.exit();
+  }
+
+  function bulkChangeRole(role: UserRole) {
+    setShowBulkRolePicker(false);
+    if (isWriteBlocked()) return;
+    const ids = [...sel.selected];
+    if (ids.length === 0) return;
+    const adminId = sessionUser?.id ?? null;
+    // Move pin_length_required to the new role's minimum too — same as the
+    // single-row edit (saveEdits), so a promotion can't keep a shorter PIN.
+    const pinLen = roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
+    for (const id of ids) {
+      const u = users.find(x => x.id === id);
+      setUserRole(id, role, pinLen);
+      appendLog({
+        action: 'user_role_changed',
+        entity_type: 'user',
+        entity_id: id,
+        user_id: adminId,
+        note: `${u?.name ?? id}: ${u?.role ?? '?'} → ${role}`,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
+    }
+    refresh();
+    sel.exit();
+  }
+
+  function bulkAddToTeam(teamId: string, teamLabel: string) {
+    setShowBulkTeamPicker(false);
+    if (isWriteBlocked()) return;
+    const ids = [...sel.selected];
+    if (ids.length === 0) return;
+    const adminId = sessionUser?.id ?? null;
+    let added = 0;
+    for (const id of ids) {
+      // INSERT OR IGNORE — null means the user was already on the team; skip its
+      // outbox/log so we don't enqueue a no-op write (mirrors teams/[id].tsx).
+      const result = addTeamMember(teamId, id, {}, adminId);
+      if (result === null) continue;
+      const { joined_at } = result;
+      appendOutbox('INSERT', 'team_members', {
+        team_id: teamId,
+        user_id: id,
+        team_permission_overrides: '{}',
+        added_by: adminId,
+        joined_at,
+      });
+      const u = users.find(x => x.id === id);
+      appendLog({
+        user_id: adminId,
+        team_id: teamId,
+        action: 'team_member_added',
+        entity_type: 'team',
+        entity_id: teamId,
+        from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null,
+        note: u?.name ?? id,
+        metadata: JSON.stringify({ member_user_id: id }),
+        device_id: null,
+      });
+      added++;
+    }
+    refresh();
+    sel.exit();
+    Alert.alert('Added to team', `${added} user${added === 1 ? '' : 's'} added to ${teamLabel}.`);
+  }
+
+  function bulkResetPin() {
+    if (isWriteBlocked()) return;
+    const ids = [...sel.selected];
+    if (ids.length === 0) return;
+    Alert.alert(
+      `Reset PIN for ${ids.length} user${ids.length === 1 ? '' : 's'}?`,
+      'Their current PINs stop working immediately. Each user sets and confirms a new PIN at next sign-in. This requires a connection to the server.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset PIN', style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            const adminId = sessionUser?.id ?? null;
+            let ok = 0, fail = 0;
+            let lastErr = '';
+            // Sequential — PIN reset is an online round-trip per user; surface a
+            // success/failure tally (and the error if everything failed offline).
+            for (const id of ids) {
+              const u = users.find(x => x.id === id);
+              try {
+                await resetUserPinOnline(id); // already marks pin_set=0 locally
+                appendLog({
+                  action: 'user_pin_reset',
+                  entity_type: 'user',
+                  entity_id: id,
+                  user_id: adminId,
+                  note: u?.name ?? id,
+                  team_id: null, from_location_id: null, to_location_id: null,
+                  quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+                });
+                ok++;
+              } catch (err) {
+                fail++;
+                lastErr = (err as Error).message;
+              }
+            }
+            setBusy(false);
+            refresh();
+            sel.exit();
+            if (ok === 0 && fail > 0) {
+              Alert.alert('Could not reset PINs', lastErr || 'Reset failed.');
+            } else {
+              Alert.alert('PIN reset', `${ok} reset${fail ? `, ${fail} failed` : ''}.`);
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  const bulkActions: BulkAction[] = [
+    { key: 'deactivate', label: 'Deactivate', destructive: true, onPress: () => bulkSetActive(false) },
+    { key: 'reactivate', label: 'Reactivate', onPress: () => bulkSetActive(true) },
+    { key: 'role', label: 'Change role', onPress: () => setShowBulkRolePicker(true) },
+    { key: 'team', label: 'Add to team', onPress: () => setShowBulkTeamPicker(true) },
+    { key: 'pin', label: 'Reset PIN', destructive: true, onPress: bulkResetPin },
+  ];
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return users.filter(u => u.name.toLowerCase().includes(q));
@@ -392,11 +562,24 @@ export default function AdminUsersScreen() {
         <FlatList
           data={filtered}
           keyExtractor={u => u.id}
-          contentContainerStyle={s.list}
+          contentContainerStyle={[s.list, sel.active && s.listWithBar]}
           renderItem={({ item: u }) => {
             const st = userStatus(u);
+            const checked = sel.isSelected(u.id);
             return (
-              <TouchableOpacity style={[s.card, st !== 'active' && s.cardMuted]} onPress={() => openEdit(u)}>
+              <TouchableOpacity
+                style={[s.card, st !== 'active' && s.cardMuted, sel.active && checked && s.cardSelected]}
+                onPress={() => {
+                  if (sel.active) sel.toggle(u.id);
+                  else openEdit(u);
+                }}
+                onLongPress={() => { if (canManageUsers) sel.enter(u.id); }}
+              >
+                {sel.active && (
+                  <View style={[s.checkCircle, checked && s.checkCircleOn]}>
+                    {checked && <Text style={s.checkMark}>✓</Text>}
+                  </View>
+                )}
                 <View style={s.avatar}>
                   <Text style={s.avatarText}>{u.name.charAt(0).toUpperCase()}</Text>
                 </View>
@@ -602,6 +785,44 @@ export default function AdminUsersScreen() {
             })()}
           </ScrollView>
         </ModalSheet>
+
+        {/* Bulk: change role picker */}
+        <ModalSheet visible={showBulkRolePicker} onClose={() => setShowBulkRolePicker(false)}>
+          <Text style={s.modalTitle}>Change role for {sel.count} user{sel.count === 1 ? '' : 's'}</Text>
+          <SearchablePicker
+            placeholder="Search roles..."
+            options={roleOptions}
+            value={null}
+            onSelect={opt => bulkChangeRole(opt.id as UserRole)}
+          />
+          <TouchableOpacity style={s.cancel} onPress={() => setShowBulkRolePicker(false)}>
+            <Text style={[s.cancelText, s.cancelStrong]}>Cancel</Text>
+          </TouchableOpacity>
+        </ModalSheet>
+
+        {/* Bulk: add to team picker */}
+        <ModalSheet visible={showBulkTeamPicker} onClose={() => setShowBulkTeamPicker(false)}>
+          <Text style={s.modalTitle}>Add {sel.count} user{sel.count === 1 ? '' : 's'} to team</Text>
+          <SearchablePicker
+            placeholder="Search teams..."
+            options={teamOptions}
+            value={null}
+            onSelect={opt => bulkAddToTeam(opt.id, opt.label)}
+          />
+          <TouchableOpacity style={s.cancel} onPress={() => setShowBulkTeamPicker(false)}>
+            <Text style={[s.cancelText, s.cancelStrong]}>Cancel</Text>
+          </TouchableOpacity>
+        </ModalSheet>
+
+        {canManageUsers && sel.active && (
+          <BulkActionBar
+            count={sel.count}
+            actions={bulkActions}
+            onSelectAll={() => sel.selectAll(filtered.map(u => u.id))}
+            onCancel={sel.exit}
+            disabled={locked}
+          />
+        )}
       </View>
     </>
   );
@@ -613,11 +834,19 @@ const s = StyleSheet.create({
   addBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
   list: { padding: spacing.md, gap: 8 },
+  listWithBar: { paddingBottom: 160 },
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: colors.surface, padding: spacing.md, borderRadius: radii.md,
     borderWidth: 1, borderColor: colors.border,
   },
+  cardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  checkCircle: {
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkCircleOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkMark: { color: '#fff', fontSize: fontSizes.sm, fontWeight: '800' },
   avatar: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: colors.primaryBgStrong, alignItems: 'center', justifyContent: 'center',
