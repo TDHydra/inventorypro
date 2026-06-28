@@ -94,6 +94,10 @@ points at prod and is sufficient to field-test notifications directly.
   turn it off / manage). Likely the maintenance write-guard (`assertWritable`) or a server-side maintenance gate is
   firing on the online PIN auth (`POST /auth/token`) path. Fix: exempt the auth/login path (and tier-4) from the
   maintenance lockout. Check `apps/api` maintenance handling + the mobile login flow's session writes.
+- **Job site location → street address + map pin** *(requested 2026-06-28)* — the job's "site location" should NOT
+  reuse the internal location picker. It just needs a **street address** field + a **map with a pin** showing where
+  the job is, rendered on a **~35-mile-radius** map view. Decouple `jobs.site_location_id` UX from the warehouse
+  location tree (keep `site_address`; the map pin can reuse the existing lat/lng + react-native-maps from P4a).
 
 ---
 
