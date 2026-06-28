@@ -23,19 +23,15 @@
   - **Shelf / home location**: `inventory_items.home_location_id` + a "Home location (where it belongs)" picker on quick-add/add/edit + **"Belongs at: Shop › Aisle › Shelf"** on item detail.
   - **"Add stock here"** button on location detail → Add-Stock pre-targeted to that location (`locationId` param).
 
-## Next up — decided, NOT yet built (in priority order)
-1. **Pack sizes** *(entry-helper model — user's pick)*: add `inventory_items.pack_size` (units per pack) + a base unit.
-   Stock stays in the **base unit**; when adding stock you choose **"X packs" (×pack size)** or **"X units"** (fractions
-   like 0.5 ok). e.g. SERVPRO Orange = 4 gal/pack; #202 Glass = a dozen cans; but you can add 1 jug / half a gallon.
-   - Touches: migration (api + mobile, sync checklist) for `pack_size`; quick-add + add-stock UI (pack/loose toggle);
-     stock-write math (multiply packs × pack_size into base units). No new taxonomy.
-2. **Repair system** *(equipment + general + vehicle — user's pick)*: repair **tickets** attaching to an equipment unit,
-   a general item/asset, **or a vehicle (location of type Vehicle)**, with **notes**, **parts needed**, and an
-   **admin-configurable status taxonomy** (`repair_status` — Open/Awaiting Parts/In Progress/Done, editable like job types).
-   - Touches: new `repairs` table (migration + sync wiring), a `repair_status` taxonomy seed, repair list/detail screens,
-     a status taxonomy section in Manage Types. Builds on existing per-equipment-unit repair history.
+## Next up — decided features (both now DONE ✅)
+1. ✅ **Pack sizes** (migration 020) — `inventory_items.pack_size`; quick-add/add/edit field + Packs/Loose toggle on
+   add-stock (packs ×size → base units, loose/fractions); item detail shows "N <unit> per pack". Deployed + installed.
+2. ✅ **Repair system** (migration 021) — `repairs` tickets on equipment unit / item / vehicle, with notes, parts-needed,
+   and an admin `repair_status` taxonomy (meta.terminal "counts as completed"). Repairs list/detail + dashboard tile +
+   "Report repair" entry points + Manage Types section. **Auto-drive**: open → unit `in_repair`; terminal → `available`
+   (optional return location); reopening re-drives `in_repair`. Deployed + installed.
 
-## Backlog / bugs (see `docs/STATUS.md` "Known bugs")
+## Backlog / bugs — nothing else is "decided to build"; these are open items (full detail in `docs/STATUS.md`)
 - 🐞 **Maintenance mode blocks admin login** ("connection required") — tier-4/auth path must bypass the maintenance
   lockout so an admin can sign in to turn maintenance off. (Check api maintenance gate + mobile login session writes.)
 - **Job site location → street address + map pin** — stop reusing the warehouse location picker for a job's site; just a
