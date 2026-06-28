@@ -93,6 +93,32 @@ export function updateUserLocal(userId: string, fields: EditableUserFields): str
   return now;
 }
 
+// Batch helpers — DRY the local-update + outbox-UPDATE pair that single-row edits
+// in users.tsx do inline (see users.tsx:181-182, 224-225). Each writes the local
+// row (0/1 in SQLite) and mirrors a sync outbox UPDATE with a REAL boolean for
+// `active` and NO synced_at. Returns the updated_at stamp.
+export function setUserActive(id: string, active: boolean): string {
+  const now = updateUserLocal(id, { active: active ? 1 : 0 });
+  appendOutbox('UPDATE', 'users', { id, active: !!active, updated_at: now });
+  return now;
+}
+
+// A role change must also move pin_length_required to the new role's minimum —
+// exactly like the single-row edit in users.tsx saveEdits (a crew→manager
+// promotion must not keep the shorter PIN requirement). The caller passes the
+// resolved minimum (roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]])
+// so this query layer stays free of the role-settings cache.
+export function setUserRole(id: string, role: string, pinLengthRequired?: number): string {
+  const fields: EditableUserFields = { role: role as UserRole };
+  if (pinLengthRequired != null) fields.pin_length_required = pinLengthRequired;
+  const now = updateUserLocal(id, fields);
+  appendOutbox('UPDATE', 'users', {
+    id, role, updated_at: now,
+    ...(pinLengthRequired != null ? { pin_length_required: pinLengthRequired } : {}),
+  });
+  return now;
+}
+
 // Mark a user's PIN as cleared locally after an admin reset, so this device
 // reflects it immediately (other devices pick it up on the next pull).
 export function markUserPinReset(userId: string): void {

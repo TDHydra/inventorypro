@@ -1,19 +1,28 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Switch, RefreshControl,
+  Switch, RefreshControl, Alert,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { getAllJobs, getActiveCheckoutsForUser, Job } from '../../../src/db/queries/jobs';
-import { getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import {
+  getAllJobs, getActiveCheckoutsForUser, updateJobFields, archiveJob, Job,
+} from '../../../src/db/queries/jobs';
+import { getTypeIcon, getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
+import { appendLog } from '../../../src/db/queries/log';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { rowsAs } from '../../../src/db/schema';
 import { colors } from '../../../src/theme';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { syncNow } from '../../../src/sync/engine';
 
@@ -31,6 +40,10 @@ export default function JobsScreen() {
   const { user } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
+  const canClose = usePermission('close_jobs');
+  const { locked } = useMaintenanceMode();
+  const ms = useMultiSelect<Job>();
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('my');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
@@ -62,6 +75,87 @@ export default function JobsScreen() {
     return byStatus.filter(j => j.name.toLowerCase().includes(q));
   }, [search, statusFilter, showArchived, reloadKey]);
 
+  // --- Bulk multi-select ---
+  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const typeOptions = useMemo<PickerOption[]>(
+    () => jobTypes.map(t => ({ id: t.label, label: t.label })),
+    [jobTypes],
+  );
+
+  // Mirror the detail screen's audit log for batch changes (single-row edits in
+  // [id].tsx log job_updated / job_archived) so bulk actions aren't a blind spot.
+  const logJob = useCallback((id: string, action: string, note: string) => {
+    appendLog({
+      action, entity_type: 'job', entity_id: id, job_id: id,
+      user_id: user?.id ?? null, note,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, metadata: null, device_id: null,
+    });
+  }, [user?.id]);
+
+  // Each batch handler iterates the selection and calls the existing per-entity
+  // mutation (which queues its own outbox UPDATE), then refreshes + exits — exactly
+  // like the single-row edits on the detail screen.
+  const bulkSetStatus = useCallback((status: 'open' | 'closed') => {
+    if (isWriteBlocked()) return;
+    for (const id of Array.from(ms.selected)) {
+      updateJobFields(id, { status });
+      logJob(id, 'job_updated', `Status → ${status}`);
+    }
+    reloadLocalData();
+    ms.exit();
+  }, [ms, reloadLocalData, logJob]);
+
+  const doClose = useCallback(() => bulkSetStatus('closed'), [bulkSetStatus]);
+  const doReopen = useCallback(() => bulkSetStatus('open'), [bulkSetStatus]);
+
+  const doArchive = useCallback(() => {
+    if (isWriteBlocked()) return;
+    const ids = Array.from(ms.selected);
+    if (ids.length === 0) return;
+    Alert.alert(
+      'Archive Jobs',
+      `Archive ${ids.length} job${ids.length === 1 ? '' : 's'}? They will be hidden from active lists.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive', style: 'destructive',
+          onPress: () => {
+            if (isWriteBlocked()) return;
+            for (const id of ids) {
+              archiveJob(id);
+              logJob(id, 'job_archived', 'Bulk archive');
+            }
+            reloadLocalData();
+            ms.exit();
+          },
+        },
+      ],
+    );
+  }, [ms, reloadLocalData, logJob]);
+
+  const applyType = useCallback((type: string) => {
+    setTypePickerOpen(false);
+    if (isWriteBlocked()) return;
+    for (const id of Array.from(ms.selected)) {
+      updateJobFields(id, { type });
+      logJob(id, 'job_updated', `Type → ${type}`);
+    }
+    reloadLocalData();
+    ms.exit();
+  }, [ms, reloadLocalData, logJob]);
+
+  const bulkActions = useMemo<BulkAction[]>(() => {
+    const a: BulkAction[] = [];
+    if (canClose) a.push({ key: 'close', label: 'Close', onPress: doClose });
+    if (canCreate) a.push({ key: 'archive', label: 'Archive', destructive: true, onPress: doArchive });
+    if (canCreate) a.push({ key: 'reopen', label: 'Reopen', onPress: doReopen });
+    if (canCreate && typeOptions.length > 0) {
+      a.push({ key: 'type', label: 'Set type', onPress: () => setTypePickerOpen(true) });
+    }
+    return a;
+  }, [canClose, canCreate, typeOptions.length, doClose, doArchive, doReopen]);
+
   return (
     <>
       <Stack.Screen options={{ title: 'Jobs', headerShown: true }} />
@@ -79,7 +173,7 @@ export default function JobsScreen() {
         <View style={s.tabs}>
           <TouchableOpacity
             style={[s.tab, tab === 'my' && s.tabActive]}
-            onPress={() => setTab('my')}
+            onPress={() => { ms.exit(); setTab('my'); }}
           >
             <Text style={[s.tabText, tab === 'my' && s.tabTextActive]}>My Checkouts</Text>
             {myCheckouts.length > 0 && (
@@ -158,7 +252,7 @@ export default function JobsScreen() {
             <FlatList
               data={allJobs}
               keyExtractor={j => j.id}
-              contentContainerStyle={s.list}
+              contentContainerStyle={[s.list, ms.active && s.listSelecting]}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
@@ -169,14 +263,27 @@ export default function JobsScreen() {
               }
               renderItem={({ item: job }) => {
                 const typeIcon = job.type ? getTypeIcon('job', job.type) : null;
+                const selected = ms.isSelected(job.id);
                 return (
                   <TouchableOpacity
-                    onPress={() =>
-                      router.push({ pathname: '/(app)/(jobs)/[id]', params: { id: job.id } })
-                    }
+                    onPress={() => {
+                      if (ms.active) { ms.toggle(job.id); return; }
+                      router.push({ pathname: '/(app)/(jobs)/[id]', params: { id: job.id } });
+                    }}
+                    onLongPress={() => {
+                      if (canCreate || canClose) ms.enter(job.id);
+                    }}
+                    delayLongPress={300}
                   >
                     <Card variant="list">
-                      <Text style={s.cardName}>{job.name}</Text>
+                      <View style={s.nameRow}>
+                        {ms.active && (
+                          <View style={[s.checkbox, selected && s.checkboxOn]}>
+                            {selected && <Text style={s.checkMark}>✓</Text>}
+                          </View>
+                        )}
+                        <Text style={s.cardName}>{job.name}</Text>
+                      </View>
                       <View style={s.cardRow}>
                         <View style={[
                           s.statusDot,
@@ -202,6 +309,26 @@ export default function JobsScreen() {
             />
           </>
         )}
+
+        {tab === 'all' && ms.active && bulkActions.length > 0 && (
+          <BulkActionBar
+            count={ms.count}
+            actions={bulkActions}
+            onSelectAll={() => ms.selectAll(allJobs.map(j => j.id))}
+            onCancel={ms.exit}
+            disabled={locked}
+          />
+        )}
+
+        <ModalSheet visible={typePickerOpen} onClose={() => setTypePickerOpen(false)}>
+          <Text style={s.sheetTitle}>Set job type</Text>
+          <SearchablePicker
+            placeholder="Search types..."
+            options={typeOptions}
+            value={null}
+            onSelect={(opt) => applyType(opt.id)}
+          />
+        </ModalSheet>
       </View>
     </>
   );
@@ -236,7 +363,17 @@ const s = StyleSheet.create({
   archivedLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
 
   list: { padding: 12, gap: 8, paddingBottom: 80 },
-  cardName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
+  listSelecting: { paddingBottom: 180 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 6, borderWidth: 2,
+    borderColor: colors.textDisabled, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+  cardName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardSub: { fontSize: 12, color: colors.textSecondary },
   cardDate: { fontSize: 12, color: colors.textMuted, marginLeft: 'auto' as any },
