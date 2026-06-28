@@ -1,6 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { AppState, AppStateStatus } from 'react-native';
-import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry } from './outbox';
+import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';
 import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
@@ -9,7 +9,7 @@ import { loadRolePermissionCache } from '../auth/permissions';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = MAX_OUTBOX_ATTEMPTS;
 const INTERVAL_MS = 60_000;
 const FAST_RETRY_MS = 10_000;
 
