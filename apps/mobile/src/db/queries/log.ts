@@ -181,6 +181,7 @@ export function getRecentLog(limit = 100): LogEntry[] {
 
 export interface LogFilter {
   userId?: string;
+  userIds?: string[];
   action?: string;
   sinceISO?: string;
   untilISO?: string;
@@ -194,6 +195,11 @@ export function getLogFiltered(f: LogFilter, limit = 200): LogEntry[] {
   if (f.userId != null) {
     clauses.push('al.user_id = ?');
     params.push(f.userId);
+  }
+  if (f.userIds != null && f.userIds.length > 0) {
+    const placeholders = f.userIds.map(() => '?').join(',');
+    clauses.push(`al.user_id IN (${placeholders})`);
+    params.push(...f.userIds);
   }
   if (f.action != null) {
     clauses.push('al.action = ?');
