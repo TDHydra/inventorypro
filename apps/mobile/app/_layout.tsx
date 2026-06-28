@@ -8,6 +8,10 @@ import { clearSession } from '../src/auth/session';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
 import { loadClassConfigCache } from '../src/constants/units';
 import { loadRolePermissionCache } from '../src/auth/permissions';
+import { getAppSetting } from '../src/db/appSettings';
+// Importing localAlerts also registers the foreground notification handler at
+// module load (setNotificationHandler).
+import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -20,6 +24,13 @@ export default function RootLayout() {
         loadClassConfigCache();
         loadRolePermissionCache();
         startSyncEngine();
+        // Notifications: create the Android channel, then (unless the user has
+        // turned the pref off) make sure we hold OS permission so post-sync
+        // alert checks can actually surface.
+        initNotifications();
+        if (getAppSetting('notifications_enabled') !== 'false') {
+          void ensureNotificationPermission();
+        }
       })
       .catch(err => console.error('[DB] Init failed:', err));
 

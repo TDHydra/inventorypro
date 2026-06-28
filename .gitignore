@@ -22,5 +22,8 @@ apps/api/dist/
 *.log
 .DS_Store
 
+# This is a pnpm workspace — npm / `expo install` can spuriously regenerate this.
+package-lock.json
+
 # SDD process scratch (briefs, reports, ledger)
 .superpowers/

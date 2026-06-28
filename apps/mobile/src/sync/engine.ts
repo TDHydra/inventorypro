@@ -6,6 +6,7 @@ import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
 import { loadRolePermissionCache } from '../auth/permissions';
+import { runLocalAlertChecks } from '../notifications/localAlerts';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const MAX_ATTEMPTS = 5;
@@ -122,6 +123,10 @@ async function runDrainAndPull(): Promise<void> {
     // A pull may also have changed role_settings.permission_overrides — refresh
     // the role-override cache that hasPermission() reads.
     loadRolePermissionCache();
+    // Fire-and-forget local alert checks (low stock / temp-employee expiry).
+    // It swallows its own errors and resolves void, so it can't disturb the
+    // existing try/catch/return behaviour of this cycle.
+    void runLocalAlertChecks();
   } catch (err) {
     console.warn('[Sync] Cycle error:', (err as Error).message);
   }

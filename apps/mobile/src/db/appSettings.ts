@@ -41,3 +41,21 @@ export function getAppSetting(key: string): string | null {
 export function setAppSetting(key: string, value: string): void {
   getDb().executeSync(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, [key, value]);
 }
+
+/** Deletes an app_settings row by key (no-op if it doesn't exist). */
+export function deleteAppSetting(key: string): void {
+  getDb().executeSync(`DELETE FROM app_settings WHERE key = ?`, [key]);
+}
+
+/** Returns every app_settings key starting with `prefix` (empty array on error). */
+export function getAppSettingKeysByPrefix(prefix: string): string[] {
+  try {
+    const rows = getDb().executeSync(
+      `SELECT key FROM app_settings WHERE key LIKE ?`,
+      [`${prefix}%`]
+    ).rows as { key: string }[];
+    return rows.map(r => r.key);
+  } catch {
+    return [];
+  }
+}
