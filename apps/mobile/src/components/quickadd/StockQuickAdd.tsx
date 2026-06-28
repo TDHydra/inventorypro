@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { searchItems, adjustStock } from '../../db/queries/items';
+import { searchItems, adjustStock, getItemById } from '../../db/queries/items';
 import { getAllLocations } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -37,10 +37,11 @@ export default function StockQuickAdd({ onSaved }: Props) {
     [allLocations],
   );
 
-  const allItems = useMemo(() => searchItems('', 100), []);
-  const itemOptions: PickerOption[] = useMemo(
-    () => allItems.map(i => ({ id: i.id, label: i.name, sublabel: i.unit })),
-    [allItems],
+  // DB-backed search (not a capped pre-load) so the full catalog is reachable.
+  const itemSearch = useMemo(
+    () => (q: string): PickerOption[] =>
+      searchItems(q, 20).map(i => ({ id: i.id, label: i.name, sublabel: i.unit })),
+    [],
   );
 
   function handleSave() {
@@ -62,7 +63,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
     const itemId = selectedItemOpt.id;
     const locationId = selectedLocation.id;
     const now = new Date().toISOString();
-    const fullItem = allItems.find(i => i.id === itemId);
+    const fullItem = getItemById(itemId);
     const itemUnit = fullItem?.unit ?? 'each';
 
     adjustStock(itemId, locationId, parsedQty);
@@ -113,7 +114,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
       <FieldLabel>Item</FieldLabel>
       <SearchablePicker
         placeholder="Search items..."
-        options={itemOptions}
+        searchFn={itemSearch}
         value={selectedItemOpt}
         onSelect={opt => {
           setSelectedItemOpt(prev => prev?.id === opt.id ? null : opt);
