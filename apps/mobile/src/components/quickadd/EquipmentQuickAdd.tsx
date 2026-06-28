@@ -35,11 +35,13 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   const [serial, setSerial] = useState('');
   const [tagError, setTagError] = useState('');
 
-  // DB-backed search over equipment models (kind='equipment' in-SQL, not a capped
-  // pre-load + post-filter) so the full equipment catalog is reachable.
+  // DB-backed search over UNIT-TRACKED items (in-SQL, not a capped pre-load +
+  // post-filter) — faithfully restores the old unit_tracked===1 filter. NB:
+  // kind='equipment' is NOT equivalent (an equipment item can have unit_tracked=0,
+  // and attaching units to it would create stock-invisible phantom inventory).
   const itemSearch = useMemo(
     () => (q: string): PickerOption[] =>
-      searchItems(q, 20, 0, undefined, 'equipment').map(i => ({
+      searchItems(q, 12, 0, undefined, undefined, true).map(i => ({
         id: i.id,
         label: i.name,
         sublabel: i.tag_prefix ?? undefined,

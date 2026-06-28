@@ -40,7 +40,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
   // DB-backed search (not a capped pre-load) so the full catalog is reachable.
   const itemSearch = useMemo(
     () => (q: string): PickerOption[] =>
-      searchItems(q, 20).map(i => ({ id: i.id, label: i.name, sublabel: i.unit })),
+      searchItems(q, 12).map(i => ({ id: i.id, label: i.name, sublabel: i.unit })),
     [],
   );
 

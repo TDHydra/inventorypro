@@ -76,7 +76,7 @@ export default function AddStockScreen() {
   // reachable; kind='product' filtered IN-SQL.
   const itemSearch = useMemo(
     () => (q: string): PickerOption[] =>
-      searchItems(q, 20, 0, undefined, 'product').map(i => ({ id: i.id, label: i.name, sublabel: i.barcode ?? i.kind })),
+      searchItems(q, 12, 0, undefined, 'product').map(i => ({ id: i.id, label: i.name, sublabel: i.barcode ?? i.kind })),
     [],
   );
 
