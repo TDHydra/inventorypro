@@ -89,35 +89,6 @@ export function removeTeamMember(teamId: string, userId: string): void {
   );
 }
 
-// Teams where this user is flagged as a manager (team_members.is_manager = 1).
-export function getTeamsManagedBy(userId: string): Team[] {
-  const db = getDb();
-  const result = db.executeSync(
-    `SELECT t.*
-       FROM teams t
-       JOIN team_members tm ON tm.team_id = t.id
-      WHERE tm.user_id = ? AND tm.is_manager = 1
-      ORDER BY t.name ASC`,
-    [userId],
-  );
-  return rowsAs<Team>(result.rows);
-}
-
-// Distinct member user_ids across every team this user manages (offline "My Team").
-export function getManagedTeamMemberIds(userId: string): string[] {
-  const db = getDb();
-  const result = db.executeSync(
-    `SELECT DISTINCT tm.user_id AS user_id
-       FROM team_members tm
-      WHERE tm.team_id IN (
-        SELECT team_id FROM team_members
-         WHERE user_id = ? AND is_manager = 1
-      )`,
-    [userId],
-  );
-  return (result.rows as { user_id: string }[]).map(r => r.user_id);
-}
-
 // Promote/demote an existing member as a team manager. Bundles the outbox row
 // (UPDATE team_members) itself — real boolean payload, no synced_at.
 export function setMemberManager(teamId: string, userId: string, isManager: boolean): void {
