@@ -72,7 +72,8 @@ export default function AddStockScreen() {
   const [quantity, setQuantity] = useState('');
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  const allItems = useMemo(() => searchItems('', 100).filter(i => i.kind !== 'equipment'), []);
+  // kind='product' filtered IN-SQL (not post-query) so the 100-row cap fills with products only.
+  const allItems = useMemo(() => searchItems('', 100, 0, undefined, 'product'), []);
   const itemOptions: PickerOption[] = useMemo(
     () => allItems.map(i => ({ id: i.id, label: i.name, sublabel: i.barcode ?? i.kind })),
     [allItems],
