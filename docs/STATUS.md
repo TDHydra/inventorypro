@@ -94,20 +94,14 @@ points at prod and is sufficient to field-test notifications directly.
   turn it off / manage). Likely the maintenance write-guard (`assertWritable`) or a server-side maintenance gate is
   firing on the online PIN auth (`POST /auth/token`) path. Fix: exempt the auth/login path (and tier-4) from the
   maintenance lockout. Check `apps/api` maintenance handling + the mobile login flow's session writes.
-- **Job site location → street address + map pin** *(requested 2026-06-28)* — the job's "site location" should NOT
-  reuse the internal location picker. It just needs a **street address** field + a **map with a pin** showing where
-  the job is, rendered on a **~35-mile-radius** map view. Decouple `jobs.site_location_id` UX from the warehouse
-  location tree (keep `site_address`; the map pin can reuse the existing lat/lng + react-native-maps from P4a).
-- **Location-type form rules** *(requested 2026-06-28)* — the location create/edit form should adapt to the selected
-  type (drive from config on the `location_type` taxonomy meta — e.g. `{gps, requiresOwner}` — so it stays adjustable):
-  - selecting a type **auto-sets the icon** to that type's icon;
-  - **Vehicle**: hide the GPS anchor; **owner ("Belongs to") is required** (a vehicle belongs to a PM);
-  - **Locker**: minimal — just the name (one Locker location covers all 4 lockers; no GPS, no owner, no sub-areas);
-  - **Maintenance**: it's at the shop and uses **labeled shelves** (normal location; relies on the shelf/home-location system).
-- **Home location = shelf typeahead** *(requested 2026-06-28)* — the item **Home Location** picker (edit/add/quick-add)
-  should **search a table of shelves as you type**, not a deep breadcrumb tree. Shelves are entered with **prefixes per
-  warehouse/shop** (e.g. `WH-A1`, `SHOP-B3`) so selection stays simple. Likely: filter `locations` of type `Shelf`
-  (or a dedicated shelf label field) and typeahead on the prefix/name.
+- ✅ **Job site map** *(done 2026-06-28)* — job detail shows a **view-only Leaflet map** (`MapDisplay`) geocoded from
+  `site_address` (`expo-location`), ~35-mile extent pin, no API key. *(Decoupling `site_location_id` from the form is
+  still optional/open; the map is address-driven as requested.)*
+- ✅ **Location-type form rules** *(done 2026-06-28, migration 022)* — driven by `location_type` meta `{gps, requiresOwner}`:
+  type selection auto-sets the icon; GPS hidden for `gps:false` types (Vehicle/Locker/Maintenance/Shelf/Area); owner
+  required for `requiresOwner:true` (Vehicle) or when the parent requires it.
+- ✅ **Home location = shelf typeahead** *(done 2026-06-28)* — the item Home Location picker now searches **Shelf**-type
+  locations by name (prefixes like `WH-A1`), with a fallback to all locations until shelves are entered.
 
 ---
 
