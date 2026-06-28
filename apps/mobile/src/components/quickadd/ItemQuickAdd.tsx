@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, Switch,
 } from 'react-native';
@@ -9,7 +9,8 @@ import type { InventoryItem } from '../../db/queries/items';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
-import { UnitCategory, UNIT_OPTIONS } from '../../constants/units';
+import { getProductClasses } from '../../db/queries/taxonomy';
+import { PRODUCT_CLASS_IDS } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -19,15 +20,9 @@ import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 
-const DEFAULT_UNIT_CAT: UnitCategory = 'piece';
-const DEFAULT_UNIT = 'each';
-
-const CATEGORIES: { value: UnitCategory; label: string }[] = [
-  { value: 'piece', label: 'Piece' },
-  { value: 'liquid', label: 'Liquid' },
-  { value: 'length', label: 'Length' },
-  { value: 'weight', label: 'Weight' },
-];
+// Equipment is always pieces/each, so it stores the stable Pieces class id
+// (migration 012) rather than a legacy enum string.
+const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
 interface Props {
   onSaved: (label: string) => void;
@@ -39,10 +34,15 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
+  // Configurable product classes (category 'product_class'); default to Pieces.
+  const productClasses = useMemo(() => getProductClasses(), []);
+  const pieceClass = productClasses.find(c => c.id === CLASS_PIECE_ID) ?? productClasses[0] ?? null;
+
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'product' | 'equipment'>('product');
-  const [unitCat, setUnitCat] = useState<UnitCategory>(DEFAULT_UNIT_CAT);
-  const [unit, setUnit] = useState(DEFAULT_UNIT);
+  // unit_category now stores a product_class id (stable taxonomy id), not a legacy enum.
+  const [unitCat, setUnitCat] = useState<string>(pieceClass?.id ?? CLASS_PIECE_ID);
+  const [unit, setUnit] = useState<string>(pieceClass?.units[0] ?? 'each');
   const [category, setCategory] = useState('');
   const [unitTracked, setUnitTracked] = useState(false);
   const [tagPrefix, setTagPrefix] = useState('');
@@ -51,7 +51,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // When kind changes: lock unit for equipment; reset equipment fields for product
   useEffect(() => {
     if (kind === 'equipment') {
-      setUnitCat('piece');
+      setUnitCat(CLASS_PIECE_ID);
       setUnit('each');
     } else {
       setUnitTracked(false);
@@ -62,8 +62,8 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   function clearForm() {
     setName('');
     setKind('product');
-    setUnitCat(DEFAULT_UNIT_CAT);
-    setUnit(DEFAULT_UNIT);
+    setUnitCat(pieceClass?.id ?? CLASS_PIECE_ID);
+    setUnit(pieceClass?.units[0] ?? 'each');
     setCategory('');
     setUnitTracked(false);
     setTagPrefix('');
@@ -135,6 +135,10 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     setTimeout(() => nameRef.current?.focus(), 100);
   }
 
+  // Curated units for the selected class; empty → free-text unit entry.
+  const selectedClass = productClasses.find(c => c.id === unitCat) ?? null;
+  const unitOptions = selectedClass?.units ?? [];
+
   return (
     <View style={s.container}>
       <TextInput
@@ -170,25 +174,33 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         <>
           <FieldLabel>Unit category</FieldLabel>
           <View style={s.chipRow}>
-            {CATEGORIES.map(c => (
+            {productClasses.map(c => (
               <FilterChip
-                key={c.value}
+                key={c.id}
                 label={c.label}
-                active={unitCat === c.value}
-                onPress={() => { setUnitCat(c.value); setUnit(UNIT_OPTIONS[c.value][0]); }}
+                active={unitCat === c.id}
+                onPress={() => { setUnitCat(c.id); setUnit(c.units[0] ?? ''); }}
               />
             ))}
           </View>
-          <View style={s.chipRow}>
-            {UNIT_OPTIONS[unitCat].map(u => (
-              <FilterChip
-                key={u}
-                label={u}
-                active={unit === u}
-                onPress={() => setUnit(u)}
-              />
-            ))}
-          </View>
+          {unitOptions.length > 0 ? (
+            <View style={s.chipRow}>
+              {unitOptions.map(u => (
+                <FilterChip
+                  key={u}
+                  label={u}
+                  active={unit === u}
+                  onPress={() => setUnit(u)}
+                />
+              ))}
+            </View>
+          ) : (
+            <AppInput
+              placeholder="Unit (e.g. each)"
+              value={unit}
+              onChangeText={setUnit}
+            />
+          )}
         </>
       )}
 

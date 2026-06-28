@@ -13,7 +13,7 @@ import type { InventoryItem } from '../../../src/db/queries/items';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
-import { UnitCategory, UNIT_OPTIONS } from '../../../src/constants/units';
+import { getProductClasses } from '../../../src/db/queries/taxonomy';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
@@ -32,19 +32,17 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 
-const CATEGORIES: { value: UnitCategory; label: string }[] = [
-  { value: 'liquid', label: 'Liquid (gallons, pints...)' },
-  { value: 'piece', label: 'Piece (each, box, PPE...)' },
-  { value: 'length', label: 'Length (ft, m...)' },
-  { value: 'weight', label: 'Weight (lb, kg...)' },
-];
-
 export default function AddStockScreen() {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const { barcode: initialBarcode } = useLocalSearchParams<{ barcode?: string }>();
   const { coords, request } = useCurrentPosition();
+
+  // Configurable product classes (category 'product_class'); each carries its
+  // curated unit list. Default to the first class for new items.
+  const productClasses = useMemo(() => getProductClasses(), []);
+  const defaultClass = productClasses[0] ?? null;
 
   // ── Item selection state ──────────────────────────────────────────────────
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null);
@@ -58,8 +56,9 @@ export default function AddStockScreen() {
   const [description, setDescription] = useState('');
   const [supplier, setSupplier] = useState('');
   const [model, setModel] = useState('');
-  const [unitCat, setUnitCat] = useState<UnitCategory>('piece');
-  const [unit, setUnit] = useState('each');
+  // unit_category now stores a product_class id (stable taxonomy id), not a legacy enum.
+  const [unitCat, setUnitCat] = useState<string>(defaultClass?.id ?? 'piece');
+  const [unit, setUnit] = useState<string>(defaultClass?.units[0] ?? 'each');
   // Item catalog category (free-text, e.g. "Air Movers", "Filters")
   const [category, setCategory] = useState('');
   // Whether this item is expected back via Check In
@@ -106,6 +105,13 @@ export default function AddStockScreen() {
     }),
     [sortedLocations, locationById],
   );
+
+  // Curated units for the currently selected class; empty → free-text unit entry.
+  const selectedClass = useMemo(
+    () => productClasses.find(c => c.id === unitCat) ?? null,
+    [productClasses, unitCat],
+  );
+  const unitOptions = selectedClass?.units ?? [];
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
@@ -170,7 +176,7 @@ export default function AddStockScreen() {
     setBarcode('');
     setName(''); setDescription('');
     setSupplier(''); setModel('');
-    setUnitCat('piece'); setUnit('each');
+    setUnitCat(defaultClass?.id ?? 'piece'); setUnit(defaultClass?.units[0] ?? 'each');
     setCategory(''); setReturnable(false);
     setMinAlert('0'); setReorderTo('');
     setSelectedLocation(null);
@@ -322,25 +328,35 @@ export default function AddStockScreen() {
               />
 
               <FieldLabel style={{ marginTop: 12 }}>Units</FieldLabel>
-              {CATEGORIES.map(c => (
+              {productClasses.map(c => (
                 <TouchableOpacity
-                  key={c.value}
-                  style={[s.opt, unitCat === c.value && s.optActive]}
-                  onPress={() => { setUnitCat(c.value); setUnit(UNIT_OPTIONS[c.value][0]); }}
+                  key={c.id}
+                  style={[s.opt, unitCat === c.id && s.optActive]}
+                  onPress={() => { setUnitCat(c.id); setUnit(c.units[0] ?? ''); }}
                 >
-                  <Text style={[s.optText, unitCat === c.value && s.optTextActive]}>{c.label}</Text>
+                  <Text style={[s.optText, unitCat === c.id && s.optTextActive]}>
+                    {c.icon ? `${c.icon} ` : ''}{c.label}
+                  </Text>
                 </TouchableOpacity>
               ))}
-              <View style={s.unitRow}>
-                {UNIT_OPTIONS[unitCat].map(u => (
-                  <FilterChip
-                    key={u}
-                    label={u}
-                    active={unit === u}
-                    onPress={() => setUnit(u)}
-                  />
-                ))}
-              </View>
+              {unitOptions.length > 0 ? (
+                <View style={s.unitRow}>
+                  {unitOptions.map(u => (
+                    <FilterChip
+                      key={u}
+                      label={u}
+                      active={unit === u}
+                      onPress={() => setUnit(u)}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <AppInput
+                  placeholder="Unit (e.g. each)"
+                  value={unit}
+                  onChangeText={setUnit}
+                />
+              )}
 
               <AdvancedFields>
                 <AppInput
