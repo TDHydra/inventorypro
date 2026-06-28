@@ -38,6 +38,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const itemTypes = useMemo(() => getItemTypes(), []);
 
   const [name, setName] = useState('');
+  const [sku, setSku] = useState(''); // item # / part #
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
   // unit_category stores a product_class id (drives formatQuantity decimals).
   const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
@@ -70,6 +71,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   function clearForm() {
     setName('');
+    setSku('');
     setItemType('');
     setUnitCat(CLASS_PIECE_ID);
     setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
@@ -92,7 +94,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       name: trimmedName,
       barcode: null,
       description: null,
-      sku: null,
+      sku: sku.trim() || null,
       supplier: null,
       model: null,
       kind: 'product',
@@ -154,6 +156,16 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
+      <AppInput
+        placeholder="Item # / Part # (recommended)"
+        value={sku}
+        onChangeText={setSku}
+        autoCapitalize="characters"
+      />
+      {!sku.trim() && (
+        <Text style={s.skuHint}>💡 Most items have a part # — adding it makes them quicker to find.</Text>
+      )}
+
       {itemTypes.length > 0 && (
         <>
           <FieldLabel>Item type</FieldLabel>
@@ -212,6 +224,7 @@ const s = StyleSheet.create({
   },
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  skuHint: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: -4, marginBottom: 2 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },

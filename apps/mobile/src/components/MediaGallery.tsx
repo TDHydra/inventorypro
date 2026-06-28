@@ -31,6 +31,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   async function handlePickMedia() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -138,12 +139,10 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
     }
   }
 
-  function showOptions() {
-    Alert.alert('Add Media', undefined, [
-      { text: 'Take Photo', onPress: handleCamera },
-      { text: 'Choose from Library', onPress: handlePickMedia },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+  function pick(fn: () => void) {
+    setPickerOpen(false);
+    // let the sheet dismiss before launching the native camera/library
+    setTimeout(fn, 250);
   }
 
   return (
@@ -161,18 +160,50 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
         ))}
 
         {canUpload && (
-          <TouchableOpacity style={styles.addBtn} onPress={showOptions} disabled={uploading}>
+          <TouchableOpacity style={styles.addBtn} onPress={() => setPickerOpen(true)} disabled={uploading}>
             {uploading ? (
-              <ActivityIndicator color={colors.primary} />
+              <>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={styles.addText}>Uploading…</Text>
+              </>
             ) : (
               <>
-                <Text style={styles.addIcon}>+</Text>
-                <Text style={styles.addText}>Add</Text>
+                <Text style={styles.addIcon}>＋</Text>
+                <Text style={styles.addText}>Add photo</Text>
               </>
             )}
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Source picker — polished bottom sheet (replaces the bare Alert) */}
+      <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
+        <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Add photo or video</Text>
+            <View style={styles.sourceRow}>
+              <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handleCamera)} activeOpacity={0.85}>
+                <View style={[styles.sourceIconWrap, { backgroundColor: colors.primaryBg }]}>
+                  <Text style={styles.sourceIcon}>📷</Text>
+                </View>
+                <Text style={styles.sourceLabel}>Take photo</Text>
+                <Text style={styles.sourceSub}>Use the camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handlePickMedia)} activeOpacity={0.85}>
+                <View style={[styles.sourceIconWrap, { backgroundColor: colors.accentBg }]}>
+                  <Text style={styles.sourceIcon}>🖼️</Text>
+                </View>
+                <Text style={styles.sourceLabel}>Choose</Text>
+                <Text style={styles.sourceSub}>Photo or video</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.sheetCancel} onPress={() => setPickerOpen(false)}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Lightbox */}
       <Modal visible={!!lightbox} transparent animationType="fade">
@@ -213,8 +244,27 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed',
     alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background,
   },
-  addIcon: { fontSize: 24, color: colors.textMuted },
-  addText: { fontSize: 12, color: colors.textMuted },
+  addIcon: { fontSize: 26, color: colors.primary, fontWeight: '300' },
+  addText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600', marginTop: 2 },
+  // Source picker bottom sheet
+  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  sheet: {
+    backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34, gap: 16,
+  },
+  sheetHandle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 4 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  sourceRow: { flexDirection: 'row', gap: 12 },
+  sourceCard: {
+    flex: 1, alignItems: 'center', gap: 6, paddingVertical: 18,
+    borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background,
+  },
+  sourceIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
+  sourceIcon: { fontSize: 26 },
+  sourceLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  sourceSub: { fontSize: 12, color: colors.textMuted },
+  sheetCancel: { alignItems: 'center', paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background },
+  sheetCancelText: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
   lightbox: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
     alignItems: 'center', justifyContent: 'center',
