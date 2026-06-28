@@ -36,7 +36,7 @@ interface Props {
  * On confirm:
  *   1. adjustStock(itemId, fromLocationId, -qty)  [deducts from source]
  *   2. adjustStock(itemId, destLocationId, +qty)  [adds to destination]
- *   3. appendOutbox UPDATE for both stock_by_location rows (absolute quantities)
+ *   3. appendOutbox ADJUST for both stock_by_location rows (signed deltas)
  *   4. appendLog 'transfer' with from/to/qty/unit
  */
 export default function MoveStockModal({
@@ -104,12 +104,6 @@ export default function MoveStockModal({
       return;
     }
 
-    // Read the destination's current qty BEFORE adjustment so we can compute
-    // the intended absolute values for the outbox payloads.
-    const destCurrentQty = getStockQuantity(itemId, destLoc.id);
-    const intendedFromQty = Math.max(0, currentOnHand - qty);
-    const intendedToQty = destCurrentQty + qty;
-
     // Pre-read unit for the confirm message
     const item = getItemById(itemId);
     const unit = item?.unit ?? null;
@@ -126,20 +120,18 @@ export default function MoveStockModal({
         adjustStock(itemId, fromLocationId, -qty);
         adjustStock(itemId, destLoc.id, qty);
 
-        // Outbox both stock_by_location rows with intended final quantities.
-        // Use INSERT (the server's upsert path: ON CONFLICT (item_id,location_id) DO
-        // UPDATE) — a plain UPDATE would match 0 rows when the destination location
-        // has no existing row for this item, silently dropping the increment.
-        appendOutbox('INSERT', 'stock_by_location', {
+        // Outbox SIGNED deltas for both rows; the server merges authoritatively
+        // (idempotent + clamped via ADJUST), creating the destination row if absent.
+        appendOutbox('ADJUST', 'stock_by_location', {
           item_id: itemId,
           location_id: fromLocationId,
-          quantity: intendedFromQty,
+          delta: -qty,
           updated_at: now,
         });
-        appendOutbox('INSERT', 'stock_by_location', {
+        appendOutbox('ADJUST', 'stock_by_location', {
           item_id: itemId,
           location_id: destLoc.id,
-          quantity: intendedToQty,
+          delta: qty,
           updated_at: now,
         });
 

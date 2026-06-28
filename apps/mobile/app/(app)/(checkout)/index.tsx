@@ -356,19 +356,19 @@ export default function CheckoutScreen() {
   }, [destType, selectedJob, selectedDestLocation, pmSelections]);
 
   // ── Stock write helper: deduct source, optionally credit a destination. ───
-  // Both outbox rows carry the ABSOLUTE post-adjust on-hand (never a delta).
+  // Push SIGNED deltas; the server merges authoritatively (idempotent + clamped).
   function stockMove(itemId: string, fromLoc: string, toLoc: string | null, qty: number) {
     adjustStock(itemId, fromLoc, -qty);
-    appendOutbox('INSERT', 'stock_by_location', {
+    appendOutbox('ADJUST', 'stock_by_location', {
       item_id: itemId, location_id: fromLoc,
-      quantity: getStockQuantity(itemId, fromLoc),
+      delta: -qty,
       updated_at: new Date().toISOString(),
     });
     if (toLoc) {
       adjustStock(itemId, toLoc, qty);
-      appendOutbox('INSERT', 'stock_by_location', {
+      appendOutbox('ADJUST', 'stock_by_location', {
         item_id: itemId, location_id: toLoc,
-        quantity: getStockQuantity(itemId, toLoc),
+        delta: qty,
         updated_at: new Date().toISOString(),
       });
     }

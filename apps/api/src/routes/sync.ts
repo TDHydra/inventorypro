@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 
 interface OutboxEntry {
   id: string;
-  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  operation: 'INSERT' | 'UPDATE' | 'DELETE' | 'ADJUST';
   table_name: string;
   payload: Record<string, unknown>;
   created_at: string;
@@ -86,6 +86,40 @@ async function applyEntry(
     return;
   }
 
+  // Delta-based stock merge. Movement writers push a SIGNED delta; the server is
+  // authoritative. Idempotent via processed_outbox (keyed on the outbox entry id):
+  // a retried push finds the dedup row already present → dedup CTE is empty → the
+  // INSERT/UPDATE produces no row, so the delta is applied exactly once. Clamped
+  // with GREATEST(0, …) so it can never violate the quantity >= 0 CHECK. NOW() is
+  // authoritative (never moves updated_at backwards, so other devices' incremental
+  // pull `WHERE updated_at > since` always sees the change).
+  if (operation === 'ADJUST' && table_name === 'stock_by_location') {
+    const itemId = payload.item_id;
+    const locationId = payload.location_id;
+    const delta = payload.delta;
+    if (itemId == null || locationId == null || delta == null) {
+      throw new Error('ADJUST stock_by_location requires item_id, location_id, delta');
+    }
+    await pg.query(
+      `WITH dedup AS (
+         INSERT INTO processed_outbox (entry_id) VALUES ($1)
+         ON CONFLICT (entry_id) DO NOTHING RETURNING entry_id)
+       INSERT INTO stock_by_location (item_id, location_id, quantity, updated_at)
+       SELECT $2, $3, GREATEST(0, $4), NOW() FROM dedup
+       ON CONFLICT (item_id, location_id) DO UPDATE
+         SET quantity = GREATEST(0, stock_by_location.quantity + $4),
+             updated_at = NOW()`,
+      [entry.id, itemId, locationId, delta]
+    );
+    return;
+  }
+
+  // ADJUST is only defined for stock_by_location; reject it for any other table
+  // rather than letting it fall through to the generic full-row upsert.
+  if (operation === 'ADJUST') {
+    throw new Error(`ADJUST not supported for table ${table_name}`);
+  }
+
   const keys = keyColumns(table_name);
 
   if (operation === 'DELETE') {
@@ -102,7 +136,14 @@ async function applyEntry(
     // Real partial update — only the columns the device actually changed.
     const cols = Object.keys(payload).filter(k => k !== '__version' && k !== 'synced_at' && !keys.includes(k));
     if (cols.length === 0) return;
-    const setClause = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
+    // Clamp absolute stock writes so a bad value can't throw the quantity >= 0
+    // CHECK and strand the entry forever.
+    const setClause = cols.map((c, i) => {
+      const ph = `$${i + 1}`;
+      return table_name === 'stock_by_location' && c === 'quantity'
+        ? `${c} = GREATEST(0, ${ph})`
+        : `${c} = ${ph}`;
+    }).join(', ');
     const where = keys.map((k, i) => `${k} = $${cols.length + i + 1}`).join(' AND ');
     await pg.query(
       `UPDATE ${table_name} SET ${setClause} WHERE ${where}`,
@@ -116,10 +157,14 @@ async function applyEntry(
   const targetCols = new Set(keys);
   const allKeys = Object.keys(payload).filter(k => k !== '__version' && k !== 'synced_at');
   const cols = allKeys.join(', ');
-  const vals = allKeys.map((_, i) => `$${i + 1}`).join(', ');
+  // Clamp absolute stock writes (both the VALUES and the DO UPDATE) with
+  // GREATEST(0, …) so a bad absolute can't throw the quantity >= 0 CHECK.
+  const clampStock = (k: string, ph: string) =>
+    table_name === 'stock_by_location' && k === 'quantity' ? `GREATEST(0, ${ph})` : ph;
+  const vals = allKeys.map((k, i) => clampStock(k, `$${i + 1}`)).join(', ');
   const updates = allKeys
     .filter(k => !targetCols.has(k))
-    .map(k => `${k} = $${allKeys.indexOf(k) + 1}`)
+    .map(k => `${k} = ${clampStock(k, `$${allKeys.indexOf(k) + 1}`)}`)
     .join(', ');
 
   const sql = updates

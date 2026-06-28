@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
+import { searchItems, adjustStock } from '../../db/queries/items';
 import { getAllLocations } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -66,12 +66,11 @@ export default function StockQuickAdd({ onSaved }: Props) {
     const itemUnit = fullItem?.unit ?? 'each';
 
     adjustStock(itemId, locationId, parsedQty);
-    const abs = getStockQuantity(itemId, locationId);
 
-    appendOutbox('UPDATE', 'stock_by_location', {
+    appendOutbox('ADJUST', 'stock_by_location', {
       item_id: itemId,
       location_id: locationId,
-      quantity: abs,
+      delta: parsedQty,
       updated_at: now,
     });
     appendLog({

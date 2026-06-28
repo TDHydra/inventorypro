@@ -56,6 +56,16 @@ export async function runMigrations(): Promise<void> {
     } else {
       console.log(`✓ ${ran} migration(s) applied.`);
     }
+
+    // Prune the sync dedup table: processed_outbox rows only matter inside the
+    // push-retry window, so anything older than 7 days is safe to drop. Runs on
+    // every boot (after migration 013 has created the table).
+    const pruned = await client.query(
+      `DELETE FROM processed_outbox WHERE processed_at < NOW() - INTERVAL '7 days'`
+    );
+    if (pruned.rowCount) {
+      console.log(`✓ Pruned ${pruned.rowCount} stale processed_outbox row(s).`);
+    }
   } finally {
     await client.end();
   }
