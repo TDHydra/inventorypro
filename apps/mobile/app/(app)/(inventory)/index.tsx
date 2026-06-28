@@ -6,7 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { searchItems, updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
-import { getProductClasses } from '../../../src/db/queries/taxonomy';
+import { getItemTypes } from '../../../src/db/queries/taxonomy';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { PermissionGate } from '../../../src/components/PermissionGate';
@@ -37,8 +37,8 @@ interface Item {
 
 const PAGE_SIZE = 20;
 
-// Filter value 'all' = no filter; any other value is a product_class id matched
-// against inventory_items.unit_category (a stable taxonomy id after migration 012).
+// Filter value 'all' = no filter; any other value is an Item Type label matched
+// against inventory_items.category (PPE / Filters / …).
 const ALL_FILTER = 'all';
 
 export default function InventoryScreen() {
@@ -51,11 +51,12 @@ export default function InventoryScreen() {
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [minQtyOpen, setMinQtyOpen] = useState(false);
   const [minQtyValue, setMinQtyValue] = useState('');
-  // Chips: "All" + one per configurable product class (label = class label, value = class id).
+  // Chips: "All" + one per Item Type (value = type label, matched against the
+  // item's `category`). Falls back to just "All" until item types have synced.
   const filterChips = useMemo(
     () => [
       { id: ALL_FILTER, label: 'All' },
-      ...getProductClasses().map(c => ({ id: c.id, label: c.label })),
+      ...getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
     ],
     [],
   );
@@ -70,9 +71,10 @@ export default function InventoryScreen() {
 
   const runSearch = useCallback((q: string, cat: string, newOffset: number, append = false) => {
     setLoading(true);
-    const catFilter = cat === ALL_FILTER ? undefined : cat;
-    // kind='product' filtered IN-SQL so pagination (LIMIT/OFFSET + hasMore) is correct.
-    const rows = searchItems(q, PAGE_SIZE, newOffset, catFilter, 'product') as Item[];
+    const typeFilter = cat === ALL_FILTER ? undefined : cat;
+    // kind='product' + item-type filtered IN-SQL so pagination (LIMIT/OFFSET +
+    // hasMore) is correct. itemCategory matches the catalog `category` column.
+    const rows = searchItems(q, PAGE_SIZE, newOffset, undefined, 'product', undefined, typeFilter) as Item[];
     if (append) {
       setItems(prev => [...prev, ...rows]);
     } else {

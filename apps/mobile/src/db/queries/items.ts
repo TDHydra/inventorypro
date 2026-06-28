@@ -40,7 +40,8 @@ export function searchItems(
   offset = 0,
   category?: string,
   kind?: string,
-  unitTracked?: boolean
+  unitTracked?: boolean,
+  itemCategory?: string
 ): ItemWithTotalStock[] {
   const db = getDb();
   const pattern = `%${query}%`;
@@ -51,10 +52,14 @@ export function searchItems(
   // unit_tracked filter (in-SQL, same reason) — e.g. the equipment-unit picker
   // must show only unit-tracked items, not every kind='equipment' row.
   const unitTrackedClause = unitTracked !== undefined ? `AND i.unit_tracked = ?` : '';
+  // Item-type filter (the catalog `category` column = item_category label, e.g.
+  // PPE / Filters). In-SQL so pagination stays correct.
+  const itemCategoryClause = itemCategory ? `AND i.category = ?` : '';
   const params: (string | number)[] = [pattern, pattern, pattern];
   if (category) params.push(category);
   if (kind) params.push(kind);
   if (unitTracked !== undefined) params.push(unitTracked ? 1 : 0);
+  if (itemCategory) params.push(itemCategory);
   params.push(query, `${query}%`, limit, offset);
 
   const result = db.executeSync(
@@ -70,6 +75,7 @@ export function searchItems(
        ${catClause}
        ${kindClause}
        ${unitTrackedClause}
+       ${itemCategoryClause}
      GROUP BY i.id
      ORDER BY
        CASE WHEN LOWER(i.name) = LOWER(?) THEN 0
