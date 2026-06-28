@@ -9,6 +9,7 @@ import { upsertItem } from '../../../src/db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../../src/db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
 import { nextAssetTag } from '../../../src/db/queries/equipment';
+import { PRODUCT_CLASS_IDS } from '../../../src/constants/units';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -117,7 +118,8 @@ export default function AddEquipmentScreen() {
       category: null as string | null,
       // Stored as integer in SQLite; outbox sends as boolean for Postgres
       returnable: 1 as number,
-      unit_category: 'piece',
+      // Stable Pieces class id (not the legacy 'piece' enum — 012 only remaps existing rows).
+      unit_category: PRODUCT_CLASS_IDS.piece,
       unit: 'each',
       min_qty_alert: 0,
       reorder_to: null as number | null,
