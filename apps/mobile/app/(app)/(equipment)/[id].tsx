@@ -20,6 +20,8 @@ import {
   setUnitStatus, EquipmentUnit,
 } from '../../../src/db/queries/equipmentUnits';
 import { appendLog } from '../../../src/db/queries/log';
+import { getRepairsForEntity, updateRepairStatus } from '../../../src/db/queries/repairs';
+import { getRepairStatuses, isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { useSession } from '../../../src/hooks/useSession';
 import { generateUUID } from '../../../src/utils/uuid';
 import { UnitRow } from '../../../src/components/UnitRow';
@@ -67,8 +69,6 @@ export default function EquipmentModelDetailScreen() {
   const [unitCounts, setUnitCounts] = useState(() => countUnitsByStatus(id));
 
   // Repair-out modal state (note prompt, cross-platform)
-  const [repairOutUnit, setRepairOutUnit] = useState<EquipmentUnit | null>(null);
-  const [repairNote, setRepairNote] = useState('');
 
   // Repair-in modal state (location picker)
   const [repairInUnit, setRepairInUnit] = useState<EquipmentUnit | null>(null);
@@ -301,29 +301,8 @@ export default function EquipmentModelDetailScreen() {
   }
 
   // ── Repair helpers ───────────────────────────────────────────────────────
-  function doRepairOut(unit: EquipmentUnit, note: string) {
-    if (!user || !item) return;
-    if (isWriteBlocked()) return;
-    const updated = setUnitStatus(unit.id, { status: 'in_repair', notes: note.trim() || null });
-    appendOutbox('INSERT', 'equipment_units', {
-      id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
-      serial_number: updated.serial_number, status: updated.status,
-      current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
-      notes: updated.notes, created_at: updated.created_at, updated_at: updated.updated_at,
-      // synced_at intentionally omitted
-    });
-    appendLog({
-      user_id: user.id, team_id: null, action: 'repair_out',
-      entity_type: 'item', entity_id: item.id,
-      from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
-      note: 'unit ' + unit.asset_tag + (note.trim() ? ': ' + note.trim() : ''),
-      metadata: null, device_id: null,
-    });
-    setRepairOutUnit(null);
-    setRepairNote('');
-    reload();
-  }
-
+  // Putting a unit in repair now goes through "Report repair" (a ticket) — the
+  // old note-only repair-out is removed so in_repair always has a Repairs ticket.
   function doRepairIn(unit: EquipmentUnit, locationId: string) {
     if (!user || !item) return;
     if (isWriteBlocked()) return;
@@ -342,6 +321,14 @@ export default function EquipmentModelDetailScreen() {
       note: 'unit ' + unit.asset_tag,
       metadata: null, device_id: null,
     });
+    // Keep the repair ticket(s) in sync: returning a unit completes its open
+    // ticket with a terminal status (so the Repairs list shows it as done).
+    const terminalLabel = getRepairStatuses().find(s => isTerminalStatus(s.label))?.label;
+    if (terminalLabel) {
+      for (const r of getRepairsForEntity('equipment_unit', unit.id)) {
+        if (r.completed_at == null) updateRepairStatus(r.id, terminalLabel, true);
+      }
+    }
     setRepairInUnit(null);
     setRepairInLoc(null);
     reload();
@@ -505,11 +492,6 @@ export default function EquipmentModelDetailScreen() {
                       <UnitRow
                         unit={u}
                         locationName={u.current_location_id ? (locationMap.get(u.current_location_id) ?? null) : null}
-                        onRepairOut={
-                          canEdit && (u.status === 'available' || u.status === 'deployed')
-                            ? () => { setRepairOutUnit(u); setRepairNote(''); }
-                            : undefined
-                        }
                         onRepairIn={
                           canEdit && u.status === 'in_repair'
                             ? () => { setRepairInUnit(u); setRepairInLoc(null); }
@@ -573,34 +555,6 @@ export default function EquipmentModelDetailScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* ── Repair-Out Modal (note prompt) ─────────────────────────────── */}
-      {/* onClose only hides — repairNote is preserved on outside-tap dismiss */}
-      <ModalSheet visible={repairOutUnit !== null} onClose={() => setRepairOutUnit(null)}>
-        <Text style={s.promptTitle}>Send to Repair</Text>
-        <Text style={s.promptSub}>{repairOutUnit?.asset_tag}</Text>
-        <AppInput
-          style={{ marginTop: 12 }}
-          placeholder="Note (optional)"
-          value={repairNote}
-          onChangeText={setRepairNote}
-          autoFocus
-        />
-        <View style={[s.row, { marginTop: 16 }]}>
-          <TouchableOpacity
-            style={[s.btn, s.btnGhost]}
-            onPress={() => { setRepairOutUnit(null); setRepairNote(''); }}
-          >
-            <Text style={s.btnGhostText}>Cancel</Text>
-          </TouchableOpacity>
-          <PrimaryButton
-            label="Confirm"
-            onPress={() => repairOutUnit && doRepairOut(repairOutUnit, repairNote)}
-            disabled={locked}
-            style={{ flex: 1 }}
-          />
-        </View>
-      </ModalSheet>
 
       {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
       {/* onClose only hides — repairInLoc is preserved on outside-tap dismiss */}
