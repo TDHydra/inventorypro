@@ -5,6 +5,7 @@ import { pullChanges } from './pull';
 import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
+import { loadRolePermissionCache } from '../auth/permissions';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const MAX_ATTEMPTS = 5;
@@ -118,6 +119,9 @@ async function runDrainAndPull(): Promise<void> {
     // A pull may have changed product_class units/decimals — refresh the cache
     // that formatQuantity() reads so quantities reflect the latest config.
     loadClassConfigCache();
+    // A pull may also have changed role_settings.permission_overrides — refresh
+    // the role-override cache that hasPermission() reads.
+    loadRolePermissionCache();
   } catch (err) {
     console.warn('[Sync] Cycle error:', (err as Error).message);
   }

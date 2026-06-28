@@ -7,6 +7,7 @@ import { UserSession } from '../src/auth/permissions';
 import { clearSession } from '../src/auth/session';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
 import { loadClassConfigCache } from '../src/constants/units';
+import { loadRolePermissionCache } from '../src/auth/permissions';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -17,6 +18,7 @@ export default function RootLayout() {
       .then(() => {
         setDbReady(true);
         loadClassConfigCache();
+        loadRolePermissionCache();
         startSyncEngine();
       })
       .catch(err => console.error('[DB] Init failed:', err));
