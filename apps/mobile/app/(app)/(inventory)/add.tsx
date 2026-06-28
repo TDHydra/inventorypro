@@ -10,7 +10,7 @@ import {
   adjustStock, getStockQuantity,
 } from '../../../src/db/queries/items';
 import type { InventoryItem } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
@@ -115,12 +115,15 @@ export default function AddStockScreen() {
     }),
     [sortedLocations, locationById],
   );
-  // Home-location options: every location labeled by its full breadcrumb path
-  // (Shop › Aisle 3 › Shelf B), independent of proximity sorting.
-  const homeLocationOptions: PickerOption[] = useMemo(
-    () => allLocations.map(l => ({ id: l.id, label: getLocationPath(l.id) })),
-    [allLocations],
-  );
+  // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
+  // Falls back to the full breadcrumb list when no shelves exist yet so the field
+  // stays usable.
+  const homeLocationOptions: PickerOption[] = useMemo(() => {
+    const shelves = getShelfLocations();
+    return shelves.length
+      ? shelves.map(s => ({ id: s.id, label: s.name }))
+      : allLocations.map(l => ({ id: l.id, label: getLocationPath(l.id) }));
+  }, [allLocations]);
 
   // Units available for the current selection: the selected item type's curated
   // list, falling back to the unit class's units (or piece) when none/empty.
@@ -434,7 +437,7 @@ export default function AddStockScreen() {
 
               <FieldLabel style={{ marginTop: 12 }}>Home location (where it belongs)</FieldLabel>
               <SearchablePicker
-                placeholder="Search locations… (optional)"
+                placeholder="Search shelves…"
                 options={homeLocationOptions}
                 value={homeLocation}
                 onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}

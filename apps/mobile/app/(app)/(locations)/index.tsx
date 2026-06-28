@@ -20,7 +20,7 @@ import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -109,6 +109,13 @@ export default function LocationsScreen() {
     [parentId],
   );
 
+  // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
+  // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false for
+  // unflagged types, preserving existing behavior.
+  const rules = getLocationTypeRules(type);
+  // Owner is mandatory when EITHER the parent demands it OR the type does (e.g. Vehicle).
+  const ownerRequired = parentRequiresOwner || rules.requiresOwner;
+
   function toggle(id: string) {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -169,8 +176,13 @@ export default function LocationsScreen() {
       Alert.alert('Required', 'Enter a location name.');
       return;
     }
-    if (parentRequiresOwner && !ownerOption) {
-      Alert.alert('Owner required', `Sub-areas under "${parentName}" must have an owner. Pick one under "Owner".`);
+    if (ownerRequired && !ownerOption) {
+      Alert.alert(
+        'Owner required',
+        parentRequiresOwner
+          ? `Sub-areas under "${parentName}" must have an owner. Pick one under "Owner".`
+          : `${type ?? 'This'} locations must have an owner. Pick one under "Owner".`,
+      );
       return;
     }
     if (dup) {
@@ -374,7 +386,13 @@ export default function LocationsScreen() {
                         key={t.id}
                         label={t.icon ? `${t.icon} ${t.label}` : t.label}
                         active={type === t.label}
-                        onPress={() => setType(prev => (prev === t.label ? null : t.label))}
+                        onPress={() => {
+                          // Toggle off when re-tapping the active type.
+                          if (type === t.label) { setType(null); return; }
+                          setType(t.label);
+                          // Auto-apply the type's icon (user can still change it below).
+                          if (t.icon) setIcon(t.icon);
+                        }}
                       />
                     ))}
                   </View>
@@ -397,7 +415,7 @@ export default function LocationsScreen() {
                   onSelect={(opt) => setParentId(prev => (prev === opt.id ? null : opt.id))}
                 />
 
-                <FieldLabel>{parentRequiresOwner ? 'Owner *' : 'Belongs to (optional)'}</FieldLabel>
+                <FieldLabel>{ownerRequired ? 'Owner *' : 'Belongs to (optional)'}</FieldLabel>
                 <SearchablePicker
                   placeholder="Search people…"
                   options={userOptions}
@@ -407,16 +425,23 @@ export default function LocationsScreen() {
                     setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
                   }}
                 />
-                {parentRequiresOwner && !ownerOption && (
-                  <Text style={s.dupWarn}>⚠ Sub-areas here require an owner.</Text>
+                {ownerRequired && !ownerOption && (
+                  <Text style={s.dupWarn}>
+                    {parentRequiresOwner ? '⚠ Sub-areas here require an owner.' : `⚠ ${type ?? 'This'} locations require an owner.`}
+                  </Text>
                 )}
 
-                <FieldLabel>GPS Anchor</FieldLabel>
-                <GpsAnchorField
-                  value={latitude !== null && longitude !== null ? { latitude, longitude } : null}
-                  onChange={(c) => { setLatitude(c?.latitude ?? null); setLongitude(c?.longitude ?? null); }}
-                  disabled={locked}
-                />
+                {/* GPS anchor hidden for types whose rules disable it (Vehicle/Locker/…). */}
+                {rules.gps && (
+                  <>
+                    <FieldLabel>GPS Anchor</FieldLabel>
+                    <GpsAnchorField
+                      value={latitude !== null && longitude !== null ? { latitude, longitude } : null}
+                      onChange={(c) => { setLatitude(c?.latitude ?? null); setLongitude(c?.longitude ?? null); }}
+                      disabled={locked}
+                    />
+                  </>
+                )}
 
                 <FieldLabel>Icon</FieldLabel>
                 <View style={s.iconGrid}>

@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertItem, getItemBySku } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
-import { getAllLocations, getLocationPath } from '../../db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -51,11 +51,15 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const [homeLocation, setHomeLocation] = useState<PickerOption | null>(null);
   const [nameError, setNameError] = useState('');
 
-  // Every location, labeled by its full breadcrumb path (Shop › Aisle 3 › Shelf B).
-  const homeLocationOptions = useMemo<PickerOption[]>(
-    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
-    [],
-  );
+  // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
+  // Falls back to the full breadcrumb list when no shelves exist yet so the field
+  // stays usable.
+  const homeLocationOptions = useMemo<PickerOption[]>(() => {
+    const shelves = getShelfLocations();
+    return shelves.length
+      ? shelves.map(s => ({ id: s.id, label: s.name }))
+      : getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) }));
+  }, []);
 
   // Duplicate detection: does the typed item # already exist in the catalog?
   const skuMatch = useMemo(() => getItemBySku(sku), [sku]);
@@ -250,7 +254,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
       <FieldLabel>Home location (where it belongs)</FieldLabel>
       <SearchablePicker
-        placeholder="Search locations… (optional)"
+        placeholder="Search shelves…"
         options={homeLocationOptions}
         value={homeLocation}
         onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}

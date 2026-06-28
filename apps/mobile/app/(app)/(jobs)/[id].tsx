@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, Job,
@@ -15,6 +16,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaGallery } from '../../../src/components/MediaGallery';
+import { MapDisplay } from '../../../src/components/MapDisplay';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -34,6 +36,32 @@ export default function JobDetailScreen() {
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
   const [editing, setEditing] = useState(false);
+  const [siteCoords, setSiteCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [geocodeFailed, setGeocodeFailed] = useState(false);
+
+  // Geocode the free-text site address (online, no API key) so we can show a
+  // view-only map. Failures/empties are swallowed — the map just doesn't appear.
+  const siteAddress = job?.site_address ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    setSiteCoords(null);
+    setGeocodeFailed(false);
+    if (!siteAddress) return;
+    (async () => {
+      try {
+        const r = await Location.geocodeAsync(siteAddress);
+        if (cancelled) return;
+        if (r[0] && typeof r[0].latitude === 'number' && typeof r[0].longitude === 'number') {
+          setSiteCoords({ latitude: r[0].latitude, longitude: r[0].longitude });
+        } else {
+          setGeocodeFailed(true);
+        }
+      } catch {
+        if (!cancelled) setGeocodeFailed(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [siteAddress]);
 
   // Edit form state
   const [editName, setEditName] = useState('');
@@ -333,6 +361,14 @@ export default function JobDetailScreen() {
                     <Text style={s.metaValue}>{job.site_address}</Text>
                   </View>
                 )}
+                {!!job.site_address && siteCoords && (
+                  <View style={s.mapWrap}>
+                    <MapDisplay latitude={siteCoords.latitude} longitude={siteCoords.longitude} />
+                  </View>
+                )}
+                {!!job.site_address && !siteCoords && geocodeFailed && (
+                  <Text style={s.mapNote}>Couldn't locate this address on the map.</Text>
+                )}
                 {!!job.description && (
                   <View style={[s.metaRow, { alignItems: 'flex-start' }]}>
                     <FieldLabel style={{ minWidth: 60 }}>Notes</FieldLabel>
@@ -458,6 +494,8 @@ const s = StyleSheet.create({
     marginTop: 10, gap: 8,
   },
   metaValue: { fontSize: 14, color: colors.textPrimary, flexShrink: 1 },
+  mapWrap: { marginTop: 10 },
+  mapNote: { fontSize: 12, color: colors.textMuted, marginTop: 8, fontStyle: 'italic' },
 
   divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
 

@@ -20,7 +20,7 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -86,12 +86,16 @@ export default function LocationDetailScreen() {
       .map(l => ({ id: l.id, label: getLocationPath(l.id) }));
   }, [id]);
 
-  // Owner becomes mandatory when the selected parent has subareas_require_owner=1.
-  // Reactive to editParentId so re-parenting under a flagged parent updates the gate.
+  // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
+  // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false.
+  const rules = getLocationTypeRules(editLocType);
+  // Owner becomes mandatory when the selected parent has subareas_require_owner=1
+  // OR the chosen type requires it (e.g. Vehicle). Reactive to editParentId and
+  // editLocType so re-parenting/retyping updates the gate.
   const ownerRequired = useMemo<boolean>(() => {
-    if (!editParentId) return false;
-    return getLocationById(editParentId)?.subareas_require_owner === 1;
-  }, [editParentId]);
+    const parentReq = editParentId ? getLocationById(editParentId)?.subareas_require_owner === 1 : false;
+    return parentReq || getLocationTypeRules(editLocType).requiresOwner;
+  }, [editParentId, editLocType]);
   const ownerMissing = ownerRequired && !editOwnerOption;
 
   const parentName = useMemo<string | null>(() => {
@@ -157,8 +161,10 @@ export default function LocationDetailScreen() {
       color: editColor,
       icon: editIcon,
       owner_user_id: editOwnerOption?.id ?? null,
-      latitude: editLatitude ?? null,
-      longitude: editLongitude ?? null,
+      // A no-GPS type (e.g. switching to Vehicle) clears any coords so a location
+      // never keeps hidden, uneditable lat/lng.
+      latitude: rules.gps ? (editLatitude ?? null) : null,
+      longitude: rules.gps ? (editLongitude ?? null) : null,
     };
     // subareas_require_owner: real boolean in the outbox, INTEGER locally (mirrors `active`).
     upsertLocation({
@@ -423,7 +429,13 @@ export default function LocationDetailScreen() {
                       key={t.id}
                       label={t.icon ? `${t.icon} ${t.label}` : t.label}
                       active={editLocType === t.label}
-                      onPress={() => setEditLocType(prev => (prev === t.label ? null : t.label))}
+                      onPress={() => {
+                        // Toggle off when re-tapping the active type.
+                        if (editLocType === t.label) { setEditLocType(null); return; }
+                        setEditLocType(t.label);
+                        // Auto-apply the type's icon (user can still change it below).
+                        if (t.icon) setEditIcon(t.icon);
+                      }}
                     />
                   ))}
                 </View>
@@ -445,12 +457,17 @@ export default function LocationDetailScreen() {
               </Text>
             )}
 
-            <FieldLabel>GPS Anchor</FieldLabel>
-            <GpsAnchorField
-              value={editLatitude !== null && editLongitude !== null ? { latitude: editLatitude, longitude: editLongitude } : null}
-              onChange={(c) => { setEditLatitude(c?.latitude ?? null); setEditLongitude(c?.longitude ?? null); }}
-              disabled={locked}
-            />
+            {/* GPS anchor hidden for types whose rules disable it (Vehicle/Locker/…). */}
+            {rules.gps && (
+              <>
+                <FieldLabel>GPS Anchor</FieldLabel>
+                <GpsAnchorField
+                  value={editLatitude !== null && editLongitude !== null ? { latitude: editLatitude, longitude: editLongitude } : null}
+                  onChange={(c) => { setEditLatitude(c?.latitude ?? null); setEditLongitude(c?.longitude ?? null); }}
+                  disabled={locked}
+                />
+              </>
+            )}
 
             <FieldLabel>Icon</FieldLabel>
             <View style={s.iconGrid}>

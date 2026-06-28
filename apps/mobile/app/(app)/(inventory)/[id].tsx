@@ -8,7 +8,7 @@ import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
   InventoryItem, StockByLocation,
 } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
@@ -53,12 +53,15 @@ export default function ItemDetailScreen() {
   // override). Each item type carries its curated units + unit class in meta.
   const itemTypes = useMemo(() => getItemTypes(), []);
   const productClasses = useMemo(() => getProductClasses(), []);
-  // Home-location options: every location labeled by its full breadcrumb path
-  // (Shop › Aisle 3 › Shelf B).
-  const homeLocationOptions = useMemo<PickerOption[]>(
-    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
-    [],
-  );
+  // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
+  // Falls back to the full breadcrumb list when no shelves exist yet so the field
+  // stays usable.
+  const homeLocationOptions = useMemo<PickerOption[]>(() => {
+    const shelves = getShelfLocations();
+    return shelves.length
+      ? shelves.map(s => ({ id: s.id, label: s.name }))
+      : getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) }));
+  }, []);
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
@@ -226,7 +229,7 @@ export default function ItemDetailScreen() {
               <View style={s.fieldWrap}>
                 <FieldLabel>Home location (where it belongs)</FieldLabel>
                 <SearchablePicker
-                  placeholder="Search locations… (optional)"
+                  placeholder="Search shelves…"
                   options={homeLocationOptions}
                   value={editHomeLocation}
                   onSelect={(opt) => setEditHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
