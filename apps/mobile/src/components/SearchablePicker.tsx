@@ -6,33 +6,44 @@ export interface PickerOption { id: string; label: string; sublabel?: string }
 
 interface Props {
   placeholder?: string;
-  options: PickerOption[];
+  options?: PickerOption[];
   value: PickerOption | null;
   onSelect: (opt: PickerOption) => void;
   onCreate?: (text: string) => void;
   autoFocus?: boolean;
+  // When provided, the dropdown is sourced by querying on each keystroke instead
+  // of filtering a static `options` array client-side. Required for large sets
+  // (e.g. the full item catalog) where a capped pre-load would hide most rows.
+  searchFn?: (query: string) => PickerOption[];
 }
 
 // Live-filtering entity dropdown: type to narrow existing rows to a tappable list,
 // collapse to the single match, and (when onCreate is given) offer to create a new
 // one when nothing matches. Used for item/location/job/PM selection so the behavior
-// is identical everywhere.
-export function SearchablePicker({ placeholder, options, value, onSelect, onCreate, autoFocus }: Props) {
+// is identical everywhere. For large catalogs pass `searchFn` (DB-backed) instead
+// of a static `options` array.
+export function SearchablePicker({ placeholder, options = [], value, onSelect, onCreate, autoFocus, searchFn }: Props) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options.slice(0, 8);
+    const q = query.trim();
+    if (searchFn) return searchFn(q).slice(0, 12);
+    const ql = q.toLowerCase();
+    if (!ql) return options.slice(0, 8);
     return options.filter(o =>
-      o.label.toLowerCase().includes(q) || (o.sublabel?.toLowerCase().includes(q) ?? false)
+      o.label.toLowerCase().includes(ql) || (o.sublabel?.toLowerCase().includes(ql) ?? false)
     ).slice(0, 8);
-  }, [query, options]);
+  }, [query, options, searchFn]);
 
-  const exact = useMemo(
-    () => options.find(o => o.label.trim().toLowerCase() === query.trim().toLowerCase()) ?? null,
-    [query, options]
-  );
+  const exact = useMemo(() => {
+    const ql = query.trim().toLowerCase();
+    if (!ql) return null;
+    // For searchFn mode, the live results already reflect the query, so an exact
+    // label match (used to suppress the "+ Create" row) will be among them.
+    const pool = searchFn ? matches : options;
+    return pool.find(o => o.label.trim().toLowerCase() === ql) ?? null;
+  }, [query, options, searchFn, matches]);
   const showCreate = !!onCreate && query.trim().length > 0 && !exact;
   const open = focused && (matches.length > 0 || showCreate);
 

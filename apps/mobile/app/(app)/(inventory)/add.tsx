@@ -6,7 +6,7 @@ import {
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
-  upsertItem, getItemByBarcode, getDistinctValues, searchItems,
+  upsertItem, getItemByBarcode, getDistinctValues, searchItems, getItemById,
   adjustStock, getStockQuantity,
 } from '../../../src/db/queries/items';
 import type { InventoryItem } from '../../../src/db/queries/items';
@@ -72,11 +72,12 @@ export default function AddStockScreen() {
   const [quantity, setQuantity] = useState('');
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  // kind='product' filtered IN-SQL (not post-query) so the 100-row cap fills with products only.
-  const allItems = useMemo(() => searchItems('', 100, 0, undefined, 'product'), []);
-  const itemOptions: PickerOption[] = useMemo(
-    () => allItems.map(i => ({ id: i.id, label: i.name, sublabel: i.barcode ?? i.kind })),
-    [allItems],
+  // DB-backed product search (not a capped pre-load) so the full catalog is
+  // reachable; kind='product' filtered IN-SQL.
+  const itemSearch = useMemo(
+    () => (q: string): PickerOption[] =>
+      searchItems(q, 20, 0, undefined, 'product').map(i => ({ id: i.id, label: i.name, sublabel: i.barcode ?? i.kind })),
+    [],
   );
 
   const allLocations = useMemo(() => getAllLocations(), []);
@@ -149,7 +150,7 @@ export default function AddStockScreen() {
       setIsCreatingNew(false);
     } else {
       setSelectedItem(opt);
-      const item = allItems.find(i => i.id === opt.id) ?? null;
+      const item = getItemById(opt.id);
       setAutofillItem(item);
       setIsCreatingNew(false);
     }
@@ -290,7 +291,7 @@ export default function AddStockScreen() {
           <FieldLabel>Item</FieldLabel>
           <SearchablePicker
             placeholder="Search existing items..."
-            options={itemOptions}
+            searchFn={itemSearch}
             value={selectedItem}
             onSelect={handleItemSelect}
             onCreate={handleItemCreate}

@@ -35,17 +35,16 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   const [serial, setSerial] = useState('');
   const [tagError, setTagError] = useState('');
 
-  const equipmentItems = useMemo(
-    () => searchItems('', 100).filter(i => i.unit_tracked === 1),
+  // DB-backed search over equipment models (kind='equipment' in-SQL, not a capped
+  // pre-load + post-filter) so the full equipment catalog is reachable.
+  const itemSearch = useMemo(
+    () => (q: string): PickerOption[] =>
+      searchItems(q, 20, 0, undefined, 'equipment').map(i => ({
+        id: i.id,
+        label: i.name,
+        sublabel: i.tag_prefix ?? undefined,
+      })),
     [],
-  );
-  const itemOptions: PickerOption[] = useMemo(
-    () => equipmentItems.map(i => ({
-      id: i.id,
-      label: i.name,
-      sublabel: i.tag_prefix ?? undefined,
-    })),
-    [equipmentItems],
   );
 
   function handleSave() {
@@ -114,7 +113,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       <FieldLabel>Item (unit-tracked)</FieldLabel>
       <SearchablePicker
         placeholder="Search tracked items..."
-        options={itemOptions}
+        searchFn={itemSearch}
         value={selectedItem}
         onSelect={opt => {
           setSelectedItem(prev => prev?.id === opt.id ? null : opt);
