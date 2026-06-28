@@ -7,6 +7,12 @@ Each **program** below is an independent subsystem that gets its own
 used for Settings 3a/3b/3c and the polish pass). This doc is the meta-plan; it is NOT a
 single implementation plan. Build order (locked with user): **P2 → P1 → P6 → P3 → P4 → P5**.
 
+> **Progress (verified 2026-06-28 vs `main` + prod migrations 001–015):**
+> ✅ **P2** done · ✅ **P1** done (team+job types, equipment system, product classes, conditional owner) ·
+> ✅ **P6** done · ❌ **P3** not started · ◑ **P4** P4a (GPS modes) + P4b (deep single-parent nesting) done,
+> *multi-parent join still open* · ◑ **P5** 5a + 5b done, **5c in progress** (`feat/p5c-bulk-ops`).
+> See `docs/STATUS.md` for the per-merge evidence and the remaining-work info.
+
 Conventions that bind every program:
 - **Sync-migration checklist** (`docs/SYNC-MIGRATION-CHECKLIST.md`): any migration adding a *synced*
   column/table MUST update `apps/api/src/routes/sync.ts` (ALLOWED_TABLES/FULL_TABLES/CONFLICT_TARGETS)

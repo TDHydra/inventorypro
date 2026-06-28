@@ -1,68 +1,98 @@
 # InventoryPro — Full Status
 
-*As of 2026-06-27 · `main` (through the polish pass `5b38e4bd`)*
+*Reconciled 2026-06-28 against verified ground truth: `main` first-parent history,
+the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Unraid
+`192.168.1.239`, `inventorypro-postgres-1` — all 15 migrations applied, confirmed).*
 
-## ✅ Done
+`main` HEAD at reconciliation: `cc0f185` (perms-reactive fix).
 
-**Core platform — live in prod (`api.plexcontrol.com`, migrations 001–007):**
+---
+
+## Build order (locked with user)
+
+**P2 → P1 → P6 → P3 → P4 → P5.** Status below is **verified against the repo + prod**, not memory.
+
+| Program | Status | Evidence |
+|---|---|---|
+| **P2** Labeling & Scanning | ✅ done + deployed | merge `eb9949d`, deps reconcile `64dc211`; `/labels/*` live |
+| **P1** Configurable Taxonomies | ✅ done + deployed | merges `225fa4b` (team+job types), `a0895d5` (equipment system), `980fcf3` (product classes + conditional owner), fix `08ebd8b`; migrations 011, 012 |
+| **P6** Data & Sync Hardening | ✅ done + deployed | merge `c9dbdfb`; migration 013 |
+| **P3** Notifications | ❌ not started | — |
+| **P4** Locations | ◑ partial | merges `e703a69` (P4a GPS modes), `3264f01` (P4b deep nesting); **multi-parent join NOT built** (P4b did recursive single-`parent_id` nesting instead) |
+| **P5** Roles/Perms/Teams | ◑ 5a+5b done, 5c phase-1 done | merges `937bdc0` (5a dynamic roles), `a8b6abd` (5b multi-manager teams + cross-team activity), fix `cc0f185`; migrations 014, 015. **5c phase-1 bulk ops** (users+jobs) on `feat/p5c-bulk-ops` (`25b8a36`); phases 2/3 remain |
+
+---
+
+## ✅ Done — merged to `main` and deployed to prod
+
+**Core platform (migrations 001–010):**
 - Offline-first stack: Expo SDK 56 + op-sqlite (mobile) · Fastify + Postgres + MinIO (API) · Docker on Unraid
-- Sync engine: outbox push + pull-since-timestamp + first-launch full download
-- PIN auth + JWT, first-login set-PIN flow
-- Permissions: 13 roles, 4 tiers, 19 keys, resolution role default → team → user override (client-side)
-- Inventory: catalog items, stock-by-location, add/edit, barcode + USB scan, low-stock alerts
-- Locations: tree (parent/sub-areas), create modal, detail, archive (`active`), owner assignment
-- Jobs: list, detail (deployments/activity/photos), edit, archive
-- Equipment units (Phase 2a): asset-tag tracking, status, deploy/return, basic repair in/out — fully logged
-- Checkout/checkin: Job / Location / Production Manager destinations, multi-PM qty, unit + count flows
-- Universal media: `media` table, MediaGallery/Thumbnail, presigned S3 (`s3.plexcontrol.com`) working end-to-end
-- Admin: user list/create/edit, role + PIN management, permission overrides, role min-PIN
-- Standalone APK built + installed, in field use; Unraid SSH management skill
+- Sync: outbox push + pull-since-timestamp + first-launch full download; 10s fast-retry + 60s heartbeat; NetInfo-ungated (fetch is source of truth)
+- PIN auth + JWT, first-login set-PIN; server-side permission guards on write routes
+- Inventory: catalog, stock-by-location, add/edit, barcode + USB scan, low-stock; Move-Stock modal
+- Locations: tree, create/edit, archive, owner; Jobs: list/detail/edit/archive + server-assigned `job_number`
+- Equipment units: asset-tag tracking, status, deploy/return, repair history — fully logged
+- Checkout/checkin: Job / Location / Production Manager destinations, multi-PM, unit + count flows; retrievable move-photos
+- Universal media (`media` + MinIO presigned, `s3.plexcontrol.com`); admin user/role/PIN/override mgmt
+- Settings 3a (core) · 3b (maintenance mode, app_config, migration 010) · 3c (Simple/Detailed form mode) · SERVPRO rebrand/polish pass
+- Standalone APK in field use
 
-**This session — Foundation wave (reviewed clean):**
-- **F1** — Migration 008: job work-order fields + server-assigned `job_number` (sequence + trigger) — `e18acc91` ✅ review clean
-- **F3** — Log queries (`getLogForEntity`/`getRecentLog`/`getLogFiltered`) + reusable `ActivityFeed` — `cc6406bb` ✅ review clean
-- **Sync 10 s fast-retry** (your request): immediate attempt → 10 s retry until outbox drains → 60 s heartbeat backstop — `b0e2ac9c` ✅
-- **F2** — Server-side permission guards on 12 write routes (jobs/locations/users/teams/items) — `26d6f25d` 🔍 in review
-- Spec + parallel plan committed
+**P2 · Labeling & Scanning** (`eb9949d`, `64dc211`):
+- API `GET /labels/item/:id/qr.png` + `/labels/unit/:assetTag/qr.png` (qrcode lib, auth-gated; encodes `INV:item:<id>` / `INV:unit:<tag>`)
+- Mobile "Print label" via `expo-print` (native — in the dev-client/APK); camera asset-tag scan; auto-generated asset tags (`tag_prefix` increment)
+- Deps: server `qrcode`, mobile `expo-print` — both in `pnpm-lock.yaml` (repo uses **pnpm**, not npm)
 
-**Completeness push (W1–W6) — all shipped & merged:**
-- **W1** Jobs create/edit + work-order fields · **W2** Locations edit/restore + Move-Stock modal · **W3** Equipment edit/retire + repair history · **W4** admin-mutation logging + permission UI · **W5** Teams real screens (roster/create/member-assign) · **W6** Logs admin All-Activity + filters. ✅
+**P1 · Configurable Taxonomies** (`225fa4b`, `a0895d5`, `980fcf3`, `08ebd8b`; migrations 011, 012):
+- `taxonomy_types` synced table (migration 011) + admin "Manage Types" (tier-4) + generic icon+label picker
+- **Team types** (replaces hardcoded `TEAM_TYPES`) · **Job types** with icons (`jobs.type` + picker)
+- **Equipment as its own system** — dedicated Equipment tab (list/add/detail), inventory is products-only; unit mgmt moved to equipment/[id]; in-SQL `kind`/`unit_tracked` filters in `searchItems`
+- **Product classes (kind→allowed-units)** + **conditional Owner** parent rule (migration 012; enum→TEXT fix `08ebd8b` per the PG-enum trap)
 
-**Settings program (3a/3b/3c) + Phase 4:**
-- **3a** Settings core + hardening — ✅ merged (`ad3d2236`)
-- **3b** Maintenance mode (synced app_config, migration 010, app-wide read-only lockout) — ✅ merged + deployed
-- **Polish pass** (SERVPRO rebrand + theme/primitives + UX states + onboarding + modal dismissal/keyboard) — ✅ merged (`5b38e4bd`)
+**P6 · Data & Sync Hardening** (`c9dbdfb`; migration 013):
+- Job reference # · equipment_units `synced_at` parity · server-side stock re-validation on push · move-photos surfaced
 
-## 🔄 Incomplete (next on the plan)
+**P4a · GPS anchor input modes** (`e703a69`): manual lat/lng · use-current · map picker (`react-native-maps`, native)
+**P4b · Deeper location nesting** (`3264f01`): recursive location tree + any-parent picker (single `parent_id`)
 
-- **Phase 3c — Simple/Detailed form mode** *(next; never started)*: admin toggle in Settings; **Simple** hides optional/advanced fields across all entry forms (item add, location, job, equipment, quick-add), **Detailed** shows everything. Synced app_config flag (reuse the Phase-3b `app_config` table) or local pref. Forms read the mode and conditionally render their optional field groups.
-- **Phase 4 — Notifications**: low-stock alerts + temp-employee-expiry warnings (expo-notifications). (Also listed in backlog.)
+**P5 · Roles, Permissions & Teams:**
+- **5a Dynamic Roles & Permissions** (`937bdc0`; migration 014): runtime role→permission assignment, synced via `role_settings.permission_overrides`, resolver falls back to `ROLE_DEFAULTS`; matrix UI. Reactivity fix `cc0f185` (useSyncExternalStore so changes show without remount — see memory `project_inventorypro_reactive_cache`)
+- **5b Multi-manager teams + cross-team activity** (`a8b6abd`; migration 015): `team_members.is_manager` (migrated from single `teams.manager_id`); multi-select manager + member pickers; "My team's activity" view gated by `view_team_activity`
 
-## ➕ To be added (backlog — deferred)
+---
 
-- Location-aware UX / multi-parent locations
-- Make checkout/checkin move-photos retrievable
-- Job batch ops; bulk user ops
-- Push notifications for low-stock / temp-employee expiry
-- Camera barcode-scan for asset tags (currently manual entry)
-- Label templates / auto-generated tags
-- Role-definition runtime editor
-- **Team type management** — admin screen in Settings (gated behind an approved permission, e.g. tier-4 `system_settings` or a new `manage_team_types`) to add / rename / remove the available Team types at runtime, replacing the hardcoded `TEAM_TYPES` constant (`src/constants/teams.ts`). Needs a synced store (new synced table or `app_config`) so type changes propagate to all devices; the teams create/edit screens read the list from it instead of the constant.
-- **Unit type management** — admin screen in Settings (same permission gate as Team type management) to add / rename / remove the available units of measure at runtime, replacing the hardcoded unit list (`UNIT_OPTIONS` in `src/constants/units.ts`). Same synced-store approach so unit changes propagate to all devices; the item add/edit screens read the list from it instead of the constant. **(Subsumed by "Catalog kind & unit taxonomy management" below — build that instead.)**
-- **Catalog kind & unit taxonomy management** (recommended approach; supersedes Unit type management) — a permission-gated admin area in Settings to manage the item **kinds** (e.g. Product, PPE, Filters, General — currently the schema only has `kind` product/equipment + free-text `category` + `unit_category`) AND, for each kind, the **set of unit options it allows**. Quick-add and the item add/edit screens then derive the unit picker from the selected kind: e.g. selecting **Product** offers volumetric units / containers / bottles / pack; **PPE** offers boxes / pieces / pair / case / set; etc. Editable at runtime so new kinds and units can be added without a code change (the user expects to add more types later). Backed by a synced store (new synced table(s) or `app_config`) so the taxonomy propagates to all devices. Likely needs a small data-model evolution (a `kinds` table and a `kind_id → allowed units` mapping, migrating the current `kind`/`unit_category`/`category` fields). Scope it as its own spec → plan when picked up; concrete first UX win = the kind-driven unit picker in quick-add.
-- **Job type management** — permission-gated admin area in Settings to add / rename / remove **job types** at runtime, each with a selectable **icon** (e.g. Fire damage 🔥, Water damage 💧, Moving 📦, Cleaning 🧽, …). Jobs gain a `type` (new `job_type` field/table + migration); the job create/edit screens get an icon+label type picker (reuse the existing location icon-picker pattern in `src/constants/locationStyles.ts` — `ICON_OPTIONS`/`renderIcon`). Backed by a synced store (new synced table or `app_config`) so types/icons propagate to all devices. Same family as Team-type and Catalog-kind taxonomy management — could share one "taxonomy management" Settings area.
-- **QR code generation + label printing** — API endpoint to generate a QR code per item (encoding the item id / barcode), plus selectable **label-printer templates** (size/layout for common label stock) so QR labels can be printed and stuck on products. Likely: `GET /items/:id/qr` (server renders PNG/SVG via a qrcode lib) + a templates config; mobile gets a "Print label" action that picks a template and sends to the label printer. Pairs with the existing barcode scan flow (scan the QR → open the item).
-- **Manual / external job reference number** — jobs currently have a system-assigned `job_number` (auto-increment). Add a separate user-entered **reference number** field (e.g. `reference_number` / `external_ref`) for the customer's or franchise's own job numbering, which differs from the system number. New nullable jobs column (migration) + an (advanced) field on the job create/edit form + synced.
-- **Location GPS anchor — 3 input modes** — on location create, let the GPS Anchor be set: (a) **manually** (lat/lng entry), (b) **use my current location** (already partially supported via `useCurrentPosition`), or (c) **select on a map** (new map picker — needs react-native-maps or equivalent). Currently it's current-location only.
-- **Conditional Owner field + admin config** — the location "Belongs to (Owner)" field should only appear when the location is a **subarea of certain parent locations**, and *which* parent locations trigger an owner requirement is configured by an admin in Settings (a synced setting: a set of parent-location ids / types that require an owner). Ties into the taxonomy-management family.
-- Server-side stock-quantity re-validation on push (multi-device race safety)
-- Postgres `synced_at` parity for `equipment_units`
+## ✅ P5 · 5c phase 1 — Bulk multi-select ops (done, `feat/p5c-bulk-ops`)
 
-## ⭐ Extras (added beyond the original ask)
+JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial review passed (parity fixes applied).
+- Unit 1 — `useMultiSelect` hook + `BulkActionBar` (`d22aede`)
+- Units 2+3 — Users (deactivate/reactivate, change role, add-to-team, reset PIN) + Jobs (close/archive/reopen/set-type) (`25b8a36`)
+- Spec: `docs/superpowers/specs/2026-06-28-p5c-bulk-ops-design.md` · Plan: `…/plans/2026-06-28-p5c-bulk-ops-PARALLEL.md`
+- Native note: JS-only → reaches the dev client over Metro; bundle into the next APK rebuild (no new native module).
 
-- **Server-side permission enforcement** (F2) — makes the crew-can't-create-jobs gate real, not just UI
-- **Auto-incrementing job numbers** — offline-safe via Postgres sequence + trigger, "Pending #" until sync
-- **10-second fast-retry sync**
-- **Move Stock modal** (W2) — quick location→location transfer vs. the 4-step checkout wizard
-- **Per-unit maintenance history timeline** (W3)
-- **Reusable ActivityFeed** across location + item + unit detail
+---
+
+## ⏭️ Remaining — correct info to finish the rest
+
+**P3 · Notifications** *(next program, not started)* — `expo-notifications` (**native dep → dev-client + APK rebuild**).
+v1 = on-device local notifications computed after each sync: check `getLowStockItems()` and temp-employee `expires_at`,
+schedule/fire, dedupe so they don't re-fire. v2 (optional) = server cron + `device_push_tokens` table (migration → sync checklist).
+
+**P4 · multi-parent locations** *(open decision)* — P4b shipped deep **single-parent** nesting; true multi-parent needs a
+`location_parents` join table + UX. Decide: keep single-parent tree (likely sufficient) or build the join. If built: migration → sync checklist.
+
+**P5 · 5c phases 2 & 3** *(after 5c phase 1)* —
+- Phase 2: extend the same multi-select framework to **Inventory + Equipment** lists (JS-only, reuse Unit 1).
+- Phase 3: Jobs **Insurance** field (migration) + Users **Send push** (depends on P3).
+
+**P5 · 5a polish** — per-user override list highlighting diffs from role default (partly exists).
+
+---
+
+## Conventions that bind remaining work
+- **Sync-migration checklist** (`docs/SYNC-MIGRATION-CHECKLIST.md`): any migration adding a *synced* column/table MUST update
+  `apps/api/src/routes/sync.ts` (ALLOWED_TABLES/FULL_TABLES/CONFLICT_TARGETS) **and** `apps/mobile/src/sync/pull.ts`
+  (TABLE_UPSERT_SQL + rowToValues) in the same change.
+- **PG enum trap** (memory `project_inventorypro_pg_enum_trap`): Postgres ENUM cols are TEXT on mobile SQLite; ALTER enum→TEXT before remapping values or the prod API crash-loops.
+- **pnpm only** — install deps with `pnpm` (Dockerfile uses `--frozen-lockfile`); never `npm` (breaks the API build).
+- **Native deps require a rebuild:** P3 (expo-notifications). Batch native changes to keep rebuild count low.
+- **Outbox correctness:** strip local-only `synced_at`; users writes use real booleans (`active: !!v`), never 0/1.
+- **Prod deploy:** `docker compose build api` → tag `inventorypro-api:latest` → `save|gzip` → scp to `root@192.168.1.239:/mnt/user/appdata/inventorypro/` → `docker load` + `compose -f docker-compose.prod.yml up -d api` (migrations auto-run).
