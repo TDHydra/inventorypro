@@ -384,6 +384,19 @@ export default function ItemDetailScreen() {
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
 
               {canEdit && (
+                <TouchableOpacity
+                  style={[s.card, s.attrRow]}
+                  onPress={() => router.push({
+                    pathname: '/(app)/(repairs)/new',
+                    params: { entityType: 'item', entityId: item.id, entityLabel: item.name },
+                  })}
+                >
+                  <Text style={s.attrKey}>🔧 Report repair</Text>
+                  <Text style={s.attrVal}>›</Text>
+                </TouchableOpacity>
+              )}
+
+              {canEdit && (
                 <PrimaryButton label="Edit Item" onPress={startEdit} />
               )}
             </>

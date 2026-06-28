@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getItemById, updateItemFields, getDistinctValues,
   InventoryItem,
@@ -38,6 +38,7 @@ import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner'
 
 export default function EquipmentModelDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
   const canAddUnits = usePermission('add_inventory');
@@ -525,6 +526,17 @@ export default function EquipmentModelDetailScreen() {
                         <TouchableOpacity style={s.unitActionBtn} onPress={() => setUnitMediaUnit(u)}>
                           <Text style={s.unitActionText}>Media</Text>
                         </TouchableOpacity>
+                        {canEdit && u.status !== 'retired' && u.status !== 'in_repair' && (
+                          <TouchableOpacity
+                            style={s.unitActionBtn}
+                            onPress={() => router.push({
+                              pathname: '/(app)/(repairs)/new',
+                              params: { entityType: 'equipment_unit', entityId: u.id, entityLabel: u.asset_tag },
+                            })}
+                          >
+                            <Text style={s.unitActionText}>Report repair</Text>
+                          </TouchableOpacity>
+                        )}
                         {canEdit && u.status !== 'retired' && (
                           <>
                             <TouchableOpacity style={s.unitActionBtn} onPress={() => openEditUnit(u)}>

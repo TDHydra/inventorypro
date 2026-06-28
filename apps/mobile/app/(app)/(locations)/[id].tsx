@@ -347,6 +347,20 @@ export default function LocationDetailScreen() {
           )}
         </View>
 
+        {/* ── Report repair (vehicles only) ───────────────────────────────── */}
+        {canAddStock && location.type === 'Vehicle' && location.active === 1 && (
+          <TouchableOpacity
+            style={[s.card, s.reportRepairRow]}
+            onPress={() => router.push({
+              pathname: '/(app)/(repairs)/new',
+              params: { entityType: 'location', entityId: location.id, entityLabel: location.name },
+            })}
+          >
+            <Text style={s.reportRepairText}>🔧 Report repair</Text>
+            <Text style={s.attrVal}>›</Text>
+          </TouchableOpacity>
+        )}
+
         {/* ── Photos ──────────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Photos</Text>
         <MediaGallery entityType="location" entityId={id} canUpload={canUpload} />
@@ -583,4 +597,6 @@ const s = StyleSheet.create({
   },
   switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
   ownerError: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  reportRepairRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14 },
+  reportRepairText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
 });

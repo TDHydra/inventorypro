@@ -19,6 +19,7 @@ import {
   parseItemTypeMeta,
   setTaxonomyUnits,
   setTaxonomyClassId,
+  setTaxonomyTerminal,
 } from '../../../src/db/queries/taxonomy';
 import { loadClassConfigCache } from '../../../src/constants/units';
 import { ICON_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
@@ -114,6 +115,7 @@ const CATEGORY_NOUN: Record<string, string> = {
   product_class: 'Product Class',
   item_category: 'Item Type',
   location_type: 'Location Type',
+  repair_status: 'Repair Status',
 };
 
 export default function ManageTypesScreen() {
@@ -136,6 +138,9 @@ export default function ManageTypesScreen() {
   const [locTypes, setLocTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('location_type', { includeInactive: true }),
   );
+  const [repairStatuses, setRepairStatuses] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('repair_status', { includeInactive: true }),
+  );
 
   // Add modal
   const [addCategory, setAddCategory] = useState<string | null>(null);
@@ -156,6 +161,9 @@ export default function ManageTypesScreen() {
   // Item-type unit-class mapping (item_category.meta.classId).
   const [editClassId, setEditClassId] = useState<string>('');
   const [editClassIdOriginal, setEditClassIdOriginal] = useState<string>('');
+  // Repair-status terminal flag ("counts as completed").
+  const [editTerminal, setEditTerminal] = useState(false);
+  const [editTerminalOriginal, setEditTerminalOriginal] = useState(false);
 
   function refresh() {
     setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
@@ -163,6 +171,7 @@ export default function ManageTypesScreen() {
     setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
     setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
     setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
+    setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
   }
 
   // ── Add handlers ────────────────────────────────────────────────────────────
@@ -223,6 +232,15 @@ export default function ManageTypesScreen() {
       setEditAllowDecimals(true);
       setEditClassId(m.classId ?? '');
       setEditClassIdOriginal(m.classId ?? '');
+    } else if (item.category === 'repair_status') {
+      setEditClass(null);
+      setEditUnits([]);
+      setEditUnitsOriginal([]);
+      setEditAllowDecimals(true);
+      let terminal = false;
+      try { terminal = JSON.parse(item.meta || '{}').terminal === true; } catch { terminal = false; }
+      setEditTerminal(terminal);
+      setEditTerminalOriginal(terminal);
     } else {
       setEditClass(null);
       setEditUnits([]);
@@ -243,6 +261,8 @@ export default function ManageTypesScreen() {
     setNewUnit('');
     setEditClassId('');
     setEditClassIdOriginal('');
+    setEditTerminal(false);
+    setEditTerminalOriginal(false);
   }
 
   function handleMoveUnitUp(index: number) {
@@ -305,6 +325,8 @@ export default function ManageTypesScreen() {
           setTaxonomyClassId(editType.id, editClassId);
           loadClassConfigCache();
         }
+      } else if (editType.category === 'repair_status' && terminalDirty) {
+        setTaxonomyTerminal(editType.id, editTerminal);
       }
       refresh();
       closeEdit();
@@ -426,13 +448,17 @@ export default function ManageTypesScreen() {
   const classIdDirty =
     editType?.category === 'item_category' && editClassId !== editClassIdOriginal;
 
+  const terminalDirty =
+    editType?.category === 'repair_status' && editTerminal !== editTerminalOriginal;
+
   const editDirty =
     !!editType &&
     (editLabel.trim() !== editType.label ||
       editIcon !== editType.icon ||
       metaDirty ||
       unitsDirty ||
-      classIdDirty);
+      classIdDirty ||
+      terminalDirty);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -454,6 +480,7 @@ export default function ManageTypesScreen() {
           {renderSection('Product Classes', 'product_class', classTypes, '+ Add Product Class')}
           {renderSection('Item Types', 'item_category', itemCatTypes, '+ Add Item Type')}
           {renderSection('Location Types', 'location_type', locTypes, '+ Add Location Type')}
+          {renderSection('Repair Statuses', 'repair_status', repairStatuses, '+ Add Repair Status')}
         </ScrollView>
       )}
 
@@ -609,6 +636,23 @@ export default function ManageTypesScreen() {
                     </>
                   )}
                 </>
+              )}
+
+              {editType.category === 'repair_status' && (
+                <View style={s.decimalsRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.rowLabel}>Counts as completed</Text>
+                    <Text style={s.rowSub}>
+                      Repairs set to this status are treated as done (move out of the
+                      open queue).
+                    </Text>
+                  </View>
+                  <Switch
+                    value={editTerminal}
+                    onValueChange={setEditTerminal}
+                    disabled={locked}
+                  />
+                </View>
               )}
 
               <PrimaryButton
