@@ -366,7 +366,9 @@ export default function LocationDetailScreen() {
               placeholder="…or nest inside a location"
               options={parentOptions}
               value={editParentId ? { id: editParentId, label: getLocationPath(editParentId) } : null}
-              onSelect={(opt) => setEditParentId(opt.id)}
+              // Tapping "Change" re-passes the current id — treat as clear so the
+              // search reopens and a different parent can be picked.
+              onSelect={(opt) => setEditParentId(prev => (prev === opt.id ? null : opt.id))}
             />
 
             <FieldLabel>{ownerRequired ? 'Belongs to (required)' : 'Belongs to (optional)'}</FieldLabel>
@@ -511,7 +513,6 @@ const s = StyleSheet.create({
 
   // ── Edit Modal (overlay + sheet handled by ModalSheet primitive) ──────────
   modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
-  chipRow: { gap: spacing.sm, paddingRight: spacing.sm },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },

@@ -293,7 +293,9 @@ export default function LocationsScreen() {
                   placeholder="…or nest inside a location"
                   options={parentOptions}
                   value={parentId ? { id: parentId, label: getLocationPath(parentId) } : null}
-                  onSelect={(opt) => setParentId(opt.id)}
+                  // Tapping "Change" re-passes the current id — treat as clear so the
+                  // search reopens and a different parent can be picked.
+                  onSelect={(opt) => setParentId(prev => (prev === opt.id ? null : opt.id))}
                 />
 
                 <FieldLabel>{parentRequiresOwner ? 'Owner *' : 'Belongs to (optional)'}</FieldLabel>
@@ -382,18 +384,12 @@ const s = StyleSheet.create({
   chevron: { fontSize: fontSizes.lg, color: colors.textMuted, paddingHorizontal: 4 },
 
   children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
-  childRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
-  childDot: { width: 28, height: 28, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
-  childIcon: { fontSize: 14 },
-  childName: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '500' },
-  childChevron: { fontSize: fontSizes.base, color: colors.textDisabled, paddingHorizontal: 2 },
   addSub: { paddingVertical: 6, paddingHorizontal: 2 },
   addSubText: { color: colors.primary, fontSize: fontSizes.body2, fontWeight: '600' },
 
   // Modal content (overlay + sheet handled by ModalSheet primitive)
   modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
   dupWarn: { color: colors.warning, fontSize: fontSizes.body2, fontWeight: '600' },
-  chipRow: { gap: spacing.sm, paddingRight: spacing.sm },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
