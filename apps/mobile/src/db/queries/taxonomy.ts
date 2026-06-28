@@ -58,6 +58,26 @@ export function getLocationTypes(opts?: { includeInactive?: boolean }): Taxonomy
   return getTaxonomyTypes(LOCATION_TYPE, opts);
 }
 
+// Per-location-type form rules (migration 022). gps defaults TRUE (show the GPS
+// anchor) and requiresOwner FALSE for unflagged/custom types.
+export type LocationTypeRules = { gps: boolean; requiresOwner: boolean };
+export function parseLocationTypeMeta(meta: string | null | undefined): LocationTypeRules {
+  const rules: LocationTypeRules = { gps: true, requiresOwner: false };
+  if (!meta) return rules;
+  try {
+    const p = JSON.parse(meta) as { gps?: unknown; requiresOwner?: unknown };
+    if (typeof p.gps === 'boolean') rules.gps = p.gps;
+    if (typeof p.requiresOwner === 'boolean') rules.requiresOwner = p.requiresOwner;
+  } catch { /* keep defaults */ }
+  return rules;
+}
+// Rules for a location type by its label (for the location form).
+export function getLocationTypeRules(label: string | null | undefined): LocationTypeRules {
+  if (!label) return { gps: true, requiresOwner: false };
+  const row = getTaxonomyTypes(LOCATION_TYPE, { includeInactive: true }).find(t => t.label === label);
+  return parseLocationTypeMeta(row?.meta);
+}
+
 export const REPAIR_STATUS = 'repair_status';
 
 // Admin-editable repair statuses (Open, Awaiting Parts, In Progress, Repaired, …).

@@ -146,6 +146,16 @@ export function getStockAtLocation(locationId: string): StockAtLocation[] {
   return rowsAs<StockAtLocation>(result.rows);
 }
 
+// Active "Shelf"-type locations, for the item Home-location typeahead. Shelves
+// are entered with prefixes (e.g. WH-A1, SHOP-B3), so name order is enough.
+export function getShelfLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' ORDER BY name`,
+  );
+  return rowsAs<Location>(result.rows);
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(
