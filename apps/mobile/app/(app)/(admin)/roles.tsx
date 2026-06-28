@@ -1,15 +1,22 @@
 import { useState, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Switch, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import {
   ROLE_DISPLAY_NAMES, ROLE_TIER, ROLE_DEFAULTS, PIN_LENGTH_BY_TIER,
   UserRole, Permission,
 } from '../../../src/constants/roles';
-import { getRoleSettings, setRoleMinPin } from '../../../src/db/queries/users';
+import {
+  getRoleSettings, setRoleMinPin,
+  getRolePermissionOverrides, setRolePermission,
+} from '../../../src/db/queries/users';
+import { loadRolePermissionCache } from '../../../src/auth/permissions';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 
 const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
@@ -44,19 +51,68 @@ const PERMISSION_ORDER = Object.keys(PERMISSION_LABELS) as Permission[];
 const MIN_PIN = 4;
 const MAX_PIN = 8;
 
+// Self-lockout guard: full_admin must always retain the keys to the kingdom, so
+// these two are forced ON and non-toggleable for that role in the matrix.
+const FULL_ADMIN_LOCKED: Permission[] = ['manage_roles_permissions', 'system_settings'];
+function isLockedPerm(role: UserRole, perm: Permission): boolean {
+  return role === 'full_admin' && FULL_ADMIN_LOCKED.includes(perm);
+}
+
 export default function RolesScreen() {
   const { user: sessionUser } = useSession();
+  const { locked } = useMaintenanceMode();
   const canManage = usePermission('manage_roles_permissions');
   const [minPins, setMinPins] = useState<Record<string, number>>(() => getRoleSettings());
+  // Per-role permission deviations from ROLE_DEFAULTS ({role: {perm: bool}}).
+  const [overrides, setOverrides] = useState<Record<string, Record<string, boolean>>>(
+    () => getRolePermissionOverrides()
+  );
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Effective value of a role→permission cell: ROLE_DEFAULTS merged with the
+  // role override (when a key exists). `modified` flags an active override.
+  function effectivePerm(role: UserRole, perm: Permission): { value: boolean; modified: boolean } {
+    const def = ROLE_DEFAULTS[role][perm];
+    const ov = overrides[role];
+    const modified = !!ov && perm in ov;
+    return { value: modified ? ov[perm] : def, modified };
+  }
+
+  // Counts reflect the EFFECTIVE grants (defaults + overrides), incl. the
+  // forced-ON self-lockout perms for full_admin.
   const grantedCounts = useMemo(() => {
     const out: Record<string, number> = {};
     for (const role of ALL_ROLES) {
-      out[role] = PERMISSION_ORDER.filter(p => ROLE_DEFAULTS[role][p]).length;
+      out[role] = PERMISSION_ORDER.filter(p => {
+        if (isLockedPerm(role, p)) return true;
+        const ov = overrides[role];
+        return ov && p in ov ? ov[p] : ROLE_DEFAULTS[role][p];
+      }).length;
     }
     return out;
-  }, []);
+  }, [overrides]);
+
+  function togglePerm(role: UserRole, perm: Permission) {
+    if (!canManage) return;
+    if (isLockedPerm(role, perm)) return; // self-lockout guard
+    if (isWriteBlocked()) return;
+    const def = ROLE_DEFAULTS[role][perm];
+    const { value: cur } = effectivePerm(role, perm);
+    const next = !cur;
+    // Toggling back to the default removes the override key (clean reset).
+    setRolePermission(role, perm, next === def ? null : next);
+    loadRolePermissionCache();
+    appendLog({
+      action: 'role_permission_changed',
+      entity_type: 'role_settings',
+      entity_id: role,
+      user_id: sessionUser?.id ?? null,
+      note: `${perm}: ${next === def ? 'reset to default' : next}`,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    });
+    setOverrides(getRolePermissionOverrides());
+  }
 
   function effectiveMinPin(role: UserRole): number {
     return minPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
@@ -64,6 +120,7 @@ export default function RolesScreen() {
 
   function changeMinPin(role: UserRole, delta: number) {
     if (!canManage) return;
+    if (isWriteBlocked()) return;
     const next = Math.min(MAX_PIN, Math.max(MIN_PIN, effectiveMinPin(role) + delta));
     if (next === effectiveMinPin(role)) return;
     const now = setRoleMinPin(role, next);
@@ -85,9 +142,12 @@ export default function RolesScreen() {
       <Stack.Screen options={{ title: 'Roles & Permissions', headerShown: true }} />
       <ScrollView style={s.container} contentContainerStyle={s.content}>
         <Text style={s.intro}>
-          Each role grants a default set of permissions (read-only here) and a minimum PIN length.
-          Per-user exceptions live on each user's profile.
+          Each role grants a default set of permissions and a minimum PIN length. Toggle a
+          permission to override the default for that role; toggling it back to the default
+          removes the override. Per-user exceptions live on each user's profile.
         </Text>
+
+        {locked && <MaintenanceBanner />}
 
         {ROLES_BY_TIER.map(role => {
           const isOpen = expanded === role;
@@ -113,36 +173,50 @@ export default function RolesScreen() {
                 </View>
                 <View style={s.stepper}>
                   <TouchableOpacity
-                    style={[s.stepBtn, (!canManage || minPin <= MIN_PIN) && s.stepBtnOff]}
+                    style={[s.stepBtn, (!canManage || locked || minPin <= MIN_PIN) && s.stepBtnOff]}
                     onPress={() => changeMinPin(role, -1)}
-                    disabled={!canManage || minPin <= MIN_PIN}
+                    disabled={!canManage || locked || minPin <= MIN_PIN}
                   >
                     <Text style={s.stepText}>−</Text>
                   </TouchableOpacity>
                   <Text style={s.pinValue}>{minPin}</Text>
                   <TouchableOpacity
-                    style={[s.stepBtn, (!canManage || minPin >= MAX_PIN) && s.stepBtnOff]}
+                    style={[s.stepBtn, (!canManage || locked || minPin >= MAX_PIN) && s.stepBtnOff]}
                     onPress={() => changeMinPin(role, +1)}
-                    disabled={!canManage || minPin >= MAX_PIN}
+                    disabled={!canManage || locked || minPin >= MAX_PIN}
                   >
                     <Text style={s.stepText}>+</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* Permission matrix (read-only) */}
+              {/* Editable permission matrix */}
               {isOpen && (
                 <View style={s.matrix}>
                   {PERMISSION_ORDER.map(perm => {
-                    const granted = ROLE_DEFAULTS[role][perm];
+                    const lockedPerm = isLockedPerm(role, perm);
+                    const { value, modified } = effectivePerm(role, perm);
+                    const shown = lockedPerm ? true : value;
+                    const disabled = !canManage || locked || lockedPerm;
                     return (
                       <View key={perm} style={s.permRow}>
-                        <Text style={[s.permCheck, granted ? s.permYes : s.permNo]}>
-                          {granted ? '✓' : '·'}
-                        </Text>
-                        <Text style={[s.permLabel, !granted && s.permLabelOff]}>
-                          {PERMISSION_LABELS[perm]}
-                        </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.permLabel, !shown && s.permLabelOff]}>
+                            {PERMISSION_LABELS[perm]}
+                          </Text>
+                          {modified && !lockedPerm && (
+                            <Text style={s.modifiedBadge}>modified</Text>
+                          )}
+                          {lockedPerm && (
+                            <Text style={s.lockedBadge}>required for full admin</Text>
+                          )}
+                        </View>
+                        <Switch
+                          value={shown}
+                          disabled={disabled}
+                          onValueChange={() => togglePerm(role, perm)}
+                          trackColor={{ true: colors.primary, false: colors.border }}
+                        />
                       </View>
                     );
                   })}
@@ -190,6 +264,8 @@ const s = StyleSheet.create({
   permNo: { color: colors.textDisabled },
   permLabel: { fontSize: fontSizes.body2, color: colors.textPrimary },
   permLabelOff: { color: colors.textMuted },
+  modifiedBadge: { fontSize: fontSizes.caption, color: colors.warning, fontWeight: '600', marginTop: 2 },
+  lockedBadge: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
 
   readOnly: { fontSize: fontSizes.body2, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
 });
