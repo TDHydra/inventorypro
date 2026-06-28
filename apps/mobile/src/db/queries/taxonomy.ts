@@ -50,6 +50,14 @@ export function getItemTypes(opts?: { includeInactive?: boolean }): TaxonomyType
   return getTaxonomyTypes(ITEM_CATEGORY, opts);
 }
 
+export const LOCATION_TYPE = 'location_type';
+
+// Active location types (Shop, Vehicle, Locker, Maintenance, …) for the location
+// forms + section filters.
+export function getLocationTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(LOCATION_TYPE, opts);
+}
+
 // Update ONLY the `units` array inside a taxonomy row's meta, preserving every
 // other meta key (e.g. item_category's classId). Used by the Manage Types units
 // editor for item types so editing units doesn't wipe the class mapping.
