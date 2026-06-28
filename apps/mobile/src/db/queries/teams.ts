@@ -1,4 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { appendOutbox } from '../../sync/outbox';
 
 export interface Team {
   id: string;
@@ -15,6 +16,8 @@ export interface TeamMember {
   team_permission_overrides: string; // JSON string
   added_by: string | null;
   joined_at: string;
+  is_manager: number; // 0 | 1 (SQLite has no boolean)
+  updated_at: string;
   // Populated by getTeamMembers LEFT JOIN users
   user_name?: string | null;
   user_role?: string | null;
@@ -69,9 +72,9 @@ export function addTeamMember(
   const joined_at = new Date().toISOString();
   const res = db.executeSync(
     `INSERT OR IGNORE INTO team_members
-       (team_id, user_id, team_permission_overrides, added_by, joined_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    bindParams([teamId, userId, JSON.stringify(overrides), addedBy ?? null, joined_at]),
+       (team_id, user_id, team_permission_overrides, added_by, joined_at, is_manager, updated_at)
+     VALUES (?, ?, ?, ?, ?, 0, ?)`,
+    bindParams([teamId, userId, JSON.stringify(overrides), addedBy ?? null, joined_at, joined_at]),
   );
   if (res.rowsAffected < 1) return null;
   return { joined_at };
@@ -84,4 +87,21 @@ export function removeTeamMember(teamId: string, userId: string): void {
     `DELETE FROM team_members WHERE team_id = ? AND user_id = ?`,
     bindParams([teamId, userId]),
   );
+}
+
+// Promote/demote an existing member as a team manager. Bundles the outbox row
+// (UPDATE team_members) itself — real boolean payload, no synced_at.
+export function setMemberManager(teamId: string, userId: string, isManager: boolean): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+  db.executeSync(
+    `UPDATE team_members SET is_manager = ?, updated_at = ? WHERE team_id = ? AND user_id = ?`,
+    bindParams([isManager ? 1 : 0, updated_at, teamId, userId]),
+  );
+  appendOutbox('UPDATE', 'team_members', {
+    team_id: teamId,
+    user_id: userId,
+    is_manager: isManager,
+    updated_at,
+  });
 }

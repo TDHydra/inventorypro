@@ -37,6 +37,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   upload_media: 'Upload photos/video',
   view_all_logs: 'View all activity logs',
   view_own_logs: 'View own activity logs',
+  view_team_activity: "View team's activity",
   manage_teams: 'Manage teams',
   checkout_for_team: 'Check out for a team',
   manage_users: 'Manage users',

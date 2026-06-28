@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import { requirePermission } from '../lib/permissions';
+import { userHasPermission } from '../lib/permissions';
 
 interface LogQuery {
   user_id?: string;
@@ -10,21 +10,64 @@ interface LogQuery {
   limit?: string;
   before?: string; // ISO timestamp, exclusive upper bound
   after?: string;  // ISO timestamp, inclusive lower bound
+  scope?: string;  // 'my_teams' → activity by members of teams the requester manages
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {
-  const auth = [
-    (fastify as any).authenticate,
-    requirePermission('view_all_logs'),
-  ];
+  // Authenticate only — permission is gated inside the handler so that
+  // scope=my_teams can be served to managers who hold view_team_activity
+  // (but not view_all_logs). The default scope still requires view_all_logs.
+  const auth = [(fastify as any).authenticate];
 
   // GET /logs — filtered, paginated activity log (read-only; the log is append-only)
   fastify.get<{ Querystring: LogQuery }>(
     '/', { preHandler: auth },
-    async (request) => {
+    async (request, reply) => {
       const q = request.query;
+      const userId = (request.user as { sub: string }).sub;
+      const myTeams = q.scope === 'my_teams';
+
+      // Resolve the requester's effective permissions once.
+      const { rows: permRows } = await fastify.pg.query(
+        `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+           FROM users u
+           LEFT JOIN role_settings rs ON rs.role = u.role
+          WHERE u.id = $1`,
+        [userId],
+      );
+      const u = permRows[0];
+      const can = (perm: string) =>
+        !!u && userHasPermission(u.role, u.permission_overrides, perm, u.role_overrides);
+
+      // Gate: my_teams allowed with view_team_activity OR view_all_logs;
+      // every other scope requires view_all_logs.
+      const allowed = myTeams
+        ? can('view_team_activity') || can('view_all_logs')
+        : can('view_all_logs');
+      if (!allowed) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+
       const filters: string[] = [];
       const params: unknown[] = [];
+
+      // For scope=my_teams, restrict to the managed-team member set. An empty
+      // managed set means there is nothing to show.
+      if (myTeams) {
+        const { rows: memberRows } = await fastify.pg.query(
+          `SELECT DISTINCT tm.user_id
+             FROM team_members tm
+             JOIN team_members me ON me.team_id = tm.team_id
+            WHERE me.user_id = $1 AND me.is_manager = TRUE`,
+          [userId],
+        );
+        const memberIds = memberRows.map((r: { user_id: string }) => r.user_id);
+        if (memberIds.length === 0) {
+          return { logs: [] };
+        }
+        params.push(memberIds);
+        filters.push(`al.user_id = ANY($${params.length})`);
+      }
 
       const add = (col: string, val: string | undefined) => {
         if (val !== undefined) { params.push(val); filters.push(`al.${col} = $${params.length}`); }

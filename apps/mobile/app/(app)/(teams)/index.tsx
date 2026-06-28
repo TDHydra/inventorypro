@@ -10,9 +10,6 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
-import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
@@ -40,19 +37,12 @@ export default function TeamsScreen() {
     const ts = getTaxonomyTypes('team');
     return ts[0]?.label ?? '';
   });
-  const [managerOption, setManagerOption] = useState<PickerOption | null>(null);
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const userOptions = useMemo<PickerOption[]>(
-    () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
-    [allUsers],
-  );
   const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
 
   function resetForm() {
     setName('');
     setType(teamTypes[0]?.label ?? '');
-    setManagerOption(null);
   }
 
   const onRefresh = useCallback(async () => {
@@ -72,11 +62,13 @@ export default function TeamsScreen() {
 
     const id = generateUUID();
     const now = new Date().toISOString();
+    // manager_id is legacy/deprecated — managers are flagged per-member (is_manager)
+    // on the team detail screen after creation. Leave it unset here.
     const team: Team = {
       id,
       name: trimmed,
       type,
-      manager_id: managerOption?.id ?? null,
+      manager_id: null,
       updated_at: now,
       synced_at: null,
     };
@@ -86,7 +78,7 @@ export default function TeamsScreen() {
       id,
       name: trimmed,
       type,
-      manager_id: managerOption?.id ?? null,
+      manager_id: null,
       updated_at: now,
     });
     appendLog({
@@ -187,16 +179,6 @@ export default function TeamsScreen() {
                   />
                 ))}
               </ScrollView>
-
-              <FieldLabel>Manager (optional)</FieldLabel>
-              <SearchablePicker
-                placeholder="Search people…"
-                options={userOptions}
-                value={managerOption}
-                onSelect={(opt) => {
-                  setManagerOption(prev => (prev?.id === opt.id ? null : opt));
-                }}
-              />
 
               <PrimaryButton label="Create Team" onPress={handleCreate} style={{ marginTop: 8 }} />
               <View style={s.secondaryRow}>

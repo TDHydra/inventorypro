@@ -26,6 +26,7 @@ export type Permission =
   | 'upload_media'
   | 'view_all_logs'
   | 'view_own_logs'
+  | 'view_team_activity'
   | 'manage_teams'
   | 'checkout_for_team'
   | 'manage_users'
@@ -88,6 +89,7 @@ const tier4: PermissionMap = {
   upload_media:              true,
   view_all_logs:             true,
   view_own_logs:             true,
+  view_team_activity:        true,
   manage_teams:              true,
   checkout_for_team:         true,
   manage_users:              true,
@@ -110,6 +112,7 @@ const tier3: PermissionMap = {
   upload_media:              true,
   view_all_logs:             true,
   view_own_logs:             true,
+  view_team_activity:        true,
   manage_teams:              false,
   checkout_for_team:         false,
   manage_users:              true,
@@ -132,6 +135,7 @@ const tier2: PermissionMap = {
   upload_media:               true,
   view_all_logs:              true,
   view_own_logs:              true,
+  view_team_activity:         true,
   manage_teams:               true,
   checkout_for_team:          true,
   manage_users:               false,
@@ -154,6 +158,7 @@ const tier1: PermissionMap = {
   upload_media:               true,
   view_all_logs:              false,
   view_own_logs:              true,
+  view_team_activity:         false,
   manage_teams:               false,
   checkout_for_team:          true,
   manage_users:               false,

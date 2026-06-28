@@ -36,12 +36,16 @@ interface ServerLogRow {
   created_at: string;
 }
 
-type Filter = 'mine' | 'unsynced' | 'all';
+type Filter = 'mine' | 'unsynced' | 'all' | 'my_teams';
 
 export default function LogsScreen() {
   const { user } = useSession();
   const canViewAll = usePermission('view_all_logs');
+  const canViewTeam = usePermission('view_team_activity');
   const [filter, setFilter] = useState<Filter>('mine');
+
+  // Both the All-Activity and My-Team tabs fetch from the server (/logs).
+  const serverMode = filter === 'all' || filter === 'my_teams';
 
   // All-Activity filter state
   const [filterUser, setFilterUser] = useState<PickerOption | null>(null);
@@ -96,9 +100,10 @@ export default function LogsScreen() {
     return getLogForUser(user.id, 50);
   }, [user, filter]);
 
-  // Server fetch for the All-Activity tab — re-runs whenever tab, filters, or refetchKey change
+  // Server fetch for the All-Activity / My-Team tabs — re-runs whenever tab,
+  // filters, or refetchKey change
   useEffect(() => {
-    if (filter !== 'all') return;
+    if (!serverMode) return;
 
     let cancelled = false;
     setServerLoading(true);
@@ -117,6 +122,7 @@ export default function LogsScreen() {
         }
 
         const params = new URLSearchParams({ limit: '200' });
+        if (filter === 'my_teams') params.set('scope', 'my_teams');
         if (filterUser?.id) params.set('user_id', filterUser.id);
         if (filterAction?.id) params.set('action', filterAction.id);
         if (sinceVal) params.set('after', `${sinceVal}T00:00:00.000Z`);
@@ -149,7 +155,7 @@ export default function LogsScreen() {
     })();
 
     return () => { cancelled = true; };
-  }, [filter, filterUser, filterAction, sinceVal, untilVal, refetchKey]);
+  }, [filter, serverMode, filterUser, filterAction, sinceVal, untilVal, refetchKey]);
 
   function clearAllFilters() {
     setFilterUser(null);
@@ -161,10 +167,11 @@ export default function LogsScreen() {
   // Derive from computed date values so partial date strings don't show the button
   const anyFilterSet = !!(filterUser || filterAction || sinceVal || untilVal);
 
-  // Fall back to 'mine' if admin permission is revoked mid-session
+  // Fall back to 'mine' if the backing permission is revoked mid-session
   useEffect(() => {
     if (!canViewAll && filter === 'all') setFilter('mine');
-  }, [canViewAll, filter]);
+    if (!canViewTeam && !canViewAll && filter === 'my_teams') setFilter('mine');
+  }, [canViewAll, canViewTeam, filter]);
 
   return (
     <>
@@ -186,6 +193,14 @@ export default function LogsScreen() {
               Pending Sync
             </Text>
           </TouchableOpacity>
+          {(canViewTeam || canViewAll) && (
+            <TouchableOpacity
+              style={[s.chip, filter === 'my_teams' && s.chipActive]}
+              onPress={() => setFilter('my_teams')}
+            >
+              <Text style={[s.chipText, filter === 'my_teams' && s.chipTextActive]}>My Team</Text>
+            </TouchableOpacity>
+          )}
           {canViewAll && (
             <TouchableOpacity
               style={[s.chip, filter === 'all' && s.chipActive]}
@@ -198,8 +213,8 @@ export default function LogsScreen() {
 
         <TooltipHint screenKey="logs" />
 
-        {/* ── All-Activity filter controls (admin only) ─────────────── */}
-        {filter === 'all' && (
+        {/* ── Server-feed filter controls (All Activity / My Team) ──── */}
+        {serverMode && (
           <View style={s.filterControls}>
             <SearchablePicker
               placeholder="Filter by user…"
@@ -246,7 +261,7 @@ export default function LogsScreen() {
         )}
 
         {/* ── Log list ──────────────────────────────────────────────── */}
-        {filter === 'all' ? (
+        {serverMode ? (
           serverLoading ? (
             <View style={s.empty}>
               <ActivityIndicator size="large" color={colors.primary} />
