@@ -11,6 +11,7 @@ import { useSession } from '../../src/hooks/useSession';
 import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/auth/pin';
 import { saveSession, buildUserSession } from '../../src/auth/session';
 import { appendLog } from '../../src/db/queries/log';
+import { setMaintenanceRole } from '../../src/db/maintenance';
 
 type Screen = 'pick' | 'pin' | 'setpin';
 type SetStep = 'enter' | 'confirm';
@@ -56,21 +57,35 @@ export default function LoginScreen() {
     const session = buildUserSession(userId);
     if (!session) { setPinError('User not found on this device'); setPin(''); return; }
 
-    appendLog({
-      user_id: session.id,
-      team_id: null,
-      action: 'login',
-      entity_type: 'user',
-      entity_id: session.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: null,
-      metadata: null,
-      device_id: null,
-    });
+    // Wire the maintenance exemption for THIS user before any write, so a tier-4
+    // admin signing in during maintenance isn't treated as non-exempt (the
+    // (app)/_layout sets this too, but only after we navigate).
+    setMaintenanceRole(session.role);
+
+    // Authentication is not a data mutation — signing in must NEVER be blocked by
+    // maintenance mode. The login audit is best-effort: if the write-guard (or
+    // anything) throws, swallow it so the user still gets in. (This was the
+    // "connection required" bug — the login log was blocked during maintenance,
+    // aborting sign-in for everyone, admins included.)
+    try {
+      appendLog({
+        user_id: session.id,
+        team_id: null,
+        action: 'login',
+        entity_type: 'user',
+        entity_id: session.id,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        job_id: null,
+        note: null,
+        metadata: null,
+        device_id: null,
+      });
+    } catch {
+      /* maintenance lock or transient write error — sign-in proceeds regardless */
+    }
 
     setUser(session);
     router.replace('/(app)/(dashboard)');
