@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, TextInput, FlatList, StyleSheet,
   TouchableOpacity, RefreshControl,
@@ -6,16 +6,32 @@ import {
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { getEquipmentModels } from '../../../src/db/queries/equipment';
 import type { EquipmentModel } from '../../../src/db/queries/equipment';
+import { updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
+import { appendOutbox } from '../../../src/sync/outbox';
+import { appendLog } from '../../../src/db/queries/log';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useSession } from '../../../src/hooks/useSession';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
 
 export default function EquipmentScreen() {
   const router = useRouter();
   const canAdd = usePermission('add_inventory');
+  const canEdit = usePermission('edit_inventory');
+  const { user } = useSession();
+  const { locked } = useMaintenanceMode();
+  const ms = useMultiSelect<EquipmentModel>();
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [models, setModels] = useState<EquipmentModel[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,6 +43,66 @@ export default function EquipmentScreen() {
   const load = useCallback((q?: string) => {
     setModels(getEquipmentModels(q));
   }, []);
+
+  const reloadList = useCallback(() => {
+    load(queryRef.current.trim() || undefined);
+  }, [load]);
+
+  // ── Bulk multi-select (gated on edit_inventory, matching the detail edit) ──
+  const categoryOptions = useMemo<PickerOption[]>(
+    () => getDistinctValues('category').map(v => ({ id: v, label: v })),
+    [],
+  );
+  const supplierOptions = useMemo<PickerOption[]>(
+    () => getDistinctValues('supplier').map(v => ({ id: v, label: v })),
+    [],
+  );
+
+  // Equipment models are inventory_items (kind='equipment'); the detail screen logs
+  // their edits with entity_type 'item', so mirror that for batch catalog changes.
+  const logItem = useCallback((id: string, note: string) => {
+    appendLog({
+      action: 'item_updated', entity_type: 'item', entity_id: id,
+      user_id: user?.id ?? null, note,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    });
+  }, [user?.id]);
+
+  // Mirror equipment/[id].tsx: updateItemFields then appendOutbox the returned
+  // {id,...fields,updated_at}. returnable is untouched here, so no bool fix.
+  const applyCategory = useCallback((category: string) => {
+    setCategoryPickerOpen(false);
+    if (isWriteBlocked()) return;
+    const value = category.trim();
+    if (!value) return;
+    for (const id of Array.from(ms.selected)) {
+      const synced = updateItemFields(id, { category: value });
+      appendOutbox('UPDATE', 'inventory_items', synced);
+      logItem(id, `Category → ${value}`);
+    }
+    reloadList();
+    ms.exit();
+  }, [ms, reloadList, logItem]);
+
+  const applySupplier = useCallback((supplier: string) => {
+    setSupplierPickerOpen(false);
+    if (isWriteBlocked()) return;
+    const value = supplier.trim();
+    if (!value) return;
+    for (const id of Array.from(ms.selected)) {
+      const synced = updateItemFields(id, { supplier: value });
+      appendOutbox('UPDATE', 'inventory_items', synced);
+      logItem(id, `Supplier → ${value}`);
+    }
+    reloadList();
+    ms.exit();
+  }, [ms, reloadList, logItem]);
+
+  const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'category', label: 'Set category', onPress: () => setCategoryPickerOpen(true) },
+    { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
+  ], []);
 
   // Load on mount and on screen focus (e.g. returning from add or detail)
   useFocusEffect(
@@ -84,15 +160,25 @@ export default function EquipmentScreen() {
         <FlatList
           data={models}
           keyExtractor={m => m.id}
-          renderItem={({ item: m }) => (
+          renderItem={({ item: m }) => {
+            const selected = ms.isSelected(m.id);
+            return (
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() =>
-                router.push({ pathname: '/(app)/(equipment)/[id]', params: { id: m.id } })
-              }
+              onPress={() => {
+                if (ms.active) { ms.toggle(m.id); return; }
+                router.push({ pathname: '/(app)/(equipment)/[id]', params: { id: m.id } });
+              }}
+              onLongPress={() => { if (canEdit && !ms.active) ms.enter(m.id); }}
+              delayLongPress={300}
             >
-              <Card style={s.card}>
+              <Card style={[s.card, ms.active && selected && s.cardSelected]}>
                 <View style={s.row}>
+                  {ms.active && (
+                    <View style={[s.checkbox, selected && s.checkboxOn]}>
+                      {selected && <Text style={s.checkMark}>✓</Text>}
+                    </View>
+                  )}
                   <MediaThumbnail entityType="item" entityId={m.id} size={44} />
                   <View style={s.info}>
                     <Text style={s.name} numberOfLines={1}>{m.name}</Text>
@@ -122,9 +208,10 @@ export default function EquipmentScreen() {
                 </View>
               </Card>
             </TouchableOpacity>
-          )}
+            );
+          }}
           style={s.list}
-          contentContainerStyle={s.listContent}
+          contentContainerStyle={[s.listContent, ms.active && s.listContentSelecting]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -153,7 +240,7 @@ export default function EquipmentScreen() {
           }
         />
 
-        {canAdd && (
+        {canAdd && !ms.active && (
           <TouchableOpacity
             style={s.fab}
             onPress={() => router.push('/(app)/(equipment)/add')}
@@ -161,6 +248,40 @@ export default function EquipmentScreen() {
             <Text style={s.fabText}>+</Text>
           </TouchableOpacity>
         )}
+
+        {canEdit && ms.active && (
+          <BulkActionBar
+            count={ms.count}
+            actions={bulkActions}
+            onSelectAll={() => ms.selectAll(models.map(m => m.id))}
+            onCancel={ms.exit}
+            disabled={locked}
+          />
+        )}
+
+        {/* Bulk: set category (free entry allowed) */}
+        <ModalSheet visible={categoryPickerOpen} onClose={() => setCategoryPickerOpen(false)}>
+          <Text style={s.sheetTitle}>Set category for {ms.count} model{ms.count === 1 ? '' : 's'}</Text>
+          <SearchablePicker
+            placeholder="Search or type a category…"
+            options={categoryOptions}
+            value={null}
+            onSelect={(opt) => applyCategory(opt.id)}
+            onCreate={(text) => applyCategory(text)}
+          />
+        </ModalSheet>
+
+        {/* Bulk: set supplier (free entry allowed) */}
+        <ModalSheet visible={supplierPickerOpen} onClose={() => setSupplierPickerOpen(false)}>
+          <Text style={s.sheetTitle}>Set supplier for {ms.count} model{ms.count === 1 ? '' : 's'}</Text>
+          <SearchablePicker
+            placeholder="Search or type a supplier…"
+            options={supplierOptions}
+            value={null}
+            onSelect={(opt) => applySupplier(opt.id)}
+            onCreate={(text) => applySupplier(text)}
+          />
+        </ModalSheet>
 
       </View>
     </>
@@ -186,7 +307,17 @@ const s = StyleSheet.create({
   headerAddText: { fontSize: 24, color: '#fff', lineHeight: 28 },
   list: { flex: 1 },
   listContent: { padding: spacing.md, paddingBottom: 96 },
+  listContentSelecting: { paddingBottom: 180 },
   card: { marginBottom: spacing.sm },
+  cardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2,
+    borderColor: colors.textDisabled, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   info: { flex: 1, gap: 4 },
   name: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },

@@ -5,11 +5,24 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
-import { searchItems } from '../../../src/db/queries/items';
+import { searchItems, updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
 import { getProductClasses } from '../../../src/db/queries/taxonomy';
+import { appendOutbox } from '../../../src/sync/outbox';
+import { appendLog } from '../../../src/db/queries/log';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
+import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { AppInput } from '../../../src/components/ui/AppInput';
+import { FieldLabel } from '../../../src/components/ui/FieldLabel';
+import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { syncNow } from '../../../src/sync/engine';
 import { colors } from '../../../src/theme';
 
@@ -30,6 +43,14 @@ const ALL_FILTER = 'all';
 
 export default function InventoryScreen() {
   const router = useRouter();
+  const { user } = useSession();
+  const canEdit = usePermission('edit_inventory');
+  const { locked } = useMaintenanceMode();
+  const ms = useMultiSelect<Item>();
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+  const [minQtyOpen, setMinQtyOpen] = useState(false);
+  const [minQtyValue, setMinQtyValue] = useState('');
   // Chips: "All" + one per configurable product class (label = class label, value = class id).
   const filterChips = useMemo(
     () => [
@@ -92,6 +113,80 @@ export default function InventoryScreen() {
     setRefreshing(false);
   }, [refreshing, runSearch, query, filter]);
 
+  // ── Bulk multi-select (gated on edit_inventory, matching the detail edit) ──
+  const reloadList = useCallback(() => runSearch(query, filter, 0), [runSearch, query, filter]);
+
+  const categoryOptions = useMemo<PickerOption[]>(
+    () => getDistinctValues('category').map(v => ({ id: v, label: v })),
+    [],
+  );
+  const supplierOptions = useMemo<PickerOption[]>(
+    () => getDistinctValues('supplier').map(v => ({ id: v, label: v })),
+    [],
+  );
+
+  // Mirror the per-item audit trail for batch catalog edits (the single-row edit
+  // path uses entity_type 'item') so bulk changes aren't a blind spot.
+  const logItem = useCallback((id: string, note: string) => {
+    appendLog({
+      action: 'item_updated', entity_type: 'item', entity_id: id,
+      user_id: user?.id ?? null, note,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    });
+  }, [user?.id]);
+
+  // Each handler mirrors inventory/[id].tsx: updateItemFields then appendOutbox the
+  // returned {id,...fields,updated_at}. returnable is untouched here, so no bool fix.
+  const applyCategory = useCallback((category: string) => {
+    setCategoryPickerOpen(false);
+    if (isWriteBlocked()) return;
+    const value = category.trim();
+    if (!value) return;
+    for (const id of Array.from(ms.selected)) {
+      const synced = updateItemFields(id, { category: value });
+      appendOutbox('UPDATE', 'inventory_items', synced);
+      logItem(id, `Category → ${value}`);
+    }
+    reloadList();
+    ms.exit();
+  }, [ms, reloadList, logItem]);
+
+  const applySupplier = useCallback((supplier: string) => {
+    setSupplierPickerOpen(false);
+    if (isWriteBlocked()) return;
+    const value = supplier.trim();
+    if (!value) return;
+    for (const id of Array.from(ms.selected)) {
+      const synced = updateItemFields(id, { supplier: value });
+      appendOutbox('UPDATE', 'inventory_items', synced);
+      logItem(id, `Supplier → ${value}`);
+    }
+    reloadList();
+    ms.exit();
+  }, [ms, reloadList, logItem]);
+
+  const applyMinQty = useCallback(() => {
+    if (isWriteBlocked()) return;
+    const n = parseFloat(minQtyValue);
+    if (!Number.isFinite(n) || n < 0) return;
+    for (const id of Array.from(ms.selected)) {
+      const synced = updateItemFields(id, { min_qty_alert: n });
+      appendOutbox('UPDATE', 'inventory_items', synced);
+      logItem(id, `Low-stock alert → ${n}`);
+    }
+    setMinQtyOpen(false);
+    setMinQtyValue('');
+    reloadList();
+    ms.exit();
+  }, [ms, reloadList, logItem, minQtyValue]);
+
+  const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'category', label: 'Set category', onPress: () => setCategoryPickerOpen(true) },
+    { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
+    { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
+  ], []);
+
   return (
     <>
       <Stack.Screen options={{ title: 'Inventory', headerShown: true }} />
@@ -116,6 +211,15 @@ export default function InventoryScreen() {
           >
             <Text style={styles.scanIcon}>⬛</Text>
           </TouchableOpacity>
+          {canEdit && !ms.active && (
+            <TouchableOpacity
+              style={styles.scanBtn}
+              onPress={() => ms.enter()}
+              accessibilityLabel="Select multiple items"
+            >
+              <Text style={styles.scanIcon}>☑️</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.filters}>
@@ -134,11 +238,38 @@ export default function InventoryScreen() {
         <FlatList
           data={items}
           keyExtractor={i => i.id}
-          renderItem={({ item }) => (
-            <ItemCard item={item} onCheckout={handleCheckout} />
-          )}
+          renderItem={({ item }) => {
+            const selected = ms.isSelected(item.id);
+            return (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (ms.active) { ms.toggle(item.id); return; }
+                  router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: item.id } });
+                }}
+                onLongPress={() => { if (canEdit && !ms.active) ms.enter(item.id); }}
+                delayLongPress={300}
+              >
+                <View style={[styles.rowWrap, ms.active && selected && styles.rowSelected]}>
+                  {ms.active && (
+                    <View style={[styles.checkbox, selected && styles.checkboxOn]}>
+                      {selected && <Text style={styles.checkMark}>✓</Text>}
+                    </View>
+                  )}
+                  {/* Only intercept touches DURING selection mode so the row can own
+                      toggle taps. In normal mode pointerEvents="auto" keeps ItemCard's
+                      own touchables (expand / Check Out / Edit) fully working — entering
+                      selection mode is done via the explicit "Select" button (long-press
+                      is a bonus that fires on the card's non-touchable regions). */}
+                  <View style={styles.rowCard} pointerEvents={ms.active ? 'none' : 'auto'}>
+                    <ItemCard item={item} onCheckout={handleCheckout} />
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
           style={styles.list}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, ms.active && styles.listContentSelecting]}
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
           refreshControl={
@@ -171,14 +302,64 @@ export default function InventoryScreen() {
           }
         />
 
-        <PermissionGate permission="edit_inventory">
-          <TouchableOpacity
-            style={styles.fab}
-            onPress={() => router.push('/(app)/(inventory)/add')}
-          >
-            <Text style={styles.fabText}>+</Text>
-          </TouchableOpacity>
-        </PermissionGate>
+        {!ms.active && (
+          <PermissionGate permission="edit_inventory">
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={() => router.push('/(app)/(inventory)/add')}
+            >
+              <Text style={styles.fabText}>+</Text>
+            </TouchableOpacity>
+          </PermissionGate>
+        )}
+
+        {canEdit && ms.active && (
+          <BulkActionBar
+            count={ms.count}
+            actions={bulkActions}
+            onSelectAll={() => ms.selectAll(items.map(i => i.id))}
+            onCancel={ms.exit}
+            disabled={locked}
+          />
+        )}
+
+        {/* Bulk: set category (free entry allowed) */}
+        <ModalSheet visible={categoryPickerOpen} onClose={() => setCategoryPickerOpen(false)}>
+          <Text style={styles.sheetTitle}>Set category for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <SearchablePicker
+            placeholder="Search or type a category…"
+            options={categoryOptions}
+            value={null}
+            onSelect={(opt) => applyCategory(opt.id)}
+            onCreate={(text) => applyCategory(text)}
+          />
+        </ModalSheet>
+
+        {/* Bulk: set supplier (free entry allowed) */}
+        <ModalSheet visible={supplierPickerOpen} onClose={() => setSupplierPickerOpen(false)}>
+          <Text style={styles.sheetTitle}>Set supplier for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <SearchablePicker
+            placeholder="Search or type a supplier…"
+            options={supplierOptions}
+            value={null}
+            onSelect={(opt) => applySupplier(opt.id)}
+            onCreate={(text) => applySupplier(text)}
+          />
+        </ModalSheet>
+
+        {/* Bulk: set low-stock alert */}
+        <ModalSheet visible={minQtyOpen} onClose={() => setMinQtyOpen(false)}>
+          <Text style={styles.sheetTitle}>Set min-stock alert for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <FieldLabel>Low-stock alert</FieldLabel>
+          <AppInput
+            value={minQtyValue}
+            onChangeText={setMinQtyValue}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            autoFocus
+          />
+          <PrimaryButton label="Apply" onPress={applyMinQty} style={{ marginTop: 12 }} />
+        </ModalSheet>
       </View>
     </>
   );
@@ -203,6 +384,21 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8, flexWrap: 'wrap' },
   list: { flex: 1 },
   listContent: { padding: 12, paddingBottom: 80 },
+  listContentSelecting: { paddingBottom: 180 },
+  rowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowCard: { flex: 1 },
+  rowSelected: {
+    borderRadius: 12, borderWidth: 1, borderColor: colors.primary,
+    backgroundColor: colors.primaryBg, paddingLeft: 8,
+  },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2,
+    borderColor: colors.textDisabled, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surface, marginLeft: 4,
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
   empty: { alignItems: 'center', marginTop: 60, gap: 16 },
   emptyText: { fontSize: 15, color: colors.textMuted, textAlign: 'center' },
   addItemBtn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
