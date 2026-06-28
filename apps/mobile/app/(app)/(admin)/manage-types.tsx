@@ -1,25 +1,32 @@
 import { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { ROLE_TIER } from '../../../src/constants/roles';
 import {
   TaxonomyType,
+  ProductClass,
   getTaxonomyTypes,
+  getProductClassById,
+  setClassMeta,
   addTaxonomyType,
   renameTaxonomyType,
   setTaxonomyIcon,
   setTaxonomyActive,
   reorderTaxonomyType,
 } from '../../../src/db/queries/taxonomy';
+import { loadClassConfigCache } from '../../../src/constants/units';
 import { ICON_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
 // ── Icon picker ──────────────────────────────────────────────────────────────
 
@@ -50,6 +57,7 @@ function TypeRow({
   item,
   index,
   total,
+  locked,
   onEdit,
   onMoveUp,
   onMoveDown,
@@ -57,6 +65,7 @@ function TypeRow({
   item: TaxonomyType;
   index: number;
   total: number;
+  locked: boolean;
   onEdit: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -71,21 +80,21 @@ function TypeRow({
       <View style={s.typeRowActions}>
         <TouchableOpacity
           onPress={onMoveUp}
-          disabled={index === 0}
+          disabled={index === 0 || locked}
           style={s.reorderBtn}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
         >
-          <Text style={[s.reorderArrow, index === 0 && s.arrowDisabled]}>▲</Text>
+          <Text style={[s.reorderArrow, (index === 0 || locked) && s.arrowDisabled]}>▲</Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={onMoveDown}
-          disabled={index === total - 1}
+          disabled={index === total - 1 || locked}
           style={s.reorderBtn}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
         >
-          <Text style={[s.reorderArrow, index === total - 1 && s.arrowDisabled]}>▼</Text>
+          <Text style={[s.reorderArrow, (index === total - 1 || locked) && s.arrowDisabled]}>▼</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onEdit} style={s.editBtn}>
+        <TouchableOpacity onPress={onEdit} style={[s.editBtn, locked && s.editBtnDisabled]} disabled={locked}>
           <Text style={s.editBtnText}>Edit</Text>
         </TouchableOpacity>
       </View>
@@ -95,15 +104,26 @@ function TypeRow({
 
 // ── Main screen ──────────────────────────────────────────────────────────────
 
+// Human-readable noun per taxonomy category (used in modal titles).
+const CATEGORY_NOUN: Record<string, string> = {
+  team: 'Team Type',
+  job: 'Job Type',
+  product_class: 'Product Class',
+};
+
 export default function ManageTypesScreen() {
   const { user } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
+  const { locked } = useMaintenanceMode();
 
   const [teamTypes, setTeamTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('team', { includeInactive: true }),
   );
   const [jobTypes, setJobTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('job', { includeInactive: true }),
+  );
+  const [classTypes, setClassTypes] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('product_class', { includeInactive: true }),
   );
 
   // Add modal
@@ -116,9 +136,16 @@ export default function ManageTypesScreen() {
   const [editLabel, setEditLabel] = useState('');
   const [editIcon, setEditIcon] = useState<string | null>(null);
 
+  // Product-class units editor (only populated when editing a product_class)
+  const [editClass, setEditClass] = useState<ProductClass | null>(null);
+  const [editUnits, setEditUnits] = useState<string[]>([]);
+  const [editAllowDecimals, setEditAllowDecimals] = useState(true);
+  const [newUnit, setNewUnit] = useState('');
+
   function refresh() {
     setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
     setJobTypes(getTaxonomyTypes('job', { includeInactive: true }));
+    setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
   }
 
   // ── Add handlers ────────────────────────────────────────────────────────────
@@ -137,13 +164,20 @@ export default function ManageTypesScreen() {
 
   function handleAdd() {
     if (!addCategory) return;
+    if (isWriteBlocked()) return;
     const label = newLabel.trim();
     if (!label) {
       Alert.alert('Required', 'Enter a label for the new type.');
       return;
     }
     try {
-      addTaxonomyType({ category: addCategory, label, icon: newIcon });
+      // New product classes seed empty curated units + decimals allowed.
+      const meta =
+        addCategory === 'product_class'
+          ? JSON.stringify({ units: [], allowDecimals: true })
+          : undefined;
+      addTaxonomyType({ category: addCategory, label, icon: newIcon, meta });
+      if (addCategory === 'product_class') loadClassConfigCache();
       refresh();
       closeAdd();
     } catch (err) {
@@ -157,16 +191,44 @@ export default function ManageTypesScreen() {
     setEditType(item);
     setEditLabel(item.label);
     setEditIcon(item.icon);
+    if (item.category === 'product_class') {
+      const cls = getProductClassById(item.id);
+      setEditClass(cls);
+      setEditUnits(cls ? [...cls.units] : []);
+      setEditAllowDecimals(cls ? cls.allowDecimals : true);
+    } else {
+      setEditClass(null);
+      setEditUnits([]);
+      setEditAllowDecimals(true);
+    }
+    setNewUnit('');
   }
 
   function closeEdit() {
     setEditType(null);
     setEditLabel('');
     setEditIcon(null);
+    setEditClass(null);
+    setEditUnits([]);
+    setEditAllowDecimals(true);
+    setNewUnit('');
+  }
+
+  function handleAddUnit() {
+    const u = newUnit.trim();
+    if (!u) return;
+    setNewUnit('');
+    if (editUnits.includes(u)) return;
+    setEditUnits([...editUnits, u]);
+  }
+
+  function handleRemoveUnit(unit: string) {
+    setEditUnits(editUnits.filter(u => u !== unit));
   }
 
   function handleSaveEdit() {
     if (!editType) return;
+    if (isWriteBlocked()) return;
     const label = editLabel.trim();
     if (!label) {
       Alert.alert('Required', 'Label cannot be empty.');
@@ -179,6 +241,14 @@ export default function ManageTypesScreen() {
       if (editIcon !== editType.icon) {
         setTaxonomyIcon(editType.id, editIcon);
       }
+      if (editType.category === 'product_class' && metaDirty) {
+        setClassMeta(editType.id, {
+          units: editUnits,
+          allowDecimals: editAllowDecimals,
+        });
+        // Refresh the decimals cache so formatQuantity() reflects the change now.
+        loadClassConfigCache();
+      }
       refresh();
       closeEdit();
     } catch (err) {
@@ -188,6 +258,7 @@ export default function ManageTypesScreen() {
 
   function handleToggleActive() {
     if (!editType) return;
+    if (isWriteBlocked()) return;
     const nextActive = !editType.active;
     const verb = nextActive ? 'Restore' : 'Archive';
     Alert.alert(
@@ -218,6 +289,7 @@ export default function ManageTypesScreen() {
 
   function handleMoveUp(list: TaxonomyType[], index: number) {
     if (index === 0) return;
+    if (isWriteBlocked()) return;
     const current = list[index];
     const above = list[index - 1];
     try {
@@ -231,6 +303,7 @@ export default function ManageTypesScreen() {
 
   function handleMoveDown(list: TaxonomyType[], index: number) {
     if (index === list.length - 1) return;
+    if (isWriteBlocked()) return;
     const current = list[index];
     const below = list[index + 1];
     try {
@@ -244,7 +317,12 @@ export default function ManageTypesScreen() {
 
   // ── Section renderer ────────────────────────────────────────────────────────
 
-  function renderSection(title: string, category: string, list: TaxonomyType[]) {
+  function renderSection(
+    title: string,
+    category: string,
+    list: TaxonomyType[],
+    addLabel: string,
+  ) {
     return (
       <View style={s.section}>
         <Text style={s.sectionTitle}>{title}</Text>
@@ -259,6 +337,7 @@ export default function ManageTypesScreen() {
                 item={item}
                 index={index}
                 total={list.length}
+                locked={locked}
                 onEdit={() => openEdit(item)}
                 onMoveUp={() => handleMoveUp(list, index)}
                 onMoveDown={() => handleMoveDown(list, index)}
@@ -266,16 +345,28 @@ export default function ManageTypesScreen() {
             </View>
           ))}
         </View>
-        <TouchableOpacity style={s.addRow} onPress={() => openAdd(category)}>
-          <Text style={s.addRowText}>+ Add {title.replace(' Types', '')} Type</Text>
+        <TouchableOpacity
+          style={s.addRow}
+          onPress={() => openAdd(category)}
+          disabled={locked}
+        >
+          <Text style={[s.addRowText, locked && s.addRowTextDisabled]}>{addLabel}</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  const metaDirty =
+    !!editClass &&
+    (editAllowDecimals !== editClass.allowDecimals ||
+      editUnits.length !== editClass.units.length ||
+      editUnits.some((u, i) => u !== editClass.units[i]));
+
   const editDirty =
     !!editType &&
-    (editLabel.trim() !== editType.label || editIcon !== editType.icon);
+    (editLabel.trim() !== editType.label ||
+      editIcon !== editType.icon ||
+      metaDirty);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -291,8 +382,10 @@ export default function ManageTypesScreen() {
         </View>
       ) : (
         <ScrollView style={s.container} contentContainerStyle={s.content}>
-          {renderSection('Team Types', 'team', teamTypes)}
-          {renderSection('Job Types', 'job', jobTypes)}
+          {locked && <MaintenanceBanner />}
+          {renderSection('Team Types', 'team', teamTypes, '+ Add Team Type')}
+          {renderSection('Job Types', 'job', jobTypes, '+ Add Job Type')}
+          {renderSection('Product Classes', 'product_class', classTypes, '+ Add Product Class')}
         </ScrollView>
       )}
 
@@ -303,7 +396,7 @@ export default function ManageTypesScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text style={s.modalTitle}>
-            Add {addCategory === 'team' ? 'Team' : 'Job'} Type
+            Add {addCategory ? CATEGORY_NOUN[addCategory] ?? 'Type' : 'Type'}
           </Text>
           <AppInput
             placeholder="Type label (e.g. Biohazard)"
@@ -312,7 +405,7 @@ export default function ManageTypesScreen() {
           />
           <Text style={s.fieldLabel}>Icon</Text>
           <IconPicker selected={newIcon} onSelect={icon => setNewIcon(icon)} />
-          <PrimaryButton label="Add Type" onPress={handleAdd} />
+          <PrimaryButton label="Add Type" onPress={handleAdd} disabled={locked} />
           <TouchableOpacity style={s.cancelBtn} onPress={closeAdd}>
             <Text style={s.cancelText}>Cancel</Text>
           </TouchableOpacity>
@@ -336,17 +429,78 @@ export default function ManageTypesScreen() {
               />
               <Text style={s.fieldLabel}>Icon</Text>
               <IconPicker selected={editIcon} onSelect={icon => setEditIcon(icon)} />
+
+              {editType.category === 'product_class' && (
+                <>
+                  <Text style={s.fieldLabel}>Units</Text>
+                  {editUnits.length === 0 ? (
+                    <Text style={s.unitsEmpty}>
+                      No units yet. Add curated units below.
+                    </Text>
+                  ) : (
+                    <View style={s.unitChipWrap}>
+                      {editUnits.map(unit => (
+                        <View key={unit} style={s.unitChip}>
+                          <Text style={s.unitChipText}>{unit}</Text>
+                          <TouchableOpacity
+                            onPress={() => handleRemoveUnit(unit)}
+                            disabled={locked}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Text style={s.unitChipRemove}>×</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <View style={s.addUnitRow}>
+                    <View style={{ flex: 1 }}>
+                      <AppInput
+                        placeholder="Add a unit (e.g. each)"
+                        value={newUnit}
+                        onChangeText={setNewUnit}
+                        onSubmitEditing={handleAddUnit}
+                        editable={!locked}
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={[s.addUnitBtn, (locked || !newUnit.trim()) && s.addUnitBtnDisabled]}
+                      onPress={handleAddUnit}
+                      disabled={locked || !newUnit.trim()}
+                    >
+                      <Text style={s.addUnitBtnText}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={s.decimalsRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowLabel}>Allow decimals</Text>
+                      <Text style={s.rowSub}>
+                        Permit fractional quantities (e.g. 1.5) for this class.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={editAllowDecimals}
+                      onValueChange={setEditAllowDecimals}
+                      disabled={locked}
+                    />
+                  </View>
+                </>
+              )}
+
               <PrimaryButton
                 label={editDirty ? 'Save Changes' : 'No Changes'}
                 onPress={handleSaveEdit}
-                disabled={!editDirty}
+                disabled={!editDirty || locked}
               />
               <TouchableOpacity
                 style={[
                   s.archiveBtn,
                   editType.active ? s.archiveBtnDanger : s.archiveBtnGood,
+                  locked && s.archiveBtnLocked,
                 ]}
                 onPress={handleToggleActive}
+                disabled={locked}
               >
                 <Text style={s.archiveBtnIcon}>{editType.active ? '🗄️' : '✅'}</Text>
                 <View style={{ flex: 1 }}>
@@ -444,6 +598,7 @@ const s = StyleSheet.create({
     marginLeft: 4,
   },
   editBtnText: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primaryText },
+  editBtnDisabled: { opacity: 0.4 },
 
   emptyText: {
     textAlign: 'center', padding: spacing.lg,
@@ -452,6 +607,39 @@ const s = StyleSheet.create({
 
   addRow: { alignItems: 'center', paddingVertical: spacing.md },
   addRowText: { fontSize: fontSizes.body, fontWeight: '600', color: colors.primary },
+  addRowTextDisabled: { color: colors.textDisabled },
+
+  // Product-class units editor
+  unitsEmpty: { fontSize: fontSizes.body2, color: colors.textMuted },
+  unitChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  unitChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primaryBg,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  unitChipText: { fontSize: fontSizes.body2, fontWeight: '600', color: colors.primaryText },
+  unitChipRemove: { fontSize: 18, lineHeight: 18, fontWeight: '700', color: colors.primaryText },
+  addUnitRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  addUnitBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.base,
+    paddingVertical: 12,
+  },
+  addUnitBtnDisabled: { opacity: 0.4 },
+  addUnitBtnText: { fontSize: fontSizes.body2, fontWeight: '700', color: colors.surface },
+  decimalsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: spacing.sm,
+  },
+  rowLabel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
+  rowSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
 
   // Modal
   modalContent: { gap: 12, paddingBottom: 16 },
@@ -482,6 +670,7 @@ const s = StyleSheet.create({
   },
   archiveBtnDanger: { borderColor: '#FECACA', backgroundColor: '#FEF2F2' },
   archiveBtnGood: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
+  archiveBtnLocked: { opacity: 0.4 },
   archiveBtnIcon: { fontSize: 20 },
   archiveBtnLabel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
   archiveBtnSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
