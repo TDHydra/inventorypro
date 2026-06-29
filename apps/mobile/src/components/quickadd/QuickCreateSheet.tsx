@@ -3,13 +3,14 @@ import ItemQuickAdd from './ItemQuickAdd';
 import StockQuickAdd from './StockQuickAdd';
 import EquipmentQuickAdd from './EquipmentQuickAdd';
 import LocationQuickAdd from './LocationQuickAdd';
+import VehicleQuickAdd from './VehicleQuickAdd';
 import JobQuickAdd from './JobQuickAdd';
 import RepairQuickAdd from './RepairQuickAdd';
 import TeamQuickAdd from './TeamQuickAdd';
 import UserQuickAdd from './UserQuickAdd';
 
 export type QuickCreateKind =
-  | 'item' | 'stock' | 'equipment' | 'location'
+  | 'item' | 'stock' | 'equipment' | 'location' | 'vehicle'
   | 'job' | 'repair' | 'team' | 'user';
 
 interface Props {
@@ -42,6 +43,8 @@ export function QuickCreateSheet({ visible, kind, initialName: _initialName, onC
         return <EquipmentQuickAdd onSaved={onSaved} />;
       case 'location':
         return <LocationQuickAdd onSaved={onSaved} />;
+      case 'vehicle':
+        return <VehicleQuickAdd onSaved={onSaved} />;
       case 'job':
         return <JobQuickAdd onSaved={onSaved} />;
       case 'repair':

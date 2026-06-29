@@ -4,11 +4,12 @@ import { createRepair, Repair } from '../../db/queries/repairs';
 import { getRepairStatuses, isTerminalStatus } from '../../db/queries/taxonomy';
 import { setUnitStatus, getUnitByTag } from '../../db/queries/equipmentUnits';
 import { searchItems } from '../../db/queries/items';
-import { getAllLocations } from '../../db/queries/locations';
+import { getAllLocations, findOrCreateVehicleByName } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
@@ -34,6 +35,9 @@ const ENTITY_TYPES: { type: Repair['entity_type']; label: string }[] = [
 export default function RepairQuickAdd({ onSaved }: Props) {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const canManageLocations = usePermission('manage_locations');
+  // Bumped after an inline vehicle create so the options list picks up the new row.
+  const [vehiclesRefresh, setVehiclesRefresh] = useState(0);
 
   // Non-terminal statuses only — a new ticket must start open (see (repairs)/new.tsx).
   const statuses = useMemo(() => getRepairStatuses().filter(st => !isTerminalStatus(st.label)), []);
@@ -51,7 +55,7 @@ export default function RepairQuickAdd({ onSaved }: Props) {
     const all = getAllLocations();
     const vehicles = all.filter(l => (l.type ?? '').toLowerCase() === 'vehicle');
     return (vehicles.length ? vehicles : all).map(l => ({ id: l.id, label: l.name }));
-  }, []);
+  }, [vehiclesRefresh]);
 
   // DB-backed search for the large sets (catalog items, units by exact asset tag).
   const entitySearch = useMemo<((q: string) => PickerOption[]) | undefined>(() => {
@@ -152,6 +156,17 @@ export default function RepairQuickAdd({ onSaved }: Props) {
           searchFn={entitySearch}
           value={target}
           onSelect={opt => { setTarget(prev => (prev?.id === opt.id ? null : opt)); if (targetError) setTargetError(''); }}
+          onCreate={
+            entityType === 'location' && canManageLocations
+              ? (name) => {
+                  const id = findOrCreateVehicleByName(name);
+                  if (!id) return;
+                  setTarget({ id, label: name.trim() });
+                  setVehiclesRefresh(n => n + 1);
+                  if (targetError) setTargetError('');
+                }
+              : undefined
+          }
         />
         {!!targetError && <Text style={s.errorText}>{targetError}</Text>}
       </View>

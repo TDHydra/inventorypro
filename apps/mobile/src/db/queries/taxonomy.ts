@@ -268,7 +268,13 @@ export function getTaxonomyTypes(
     ? `SELECT * FROM taxonomy_types WHERE category = ? ORDER BY sort_order ASC, label ASC`
     : `SELECT * FROM taxonomy_types WHERE category = ? AND active = 1 ORDER BY sort_order ASC, label ASC`;
   const result = db.executeSync(sql, [category]);
-  return rowsAs<TaxonomyType>(result.rows);
+  const rows = rowsAs<TaxonomyType>(result.rows);
+  // Defend against duplicate (category,label) rows (no UNIQUE constraint exists and
+  // pull is upsert-only): keep the first occurrence, which — given the ORDER BY
+  // sort_order ASC, label ASC above — is the lowest sort_order. This stops React
+  // duplicate-key warnings and double entries in every dropdown sourced from here.
+  const seen = new Set<string>();
+  return rows.filter(t => (seen.has(t.label) ? false : (seen.add(t.label), true)));
 }
 
 export function getTypeIcon(category: string, label: string): string | null {
@@ -293,6 +299,31 @@ export function addTaxonomyType({
   meta?: string | null;
 }): void {
   const db = getDb();
+
+  // Guard against duplicate labels within a category (case-insensitive). If one
+  // already exists, reactivate it if inactive and return — never insert a second
+  // row with the same (category,label), which would cause duplicate React keys.
+  const dupResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE category = ? AND LOWER(label) = LOWER(?) LIMIT 1`,
+    [category, label],
+  );
+  const dup = dupResult.rows[0] as TaxonomyType | undefined;
+  if (dup) {
+    if (dup.active !== 1) {
+      const reactivatedAt = new Date().toISOString();
+      db.executeSync(
+        `UPDATE taxonomy_types SET active = 1, updated_at = ? WHERE id = ?`,
+        [reactivatedAt, dup.id],
+      );
+      appendOutbox('INSERT', 'taxonomy_types', {
+        id: dup.id, category: dup.category, label: dup.label, icon: dup.icon,
+        sort_order: dup.sort_order, active: true, updated_at: reactivatedAt,
+        meta: dup.meta ?? null,
+      });
+    }
+    return;
+  }
+
   const id = generateUUID();
   const updated_at = new Date().toISOString();
   const metaValue = meta ?? null;

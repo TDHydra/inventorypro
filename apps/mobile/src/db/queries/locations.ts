@@ -231,6 +231,36 @@ export function findOrCreateShelfByName(name: string): string | null {
   return id;
 }
 
+// Find (case-insensitive) or create a Vehicle location by name, returning its id.
+// Mirrors findOrCreateShelfByName but for type 'Vehicle' — backs the inline
+// "+ Create" affordance in the repair Vehicle picker (a vehicle is just a location
+// tagged type='Vehicle'; owner can be set later from the location screen).
+export function findOrCreateVehicleByName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Vehicle' AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [trimmed],
+  ).rows)[0];
+  if (existing) return existing.id;
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  const vehicle: Location = {
+    id, name: trimmed, parent_id: null, color: null, icon: '🚐',
+    owner_user_id: null, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Vehicle', has_shelves: 0,
+  };
+  upsertLocation(vehicle);
+  appendOutbox('INSERT', 'locations', {
+    id, name: trimmed, parent_id: null, color: null, icon: '🚐',
+    owner_user_id: null, active: true, updated_at: now,
+    latitude: null, longitude: null, subareas_require_owner: false, type: 'Vehicle', has_shelves: false,
+  });
+  return id;
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(

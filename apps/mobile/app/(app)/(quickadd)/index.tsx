@@ -15,6 +15,7 @@ const ACTIONS: { route: Href; icon: string; label: string; sub: string }[] = [
   { route: '/(app)/(quickadd)/stock', icon: '➕', label: 'Stock', sub: 'Add stock to a location' },
   { route: '/(app)/(quickadd)/equipment', icon: '🛠️', label: 'Equipment', sub: 'New equipment + units' },
   { route: '/(app)/(quickadd)/location', icon: '📍', label: 'Location', sub: 'New location / shelf' },
+  { route: '/(app)/(quickadd)/vehicle', icon: '🚐', label: 'Vehicle', sub: 'New vehicle' },
   { route: '/(app)/(quickadd)/job', icon: '🏗', label: 'Job', sub: 'New job' },
   { route: '/(app)/(quickadd)/repair', icon: '🔧', label: 'Repair', sub: 'Report a repair' },
   { route: '/(app)/(quickadd)/team', icon: '👥', label: 'Team', sub: 'New team' },
