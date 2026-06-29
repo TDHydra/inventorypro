@@ -74,7 +74,13 @@ export function AlertHost() {
   function dismiss(button?: AlertButton) {
     setReq(null);
     showing = false;
-    button?.onPress?.();
+    // Run onPress AFTER the modal tears down. If a callback navigates (e.g.
+    // "Add to Catalog" → router.push) while this <Modal> is still mounted, its
+    // native window lingers on top of the pushed screen and swallows touches
+    // until manually dismissed. Deferring to the next macrotask lets setReq(null)
+    // commit and the modal close first — mirroring OS Alert, where onPress runs
+    // after the dialog is gone.
+    if (button?.onPress) setTimeout(button.onPress, 0);
     pump(); // surface the next queued request, if any
   }
 
