@@ -2,7 +2,11 @@ import { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
 import { generateUUID } from '../../utils/uuid';
-import { upsertJob, Job } from '../../db/queries/jobs';
+import {
+  upsertJob, Job,
+  getDistinctCustomerNames, getDistinctInsuranceCarriers, getDistinctSiteAddresses,
+  getLatestJobByCustomer,
+} from '../../db/queries/jobs';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -12,6 +16,7 @@ import { getAllLocations } from '../../db/queries/locations';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import { renderIcon } from '../../constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
+import { SuggestInput } from '../SuggestInput';
 import { colors, spacing, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
@@ -49,6 +54,41 @@ export default function JobQuickAdd({ onSaved }: Props) {
     (): PickerOption[] => getAllLocations().map(l => ({ id: l.id, label: l.name })),
     [],
   );
+
+  // Prior values for the typeahead dropdowns.
+  const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
+  const carrierOptions = useMemo(() => getDistinctInsuranceCarriers(), []);
+  const addressOptions = useMemo(() => getDistinctSiteAddresses(), []);
+
+  // When an existing customer is picked, offer (with confirmation) to fill in that
+  // customer's last-job details — only fields that are still empty.
+  function offerCrossFill(picked: string) {
+    const d = getLatestJobByCustomer(picked);
+    if (!d) return;
+    const willAddr = !siteAddress.trim() && !!d.site_address;
+    const willCarrier = !insuranceCarrier.trim() && !!d.insurance_carrier;
+    const willLoc = !siteLocation && !!d.site_location_id;
+    if (!willAddr && !willCarrier && !willLoc) return;
+    const lines: string[] = [];
+    if (willAddr) lines.push(`Address: ${d.site_address}`);
+    if (willCarrier) lines.push(`Carrier: ${d.insurance_carrier}`);
+    if (willLoc) lines.push(`Site: ${d.site_location_label ?? '—'}`);
+    Alert.alert(
+      `Use ${picked}'s details from their last job?`,
+      lines.join('\n'),
+      [
+        { text: 'Skip', style: 'cancel' },
+        {
+          text: 'Fill them in',
+          onPress: () => {
+            if (willAddr) setSiteAddress(d.site_address!);
+            if (willCarrier) setInsuranceCarrier(d.insurance_carrier!);
+            if (willLoc) setSiteLocation({ id: d.site_location_id!, label: d.site_location_label ?? d.site_location_id! });
+          },
+        },
+      ],
+    );
+  }
 
   function handleSave() {
     if (isWriteBlocked()) return;
@@ -177,18 +217,21 @@ export default function JobQuickAdd({ onSaved }: Props) {
       <AdvancedFields>
         <View style={s.fieldWrap}>
           <FieldLabel>Customer Name</FieldLabel>
-          <AppInput
+          <SuggestInput
             value={customerName}
-            onChangeText={setCustomerName}
+            onChange={setCustomerName}
+            onPick={offerCrossFill}
+            suggestions={customerOptions}
             placeholder="Customer or company name"
           />
         </View>
 
         <View style={s.fieldWrap}>
           <FieldLabel>Site Address</FieldLabel>
-          <AppInput
+          <SuggestInput
             value={siteAddress}
-            onChangeText={setSiteAddress}
+            onChange={setSiteAddress}
+            suggestions={addressOptions}
             placeholder="Street address or description"
           />
         </View>
@@ -215,9 +258,10 @@ export default function JobQuickAdd({ onSaved }: Props) {
 
         <View style={s.fieldWrap}>
           <FieldLabel>Insurance carrier</FieldLabel>
-          <AppInput
+          <SuggestInput
             value={insuranceCarrier}
-            onChangeText={setInsuranceCarrier}
+            onChange={setInsuranceCarrier}
+            suggestions={carrierOptions}
             placeholder="Insurance company"
           />
         </View>

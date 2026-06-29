@@ -7,13 +7,18 @@ import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
-import { upsertJob, Job } from '../../../src/db/queries/jobs';
+import {
+  upsertJob, Job,
+  getDistinctCustomerNames, getDistinctInsuranceCarriers, getDistinctSiteAddresses,
+  getLatestJobByCustomer,
+} from '../../../src/db/queries/jobs';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { SuggestInput } from '../../../src/components/SuggestInput';
 import { generateUUID } from '../../../src/utils/uuid';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -46,6 +51,41 @@ export default function CreateJobScreen() {
   const locationOptions = useMemo((): PickerOption[] => {
     return getAllLocations().map(l => ({ id: l.id, label: l.name }));
   }, []);
+
+  // Prior values for the typeahead dropdowns.
+  const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
+  const carrierOptions = useMemo(() => getDistinctInsuranceCarriers(), []);
+  const addressOptions = useMemo(() => getDistinctSiteAddresses(), []);
+
+  // When an existing customer is picked, offer (with confirmation) to fill that
+  // customer's last-job details — only fields that are still empty.
+  function offerCrossFill(picked: string) {
+    const d = getLatestJobByCustomer(picked);
+    if (!d) return;
+    const willAddr = !siteAddress.trim() && !!d.site_address;
+    const willCarrier = !insuranceCarrier.trim() && !!d.insurance_carrier;
+    const willLoc = !siteLocation && !!d.site_location_id;
+    if (!willAddr && !willCarrier && !willLoc) return;
+    const lines: string[] = [];
+    if (willAddr) lines.push(`Address: ${d.site_address}`);
+    if (willCarrier) lines.push(`Carrier: ${d.insurance_carrier}`);
+    if (willLoc) lines.push(`Site: ${d.site_location_label ?? '—'}`);
+    Alert.alert(
+      `Use ${picked}'s details from their last job?`,
+      lines.join('\n'),
+      [
+        { text: 'Skip', style: 'cancel' },
+        {
+          text: 'Fill them in',
+          onPress: () => {
+            if (willAddr) setSiteAddress(d.site_address!);
+            if (willCarrier) setInsuranceCarrier(d.insurance_carrier!);
+            if (willLoc) setSiteLocation({ id: d.site_location_id!, label: d.site_location_label ?? d.site_location_id! });
+          },
+        },
+      ],
+    );
+  }
 
   function handleSave() {
     if (isWriteBlocked()) return;
@@ -176,18 +216,21 @@ export default function CreateJobScreen() {
           <AdvancedFields>
             <View style={s.fieldWrap}>
               <FieldLabel>Customer Name</FieldLabel>
-              <AppInput
+              <SuggestInput
                 value={customerName}
-                onChangeText={setCustomerName}
+                onChange={setCustomerName}
+                onPick={offerCrossFill}
+                suggestions={customerOptions}
                 placeholder="Customer or company name"
               />
             </View>
 
             <View style={s.fieldWrap}>
               <FieldLabel>Site Address</FieldLabel>
-              <AppInput
+              <SuggestInput
                 value={siteAddress}
-                onChangeText={setSiteAddress}
+                onChange={setSiteAddress}
+                suggestions={addressOptions}
                 placeholder="Street address or description"
               />
             </View>
@@ -214,9 +257,10 @@ export default function CreateJobScreen() {
 
             <View style={s.fieldWrap}>
               <FieldLabel>Insurance carrier</FieldLabel>
-              <AppInput
+              <SuggestInput
                 value={insuranceCarrier}
-                onChangeText={setInsuranceCarrier}
+                onChange={setInsuranceCarrier}
+                suggestions={carrierOptions}
                 placeholder="Insurance company"
               />
             </View>
