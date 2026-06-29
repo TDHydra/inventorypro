@@ -107,11 +107,15 @@ export default function RolesScreen() {
     appendLog({
       action: 'role_permission_changed',
       entity_type: 'role_settings',
-      entity_id: role,
+      // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
+      // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
+      // input syntax for type uuid"). Keep entity_id null; carry the role in the
+      // note + metadata. The permission change itself syncs via role_settings UPDATE.
+      entity_id: null,
       user_id: sessionUser?.id ?? null,
-      note: `${perm}: ${next === def ? 'reset to default' : next}`,
+      note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
       team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
     });
     setOverrides(getRolePermissionOverrides());
   }
@@ -130,11 +134,12 @@ export default function RolesScreen() {
     appendLog({
       action: 'role_min_pin_changed',
       entity_type: 'role_settings',
-      entity_id: role,
+      // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
+      entity_id: null,
       user_id: sessionUser?.id ?? null,
       note: `${role} → ${next}`,
       team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
     });
     setMinPins(prev => ({ ...prev, [role]: next }));
   }
