@@ -10,16 +10,24 @@ interface Props {
   suggestions: string[];
   autoCapitalize?: 'none' | 'words' | 'characters';
   maxSuggestions?: number;
+  /**
+   * Fired only when the user explicitly taps an existing value in the dropdown
+   * (not on every keystroke). Lets callers trigger cross-fill on a real pick
+   * while leaving free typing untouched. `onChange` still fires with the value.
+   */
+  onPick?: (v: string) => void;
 }
 
 /**
- * Free-text input that surfaces matching existing values as tappable chips —
- * nudges crews to reuse the same supplier/model spelling instead of inventing
- * a new variant each time, without locking them out of new values.
+ * Free-text input with a filter-as-you-type dropdown of existing values. Type to
+ * narrow the list of prior values, tap one to fill it, or just keep typing a new
+ * value (for free-text columns, the typed value IS the new entry — no separate
+ * create step). Nudges crews to reuse the same supplier/model/customer spelling
+ * without locking them out of new values. Mirrors SearchablePicker's dropdown look.
  */
 export function SuggestInput({
   label, value, onChange, placeholder, suggestions,
-  autoCapitalize = 'words', maxSuggestions = 6,
+  autoCapitalize = 'words', maxSuggestions = 8, onPick,
 }: Props) {
   const [focused, setFocused] = useState(false);
 
@@ -30,7 +38,13 @@ export function SuggestInput({
     return pool.filter(sug => sug.toLowerCase().includes(q)).slice(0, maxSuggestions);
   }, [value, suggestions, maxSuggestions]);
 
-  const showChips = focused && matches.length > 0;
+  const open = focused && matches.length > 0;
+
+  function pick(sug: string) {
+    onChange(sug);
+    onPick?.(sug);
+    setFocused(false);
+  }
 
   return (
     <View style={s.wrap}>
@@ -44,14 +58,14 @@ export function SuggestInput({
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         onFocus={() => setFocused(true)}
-        // Delay so a chip tap registers before the list hides.
+        // Delay so a row tap registers before the list hides.
         onBlur={() => setTimeout(() => setFocused(false), 150)}
       />
-      {showChips && (
-        <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+      {open && (
+        <ScrollView style={s.dropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
           {matches.map(sug => (
-            <TouchableOpacity key={sug} style={s.chip} onPress={() => onChange(sug)}>
-              <Text style={s.chipText}>{sug}</Text>
+            <TouchableOpacity key={sug} style={s.row} onPress={() => pick(sug)}>
+              <Text style={s.rowLabel}>{sug}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -61,13 +75,13 @@ export function SuggestInput({
 }
 
 const s = StyleSheet.create({
-  wrap: { gap: 6 },
+  wrap: { gap: 6, position: 'relative' },
   label: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
   input: {
     backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
     paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
   },
-  chipRow: { gap: 8, paddingVertical: 2 },
-  chip: { backgroundColor: '#EEF2FF', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: '#E0E7FF' },
-  chipText: { color: '#4338CA', fontSize: 13, fontWeight: '600' },
+  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 2 },
+  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  rowLabel: { fontSize: 14, color: '#1E293B' },
 });
