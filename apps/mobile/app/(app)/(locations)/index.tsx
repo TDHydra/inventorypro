@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, RefreshControl, Switch,
-} from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {

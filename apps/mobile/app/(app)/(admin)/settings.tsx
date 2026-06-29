@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -366,7 +367,7 @@ export default function SettingsScreen() {
             <View style={s.card}>
               <TouchableOpacity
                 style={s.row}
-                onPress={() => router.push('/(app)/(admin)/quick-add')}
+                onPress={() => router.push('/(app)/(quickadd)')}
               >
                 <Text style={s.rowLabel}>⚡ Quick Add</Text>
                 <Text style={s.chevron}>›</Text>

@@ -1,6 +1,38 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { UserRole } from '../../constants/roles';
 import { appendOutbox } from '../../sync/outbox';
+import { getValidJwt } from '../../auth/session';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+
+// User creation is ONLINE-ONLY: the server creates the account (the employee sets
+// their own PIN at first sign-in) — the raw PIN never touches the device DB or the
+// sync outbox, and pin_hash is NOT NULL server-side so a generic outbox INSERT
+// would fail. The returned row (sans pin_hash) is mirrored locally for display.
+// Returns the new user's id. Throws (with a friendly message) when offline / 403.
+export async function createUserOnline(name: string, role: UserRole): Promise<string> {
+  const jwt = await getValidJwt();
+  if (!jwt) throw new Error('Connect to the server to create users.');
+  const res = await fetch(`${API_BASE}/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ name, role }),
+  });
+  if (!res.ok) {
+    throw new Error(res.status === 403 ? 'You do not have permission to create users.' : `Could not create user (${res.status}).`);
+  }
+  const created = await res.json() as {
+    id: string; name: string; role: string; pin_length_required: number; pin_set: boolean; created_at: string;
+  };
+  const now = created.created_at ?? new Date().toISOString();
+  getDb().executeSync(
+    `INSERT OR REPLACE INTO users
+       (id, name, role, pin_length_required, pin_set, permission_overrides, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    [created.id, created.name, created.role, created.pin_length_required, created.pin_set ? 1 : 0, JSON.stringify({}), now, now],
+  );
+  return created.id;
+}
 
 export interface User {
   id: string;

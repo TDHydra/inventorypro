@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
+import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { searchItems, updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
 import { getItemTypes } from '../../../src/db/queries/taxonomy';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -274,6 +275,7 @@ export default function InventoryScreen() {
           }}
           style={styles.list}
           contentContainerStyle={[styles.listContent, ms.active && styles.listContentSelecting]}
+          ListHeaderComponent={ms.active ? null : <QuickAddBanner style={styles.listHeaderBanner} />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
           refreshControl={
@@ -388,6 +390,7 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8, flexWrap: 'wrap' },
   list: { flex: 1 },
   listContent: { padding: 12, paddingBottom: 80 },
+  listHeaderBanner: { marginBottom: 10 },
   listContentSelecting: { paddingBottom: 180 },
   rowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rowCard: { flex: 1 },

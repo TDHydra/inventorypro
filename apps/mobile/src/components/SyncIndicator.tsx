@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
+import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
 import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox } from '../sync/outbox';
 import { syncNow } from '../sync/engine';

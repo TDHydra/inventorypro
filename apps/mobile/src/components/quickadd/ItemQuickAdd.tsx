@@ -1,12 +1,12 @@
 import { useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
-} from 'react-native';
+  View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { Alert } from '../../lib/themedAlert';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
-import { upsertItem, getItemBySku } from '../../db/queries/items';
+import { upsertItem, getItemBySku, searchItems } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
-import { getAllLocations, getLocationPath, getShelfLocations } from '../../db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -27,7 +27,7 @@ import type { PickerOption } from '../SearchablePicker';
 const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
 interface Props {
-  onSaved: (label: string) => void;
+  onSaved: (label: string, createdId?: string) => void;
 }
 
 export default function ItemQuickAdd({ onSaved }: Props) {
@@ -63,6 +63,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   // Duplicate detection: does the typed item # already exist in the catalog?
   const skuMatch = useMemo(() => getItemBySku(sku), [sku]);
+
+  // Dynamic product-name search: as you type a name, surface existing catalog
+  // items so you can spot a duplicate (or jump to it) instead of re-creating it.
+  const nameMatches = useMemo(() => {
+    const q = name.trim();
+    if (q.length < 2) return [];
+    return searchItems(q, 5, 0, undefined, 'product').filter(i => i.name.toLowerCase() !== q.toLowerCase());
+  }, [name]);
 
   // Tapping the "already in system" warning offers to cancel adding the duplicate
   // (or jump to the existing item to add stock to it instead).
@@ -125,6 +133,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     const now = new Date().toISOString();
     const id = generateUUID();
 
+    // Resolve a freshly-typed shelf ('__new__') into a real Shelf location id.
+    const homeLocationId = homeLocation?.id === '__new__'
+      ? findOrCreateShelfByName(homeLocation.label)
+      : homeLocation?.id ?? null;
+
     const item: InventoryItem = {
       id,
       name: trimmedName,
@@ -145,7 +158,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       active: 1,
       updated_at: now,
       synced_at: null,
-      home_location_id: homeLocation?.id ?? null,
+      home_location_id: homeLocationId,
       pack_size: (() => { const n = parseInt(packSize, 10); return Number.isFinite(n) && n > 1 ? n : null; })(),
     };
 
@@ -174,7 +187,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       device_id: null,
     });
 
-    onSaved(trimmedName);
+    onSaved(trimmedName, id);
     clearForm();
     setTimeout(() => nameRef.current?.focus(), 100);
   }
@@ -193,6 +206,22 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         onSubmitEditing={handleSave}
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
+
+      {nameMatches.length > 0 && (
+        <View style={s.nameMatches}>
+          <Text style={s.nameMatchesHint}>Already in catalog?</Text>
+          {nameMatches.map(m => (
+            <TouchableOpacity
+              key={m.id}
+              style={s.nameMatchRow}
+              onPress={() => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: m.id } })}
+            >
+              <Text style={s.nameMatchLabel} numberOfLines={1}>{m.name}</Text>
+              {!!m.sku && <Text style={s.nameMatchSub}>#{m.sku}</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       <AppInput
         placeholder="Item # / Part # (recommended)"
@@ -254,10 +283,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
       <FieldLabel>Home location (where it belongs)</FieldLabel>
       <SearchablePicker
-        placeholder="Search shelves…"
+        placeholder="Search shelves… (type a new one to add it)"
         options={homeLocationOptions}
         value={homeLocation}
         onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+        onCreate={(text) => setHomeLocation({ id: '__new__', label: text })}
       />
 
       <PrimaryButton
@@ -284,6 +314,11 @@ const s = StyleSheet.create({
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
   skuHint: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: -4, marginBottom: 2 },
   skuDup: { fontSize: fontSizes.caption, color: colors.accent, fontWeight: '600', marginTop: -4, marginBottom: 2 },
+  nameMatches: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: -2, overflow: 'hidden' },
+  nameMatchesHint: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
+  nameMatchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  nameMatchLabel: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1 },
+  nameMatchSub: { fontSize: fontSizes.caption, color: colors.textMuted },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },

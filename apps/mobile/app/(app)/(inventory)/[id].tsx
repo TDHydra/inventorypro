@@ -1,14 +1,13 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
-} from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
   InventoryItem, StockByLocation,
 } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath, getShelfLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
@@ -185,7 +184,9 @@ export default function ItemDetailScreen() {
       // stay correct; never write an empty unit (fall back to the existing one).
       unit_category: editUnitCat || PRODUCT_CLASS_IDS.piece,
       unit: editUnit.trim() || item.unit,
-      home_location_id: editHomeLocation?.id ?? null,
+      home_location_id: editHomeLocation?.id === '__new__'
+        ? findOrCreateShelfByName(editHomeLocation.label)
+        : (editHomeLocation?.id ?? null),
       pack_size: (() => {
         const n = parseInt(form.pack_size ?? '', 10);
         return Number.isFinite(n) && n > 1 ? n : null;
@@ -229,10 +230,11 @@ export default function ItemDetailScreen() {
               <View style={s.fieldWrap}>
                 <FieldLabel>Home location (where it belongs)</FieldLabel>
                 <SearchablePicker
-                  placeholder="Search shelves…"
+                  placeholder="Search shelves… (type a new one to add it)"
                   options={homeLocationOptions}
                   value={editHomeLocation}
                   onSelect={(opt) => setEditHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+                  onCreate={(text) => setEditHomeLocation({ id: '__new__', label: text })}
                 />
               </View>
               {itemTypes.length > 0 && (

@@ -2,6 +2,7 @@ import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-nati
 import { useRouter, Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
+import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
 import { useMemo, useState } from 'react';
@@ -34,31 +35,35 @@ export default function DashboardScreen() {
 
         <TooltipHint screenKey="dashboard" onReady={fn => setReshow(() => fn)} />
 
-        {/* Primary actions */}
-        <TouchableOpacity
-          style={[styles.tile, styles.tilePrimary]}
-          onPress={() => router.push('/(app)/(checkout)')}
-        >
-          <Text style={styles.tileIcon}>📦</Text>
-          <Text style={styles.tileLabelPrimary}>Check Out Item</Text>
-          <Text style={styles.tileSubPrimary}>Scan or search for an item</Text>
-        </TouchableOpacity>
+        {/* Big dismissible Quick Add CTA (roles granted quick_add). */}
+        <QuickAddBanner />
 
-        <View style={styles.row}>
-          <TouchableOpacity style={[styles.tile, styles.tileHalf]} onPress={() => router.push('/(app)/(checkin)')}>
+        {/* Primary actions — gated so roles without checkout/checkin (e.g. office
+            managers, checkout_inventory:false) don't see dead-end tiles. */}
+        <PermissionGate permission="checkout_inventory">
+          <TouchableOpacity
+            style={[styles.tile, styles.tilePrimary]}
+            onPress={() => router.push('/(app)/(checkout)')}
+          >
+            <Text style={styles.tileIcon}>📦</Text>
+            <Text style={styles.tileLabelPrimary}>Check Out Item</Text>
+            <Text style={styles.tileSubPrimary}>Scan or search for an item</Text>
+          </TouchableOpacity>
+        </PermissionGate>
+
+        <PermissionGate permission="checkin_inventory">
+          <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(checkin)')}>
             <Text style={styles.tileIcon}>↩</Text>
             <Text style={styles.tileLabel}>Check In</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.tile, styles.tileHalf]} onPress={() => router.push('/(app)/(inventory)')}>
-            <Text style={styles.tileIcon}>🔍</Text>
-            <Text style={styles.tileLabel}>Browse</Text>
-          </TouchableOpacity>
-        </View>
+        </PermissionGate>
 
-        <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(jobs)')}>
-          <Text style={styles.tileIcon}>📋</Text>
-          <Text style={styles.tileLabel}>My Active Checkouts</Text>
-        </TouchableOpacity>
+        <PermissionGate permission="checkout_inventory">
+          <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(jobs)')}>
+            <Text style={styles.tileIcon}>📋</Text>
+            <Text style={styles.tileLabel}>My Active Checkouts</Text>
+          </TouchableOpacity>
+        </PermissionGate>
 
         {/* Manager sections */}
         <PermissionGate permission="add_inventory">
@@ -70,7 +75,7 @@ export default function DashboardScreen() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(equipment)')}>
               <Text style={styles.tileIcon}>🛠️</Text>
-              <Text style={styles.tileLabel}>Equipment</Text>
+              <Text style={styles.tileLabel}>Manage Equipment Catalog</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(repairs)')}>
               <Text style={styles.tileIcon}>🔧</Text>

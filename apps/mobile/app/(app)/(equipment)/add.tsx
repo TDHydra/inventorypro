@@ -1,8 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, KeyboardAvoidingView, Platform,
-} from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import { upsertItem } from '../../../src/db/queries/items';

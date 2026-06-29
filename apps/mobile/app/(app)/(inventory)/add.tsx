@@ -1,8 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
-} from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
@@ -10,7 +9,7 @@ import {
   adjustStock, getStockQuantity,
 } from '../../../src/db/queries/items';
 import type { InventoryItem } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath, getShelfLocations, getShelvesForParent, findOrCreateShelf } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations, getShelvesForParent, findOrCreateShelf, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
@@ -311,7 +310,9 @@ export default function AddStockScreen() {
         unit,
         min_qty_alert: parseFloat(minAlert) || 0,
         reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
-        home_location_id: homeLocation?.id ?? null,
+        home_location_id: homeLocation?.id === '__new__'
+          ? findOrCreateShelfByName(homeLocation.label)
+          : (homeLocation?.id ?? null),
         pack_size: newItemPackSize,
       };
       upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
@@ -454,10 +455,11 @@ export default function AddStockScreen() {
 
               <FieldLabel style={{ marginTop: 12 }}>Home location (where it belongs)</FieldLabel>
               <SearchablePicker
-                placeholder="Search shelves…"
+                placeholder="Search shelves… (type a new one to add it)"
                 options={homeLocationOptions}
                 value={homeLocation}
                 onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+                onCreate={(text) => setHomeLocation({ id: '__new__', label: text })}
               />
 
               <AdvancedFields>

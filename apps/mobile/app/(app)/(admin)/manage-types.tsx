@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch,
-} from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { ROLE_TIER } from '../../../src/constants/roles';

@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform, Switch,
-} from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getItemById, updateItemFields, getDistinctValues,

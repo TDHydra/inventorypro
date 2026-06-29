@@ -28,6 +28,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   checkout_inventory: 'Check out inventory',
   checkin_inventory: 'Check in inventory',
   add_inventory: 'Add catalog items',
+  quick_add: 'Quick add (items / stock / equipment)',
   edit_inventory: 'Edit catalog items',
   delete_inventory: 'Delete catalog items',
   transfer_between_locations: 'Transfer between locations',

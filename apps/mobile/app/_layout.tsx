@@ -12,6 +12,7 @@ import { getAppSetting } from '../src/db/appSettings';
 // Importing localAlerts also registers the foreground notification handler at
 // module load (setNotificationHandler).
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
+import { AlertHost } from '../src/lib/themedAlert';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -50,6 +51,7 @@ export default function RootLayout() {
     <SessionContext.Provider value={sessionValue}>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }} />
+      <AlertHost />
     </SessionContext.Provider>
   );
 }

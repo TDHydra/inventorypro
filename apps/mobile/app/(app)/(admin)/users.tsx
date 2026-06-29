@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch,
-} from 'react-native';
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import {
   getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings,

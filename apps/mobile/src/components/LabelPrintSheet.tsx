@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Alert } from '../lib/themedAlert';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FilterChip } from './ui/FilterChip';

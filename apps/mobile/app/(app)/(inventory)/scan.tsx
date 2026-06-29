@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { BarcodeScanner } from '../../../src/components/BarcodeScanner';
 import { USBScanner } from '../../../src/components/USBScanner';

@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Alert, ScrollView, RefreshControl,
-} from 'react-native';
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import { getAllTeams, upsertTeam, Team } from '../../../src/db/queries/teams';

@@ -1,6 +1,6 @@
-import { Alert } from 'react-native';
+import { Alert } from './themedAlert';
 
-/** Two-button destructive confirm. The confirm button uses the iOS 'destructive' style. */
+/** Two-button destructive confirm. The confirm button uses the destructive (danger) style. */
 export function confirmDestructive(opts: { title: string; message?: string; confirmLabel: string; onConfirm: () => void }): void {
   Alert.alert(opts.title, opts.message, [
     { text: 'Cancel', style: 'cancel' },

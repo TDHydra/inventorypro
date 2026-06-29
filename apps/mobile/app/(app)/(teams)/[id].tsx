@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert,
-} from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
@@ -27,6 +26,7 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { QuickCreateSheet } from '../../../src/components/quickadd/QuickCreateSheet';
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,6 +45,10 @@ export default function TeamDetailScreen() {
   // Add member modal
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberOption, setNewMemberOption] = useState<PickerOption | null>(null);
+
+  // Inline user-create from the member picker
+  const [showUserCreate, setShowUserCreate] = useState(false);
+  const [userCreateInitial, setUserCreateInitial] = useState('');
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
   const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
@@ -403,6 +407,10 @@ export default function TeamDetailScreen() {
                 onSelect={(opt) => {
                   setNewMemberOption(prev => (prev?.id === opt.id ? null : opt));
                 }}
+                onCreate={(text) => {
+                  setUserCreateInitial(text);
+                  setShowUserCreate(true);
+                }}
                 autoFocus
               />
             )}
@@ -422,6 +430,19 @@ export default function TeamDetailScreen() {
             </TouchableOpacity>
           </ScrollView>
       </ModalSheet>
+
+      {/* Inline create-user from the member picker — on create, select the new
+          user just as picking an existing one would (then tap "Add to Team"). */}
+      <QuickCreateSheet
+        visible={showUserCreate}
+        kind="user"
+        initialName={userCreateInitial}
+        onClose={() => setShowUserCreate(false)}
+        onCreated={(entity) => {
+          setNewMemberOption({ id: entity.id, label: entity.label });
+          setShowUserCreate(false);
+        }}
+      />
     </>
   );
 }

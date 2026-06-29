@@ -201,6 +201,36 @@ export function findOrCreateShelf(parentId: string, name: string): string {
   return id;
 }
 
+// Find (case-insensitive, across any parent) or create a Shelf location by name,
+// returning its id. Used by the item "Home location" typeahead where there's no
+// pre-selected parent — shelves are identified by their prefixed name (WH-A1),
+// so a new one is created top-level (parent_id null) and can be re-parented later.
+export function findOrCreateShelfByName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [trimmed],
+  ).rows)[0];
+  if (existing) return existing.id;
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  const shelf: Location = {
+    id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
+    owner_user_id: null, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
+  };
+  upsertLocation(shelf);
+  appendOutbox('INSERT', 'locations', {
+    id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
+    owner_user_id: null, active: true, updated_at: now,
+    latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
+  });
+  return id;
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   db.executeSync(

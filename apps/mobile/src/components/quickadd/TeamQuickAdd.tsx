@@ -1,47 +1,46 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
-import { upsertLocation, getTopLevelLocations } from '../../db/queries/locations';
-import type { Location } from '../../db/queries/locations';
+import { upsertTeam } from '../../db/queries/teams';
+import type { Team } from '../../db/queries/teams';
+import { getAllActiveUsers } from '../../db/queries/users';
+import { getTaxonomyTypes } from '../../db/queries/taxonomy';
+import { renderIcon } from '../../constants/locationStyles';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
-import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
-import { PrimaryButton } from '../ui/PrimaryButton';
+import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
+import { FilterChip } from '../ui/FilterChip';
+import { PrimaryButton } from '../ui/PrimaryButton';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
-import { AdvancedFields } from '../ui/AdvancedFields';
-
-const DEFAULT_COLOR = colors.brand;
-const DEFAULT_ICON = '📦';
 
 interface Props {
   onSaved: (label: string, createdId?: string) => void;
 }
 
-export default function LocationQuickAdd({ onSaved }: Props) {
+export default function TeamQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
-  const nameRef = useRef<TextInput>(null);
+
+  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
+  const managerOptions: PickerOption[] = useMemo(
+    () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
+    [],
+  );
 
   const [name, setName] = useState('');
-  const [parentOption, setParentOption] = useState<PickerOption | null>(null); // sticky
+  const [type, setType] = useState(() => teamTypes[0]?.label ?? '');
+  const [managerOption, setManagerOption] = useState<PickerOption | null>(null); // sticky
   const [nameError, setNameError] = useState('');
-  // Increment to trigger a re-fetch of top-level locations after each save
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  const topLevel = useMemo(() => getTopLevelLocations(), [refreshKey]);
-  const parentOptions: PickerOption[] = useMemo(
-    () => topLevel.map(l => ({ id: l.id, label: l.name })),
-    [topLevel],
-  );
 
   function handleSave() {
     const trimmedName = name.trim();
@@ -53,30 +52,27 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 
     const now = new Date().toISOString();
     const id = generateUUID();
-    const parentId = parentOption?.id ?? null;
+    const managerId = managerOption?.id ?? null;
 
-    const loc: Location = {
+    const team: Team = {
       id,
       name: trimmedName,
-      parent_id: parentId,
-      color: DEFAULT_COLOR,
-      icon: DEFAULT_ICON,
-      owner_user_id: null,
-      active: 1,
+      type,
+      manager_id: managerId,
       updated_at: now,
       synced_at: null,
     };
 
-    upsertLocation(loc);
+    upsertTeam(team);
     // synced_at is local-only — strip from the outbox payload (server has no such column).
-    const { synced_at: _s, ...locRow } = loc;
-    appendOutbox('INSERT', 'locations', { ...locRow, active: true });
+    const { synced_at: _s, ...teamRow } = team;
+    appendOutbox('INSERT', 'teams', { ...teamRow });
     appendLog({
-      action: 'location_created',
-      entity_type: 'location',
+      action: 'team_created',
+      entity_type: 'team',
       entity_id: id,
       user_id: user?.id ?? null,
-      team_id: null,
+      team_id: id,
       job_id: null,
       note: trimmedName,
       from_location_id: null,
@@ -88,18 +84,14 @@ export default function LocationQuickAdd({ onSaved }: Props) {
     });
 
     onSaved(trimmedName, id);
-    setName(''); // clear name; keep parent sticky
-    setRefreshKey(k => k + 1); // refresh parent picker with newly added locations
-    setTimeout(() => nameRef.current?.focus(), 100);
+    setName(''); // clear name; keep type + manager sticky
   }
 
   return (
     <View style={s.container}>
-      <TextInput
-        ref={nameRef}
-        style={[s.input, !!nameError && s.inputError]}
-        placeholder="Location name *"
-        placeholderTextColor={colors.textMuted}
+      <AppInput
+        style={!!nameError && s.inputError}
+        placeholder="Team name *"
         value={name}
         onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
         autoFocus
@@ -108,15 +100,29 @@ export default function LocationQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
-      <AdvancedFields>
-        <FieldLabel>Parent location (optional)</FieldLabel>
-        <SearchablePicker
-          placeholder="Search parent locations..."
-          options={parentOptions}
-          value={parentOption}
-          onSelect={opt => setParentOption(prev => prev?.id === opt.id ? null : opt)}
-        />
-      </AdvancedFields>
+      <FieldLabel>Type</FieldLabel>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.chipRow}
+      >
+        {teamTypes.map(t => (
+          <FilterChip
+            key={t.label}
+            label={`${renderIcon(t.icon)} ${t.label}`}
+            active={type === t.label}
+            onPress={() => setType(t.label)}
+          />
+        ))}
+      </ScrollView>
+
+      <FieldLabel>Manager (optional)</FieldLabel>
+      <SearchablePicker
+        placeholder="Search users..."
+        options={managerOptions}
+        value={managerOption}
+        onSelect={opt => setManagerOption(prev => prev?.id === opt.id ? null : opt)}
+      />
 
       <PrimaryButton
         label="Save & add another"
@@ -134,12 +140,9 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 
 const s = StyleSheet.create({
   container: { gap: 10 },
-  input: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
-  },
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  chipRow: { gap: 8, paddingRight: 8 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 });

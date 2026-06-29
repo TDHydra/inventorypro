@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import {
-  View, Image, TouchableOpacity, StyleSheet, Text, Modal,
-  Dimensions, Alert, ActivityIndicator,
-} from 'react-native';
+  View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, ActivityIndicator } from 'react-native';
+import { Alert } from '../lib/themedAlert';
 import { colors } from '../theme';
 import * as ImagePicker from 'expo-image-picker';
 // SDK 54+ moved uploadAsync to the /legacy entry point. BINARY_CONTENT streams

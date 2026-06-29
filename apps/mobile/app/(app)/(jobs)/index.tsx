@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Switch, RefreshControl, Alert,
-} from 'react-native';
+  View, Text, FlatList, TouchableOpacity, StyleSheet, Switch, RefreshControl } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';

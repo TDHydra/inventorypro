@@ -22,7 +22,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 
 interface Props {
-  onSaved: (label: string) => void;
+  onSaved: (label: string, createdId?: string) => void;
 }
 
 export default function EquipmentQuickAdd({ onSaved }: Props) {
@@ -105,7 +105,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       device_id: null,
     });
 
-    onSaved(tag);
+    onSaved(tag, id);
     setAssetTag(''); // clear tag+serial; keep item sticky
     setSerial('');
   }

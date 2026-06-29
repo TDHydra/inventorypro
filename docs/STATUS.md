@@ -6,6 +6,9 @@ the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Un
 
 `main` HEAD at reconciliation: `cc0f185` (perms-reactive fix).
 
+> **Open work lives in [`docs/BACKLOG.md`](./BACKLOG.md)** — the single living checklist of pending features,
+> deferred enhancements, and decided-against items (supersedes the scattered "Out of scope" notes in `specs/`).
+
 ---
 
 ## Build order (locked with user)

@@ -1,8 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity,
-  StyleSheet, Alert, TextInput, ScrollView,
-} from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, TextInput, ScrollView } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';

@@ -17,6 +17,7 @@ export type Permission =
   | 'checkout_inventory'
   | 'checkin_inventory'
   | 'add_inventory'
+  | 'quick_add'
   | 'edit_inventory'
   | 'delete_inventory'
   | 'transfer_between_locations'
@@ -80,6 +81,7 @@ const tier4: PermissionMap = {
   checkout_inventory:        true,
   checkin_inventory:         true,
   add_inventory:             true,
+  quick_add:                 true,
   edit_inventory:            true,
   delete_inventory:          true,
   transfer_between_locations:true,
@@ -103,6 +105,7 @@ const tier3: PermissionMap = {
   checkout_inventory:        false,
   checkin_inventory:         false,
   add_inventory:             false,
+  quick_add:                 true,
   edit_inventory:            false,
   delete_inventory:          false,
   transfer_between_locations:false,
@@ -126,6 +129,7 @@ const tier2: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
   add_inventory:              true,
+  quick_add:                  true,
   edit_inventory:             true,
   delete_inventory:           false,
   transfer_between_locations: true,
@@ -149,6 +153,7 @@ const tier1: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
   add_inventory:              false,
+  quick_add:                  false,
   edit_inventory:             false,
   delete_inventory:           false,
   transfer_between_locations: false,

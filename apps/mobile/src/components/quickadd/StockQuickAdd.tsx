@@ -17,7 +17,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 
 interface Props {
-  onSaved: (label: string) => void;
+  onSaved: (label: string, createdId?: string) => void;
 }
 
 export default function StockQuickAdd({ onSaved }: Props) {
@@ -91,7 +91,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
     });
 
     const locName = selectedLocation.label;
-    onSaved(`${parsedQty} ${itemUnit} @ ${locName}`);
+    onSaved(`${parsedQty} ${itemUnit} @ ${locName}`, itemId);
 
     // Clear item+qty; keep location sticky
     setSelectedItemOpt(null);

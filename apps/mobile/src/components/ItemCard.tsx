@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
 import { getStockByItem, getItemById, InventoryItem } from '../db/queries/items';
 import { getLocationPath } from '../db/queries/locations';
+import { isRepairableCategory } from '../constants/repairable';
 import { usePermission } from '../hooks/usePermission';
 import { MediaThumbnail } from './MediaThumbnail';
 
@@ -125,7 +126,7 @@ export function ItemCard({ item, onCheckout }: Props) {
                 <Text style={styles.actPrimaryText}>Check Out</Text>
               </TouchableOpacity>
             )}
-            {canEdit && (
+            {canEdit && isRepairableCategory(full?.category) && (
               <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={reportRepair}>
                 <Text style={styles.actGhostText}>🔧 Report repair</Text>
               </TouchableOpacity>

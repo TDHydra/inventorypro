@@ -7,9 +7,8 @@
  */
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform,
-} from 'react-native';
+  View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import {
   searchItems, getItemById, getStockByItem, adjustStock, getStockQuantity,

@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Alert,
-} from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { Alert } from '../lib/themedAlert';
 import { colors } from '../theme';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
