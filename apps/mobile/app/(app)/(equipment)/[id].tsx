@@ -32,7 +32,6 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
-import { nextAssetTag } from '../../../src/db/queries/equipment';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -698,14 +697,6 @@ export default function EquipmentModelDetailScreen() {
                 note={tagErrors[i]}
                 noteTone="warn"
               />
-              {!!item.tag_prefix && (!row.tag.trim() || row.tag.trim() === item.tag_prefix.trim()) && (
-                <TouchableOpacity
-                  style={[s.btn, s.btnGhost, { marginTop: 6 }]}
-                  onPress={() => updateTag(i, nextAssetTag(item.tag_prefix!))}
-                >
-                  <Text style={s.btnGhostText}>Generate {item.tag_prefix}…</Text>
-                </TouchableOpacity>
-              )}
               <AdvancedFields>
                 <View style={{ marginTop: 10 }}>
                   <FieldLabel>Serial # (optional)</FieldLabel>

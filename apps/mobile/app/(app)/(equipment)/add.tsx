@@ -7,7 +7,6 @@ import { generateUUID } from '../../../src/utils/uuid';
 import { upsertItem } from '../../../src/db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../../src/db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
-import { nextAssetTag } from '../../../src/db/queries/equipment';
 import { PRODUCT_CLASS_IDS } from '../../../src/constants/units';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
@@ -46,22 +45,6 @@ export default function AddEquipmentScreen() {
   const [tagError, setTagError] = useState('');
 
   const [pendingUnits, setPendingUnits] = useState<PendingUnit[]>([]);
-
-  // Generate the next asset tag for the given prefix, accounting for units that
-  // are already in the pending list but not yet in the DB.
-  const handleGenerate = useCallback(() => {
-    const prefix = tagPrefix.trim();
-    if (!prefix) return;
-    let tag = nextAssetTag(prefix);
-    // If the DB-suggested tag already appears in pendingUnits, keep bumping.
-    const existingTags = new Set(pendingUnits.map(u => u.assetTag));
-    while (existingTags.has(tag)) {
-      const n = parseInt(tag.slice(prefix.length), 10) + 1;
-      tag = prefix + String(n).padStart(3, '0');
-    }
-    setAssetTag(tag);
-    if (tagError) setTagError('');
-  }, [tagPrefix, pendingUnits, tagError]);
 
   function handleAddUnit() {
     const tag = assetTag.trim();
@@ -233,11 +216,6 @@ export default function AddEquipmentScreen() {
             placeholder={prefixTrimmed ? `${prefixTrimmed}001` : 'AM-001'}
           />
 
-          {!!prefixTrimmed && assetTag === '' && (
-            <TouchableOpacity style={s.generateBtn} onPress={handleGenerate}>
-              <Text style={s.generateText}>Generate {prefixTrimmed}</Text>
-            </TouchableOpacity>
-          )}
           {!!tagError && <Text style={s.errorText}>{tagError}</Text>}
 
           <AppInput
@@ -314,19 +292,6 @@ const s = StyleSheet.create({
     fontSize: fontSizes.body,
     fontWeight: '700',
     color: colors.textSecondary,
-  },
-  generateBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginTop: -spacing.xs,
-  },
-  generateText: {
-    color: colors.primaryText,
-    fontSize: fontSizes.caption,
-    fontWeight: '600',
   },
   errorText: {
     fontSize: fontSizes.caption,
