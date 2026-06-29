@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 1,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     // Role settings
     db.executeSync(`
       CREATE TABLE IF NOT EXISTS role_settings (

@@ -16,7 +16,7 @@ import {
 } from '../../../src/db/queries/items';
 import { getOpenJobs, upsertJob, type Job } from '../../../src/db/queries/jobs';
 import { getAllLocations, getLocationsByOwner, type Location } from '../../../src/db/queries/locations';
-import { getUsersByRole } from '../../../src/db/queries/users';
+import { getManagerTierUsers } from '../../../src/db/queries/users';
 import {
   getUnitsForItem, getAvailableUnitsAtLocation, getUnitByTag, setUnitStatus,
   type EquipmentUnit,
@@ -185,8 +185,9 @@ export default function CheckoutScreen() {
     ? { id: selectedJob.id, label: selectedJob.name }
     : null;
 
-  // Production managers.
-  const pms = useMemo(() => getUsersByRole('production_manager'), []);
+  // Manager-tier destinations (ROLE_TIER >= 2): heads, production/carpet
+  // managers, office/HR/franchise managers — all act as checkout destinations.
+  const pms = useMemo(() => getManagerTierUsers(), []);
   const pmOptions: PickerOption[] = useMemo(() => pms.map(u => ({ id: u.id, label: u.name })), [pms]);
 
   // Build source-location rows for a unit-tracked item from its available units
@@ -746,13 +747,13 @@ export default function CheckoutScreen() {
                   </View>
                 )}
 
-                {pms.length === 0 && <Text style={s.empty}>No production managers found</Text>}
+                {pms.length === 0 && <Text style={s.empty}>No managers found</Text>}
 
                 {/* Force single-PM path for unit-tracked items regardless of pmMode state. */}
                 {(isUnitTracked || pmMode === 'single') ? (
                   <View style={{ marginTop: 8 }}>
                     <SearchablePicker
-                      placeholder="Pick a production manager..."
+                      placeholder="Pick a manager..."
                       options={pmOptions}
                       value={pmSelections[0] ? { id: pmSelections[0].pmId, label: pmSelections[0].pmName } : null}
                       onSelect={selectSinglePm}

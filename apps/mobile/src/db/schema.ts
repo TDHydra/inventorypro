@@ -1,4 +1,5 @@
-import { open, DB } from '@op-engineering/op-sqlite';
+import { open } from '@op-engineering/op-sqlite';
+import type { DB } from '@op-engineering/op-sqlite';
 
 let db: DB | null = null;
 

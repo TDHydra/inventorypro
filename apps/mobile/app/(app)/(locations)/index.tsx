@@ -19,7 +19,7 @@ import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -50,6 +50,10 @@ export default function LocationsScreen() {
     () => new Map(locationTypes.map(t => [t.label, t.icon])),
     [locationTypes],
   );
+  // Create-form Type picker options: never empty when rows exist (falls back to
+  // inactive types) so deactivating every type doesn't dead-end the picker. The
+  // active-only `locationTypes` still backs the section filter chips + icon badges.
+  const locationTypeOptions = useMemo(() => getLocationTypesWithFallback(), []);
   // Section filter: null = All (show full tree); a label = flat list of that type.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
@@ -378,11 +382,11 @@ export default function LocationsScreen() {
                 <Text style={s.dupWarn}>⚠ "{dup.name}" already exists here</Text>
               )}
 
-              {locationTypes.length > 0 && (
+              {locationTypeOptions.length > 0 && (
                 <>
                   <FieldLabel>Type</FieldLabel>
                   <View style={s.chipRow}>
-                    {locationTypes.map(t => (
+                    {locationTypeOptions.map(t => (
                       <FilterChip
                         key={t.id}
                         label={t.icon ? `${t.icon} ${t.label}` : t.label}

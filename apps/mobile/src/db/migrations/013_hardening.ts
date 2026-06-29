@@ -1,4 +1,4 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 // Migration 013: P6 hardening — job external reference number.
 // reference_number is a manual/external reference (insurance claim / customer PO),
@@ -6,7 +6,7 @@ import { DB } from '@op-engineering/op-sqlite';
 // NOTE: processed_outbox is server-only; not created on mobile.
 export const migration = {
   version: 13,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`ALTER TABLE jobs ADD COLUMN reference_number TEXT`);
   },
 };

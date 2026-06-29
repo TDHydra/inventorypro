@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 8,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`ALTER TABLE jobs ADD COLUMN job_number TEXT`);
     db.executeSync(`ALTER TABLE jobs ADD COLUMN customer_name TEXT`);
     db.executeSync(`ALTER TABLE jobs ADD COLUMN site_address TEXT`);

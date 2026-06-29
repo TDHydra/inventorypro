@@ -20,7 +20,7 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -62,7 +62,7 @@ export default function LocationDetailScreen() {
 
   // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
   // and a label→icon map (incl. archived) for rendering the header badge.
-  const locationTypes = useMemo(() => getLocationTypes(), []);
+  const locationTypes = useMemo(() => getLocationTypesWithFallback(), []);
   const typeIconByLabel = useMemo(
     () => new Map(getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon])),
     [],

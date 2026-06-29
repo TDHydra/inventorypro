@@ -10,7 +10,7 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import {
   getAllJobs, getActiveCheckoutsForUser, updateJobFields, archiveJob, Job,
 } from '../../../src/db/queries/jobs';
-import { getTypeIcon, getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
+import { getTypeIcon, getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { appendLog } from '../../../src/db/queries/log';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { rowsAs } from '../../../src/db/schema';
@@ -75,7 +75,7 @@ export default function JobsScreen() {
   }, [search, statusFilter, showArchived, reloadKey]);
 
   // --- Bulk multi-select ---
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
   const typeOptions = useMemo<PickerOption[]>(
     () => jobTypes.map(t => ({ id: t.label, label: t.label })),
     [jobTypes],

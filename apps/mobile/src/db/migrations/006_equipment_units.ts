@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 6,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`ALTER TABLE inventory_items ADD COLUMN unit_tracked INTEGER NOT NULL DEFAULT 0`);
     db.executeSync(`ALTER TABLE inventory_items ADD COLUMN tag_prefix TEXT`);
     db.executeSync(`

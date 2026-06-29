@@ -9,7 +9,7 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { syncNow } from '../../../src/sync/engine';
@@ -37,7 +37,7 @@ export default function TeamsScreen() {
     return ts[0]?.label ?? '';
   });
 
-  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
+  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
 
   function resetForm() {
     setName('');

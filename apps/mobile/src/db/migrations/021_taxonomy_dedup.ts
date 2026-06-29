@@ -1,4 +1,4 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 // Migration 021: one-time cleanup of duplicate (category,label) taxonomy_types
 // rows. The table has no UNIQUE(category,label) constraint and sync pull is
@@ -9,7 +9,7 @@ import { DB } from '@op-engineering/op-sqlite';
 // deduped by API migration 024, and addTaxonomyType now guards against new dupes.
 export const migration = {
   version: 21,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`
       DELETE FROM taxonomy_types
       WHERE id NOT IN (

@@ -9,7 +9,7 @@ import {
 } from '../../../src/db/queries/jobs';
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
 import { getAllLocations } from '../../../src/db/queries/locations';
-import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
@@ -73,7 +73,7 @@ export default function JobDetailScreen() {
   const [editReferenceNumber, setEditReferenceNumber] = useState('');
   const [editInsuranceCarrier, setEditInsuranceCarrier] = useState('');
 
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
   const deployments = useMemo(() => getJobDeployments(id), [id]);
   const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id]);
 

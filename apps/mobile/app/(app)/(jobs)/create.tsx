@@ -15,7 +15,7 @@ import {
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getAllLocations } from '../../../src/db/queries/locations';
-import { getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { SuggestInput } from '../../../src/components/SuggestInput';
@@ -42,7 +42,7 @@ export default function CreateJobScreen() {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [insuranceCarrier, setInsuranceCarrier] = useState('');
 
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
   const [type, setType] = useState<string | null>(() => {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;

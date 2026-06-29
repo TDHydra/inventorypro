@@ -1,5 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { UserRole } from '../../constants/roles';
+import { UserRole, ROLE_TIER } from '../../constants/roles';
 import { appendOutbox } from '../../sync/outbox';
 import { getValidJwt } from '../../auth/session';
 
@@ -183,6 +183,27 @@ export function getUsersByRole(role: string): User[] {
   const result = db.executeSync(
     `SELECT * FROM users WHERE active = 1 AND role = ? ORDER BY name`,
     [role]
+  );
+  return rowsAs<User>(result.rows);
+}
+
+// Active users at manager tier (ROLE_TIER >= 2) — the checkout "Manager"
+// destination. Managers are grouped in practice (heads of construction/contents,
+// office/franchise managers all act as destinations), so the picker must offer
+// all of them, not just production_manager. Ordered by tier desc (most senior
+// first) then name.
+export function getManagerTierUsers(): User[] {
+  return getAllActiveUsers()
+    .filter(u => (ROLE_TIER[u.role] ?? 0) >= 2)
+    .sort((a, b) => (ROLE_TIER[b.role] - ROLE_TIER[a.role]) || a.name.localeCompare(b.name));
+}
+
+// Active users whose name matches the query (case-insensitive), for global search.
+export function searchUsers(q: string, limit = 20): User[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM users WHERE active = 1 AND name LIKE ? ORDER BY name LIMIT ?`,
+    [`%${q}%`, limit],
   );
   return rowsAs<User>(result.rows);
 }

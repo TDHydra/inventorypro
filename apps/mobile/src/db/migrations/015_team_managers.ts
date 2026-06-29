@@ -1,4 +1,4 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 // Migration 015: P5 5b — multi-manager teams.
 // team_members gains is_manager (members flagged as managers) + a mutable updated_at
@@ -7,7 +7,7 @@ import { DB } from '@op-engineering/op-sqlite';
 // kept (deprecated/unread) — no destructive drop.
 export const migration = {
   version: 15,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`ALTER TABLE team_members ADD COLUMN is_manager INTEGER NOT NULL DEFAULT 0`);
     db.executeSync(`ALTER TABLE team_members ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`);
     // Backfill updated_at from joined_at for existing rows.

@@ -2,7 +2,7 @@ import { useState, useRef, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertItem, getItemBySku, searchItems } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
@@ -21,6 +21,7 @@ import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { BarcodeInput } from '../BarcodeInput';
 
 // Pieces class id (migration 012) — the default unit class when no item type is
 // selected (most products are counted in pieces).
@@ -35,12 +36,15 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
+  // Prefilled barcode (e.g. arriving from the Scan Hub's "add as new item" flow).
+  const params = useLocalSearchParams<{ barcode?: string }>();
 
   // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
   // unit class in meta. Equipment is NOT here (own tab); items are kind='product'.
   const itemTypes = useMemo(() => getItemTypes(), []);
 
   const [name, setName] = useState('');
+  const [barcode, setBarcode] = useState(params.barcode ?? ''); // seeded from a scan
   const [sku, setSku] = useState(''); // item # / part #
   const [packSize, setPackSize] = useState(''); // units per pack (optional)
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
@@ -113,6 +117,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   function clearForm() {
     setName('');
+    setBarcode('');
     setSku('');
     setPackSize('');
     setItemType('');
@@ -141,7 +146,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     const item: InventoryItem = {
       id,
       name: trimmedName,
-      barcode: null,
+      barcode: barcode.trim() || null,
       description: null,
       sku: sku.trim() || null,
       supplier: null,
@@ -236,6 +241,13 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       ) : !sku.trim() ? (
         <Text style={s.skuHint}>💡 Most items have a part # — adding it makes them quicker to find.</Text>
       ) : null}
+
+      <FieldLabel>Barcode (optional)</FieldLabel>
+      <BarcodeInput
+        value={barcode}
+        onChange={setBarcode}
+        placeholder="Scan or enter a barcode"
+      />
 
       {itemTypes.length > 0 && (
         <>

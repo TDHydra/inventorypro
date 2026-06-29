@@ -17,7 +17,7 @@ import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner'
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -51,7 +51,7 @@ export default function TeamDetailScreen() {
   const [userCreateInitial, setUserCreateInitial] = useState('');
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
+  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],

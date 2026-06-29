@@ -11,7 +11,7 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import {
   getRepairById, updateRepairFields, updateRepairStatus, Repair,
 } from '../../../src/db/queries/repairs';
-import { getRepairStatuses, isTerminalStatus, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getRepairStatusesWithFallback, isTerminalStatus, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { setUnitStatus } from '../../../src/db/queries/equipmentUnits';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
@@ -54,7 +54,7 @@ export default function RepairDetailScreen() {
     setSeededFor(`${repair.id}:${reloadKey}`);
   }
 
-  const statuses = useMemo(() => getRepairStatuses(), []);
+  const statuses = useMemo(() => getRepairStatusesWithFallback(), []);
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
     [],

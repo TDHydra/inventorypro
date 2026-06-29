@@ -116,6 +116,24 @@ export function getItemBySku(sku: string): InventoryItem | null {
   return (result.rows[0] as unknown as InventoryItem) ?? null;
 }
 
+// Find the equipment item whose tag_prefix is a leading match for a scanned code
+// (e.g. 'AM-004' matches an item with tag_prefix 'AM-'). Returns the longest
+// matching prefix's item, or null. Lets the scan flow treat prefixed codes as
+// equipment even before the specific unit exists.
+export function findItemByTagPrefix(code: string): InventoryItem | null {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM inventory_items
+     WHERE active = 1 AND kind = 'equipment' AND tag_prefix IS NOT NULL AND tag_prefix != ''
+       AND ? LIKE tag_prefix || '%'
+     ORDER BY LENGTH(tag_prefix) DESC LIMIT 1`,
+    [trimmed],
+  );
+  return (result.rows[0] as unknown as InventoryItem) ?? null;
+}
+
 export function getItemById(id: string): InventoryItem | null {
   const db = getDb();
   const result = db.executeSync(

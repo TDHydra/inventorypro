@@ -1,4 +1,4 @@
-import NetInfo from '@react-native-community/netinfo';
+import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
 import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';

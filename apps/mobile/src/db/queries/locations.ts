@@ -160,6 +160,26 @@ export function getShelfLocations(): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+// Active locations whose name matches the query (case-insensitive), for global search.
+export function searchLocations(q: string, limit = 20): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND name LIKE ? ORDER BY name LIMIT ?`,
+    [`%${q}%`, limit],
+  );
+  return rowsAs<Location>(result.rows);
+}
+
+// "Office" destinations — locations tagged Shop or Office (the franchise base).
+// Backs the scan check-out flow's Office quick-destination.
+export function getOfficeLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type IN ('Shop', 'Office') ORDER BY name`,
+  );
+  return rowsAs<Location>(result.rows);
+}
+
 // Shelf child-locations of a given parent, for the add-stock Shelf typeahead.
 export function getShelvesForParent(parentId: string): Location[] {
   const db = getDb();

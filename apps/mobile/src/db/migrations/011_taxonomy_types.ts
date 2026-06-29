@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 11,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(
       `CREATE TABLE IF NOT EXISTS taxonomy_types (
          id         TEXT PRIMARY KEY,

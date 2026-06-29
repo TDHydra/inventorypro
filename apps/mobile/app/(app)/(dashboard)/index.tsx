@@ -3,6 +3,7 @@ import { useRouter, Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
+import { DashboardSearch } from '../../../src/components/DashboardSearch';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
 import { useMemo, useState } from 'react';
@@ -21,7 +22,10 @@ export default function DashboardScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'InventoryPro', headerShown: true }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {/* Pinned search at the very top: tap to expand, type inline, 📷 opens the scanner. */}
+        <DashboardSearch />
+
         {/* Greeting */}
         <View style={styles.greeting}>
           <View style={styles.greetingText}>

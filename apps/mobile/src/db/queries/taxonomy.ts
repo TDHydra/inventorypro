@@ -277,6 +277,26 @@ export function getTaxonomyTypes(
   return rows.filter(t => (seen.has(t.label) ? false : (seen.add(t.label), true)));
 }
 
+// Like getTaxonomyTypes but never returns an empty list when rows exist: if every
+// type in a category has been deactivated, fall back to showing the inactive ones
+// so pickers (team/job/location/repair-status) don't become silent dead-ends.
+export function getTaxonomyTypesWithFallback(
+  category: string,
+  opts?: { includeInactive?: boolean },
+): TaxonomyType[] {
+  const active = getTaxonomyTypes(category, opts);
+  if (active.length > 0) return active;
+  return getTaxonomyTypes(category, { includeInactive: true });
+}
+
+export function getLocationTypesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(LOCATION_TYPE);
+}
+
+export function getRepairStatusesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(REPAIR_STATUS);
+}
+
 export function getTypeIcon(category: string, label: string): string | null {
   const db = getDb();
   const result = db.executeSync(

@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 3,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     // Tracks whether the user has set their own PIN (false = prompt on first login).
     db.executeSync(`ALTER TABLE users ADD COLUMN pin_set INTEGER NOT NULL DEFAULT 0`);
     // Existing synced users already had PINs; default them to set. The server's
