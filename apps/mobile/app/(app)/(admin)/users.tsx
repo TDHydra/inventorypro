@@ -615,7 +615,9 @@ export default function AdminUsersScreen() {
             <Text style={s.dupWarn}>⚠ "{dupUser.name}" already exists ({ROLE_DISPLAY_NAMES[dupUser.role as UserRole]})</Text>
           )}
           <FieldLabel>Role</FieldLabel>
-          <ScrollView style={{ maxHeight: 160 }}>
+          {/* keyboardShouldPersistTaps so a role tap registers immediately even when the
+              name keyboard is open (else the first tap is eaten by keyboard-dismiss). */}
+          <ScrollView style={{ maxHeight: 160 }} keyboardShouldPersistTaps="handled">
             {ALL_ROLES.map(r => (
               <TouchableOpacity
                 key={r}

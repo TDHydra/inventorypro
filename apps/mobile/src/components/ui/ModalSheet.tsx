@@ -1,4 +1,4 @@
-import { Modal, Pressable, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { Modal, Pressable, KeyboardAvoidingView, StyleSheet } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 
 export function ModalSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
@@ -6,10 +6,12 @@ export function ModalSheet({ visible, onClose, children }: { visible: boolean; o
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       {/* Full-screen dim backdrop — tapping it closes (onClose only hides; callers keep input state). */}
       <Pressable style={s.backdrop} onPress={onClose} />
-      {/* KeyboardAvoidingView lifts the bottom sheet above the keyboard so inputs/text aren't cut off. */}
+      {/* KeyboardAvoidingView lifts the bottom sheet above the keyboard so inputs/text
+          aren't cut off. `padding` on BOTH platforms — Android `height` animates the
+          container size inside a transparent Modal and produces a jumpy/squished sheet. */}
       <KeyboardAvoidingView
         style={s.kav}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
         pointerEvents="box-none"
       >
         {/* Pressing the sheet itself does NOT close (this Pressable swallows the press). */}
