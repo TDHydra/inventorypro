@@ -69,6 +69,42 @@ function selectColsFor(table: string): string {
   return SELECT_COLUMNS[table] ?? '*';
 }
 
+// Columns a CLIENT may never write via sync (server-controlled). team_members
+// .is_manager is a privilege flag — accepting it from an outbox row let a crew
+// member self-promote to manager (→ manager log scope). Only the dedicated
+// manager-promotion endpoint (teams.ts) may set it.
+const SERVER_ONLY_COLUMNS: Record<string, string[]> = {
+  team_members: ['is_manager'],
+};
+// Attribution columns: forced to the authenticated caller on INSERT (so a client
+// can't claim someone else created/uploaded/added the row) and dropped on UPDATE
+// (creator/uploader can't be reassigned). NOTE: locations.owner_user_id is
+// intentionally NOT here — it's a deliberate assignment (which manager owns an
+// area/vehicle), not "who created it".
+const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
+  jobs: ['created_by'],
+  repairs: ['created_by'],
+  media: ['uploaded_by'],
+  team_members: ['added_by'],
+};
+
+// Apply the server-controlled / attribution rules to a client payload before it
+// reaches the generic UPDATE/INSERT SQL builders.
+function sanitizePayload(
+  table: string,
+  op: 'INSERT' | 'UPDATE',
+  payload: Record<string, unknown>,
+  callerUserId: string,
+): Record<string, unknown> {
+  const p = { ...payload };
+  for (const c of SERVER_ONLY_COLUMNS[table] ?? []) delete p[c];
+  for (const c of ATTRIBUTION_COLUMNS[table] ?? []) {
+    if (op === 'INSERT') p[c] = callerUserId;
+    else delete p[c];
+  }
+  return p;
+}
+
 async function applyEntry(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   entry: OutboxEntry,
@@ -152,8 +188,10 @@ async function applyEntry(
   // generated SQL never references a nonexistent column (which would throw and
   // strand the entry as a conflict forever).
   if (operation === 'UPDATE') {
+    // Strip server-controlled cols + reassignment of attribution before building SQL.
+    const sp = sanitizePayload(table_name, 'UPDATE', payload, callerUserId);
     // Real partial update — only the columns the device actually changed.
-    const cols = Object.keys(payload).filter(k => k !== '__version' && k !== 'synced_at' && !keys.includes(k));
+    const cols = Object.keys(sp).filter(k => k !== '__version' && k !== 'synced_at' && !keys.includes(k));
     if (cols.length === 0) return;
     // Clamp absolute stock writes so a bad value can't throw the quantity >= 0
     // CHECK and strand the entry forever.
@@ -172,9 +210,12 @@ async function applyEntry(
   }
 
   // INSERT — full-row upsert (keyed by primary/composite key).
+  // Sanitize first so attribution cols are forced to the caller and server-only
+  // cols (is_manager) are dropped; build the row from the sanitized payload.
+  const sp = sanitizePayload(table_name, 'INSERT', payload, callerUserId);
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
-  const allKeys = Object.keys(payload).filter(k => k !== '__version' && k !== 'synced_at');
+  const allKeys = Object.keys(sp).filter(k => k !== '__version' && k !== 'synced_at');
   const cols = allKeys.join(', ');
   // Clamp absolute stock writes (both the VALUES and the DO UPDATE) with
   // GREATEST(0, …) so a bad absolute can't throw the quantity >= 0 CHECK.
@@ -192,7 +233,7 @@ async function applyEntry(
     : `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO NOTHING`;
 
-  await pg.query(sql, allKeys.map(k => payload[k] ?? null));
+  await pg.query(sql, allKeys.map(k => sp[k] ?? null));
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {

@@ -124,6 +124,29 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // PATCH /teams/:id/members/:uid — set/clear a member's manager flag. is_manager
+  // is server-controlled (sync ignores client writes to it), so this gated
+  // endpoint is the ONLY way to promote/demote — closing the self-promotion hole
+  // while keeping the feature (and logs.ts scope=my_teams) working.
+  fastify.patch<{ Params: { id: string; uid: string }; Body: { is_manager: boolean } }>(
+    '/:id/members/:uid', {
+      preHandler: [...auth, requirePermission('manage_teams')],
+      schema: {
+        body: { type: 'object', required: ['is_manager'], properties: { is_manager: { type: 'boolean' } } },
+      },
+    },
+    async (request, reply) => {
+      const { rows } = await fastify.pg.query(
+        `UPDATE team_members SET is_manager = $3, updated_at = NOW()
+         WHERE team_id = $1 AND user_id = $2
+         RETURNING team_id, user_id, is_manager`,
+        [request.params.id, request.params.uid, request.body.is_manager]
+      );
+      if (!rows[0]) return reply.status(404).send({ error: 'Member not found' });
+      return rows[0];
+    }
+  );
+
   // DELETE /teams/:id/members/:uid
   fastify.delete<{ Params: { id: string; uid: string } }>(
     '/:id/members/:uid', { preHandler: [...auth, requirePermission('manage_teams')] },

@@ -3,6 +3,7 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyPostgres from '@fastify/postgres';
 import fastifyCors from '@fastify/cors';
 import { runMigrations } from './db/migrate';
+import { overRateLimit } from './lib/rateLimit';
 
 import authRoutes from './routes/auth';
 import syncRoutes from './routes/sync';
@@ -63,6 +64,20 @@ async function build() {
       await request.jwtVerify();
     } catch {
       reply.status(401).send({ error: 'Unauthorized' });
+    }
+  });
+
+  // Per-user DOS guard on mutating endpoints (generous). /auth has its own
+  // limiter and is public, so it's skipped. Unauthenticated requests fall
+  // through to the route's own auth (which rejects them).
+  fastify.addHook('preHandler', async (request: any, reply: any) => {
+    const m = request.method;
+    if (m !== 'POST' && m !== 'PATCH' && m !== 'DELETE') return;
+    if (request.url.startsWith('/auth')) return;
+    let sub: string | undefined;
+    try { sub = (await request.jwtVerify())?.sub; } catch { return; }
+    if (sub && overRateLimit(`mut:${sub}`)) {
+      return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
     }
   });
 
