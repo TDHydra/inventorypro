@@ -99,7 +99,7 @@ export const ROLE_COLORS: Record<UserRole, string> = {
   carpet_cleaning_manager:  '#00695C',
   construction_crew:        '#37474F',
   contents_crew:            '#00838F',
-  mitigation_technician:    '#1E3A5F',
+  mitigation_technician:    '#4527A0',
   carpet_cleaning_crew:     '#558B2F',
   temporary_employee:       '#455A64',
 };

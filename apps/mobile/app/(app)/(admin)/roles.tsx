@@ -227,15 +227,20 @@ export default function RolesScreen() {
                       {ROLE_COLOR_PALETTE.map(c => (
                         <TouchableOpacity
                           key={c}
-                          style={[s.colorCell, { backgroundColor: c }, effective === c && s.colorCellActive]}
+                          style={[s.colorCell, { backgroundColor: c }, effective === c && s.colorCellActive, (!canManage || locked) && s.colorCellDisabled]}
                           onPress={() => changeRoleColor(role, c)}
+                          disabled={!canManage || locked}
                         >
                           {effective === c && <Text style={s.colorCheck}>✓</Text>}
                         </TouchableOpacity>
                       ))}
                     </View>
                     {!!roleColors[role] && (
-                      <TouchableOpacity onPress={() => changeRoleColor(role, null)}>
+                      <TouchableOpacity
+                        onPress={() => changeRoleColor(role, null)}
+                        disabled={!canManage || locked}
+                        style={(!canManage || locked) && s.colorCellDisabled}
+                      >
                         <Text style={s.colorReset}>Reset to default</Text>
                       </TouchableOpacity>
                     )}
@@ -327,6 +332,7 @@ const s = StyleSheet.create({
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   colorCell: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   colorCellActive: { borderWidth: 3, borderColor: colors.textPrimary },
+  colorCellDisabled: { opacity: 0.4 },
   colorCheck: { color: '#fff', fontSize: fontSizes.body, fontWeight: '800' },
   colorReset: { fontSize: fontSizes.caption, color: colors.primaryText, fontWeight: '600' },
 });
