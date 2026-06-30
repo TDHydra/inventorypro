@@ -12,6 +12,8 @@ import { generateUUID } from '../../utils/uuid';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { isWriteBlocked } from '../../db/maintenance';
+import { runInTransaction } from '../../db/tx';
+import { Alert } from '../../lib/themedAlert';
 import { colors } from '../../theme';
 
 export interface ResolvedDestination {
@@ -90,23 +92,38 @@ export function DestinationPicker({ onResolved }: Props) {
   }
   function createJob(text: string) {
     if (!user) return;
-    if (isWriteBlocked()) return; // no inline job creation during maintenance lockout
+    if (isWriteBlocked()) {
+      // no inline job creation during maintenance lockout — say why instead of
+      // silently doing nothing when the user taps "create".
+      Alert.alert('Maintenance in progress', 'Can’t create a job right now. Try again once maintenance finishes.');
+      return;
+    }
     const now = new Date().toISOString();
     const newJob: Job = {
       id: generateUUID(), name: text, status: 'open',
       created_by: user.id, created_at: now, updated_at: now, synced_at: null,
     };
-    upsertJob(newJob);
-    // Strip the device-local-only synced_at before queueing — the server jobs
-    // table has no such column and would reject the row (stranding it + its logs).
-    const { synced_at: _sa, ...jobRow } = newJob;
-    appendOutbox('INSERT', 'jobs', jobRow);
-    appendLog({
-      action: 'job_created', entity_type: 'job', entity_id: newJob.id,
-      user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
-      metadata: null, device_id: null,
-    });
+    try {
+      // upsert + outbox + log are one logical unit — wrap them so a mid-flow
+      // failure can't strand a job row without its outbox entry / log.
+      runInTransaction(() => {
+        upsertJob(newJob);
+        // Strip the device-local-only synced_at before queueing — the server jobs
+        // table has no such column and would reject the row (stranding it + its logs).
+        const { synced_at: _sa, ...jobRow } = newJob;
+        appendOutbox('INSERT', 'jobs', jobRow);
+        appendLog({
+          action: 'job_created', entity_type: 'job', entity_id: newJob.id,
+          user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
+          metadata: null, device_id: null,
+        });
+      });
+    } catch (e) {
+      // Don't select a job that didn't actually persist.
+      Alert.alert('Couldn’t create job', 'Something went wrong saving the new job. Please try again.');
+      return;
+    }
     setJobValue({ id: newJob.id, label: newJob.name });
     onResolved({ type: 'job', label: newJob.name, toLocationId: null, jobId: newJob.id });
   }
@@ -124,8 +141,15 @@ export function DestinationPicker({ onResolved }: Props) {
       setManagerLocs(locs);
       onResolved(null); // incomplete until they pick which location
     } else {
+      // Manager owns no location — there is nowhere to credit the item, so this
+      // is NOT a usable destination. Keep the choice unresolved (confirm stays
+      // disabled) and tell the user why instead of resolving to an empty target.
       setManagerLocs([]);
-      onResolved({ type: 'manager', label: opt.label, toLocationId: null, jobId: null });
+      onResolved(null);
+      Alert.alert(
+        'No location for this manager',
+        `${opt.label} doesn’t own a location yet. Pick a different destination, or assign them a location first.`,
+      );
     }
   }
   function selectManagerLoc(opt: PickerOption) {

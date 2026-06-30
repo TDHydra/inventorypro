@@ -177,6 +177,16 @@ export function upsertItem(item: InventoryItem): void {
   );
 }
 
+// Hardcoded allowlist of columns updateItemFields is permitted to write. Column
+// NAMES are interpolated into the SQL (values stay parameterized), so any key not
+// in this set is dropped to prevent mass-assignment / SQL-injection via crafted
+// field names. Keep in sync with the Pick<> in the signature below.
+const ALLOWED_ITEM_UPDATE_COLUMNS = new Set<string>([
+  'name', 'barcode', 'description', 'sku', 'supplier', 'model',
+  'category', 'returnable', 'unit_tracked', 'tag_prefix',
+  'unit_category', 'unit', 'min_qty_alert', 'reorder_to', 'home_location_id', 'pack_size',
+]);
+
 // Partial edit of catalog fields (not stock). Returns the column/value map that
 // should also go to the sync outbox so callers stay in sync with the server.
 export function updateItemFields(
@@ -188,13 +198,18 @@ export function updateItemFields(
 ): Record<string, unknown> {
   const db = getDb();
   const now = new Date().toISOString();
-  const entries = Object.entries(fields);
+  // Filter to the hardcoded allowlist so a caller can't inject arbitrary column
+  // names into the SET clause. Values remain parameterized.
+  const entries = Object.entries(fields).filter(([k]) => ALLOWED_ITEM_UPDATE_COLUMNS.has(k));
+  // No valid columns to write → no-op safely (don't bump updated_at on nothing).
+  if (entries.length === 0) return { id };
+  const allowedFields = Object.fromEntries(entries);
   const setClause = entries.map(([k]) => `${k} = ?`).join(', ');
   db.executeSync(
     `UPDATE inventory_items SET ${setClause}, updated_at = ? WHERE id = ?`,
     bindParams([...entries.map(([, v]) => v), now, id])
   );
-  return { id, ...fields, updated_at: now };
+  return { id, ...allowedFields, updated_at: now };
 }
 
 export function upsertStock(item: { item_id: string; location_id: string; quantity: number; updated_at?: string }, locationId?: string, quantity?: number): void {
@@ -243,6 +258,18 @@ export function getStockQuantity(itemId: string, locationId: string): number {
 export function adjustStock(itemId: string, locationId: string, delta: number): void {
   const db = getDb();
   const now = new Date().toISOString();
+  // BY DESIGN: on-hand stock can never go negative — a delta that would drive the
+  // result below zero is silently clamped to 0 (see MAX(0, ...) below). This is
+  // intentional (you can't have -3 widgets on a shelf), but it can mask a caller
+  // bug (e.g. deducting more than is in stock). Warn so it's visible while
+  // debugging, WITHOUT changing the clamping behavior.
+  const current = getStockQuantity(itemId, locationId);
+  if (current + delta < 0) {
+    console.warn(
+      `adjustStock: delta ${delta} would drive stock below zero ` +
+      `(current ${current}) for item ${itemId} @ location ${locationId}; clamping to 0`
+    );
+  }
   // New row: clamp a negative delta up to 0. Existing row: add the RAW delta
   // (not excluded.quantity, which is the already-clamped insert value — using
   // it made negative deltas a silent no-op), clamped at 0.

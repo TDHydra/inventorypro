@@ -13,6 +13,8 @@ import { useSession } from '../../hooks/useSession';
 import { getItemTypes, parseItemTypeMeta } from '../../db/queries/taxonomy';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { runInTransaction } from '../../db/tx';
+import { parsePackSize } from '../../lib/validation';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
@@ -135,13 +137,39 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     }
     setNameError('');
 
+    // Validate the optional pack size up front (rejects negatives / fractions /
+    // a pack of 1). Empty → null (no pack). Stop before any writes on bad input.
+    const packResult = parsePackSize(packSize);
+    if (!packResult.ok) {
+      Alert.alert('Check pack size', packResult.error);
+      return;
+    }
+
     const now = new Date().toISOString();
     const id = generateUUID();
 
     // Resolve a freshly-typed shelf ('__new__') into a real Shelf location id.
-    const homeLocationId = homeLocation?.id === '__new__'
-      ? findOrCreateShelfByName(homeLocation.label)
-      : homeLocation?.id ?? null;
+    // This can fail (throw) or return null — either way we must NOT save the item
+    // with a silently lost home location, so guard and bail with guidance.
+    let homeLocationId: string | null;
+    if (homeLocation?.id === '__new__') {
+      let resolved: string | null = null;
+      try {
+        resolved = findOrCreateShelfByName(homeLocation.label);
+      } catch {
+        resolved = null;
+      }
+      if (!resolved) {
+        Alert.alert(
+          'Couldn’t add that location',
+          `We couldn’t create the shelf “${homeLocation.label}”. Pick an existing location or try again.`,
+        );
+        return;
+      }
+      homeLocationId = resolved;
+    } else {
+      homeLocationId = homeLocation?.id ?? null;
+    }
 
     const item: InventoryItem = {
       id,
@@ -164,34 +192,47 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       updated_at: now,
       synced_at: null,
       home_location_id: homeLocationId,
-      pack_size: (() => { const n = parseInt(packSize, 10); return Number.isFinite(n) && n > 1 ? n : null; })(),
+      pack_size: packResult.value,
     };
 
-    upsertItem(item);
-    // synced_at is a local-only column — strip it from the outbox payload.
-    const { synced_at: _s, ...itemRow } = item;
-    appendOutbox('INSERT', 'inventory_items', {
-      ...itemRow,
-      returnable: !!item.returnable,
-      unit_tracked: !!item.unit_tracked,
-      active: true,
-    });
-    appendLog({
-      action: 'item_created',
-      entity_type: 'item',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: trimmedName,
-      metadata: null,
-      device_id: null,
-    });
+    // Atomic write: upsert + outbox + log all-or-nothing so a mid-flow failure
+    // can't leave an orphaned item or a lost outbox/log entry.
+    try {
+      runInTransaction(() => {
+        upsertItem(item);
+        // synced_at is a local-only column — strip it from the outbox payload.
+        const { synced_at: _s, ...itemRow } = item;
+        appendOutbox('INSERT', 'inventory_items', {
+          ...itemRow,
+          returnable: !!item.returnable,
+          unit_tracked: !!item.unit_tracked,
+          active: true,
+        });
+        appendLog({
+          action: 'item_created',
+          entity_type: 'item',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: trimmedName,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch {
+      Alert.alert(
+        'Couldn’t save item',
+        'Something went wrong saving this item, so nothing was changed. Please try again.',
+      );
+      return;
+    }
 
+    // Writes succeeded — only now clear the form and signal success.
     onSaved(trimmedName, id);
     clearForm();
     setTimeout(() => nameRef.current?.focus(), 100);

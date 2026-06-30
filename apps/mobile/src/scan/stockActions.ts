@@ -1,6 +1,7 @@
 import { adjustStock } from '../db/queries/items';
 import { appendOutbox } from '../sync/outbox';
 import { appendLog } from '../db/queries/log';
+import { runInTransaction } from '../db/tx';
 
 export interface ConsumableAction {
   itemId: string;
@@ -20,39 +21,51 @@ export interface ConsumableAction {
 export function applyConsumableAction(a: ConsumableAction): void {
   const stamp = () => new Date().toISOString();
 
-  if (a.direction === 'out') {
-    if (a.sourceLocationId) {
-      adjustStock(a.itemId, a.sourceLocationId, -a.qty);
-      appendOutbox('ADJUST', 'stock_by_location', {
-        item_id: a.itemId, location_id: a.sourceLocationId, delta: -a.qty, updated_at: stamp(),
-      });
-    }
-    if (a.destLocationId) {
-      adjustStock(a.itemId, a.destLocationId, a.qty);
-      appendOutbox('ADJUST', 'stock_by_location', {
-        item_id: a.itemId, location_id: a.destLocationId, delta: a.qty, updated_at: stamp(),
-      });
-    }
-  } else {
-    const loc = a.destLocationId ?? a.sourceLocationId;
-    if (loc) {
-      adjustStock(a.itemId, loc, a.qty);
-      appendOutbox('ADJUST', 'stock_by_location', {
-        item_id: a.itemId, location_id: loc, delta: a.qty, updated_at: stamp(),
-      });
-    }
+  // Guard: a check-in with no resolvable destination would log activity without
+  // ever crediting stock — inventory "appears" with no stock trace. Reject it up
+  // front, before any write, so the caller (group D) can surface the message.
+  if (a.direction === 'in' && a.destLocationId == null && a.sourceLocationId == null) {
+    throw new Error('Check-in requires a destination location.');
   }
 
-  appendLog({
-    action: a.direction === 'out' ? (a.jobId ? 'checkout_to_job' : 'transfer') : 'checkin',
-    entity_type: 'item', entity_id: a.itemId,
-    user_id: a.userId, team_id: null,
-    from_location_id: a.direction === 'out' ? a.sourceLocationId : null,
-    to_location_id: a.destLocationId,
-    quantity: a.qty, unit: a.unit, job_id: a.jobId, note: a.note,
-    metadata: null, device_id: null,
-    latitude: a.coords?.latitude ?? null,
-    longitude: a.coords?.longitude ?? null,
-    location_accuracy: a.coords?.accuracy ?? null,
+  // All stock deltas + the activity_log row are one atomic unit: a mid-flow
+  // failure (e.g. source deducted but the destination credit throws) must roll
+  // back cleanly. Exceptions propagate to the caller — do NOT swallow here.
+  runInTransaction(() => {
+    if (a.direction === 'out') {
+      if (a.sourceLocationId) {
+        adjustStock(a.itemId, a.sourceLocationId, -a.qty);
+        appendOutbox('ADJUST', 'stock_by_location', {
+          item_id: a.itemId, location_id: a.sourceLocationId, delta: -a.qty, updated_at: stamp(),
+        });
+      }
+      if (a.destLocationId) {
+        adjustStock(a.itemId, a.destLocationId, a.qty);
+        appendOutbox('ADJUST', 'stock_by_location', {
+          item_id: a.itemId, location_id: a.destLocationId, delta: a.qty, updated_at: stamp(),
+        });
+      }
+    } else {
+      const loc = a.destLocationId ?? a.sourceLocationId;
+      if (loc) {
+        adjustStock(a.itemId, loc, a.qty);
+        appendOutbox('ADJUST', 'stock_by_location', {
+          item_id: a.itemId, location_id: loc, delta: a.qty, updated_at: stamp(),
+        });
+      }
+    }
+
+    appendLog({
+      action: a.direction === 'out' ? (a.jobId ? 'checkout_to_job' : 'transfer') : 'checkin',
+      entity_type: 'item', entity_id: a.itemId,
+      user_id: a.userId, team_id: null,
+      from_location_id: a.direction === 'out' ? a.sourceLocationId : null,
+      to_location_id: a.destLocationId,
+      quantity: a.qty, unit: a.unit, job_id: a.jobId, note: a.note,
+      metadata: null, device_id: null,
+      latitude: a.coords?.latitude ?? null,
+      longitude: a.coords?.longitude ?? null,
+      location_accuracy: a.coords?.accuracy ?? null,
+    });
   });
 }

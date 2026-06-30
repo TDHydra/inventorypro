@@ -22,8 +22,10 @@ import { ItemCard } from '../../../src/components/ItemCard';
 import { BarcodeScanner } from '../../../src/components/BarcodeScanner';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { classifyScan, type ScanClass } from '../../../src/scan/scanSession';
+import { sanitizeScan } from '../../../src/scan/sanitize';
 import { isHidSupported, connectHidScanner } from '../../../src/scan/hidScanner.web';
 import { applyConsumableAction } from '../../../src/scan/stockActions';
+import { runInTransaction } from '../../../src/db/tx';
 import { searchEverything, type GlobalSearchResults } from '../../../src/db/queries/search';
 import {
   searchItems, getStockByItem, getStockQuantity, type InventoryItem,
@@ -157,8 +159,18 @@ export default function HubScreen() {
 
   // ── scan loop ──────────────────────────────────────────────────────────────
   function onScan(raw: string) {
-    const c = classifyScan(raw);
-    if (c.kind === 'unknown') { promptAddNewItem(c.code); return; }       // Task 14
+    // Bound/clean the scanned value before it reaches queries or nav params.
+    const code = sanitizeScan(raw);
+    if (!code) return; // ignore empty / over-length / control-char junk
+    // In-flight guard: a HID/repeat scan must not clobber a consumable action
+    // that's already mid-flow (item picked or in/out chosen) — that would lose
+    // the first item or double-apply on retry.
+    if (pendingItem || pendingAction) {
+      Alert.alert('Finish the current item first.');
+      return;
+    }
+    const c = classifyScan(code);
+    if (c.kind === 'unknown') { promptAddNewItem(c.code); return; }       // Task 14 (c.code is the sanitized scan)
     if (c.kind === 'consumable') { setPendingItem(c.item); setMode('inout'); return; }
     // equipment-unit / equipment-model → batch checkout (Task 15)
     enqueueEquipment(c);
@@ -266,17 +278,31 @@ export default function HubScreen() {
       return;
     }
 
-    applyConsumableAction({
-      itemId: item.id, unit: item.unit, direction: dir, qty,
-      sourceLocationId: dir === 'out' ? sourceId : null,
-      destLocationId: dest.toLocationId,
-      jobId: dest.jobId,
-      userId: user?.id ?? null,
-      note: dest.type === 'manager' ? `Manager: ${dest.label}` : null,
-      coords: coords
-        ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy }
-        : undefined,
-    });
+    // Guard the write: if the stock change throws we must NOT show a receipt
+    // or "scan another?" (that would be false success and a retry would
+    // double-apply). applyConsumableAction already runs its own transaction.
+    try {
+      applyConsumableAction({
+        itemId: item.id, unit: item.unit, direction: dir, qty,
+        sourceLocationId: dir === 'out' ? sourceId : null,
+        destLocationId: dest.toLocationId,
+        jobId: dest.jobId,
+        userId: user?.id ?? null,
+        note: dest.type === 'manager' ? `Manager: ${dest.label}` : null,
+        coords: coords
+          ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy }
+          : undefined,
+      });
+    } catch (err) {
+      Alert.alert(
+        'Could not save',
+        ((err as Error)?.message || 'The stock change failed.') +
+          '\n\nNothing was changed. Please try again.',
+      );
+      resetConsumable();
+      setMode('browse');
+      return;
+    }
     pushReceiptEntry({
       id: generateUUID(), itemName: item.name, direction: dir,
       qtyLabel: formatQuantity(qty, item.unit, item.unit_category as any),
@@ -299,28 +325,48 @@ export default function HubScreen() {
       longitude: coords?.longitude ?? null,
       location_accuracy: coords?.accuracy ?? null,
     };
-    for (const u of equipBatch) {
-      if (dest.jobId) {
-        const updated = setUnitStatus(u.id, {
-          status: 'deployed', current_job_id: dest.jobId, current_location_id: null,
-        });
-        outboxUnit(updated);
-        appendLog({
-          ...baseLog, action: 'checkout_to_job', entity_id: u.item_id,
-          from_location_id: null, to_location_id: null,
-          job_id: dest.jobId, quantity: 1, note: 'unit ' + u.asset_tag,
-        });
-      } else {
-        const updated = setUnitStatus(u.id, {
-          status: 'available', current_location_id: dest.toLocationId, current_job_id: null,
-        });
-        outboxUnit(updated);
-        appendLog({
-          ...baseLog, action: 'transfer', entity_id: u.item_id,
-          from_location_id: null, to_location_id: dest.toLocationId,
-          job_id: null, quantity: 1, note: 'unit ' + u.asset_tag,
-        });
-      }
+    // Commit the whole batch atomically: a mid-loop failure must not leave some
+    // units moved + outboxed and others not. runInTransaction rolls back every
+    // write if any unit fails; we then tell the user which unit broke and send
+    // them back to the scanner with the batch cleared (no false success).
+    let failedUnit: string | null = null;
+    try {
+      runInTransaction(() => {
+        for (const u of equipBatch) {
+          failedUnit = u.asset_tag;
+          if (dest.jobId) {
+            const updated = setUnitStatus(u.id, {
+              status: 'deployed', current_job_id: dest.jobId, current_location_id: null,
+            });
+            outboxUnit(updated);
+            appendLog({
+              ...baseLog, action: 'checkout_to_job', entity_id: u.item_id,
+              from_location_id: null, to_location_id: null,
+              job_id: dest.jobId, quantity: 1, note: 'unit ' + u.asset_tag,
+            });
+          } else {
+            const updated = setUnitStatus(u.id, {
+              status: 'available', current_location_id: dest.toLocationId, current_job_id: null,
+            });
+            outboxUnit(updated);
+            appendLog({
+              ...baseLog, action: 'transfer', entity_id: u.item_id,
+              from_location_id: null, to_location_id: dest.toLocationId,
+              job_id: null, quantity: 1, note: 'unit ' + u.asset_tag,
+            });
+          }
+        }
+      });
+    } catch (err) {
+      Alert.alert(
+        'Checkout failed',
+        `Couldn't check out ${failedUnit ? `unit ${failedUnit}` : 'the batch'}. ` +
+          'Nothing was changed — no units were moved.' +
+          ((err as Error)?.message ? `\n\n${(err as Error).message}` : ''),
+      );
+      setEquipBatch([]);
+      setMode('scanning');
+      return;
     }
     const n = equipBatch.length;
     const label = `${n} unit${n > 1 ? 's' : ''}`;

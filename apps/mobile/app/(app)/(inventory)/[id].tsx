@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
+import { parseOptionalCount, parsePackSize } from '../../../src/lib/validation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
@@ -169,6 +170,30 @@ export default function ItemDetailScreen() {
   function saveEdit() {
     if (!item) return;
     if (!form.name?.trim()) { Alert.alert('Required', 'Item name is required.'); return; }
+
+    // Validate numeric fields up front with clear, fixable messages (mirrors the
+    // add/quick-add screens) instead of silently coercing bad input.
+    const minAlert = parseOptionalCount(form.min_qty_alert, 'Low-stock alert');
+    if (!minAlert.ok) { Alert.alert('Invalid low-stock alert', minAlert.error); return; }
+    const reorder = parseOptionalCount(form.reorder_to, 'Reorder up to');
+    if (!reorder.ok) { Alert.alert('Invalid reorder amount', reorder.error); return; }
+    const pack = parsePackSize(form.pack_size ?? '');
+    if (!pack.ok) { Alert.alert('Invalid pack size', pack.error); return; }
+
+    // Resolve the home location BEFORE building the update so a failed shelf
+    // create (findOrCreateShelfByName returns null on write failure) can't
+    // silently drop it. Abort with a message instead.
+    let homeLocationId: string | null;
+    if (editHomeLocation?.id === '__new__') {
+      homeLocationId = findOrCreateShelfByName(editHomeLocation.label);
+      if (!homeLocationId) {
+        Alert.alert('Couldn’t add that location', 'The shelf could not be created. Please try again.');
+        return;
+      }
+    } else {
+      homeLocationId = editHomeLocation?.id ?? null;
+    }
+
     const fields = {
       name: form.name.trim(),
       model: form.model.trim() || null,
@@ -176,21 +201,16 @@ export default function ItemDetailScreen() {
       barcode: form.barcode.trim() || null,
       sku: form.sku.trim() || null,
       supplier: form.supplier.trim() || null,
-      min_qty_alert: parseFloat(form.min_qty_alert) || 0,
-      reorder_to: form.reorder_to.trim() ? parseFloat(form.reorder_to) : null,
+      min_qty_alert: minAlert.value ?? 0,
+      reorder_to: reorder.value,
       category: editCategory.trim() || null,
       returnable: (editReturnable ? 1 : 0) as number,
       // Keep unit_category a real product_class id so formatQuantity decimals
       // stay correct; never write an empty unit (fall back to the existing one).
       unit_category: editUnitCat || PRODUCT_CLASS_IDS.piece,
       unit: editUnit.trim() || item.unit,
-      home_location_id: editHomeLocation?.id === '__new__'
-        ? findOrCreateShelfByName(editHomeLocation.label)
-        : (editHomeLocation?.id ?? null),
-      pack_size: (() => {
-        const n = parseInt(form.pack_size ?? '', 10);
-        return Number.isFinite(n) && n > 1 ? n : null;
-      })(),
+      home_location_id: homeLocationId,
+      pack_size: pack.value,
     };
     const synced = updateItemFields(item.id, fields);
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)

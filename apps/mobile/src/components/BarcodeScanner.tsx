@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { colors } from '../theme';
+import { sanitizeScan } from '../scan/sanitize';
 
 interface Props {
   active: boolean;
@@ -60,11 +61,15 @@ export function BarcodeScanner({ active, onScanned, onClose }: Props) {
   }
 
   const handleBarcode = (result: BarcodeScanningResult) => {
+    // Bound/clean before emitting — a malicious QR or runaway scanner can carry
+    // megabytes or control-char junk; sanitizeScan returns null for those.
+    const code = sanitizeScan(result.data);
+    if (!code) { console.warn('[BarcodeScanner] dropped invalid scan'); return; }
     const now = Date.now();
-    if (result.data === lastCode.current && now - lastScanTime.current < DEBOUNCE_MS) return;
+    if (code === lastCode.current && now - lastScanTime.current < DEBOUNCE_MS) return;
     lastScanTime.current = now;
-    lastCode.current = result.data;
-    onScanned(result.data);
+    lastCode.current = code;
+    onScanned(code);
   };
 
   const lineTranslate = scanLine.interpolate({

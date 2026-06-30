@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import { colors } from '../theme';
+import { sanitizeScan } from '../scan/sanitize';
 
 interface Props {
   active: boolean;
@@ -28,8 +29,11 @@ export function BarcodeScanner({ active, onScanned, onClose }: Props) {
   const lastCode = useRef<string>('');
   const lastScanTime = useRef<number>(0);
 
-  const emit = useCallback((code: string) => {
-    if (!code) return;
+  const emit = useCallback((raw: string) => {
+    // Bound/clean before emitting — a malicious QR or runaway scanner can carry
+    // megabytes or control-char junk; sanitizeScan returns null for those.
+    const code = sanitizeScan(raw);
+    if (!code) { console.warn('[BarcodeScanner] dropped invalid scan'); return; }
     const now = Date.now();
     if (code === lastCode.current && now - lastScanTime.current < DEBOUNCE_MS) return;
     lastScanTime.current = now;

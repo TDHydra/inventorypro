@@ -1,6 +1,7 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
+import { runInTransaction } from '../tx';
 
 export interface Location {
   id: string;
@@ -194,7 +195,13 @@ export function getShelvesForParent(parentId: string): Location[] {
 // returning its location id. Newly created shelves are written locally + queued
 // to the sync outbox (real boolean for active/has_shelves). Stock is then tracked
 // against the returned shelf location id.
-export function findOrCreateShelf(parentId: string, name: string): string {
+//
+// CONTRACT: returns null if the shelf could NOT be created (the upsert + outbox
+// writes are wrapped in one transaction and we swallow the error here rather than
+// throw). Callers MUST null-check and surface a "couldn't create shelf" message
+// instead of tracking stock against a missing location. (An empty name returns
+// the parent id unchanged, which is a valid location.)
+export function findOrCreateShelf(parentId: string, name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return parentId;
   const db = getDb();
@@ -212,12 +219,21 @@ export function findOrCreateShelf(parentId: string, name: string): string {
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
   };
-  upsertLocation(shelf);
-  appendOutbox('INSERT', 'locations', {
-    id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
-    owner_user_id: null, active: true, updated_at: now,
-    latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
-  });
+  try {
+    // upsertLocation + appendOutbox are two writes — keep them atomic so we never
+    // create a local shelf the server won't hear about (or vice-versa).
+    runInTransaction(() => {
+      upsertLocation(shelf);
+      appendOutbox('INSERT', 'locations', {
+        id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
+        owner_user_id: null, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
+      });
+    });
+  } catch (err) {
+    console.warn('findOrCreateShelf: failed to create shelf', err);
+    return null;
+  }
   return id;
 }
 
@@ -225,6 +241,10 @@ export function findOrCreateShelf(parentId: string, name: string): string {
 // returning its id. Used by the item "Home location" typeahead where there's no
 // pre-selected parent — shelves are identified by their prefixed name (WH-A1),
 // so a new one is created top-level (parent_id null) and can be re-parented later.
+//
+// CONTRACT: returns null for an empty name OR if the create failed (the upsert +
+// outbox writes are wrapped in one transaction and the error is swallowed here
+// rather than thrown). Callers MUST null-check before using the id.
 export function findOrCreateShelfByName(name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
@@ -242,12 +262,21 @@ export function findOrCreateShelfByName(name: string): string | null {
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
   };
-  upsertLocation(shelf);
-  appendOutbox('INSERT', 'locations', {
-    id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
-    owner_user_id: null, active: true, updated_at: now,
-    latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
-  });
+  try {
+    // Keep the local upsert and the outbox enqueue atomic — partial state here
+    // means a shelf that either never syncs or exists only in the outbox.
+    runInTransaction(() => {
+      upsertLocation(shelf);
+      appendOutbox('INSERT', 'locations', {
+        id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
+        owner_user_id: null, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
+      });
+    });
+  } catch (err) {
+    console.warn('findOrCreateShelfByName: failed to create shelf', err);
+    return null;
+  }
   return id;
 }
 

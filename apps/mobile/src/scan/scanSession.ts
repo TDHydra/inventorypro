@@ -1,4 +1,5 @@
 import { resolveScan } from './resolveScan';
+import { sanitizeScan } from './sanitize';
 import {
   getItemById, getItemByBarcode, findItemByTagPrefix, type InventoryItem,
 } from '../db/queries/items';
@@ -16,9 +17,22 @@ export type ScanClass =
 //  3. raw code → existing item by barcode
 //  4. raw code → equipment model by tag_prefix (new-unit candidate)
 //  5. otherwise unknown.
+//
+// For an un-prefixed raw code (steps 2-4) the lookup PRIORITY is strictly:
+//   asset_tag (exact equipment unit) → barcode (exact item) → tag_prefix
+//   (equipment model / new-unit candidate). The first match wins, so a value
+//   that is both a unit's asset_tag and some item's barcode resolves as the
+//   unit. This ordering must not be reshuffled — callers rely on it.
+//
 // An item is "consumable" when unit_tracked = 0, else equipment.
 export function classifyScan(raw: string): ScanClass {
-  const parsed = resolveScan(raw);
+  // Bound & clean attacker-influenceable scanner/QR input at entry. Junk
+  // (empty, over-length, or control-char noise) sanitizes to null → treat as
+  // unknown rather than feeding it to queries, outbox, or navigation params.
+  const cleaned = sanitizeScan(raw);
+  if (cleaned == null) return { kind: 'unknown', code: '' };
+
+  const parsed = resolveScan(cleaned);
 
   if (parsed?.kind === 'item') {
     const item = getItemById(parsed.id);
@@ -34,7 +48,7 @@ export function classifyScan(raw: string): ScanClass {
     }
   }
 
-  const code = parsed?.kind === 'barcode' ? parsed.code : raw;
+  const code = parsed?.kind === 'barcode' ? parsed.code : cleaned;
 
   const u = getUnitByTag(code);
   if (u) {

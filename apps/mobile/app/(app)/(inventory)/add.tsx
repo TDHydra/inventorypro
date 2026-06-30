@@ -24,6 +24,8 @@ import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
+import { runInTransaction } from '../../../src/db/tx';
+import { parseQuantity, parseOptionalCount, parsePackSize } from '../../../src/lib/validation';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
@@ -246,8 +248,10 @@ export default function AddStockScreen() {
   // Pack size in play for the current add: an existing item's stored pack_size,
   // or (when creating) the entered value. >1 means the Packs/Units toggle applies.
   const newItemPackSize = (() => {
-    const n = parseInt(packSize, 10);
-    return Number.isFinite(n) && n > 1 ? n : null;
+    // Render-safe: parsePackSize rejects negatives / ≤1 / non-integers and blanks
+    // to null. Invalid entries surface a precise error in handleSave (no Alert here).
+    const r = parsePackSize(packSize);
+    return r.ok ? r.value : null;
   })();
   const effectivePackSize = selectedItem
     ? (autofillItem?.pack_size ?? null)
@@ -263,18 +267,6 @@ export default function AddStockScreen() {
       Alert.alert('Required', 'Item name is required.');
       return;
     }
-    if (!isUnitTracked && !selectedLocation) {
-      Alert.alert('Required', 'Select a location.');
-      return;
-    }
-    // Entered value is packs or base units depending on the toggle; stock is
-    // always written in BASE units (entered × pack_size when adding packs).
-    const entered = parseFloat(quantity) || 0;
-    const qty = usePacks ? entered * (effectivePackSize as number) : entered;
-    if (!isUnitTracked && qty <= 0) {
-      Alert.alert('Required', 'Enter a quantity greater than 0.');
-      return;
-    }
 
     // Existing unit-tracked item: nothing to add here — individual units are managed
     // on the item detail screen. Do NOT create a duplicate catalog item or write stock.
@@ -283,71 +275,147 @@ export default function AddStockScreen() {
       return;
     }
 
-    if (isWriteBlocked()) return;
+    if (!selectedLocation) {
+      Alert.alert('Required', 'Select a location.');
+      return;
+    }
+
+    // Validate the new-item numeric fields up front (precise, fixable errors).
+    let validatedPackSize: number | null = null;
+    let validatedMinAlert = 0;
+    let validatedReorderTo: number | null = null;
+    if (isCreatingNew) {
+      const packRes = parsePackSize(packSize);
+      if (!packRes.ok) {
+        Alert.alert('Invalid pack size', packRes.error);
+        return;
+      }
+      validatedPackSize = packRes.value;
+
+      const minAlertRes = parseOptionalCount(minAlert, 'Low-stock alert');
+      if (!minAlertRes.ok) {
+        Alert.alert('Invalid low-stock alert', minAlertRes.error);
+        return;
+      }
+      validatedMinAlert = minAlertRes.value ?? 0;
+
+      const reorderRes = parseOptionalCount(reorderTo, 'Reorder up to');
+      if (!reorderRes.ok) {
+        Alert.alert('Invalid reorder amount', reorderRes.error);
+        return;
+      }
+      validatedReorderTo = reorderRes.value;
+    }
+
+    // Entered value is packs or base units depending on the toggle; stock is
+    // always written in BASE units (entered × pack_size when adding packs).
+    const qtyRes = parseQuantity(quantity);
+    if (!qtyRes.ok) {
+      Alert.alert('Invalid quantity', qtyRes.error);
+      return;
+    }
+    const entered = qtyRes.value;
+    const qty = usePacks ? entered * (effectivePackSize as number) : entered;
+
+    if (isWriteBlocked()) {
+      Alert.alert('Maintenance', 'Writes are paused for maintenance. Try again shortly.');
+      return;
+    }
 
     const now = new Date().toISOString();
     // Unit for the activity log: prefer the existing item's unit, fall back to form state
     const effectiveUnit = autofillItem?.unit ?? unit;
 
-    let itemId: string;
-    if (selectedItem) {
-      itemId = selectedItem.id;
-    } else {
-      // Creating a new catalog item
-      itemId = generateUUID();
-      const payload = {
-        id: itemId,
-        name: name.trim(),
-        barcode: barcode.trim() || null,
-        description: description.trim() || null,
-        sku: null as string | null,
-        supplier: supplier.trim() || null,
-        model: model.trim() || null,
-        kind: 'product' as const,
-        category: itemType || null,
-        returnable: (returnable ? 1 : 0) as number,
-        unit_category: unitCat,
-        unit,
-        min_qty_alert: parseFloat(minAlert) || 0,
-        reorder_to: reorderTo.trim() ? parseFloat(reorderTo) : null,
-        home_location_id: homeLocation?.id === '__new__'
-          ? findOrCreateShelfByName(homeLocation.label)
-          : (homeLocation?.id ?? null),
-        pack_size: newItemPackSize,
-      };
-      upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
-      // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
-      appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable, unit_tracked: false, tag_prefix: null });
-    }
+    // Atomic: optional new-item create + stock adjust + outbox + log all land
+    // together or roll back, so a mid-flow failure can't leave orphaned/lost stock.
+    try {
+      runInTransaction(() => {
+        let itemId: string;
+        if (selectedItem) {
+          itemId = selectedItem.id;
+        } else {
+          // Creating a new catalog item
+          itemId = generateUUID();
+          // Resolve a freshly-typed home-location shelf up front. findOrCreateShelfByName
+          // SWALLOWS write failures and returns null, so leaving it inline (unchecked)
+          // would silently drop the home location AND — if the outbox enqueue threw
+          // after the shelf row was inserted in this same transaction — commit an
+          // orphaned shelf with no outbox entry. Mirror the stock-shelf guard at :369:
+          // null on a '__new__' label means the create failed, so abort and roll back.
+          let homeLocationId: string | null;
+          if (homeLocation?.id === '__new__') {
+            homeLocationId = findOrCreateShelfByName(homeLocation.label);
+            if (!homeLocationId) {
+              throw new Error('Could not create the home location shelf. Please re-pick or re-enter it.');
+            }
+          } else {
+            homeLocationId = homeLocation?.id ?? null;
+          }
+          const payload = {
+            id: itemId,
+            name: name.trim(),
+            barcode: barcode.trim() || null,
+            description: description.trim() || null,
+            sku: null as string | null,
+            supplier: supplier.trim() || null,
+            model: model.trim() || null,
+            kind: 'product' as const,
+            category: itemType || null,
+            returnable: (returnable ? 1 : 0) as number,
+            unit_category: unitCat,
+            unit,
+            min_qty_alert: validatedMinAlert,
+            reorder_to: validatedReorderTo,
+            home_location_id: homeLocationId,
+            pack_size: validatedPackSize,
+          };
+          upsertItem({ ...payload, unit_tracked: 0, tag_prefix: null, active: 1, updated_at: now, synced_at: null });
+          // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
+          appendOutbox('INSERT', 'inventory_items', { ...payload, active: true, updated_at: now, returnable, unit_tracked: false, tag_prefix: null });
+        }
 
-    // If the location has shelves and one was chosen/typed, stock goes to that
-    // shelf (a child location, find-or-created). Otherwise to the location itself.
-    const locationId = (locationHasShelves && shelfValue?.label)
-      ? findOrCreateShelf(selectedLocation!.id, shelfValue.label)
-      : selectedLocation!.id;
-    adjustStock(itemId, locationId, qty);
-    const newQty = getStockQuantity(itemId, locationId);
-    appendOutbox('INSERT', 'stock_by_location', {
-      item_id: itemId, location_id: locationId, quantity: newQty, updated_at: now,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: null,
-      action: 'add_stock',
-      entity_type: 'item',
-      entity_id: itemId,
-      from_location_id: null,
-      to_location_id: locationId,
-      quantity: qty,
-      unit: effectiveUnit,
-      job_id: null,
-      note: null,
-      metadata: null,
-      device_id: null,
-      latitude: coords?.latitude ?? null,
-      longitude: coords?.longitude ?? null,
-      location_accuracy: coords?.accuracy ?? null,
-    });
+        // If the location has shelves and one was chosen/typed, stock goes to that
+        // shelf (a child location, find-or-created). Otherwise to the location itself.
+        const locationId = (locationHasShelves && shelfValue?.label)
+          ? findOrCreateShelf(selectedLocation!.id, shelfValue.label)
+          : selectedLocation!.id;
+        if (!locationId) {
+          // Shelf find-or-create failed — abort so the whole flow rolls back
+          // instead of writing stock to a null location.
+          throw new Error('Could not resolve the shelf location. Please re-pick or re-enter the shelf.');
+        }
+        adjustStock(itemId, locationId, qty);
+        const newQty = getStockQuantity(itemId, locationId);
+        appendOutbox('INSERT', 'stock_by_location', {
+          item_id: itemId, location_id: locationId, quantity: newQty, updated_at: now,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: null,
+          action: 'add_stock',
+          entity_type: 'item',
+          entity_id: itemId,
+          from_location_id: null,
+          to_location_id: locationId,
+          quantity: qty,
+          unit: effectiveUnit,
+          job_id: null,
+          note: null,
+          metadata: null,
+          device_id: null,
+          latitude: coords?.latitude ?? null,
+          longitude: coords?.longitude ?? null,
+          location_accuracy: coords?.accuracy ?? null,
+        });
+      });
+    } catch (err) {
+      // Writes rolled back — surface the reason and do NOT show success.
+      Alert.alert(
+        'Save failed',
+        err instanceof Error ? err.message : 'Could not add stock. Please try again.',
+      );
+      return;
+    }
 
     Alert.alert('Stock Added', `+${qty} ${effectiveUnit} added successfully.`, [
       { text: 'OK', onPress: () => router.back() },

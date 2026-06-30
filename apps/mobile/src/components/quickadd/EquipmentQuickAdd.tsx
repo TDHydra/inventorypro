@@ -2,8 +2,11 @@ import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
+import { Alert } from '../../lib/themedAlert';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
+import { runInTransaction } from '../../db/tx';
+import { sanitizeScan } from '../../scan/sanitize';
 import { searchItems } from '../../db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../db/queries/equipmentUnits';
@@ -50,13 +53,19 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   );
 
   function handleSave() {
-    const tag = assetTag.trim();
     if (!selectedItem) {
       setTagError('Select an item first.');
       return;
     }
-    if (!tag) {
+    if (!assetTag.trim()) {
       setTagError('Asset tag is required.');
+      return;
+    }
+    // Clean/bound the (possibly scanned) tag before the dup checks: drops control
+    // chars and rejects over-length junk so we never store or compare garbage.
+    const tag = sanitizeScan(assetTag);
+    if (!tag) {
+      setTagError('Asset tag is too long or contains invalid characters.');
       return;
     }
 
@@ -85,26 +94,39 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       synced_at: null,
     };
 
-    upsertUnit(u);
-    // synced_at is local-only — strip from the outbox payload (server has no such column).
-    const { synced_at: _s, ...unitRow } = u;
-    appendOutbox('INSERT', 'equipment_units', { ...unitRow });
-    appendLog({
-      action: 'add_units',
-      entity_type: 'equipment_unit',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      note: tag,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      metadata: null,
-      device_id: null,
-    });
+    // Atomic write: upsert + outbox + log all-or-nothing so a mid-flow failure
+    // can't leave an orphaned unit or a lost outbox/log entry.
+    try {
+      runInTransaction(() => {
+        upsertUnit(u);
+        // synced_at is local-only — strip from the outbox payload (server has no such column).
+        const { synced_at: _s, ...unitRow } = u;
+        appendOutbox('INSERT', 'equipment_units', { ...unitRow });
+        appendLog({
+          action: 'add_units',
+          entity_type: 'equipment_unit',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          note: tag,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch {
+      Alert.alert(
+        'Couldn’t save unit',
+        'Something went wrong saving this unit, so nothing was changed. Please try again.',
+      );
+      return;
+    }
 
+    // Writes succeeded — only now clear the tag/serial and signal success.
     onSaved(tag, id);
     setAssetTag(''); // clear tag+serial; keep item sticky
     setSerial('');
