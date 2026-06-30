@@ -15,6 +15,7 @@ import {
 import { getAllTeams, addTeamMember } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getDb } from '../../../src/db/schema';
+import { runInTransaction } from '../../../src/db/tx';
 import { getValidJwt } from '../../../src/auth/session';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
@@ -80,11 +81,15 @@ async function createUserOnline(name: string, role: UserRole): Promise<string> {
 function savePermissionOverrides(userId: string, overrides: Record<string, boolean>): void {
   const db = getDb();
   const now = new Date().toISOString();
-  db.executeSync(
-    `UPDATE users SET permission_overrides = ?, updated_at = ? WHERE id = ?`,
-    [JSON.stringify(overrides), now, userId]
-  );
-  appendOutbox('UPDATE', 'users', { id: userId, permission_overrides: overrides, updated_at: now });
+  // Local row + outbox mirror must land together — one transaction so a failed
+  // outbox enqueue can't leave the row updated without a sync record.
+  runInTransaction(() => {
+    db.executeSync(
+      `UPDATE users SET permission_overrides = ?, updated_at = ? WHERE id = ?`,
+      [JSON.stringify(overrides), now, userId]
+    );
+    appendOutbox('UPDATE', 'users', { id: userId, permission_overrides: overrides, updated_at: now });
+  });
 }
 
 function parseOverrides(user: User): Record<string, boolean> {
@@ -191,30 +196,39 @@ export default function AdminUsersScreen() {
     const roleChanged = editRole !== editUser.role;
     const otherFieldsChanged = editName.trim() !== editUser.name ||
       (editExpiry ?? null) !== (editUser.expires_at ?? null);
-    const now = updateUserLocal(editUser.id, fields as never);
-    appendOutbox('UPDATE', 'users', { id: editUser.id, ...fields, updated_at: now });
     const adminId = sessionUser?.id ?? null;
-    if (roleChanged) {
-      appendLog({
-        action: 'user_role_changed',
-        entity_type: 'user',
-        entity_id: editUser.id,
-        user_id: adminId,
-        note: `${editUser.name}: ${editUser.role} → ${editRole}`,
-        team_id: null, from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    // Local update + outbox mirror + activity log all commit together; on any
+    // failure nothing is written and we keep the sheet open so the admin can retry.
+    try {
+      runInTransaction(() => {
+        const now = updateUserLocal(editUser.id, fields as never);
+        appendOutbox('UPDATE', 'users', { id: editUser.id, ...fields, updated_at: now });
+        if (roleChanged) {
+          appendLog({
+            action: 'user_role_changed',
+            entity_type: 'user',
+            entity_id: editUser.id,
+            user_id: adminId,
+            note: `${editUser.name}: ${editUser.role} → ${editRole}`,
+            team_id: null, from_location_id: null, to_location_id: null,
+            quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+          });
+        }
+        if (otherFieldsChanged && !roleChanged) {
+          appendLog({
+            action: 'user_updated',
+            entity_type: 'user',
+            entity_id: editUser.id,
+            user_id: adminId,
+            note: `${editUser.name}: updated ${Object.keys(fields).join(', ')}`,
+            team_id: null, from_location_id: null, to_location_id: null,
+            quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+          });
+        }
       });
-    }
-    if (otherFieldsChanged && !roleChanged) {
-      appendLog({
-        action: 'user_updated',
-        entity_type: 'user',
-        entity_id: editUser.id,
-        user_id: adminId,
-        note: `${editUser.name}: updated ${Object.keys(fields).join(', ')}`,
-        team_id: null, from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-      });
+    } catch (err) {
+      Alert.alert('Could not save changes', (err as Error).message);
+      return;
     }
     refresh();
     setEditUser(null);
@@ -234,17 +248,26 @@ export default function AdminUsersScreen() {
         {
           text: verb, style: next ? 'default' : 'destructive',
           onPress: () => {
-            const now = updateUserLocal(editUser.id, { active: next } as never);
-            appendOutbox('UPDATE', 'users', { id: editUser.id, active: !!next, updated_at: now });
-            appendLog({
-              action: 'user_updated',
-              entity_type: 'user',
-              entity_id: editUser.id,
-              user_id: sessionUser?.id ?? null,
-              note: `${editUser.name}: ${next ? 'reactivated' : 'deactivated'}`,
-              team_id: null, from_location_id: null, to_location_id: null,
-              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-            });
+            // Row + outbox + log commit atomically; only mirror the new state
+            // locally once the write succeeds, otherwise revert by doing nothing.
+            try {
+              runInTransaction(() => {
+                const now = updateUserLocal(editUser.id, { active: next } as never);
+                appendOutbox('UPDATE', 'users', { id: editUser.id, active: !!next, updated_at: now });
+                appendLog({
+                  action: 'user_updated',
+                  entity_type: 'user',
+                  entity_id: editUser.id,
+                  user_id: sessionUser?.id ?? null,
+                  note: `${editUser.name}: ${next ? 'reactivated' : 'deactivated'}`,
+                  team_id: null, from_location_id: null, to_location_id: null,
+                  quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+                });
+              });
+            } catch (err) {
+              Alert.alert(`Could not ${verb.toLowerCase()} user`, (err as Error).message);
+              return;
+            }
             const updated = { ...editUser, active: next };
             setEditUser(updated);
             refresh();
@@ -306,18 +329,31 @@ export default function AdminUsersScreen() {
     const ids = [...sel.selected];
     if (ids.length === 0) return;
     const adminId = sessionUser?.id ?? null;
-    for (const id of ids) {
-      const u = users.find(x => x.id === id);
-      setUserActive(id, active);
-      appendLog({
-        action: 'user_updated',
-        entity_type: 'user',
-        entity_id: id,
-        user_id: adminId,
-        note: `${u?.name ?? id}: ${active ? 'reactivated' : 'deactivated'}`,
-        team_id: null, from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    // Whole batch in ONE transaction — if any user fails, the entire set rolls
+    // back so we never half-apply a bulk action. The failing user is named.
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          const u = users.find(x => x.id === id);
+          try {
+            setUserActive(id, active);
+            appendLog({
+              action: 'user_updated',
+              entity_type: 'user',
+              entity_id: id,
+              user_id: adminId,
+              note: `${u?.name ?? id}: ${active ? 'reactivated' : 'deactivated'}`,
+              team_id: null, from_location_id: null, to_location_id: null,
+              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+            });
+          } catch (err) {
+            throw new Error(`${u?.name ?? id}: ${(err as Error).message}`);
+          }
+        }
       });
+    } catch (err) {
+      Alert.alert('Could not update users', `${(err as Error).message}\n\nNo changes were made.`);
+      return;
     }
     refresh();
     sel.exit();
@@ -332,18 +368,31 @@ export default function AdminUsersScreen() {
     // Move pin_length_required to the new role's minimum too — same as the
     // single-row edit (saveEdits), so a promotion can't keep a shorter PIN.
     const pinLen = roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
-    for (const id of ids) {
-      const u = users.find(x => x.id === id);
-      setUserRole(id, role, pinLen);
-      appendLog({
-        action: 'user_role_changed',
-        entity_type: 'user',
-        entity_id: id,
-        user_id: adminId,
-        note: `${u?.name ?? id}: ${u?.role ?? '?'} → ${role}`,
-        team_id: null, from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+    // One transaction for the whole batch — a mid-loop failure rolls every role
+    // change back so we never leave some users promoted and others not.
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          const u = users.find(x => x.id === id);
+          try {
+            setUserRole(id, role, pinLen);
+            appendLog({
+              action: 'user_role_changed',
+              entity_type: 'user',
+              entity_id: id,
+              user_id: adminId,
+              note: `${u?.name ?? id}: ${u?.role ?? '?'} → ${role}`,
+              team_id: null, from_location_id: null, to_location_id: null,
+              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+            });
+          } catch (err) {
+            throw new Error(`${u?.name ?? id}: ${(err as Error).message}`);
+          }
+        }
       });
+    } catch (err) {
+      Alert.alert('Could not change roles', `${(err as Error).message}\n\nNo changes were made.`);
+      return;
     }
     refresh();
     sel.exit();
@@ -356,33 +405,46 @@ export default function AdminUsersScreen() {
     if (ids.length === 0) return;
     const adminId = sessionUser?.id ?? null;
     let added = 0;
-    for (const id of ids) {
-      // INSERT OR IGNORE — null means the user was already on the team; skip its
-      // outbox/log so we don't enqueue a no-op write (mirrors teams/[id].tsx).
-      const result = addTeamMember(teamId, id, {}, adminId);
-      if (result === null) continue;
-      const { joined_at } = result;
-      appendOutbox('INSERT', 'team_members', {
-        team_id: teamId,
-        user_id: id,
-        team_permission_overrides: '{}',
-        added_by: adminId,
-        joined_at,
+    // Whole batch in one transaction — every member insert (+ its outbox/log)
+    // commits together or none do, so a failure can't half-add the group.
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          const u = users.find(x => x.id === id);
+          try {
+            // INSERT OR IGNORE — null means the user was already on the team; skip its
+            // outbox/log so we don't enqueue a no-op write (mirrors teams/[id].tsx).
+            const result = addTeamMember(teamId, id, {}, adminId);
+            if (result === null) continue;
+            const { joined_at } = result;
+            appendOutbox('INSERT', 'team_members', {
+              team_id: teamId,
+              user_id: id,
+              team_permission_overrides: '{}',
+              added_by: adminId,
+              joined_at,
+            });
+            appendLog({
+              user_id: adminId,
+              team_id: teamId,
+              action: 'team_member_added',
+              entity_type: 'team',
+              entity_id: teamId,
+              from_location_id: null, to_location_id: null,
+              quantity: null, unit: null, job_id: null,
+              note: u?.name ?? id,
+              metadata: JSON.stringify({ member_user_id: id }),
+              device_id: null,
+            });
+            added++;
+          } catch (err) {
+            throw new Error(`${u?.name ?? id}: ${(err as Error).message}`);
+          }
+        }
       });
-      const u = users.find(x => x.id === id);
-      appendLog({
-        user_id: adminId,
-        team_id: teamId,
-        action: 'team_member_added',
-        entity_type: 'team',
-        entity_id: teamId,
-        from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null,
-        note: u?.name ?? id,
-        metadata: JSON.stringify({ member_user_id: id }),
-        device_id: null,
-      });
-      added++;
+    } catch (err) {
+      Alert.alert('Could not add to team', `${(err as Error).message}\n\nNo changes were made.`);
+      return;
     }
     refresh();
     sel.exit();
@@ -526,16 +588,25 @@ export default function AdminUsersScreen() {
     } else {
       overrides[permission] = nextVal;
     }
-    savePermissionOverrides(userId, overrides);
-    appendLog({
-      action: 'user_permission_changed',
-      entity_type: 'user',
-      entity_id: userId,
-      user_id: sessionUser?.id ?? null,
-      note: `${permission}: ${nextVal}`,
-      team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-    });
+    // Override write (row + outbox) and the audit log commit together; on failure
+    // we leave state untouched so the Switch springs back to its prior value.
+    try {
+      runInTransaction(() => {
+        savePermissionOverrides(userId, overrides);
+        appendLog({
+          action: 'user_permission_changed',
+          entity_type: 'user',
+          entity_id: userId,
+          user_id: sessionUser?.id ?? null,
+          note: `${permission}: ${nextVal}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+        });
+      });
+    } catch (err) {
+      Alert.alert('Could not update permission', (err as Error).message);
+      return;
+    }
     refresh();
     if (editUser?.id === userId) {
       setEditUser(prev => prev ? { ...prev, permission_overrides: JSON.stringify(overrides) } : null);

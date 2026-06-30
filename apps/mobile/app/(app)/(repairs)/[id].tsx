@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { Alert } from '../../../src/lib/themedAlert';
+import { runInTransaction } from '../../../src/db/tx';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -80,10 +82,23 @@ export default function RepairDetailScreen() {
 
   function saveFields() {
     if (!repair || isWriteBlocked()) return;
-    updateRepairFields(repair.id, {
-      notes: notes.trim() || null,
-      parts_needed: parts.trim() || null,
-    });
+    // updateRepairFields already queues its own outbox UPDATE for 'repairs'
+    // (synced_at stripped), so the edit syncs. Wrap in a transaction + guard so
+    // a failed write can't false-succeed (clear dirty / refresh the form).
+    try {
+      runInTransaction(() => {
+        updateRepairFields(repair.id, {
+          notes: notes.trim() || null,
+          parts_needed: parts.trim() || null,
+        });
+      });
+    } catch (err) {
+      Alert.alert(
+        'Could not save changes',
+        (err as Error)?.message ?? 'The repair edit could not be saved. Please try again.',
+      );
+      return;
+    }
     reload();
   }
 
@@ -113,19 +128,33 @@ export default function RepairDetailScreen() {
     if (label === repair.status) return;
     const terminal = isTerminalStatus(label);
     const wasCompleted = repair.completed_at != null;
-    updateRepairStatus(repair.id, label, terminal);
-    logStatus(
-      terminal ? 'repair_completed' : 'repair_status_changed',
-      `Status → ${label}`,
-    );
+    // Atomic: status write + log + any reopen auto-drive land together so a
+    // mid-flow failure can't leave the repair status and the unit out of sync.
+    try {
+      runInTransaction(() => {
+        updateRepairStatus(repair.id, label, terminal);
+        logStatus(
+          terminal ? 'repair_completed' : 'repair_status_changed',
+          `Status → ${label}`,
+        );
+        if (!terminal && wasCompleted && repair.entity_type === 'equipment_unit') {
+          // Reopening a completed repair drives the unit back to in_repair (symmetric
+          // with create-time auto-drive) so it isn't "available" with an open ticket.
+          outboxUnit(setUnitStatus(repair.entity_id, { status: 'in_repair', notes: null }));
+        }
+      });
+    } catch (err) {
+      Alert.alert(
+        'Could not update status',
+        (err as Error)?.message ?? 'The repair status could not be saved. Please try again.',
+      );
+      return;
+    }
     if (terminal && repair.entity_type === 'equipment_unit') {
-      // Completing a ticket on an equipment unit returns it to service.
+      // Completing a ticket on an equipment unit returns it to service — prompt
+      // for the return location now that the status write has committed.
       setReturnLoc(null);
       setReturnUnitId(repair.entity_id);
-    } else if (!terminal && wasCompleted && repair.entity_type === 'equipment_unit') {
-      // Reopening a completed repair drives the unit back to in_repair (symmetric
-      // with create-time auto-drive) so it isn't "available" with an open ticket.
-      outboxUnit(setUnitStatus(repair.entity_id, { status: 'in_repair', notes: null }));
     }
     reload();
   }
@@ -135,17 +164,30 @@ export default function RepairDetailScreen() {
   function confirmReturn(loc: PickerOption | null) {
     if (!repair || !returnUnitId) return;
     if (isWriteBlocked()) { setReturnUnitId(null); setReturnLoc(null); return; }
-    const updated = setUnitStatus(returnUnitId, {
-      status: 'available', current_location_id: loc?.id ?? null, notes: null,
-    });
-    outboxUnit(updated);
-    appendLog({
-      user_id: user?.id ?? null, team_id: null, action: 'repair_in',
-      entity_type: 'item', entity_id: updated.item_id,
-      from_location_id: null, to_location_id: loc?.id ?? null, quantity: null, unit: null, job_id: null,
-      note: 'unit ' + updated.asset_tag + ' returned from repair',
-      metadata: null, device_id: null,
-    });
+    // Atomic: drive the unit back to available, queue its outbox UPDATE, and log
+    // the return together so a failure can't leave the unit half-returned.
+    try {
+      runInTransaction(() => {
+        const updated = setUnitStatus(returnUnitId, {
+          status: 'available', current_location_id: loc?.id ?? null, notes: null,
+        });
+        outboxUnit(updated);
+        appendLog({
+          user_id: user?.id ?? null, team_id: null, action: 'repair_in',
+          entity_type: 'item', entity_id: updated.item_id,
+          from_location_id: null, to_location_id: loc?.id ?? null, quantity: null, unit: null, job_id: null,
+          note: 'unit ' + updated.asset_tag + ' returned from repair',
+          metadata: null, device_id: null,
+        });
+      });
+    } catch (err) {
+      // Keep the modal open so the user can retry returning the unit.
+      Alert.alert(
+        'Could not return unit',
+        (err as Error)?.message ?? 'The unit could not be returned to service. Please try again.',
+      );
+      return;
+    }
     setReturnUnitId(null);
     setReturnLoc(null);
     reload();

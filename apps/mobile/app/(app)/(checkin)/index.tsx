@@ -14,6 +14,8 @@ import { rowsAs } from '../../../src/db/schema';
 import { adjustStock } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { runInTransaction } from '../../../src/db/tx';
+import { parseQuantity } from '../../../src/lib/validation';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
@@ -69,6 +71,9 @@ export default function CheckinScreen() {
 
   // Permission gate + stable UUIDs for optional movement photos
   const canUploadMedia = usePermission('upload_media');
+  // Server stays authoritative; this is UX defense so users without check-in
+  // rights can't fire a write that would only fail/reject on push.
+  const canCheckin = usePermission('checkin_inventory');
   const [checkinEventId, setCheckinEventId] = useState<string>(() => generateUUID());
   const [unitCheckinEventId, setUnitCheckinEventId] = useState<string>(() => generateUUID());
 
@@ -132,63 +137,84 @@ export default function CheckinScreen() {
   async function handleCheckin() {
     if (isWriteBlocked()) return;
     if (!user || selected.size === 0 || !returnLocation) return;
+    if (!canCheckin) {
+      Alert.alert('Not Allowed', 'You don’t have permission to check in inventory.');
+      return;
+    }
 
     const toReturn = checkouts.filter(c => selected.has(c.log_id));
 
-    // Validate all quantities before writing anything
+    // Validate all quantities before writing anything; keep the parsed values so
+    // the write loop doesn't re-parse (and can't diverge from what we validated).
+    const returnQtyById: Record<string, number> = {};
     for (const item of toReturn) {
-      const entered = parseFloat(returnQtys[item.log_id] ?? '');
-      if (isNaN(entered) || entered <= 0) {
-        Alert.alert('Invalid Quantity', `Return quantity for "${item.item_name}" must be greater than 0.`);
+      const parsed = parseQuantity(returnQtys[item.log_id] ?? '', `Return quantity for "${item.item_name}"`);
+      if (!parsed.ok) {
+        Alert.alert('Invalid Quantity', parsed.error);
         return;
       }
-      if (entered > item.quantity) {
+      if (parsed.value > item.quantity) {
         Alert.alert(
           'Invalid Quantity',
           `Return quantity for "${item.item_name}" cannot exceed the checked-out amount (${formatQuantity(item.quantity, item.unit, item.unit_category as any)}).`
         );
         return;
       }
+      returnQtyById[item.log_id] = parsed.value;
     }
 
     setSubmitting(true);
     const now = new Date().toISOString();
-    let primaryCheckinLogged = false;
 
-    for (const item of toReturn) {
-      const returnQty = parseFloat(returnQtys[item.log_id] ?? '');
+    // Atomic batch: every item's stock adjust + outbox + log lands together, or
+    // nothing does — a mid-loop failure can't leave a partial return.
+    try {
+      runInTransaction(() => {
+        let primaryCheckinLogged = false;
+        for (const item of toReturn) {
+          const returnQty = returnQtyById[item.log_id];
 
-      adjustStock(item.entity_id, returnLocation.id, returnQty);
+          adjustStock(item.entity_id, returnLocation.id, returnQty);
 
-      appendOutbox('ADJUST', 'stock_by_location', {
-        item_id: item.entity_id,
-        location_id: returnLocation.id,
-        delta: returnQty,
-        updated_at: now,
+          appendOutbox('ADJUST', 'stock_by_location', {
+            item_id: item.entity_id,
+            location_id: returnLocation.id,
+            delta: returnQty,
+            updated_at: now,
+          });
+
+          appendLog({
+            user_id: user.id,
+            team_id: null,
+            action: 'checkin',
+            entity_type: 'item',
+            entity_id: item.entity_id,
+            from_location_id: null,
+            to_location_id: returnLocation.id,
+            quantity: returnQty,
+            unit: item.unit,
+            job_id: item.job_id,
+            note: null,
+            metadata: null,
+            device_id: null,
+            latitude: coords?.latitude ?? null,
+            longitude: coords?.longitude ?? null,
+            location_accuracy: coords?.accuracy ?? null,
+            ...(!primaryCheckinLogged && { id: checkinEventId }),
+          });
+          primaryCheckinLogged = true;
+        }
       });
-
-      appendLog({
-        user_id: user.id,
-        team_id: null,
-        action: 'checkin',
-        entity_type: 'item',
-        entity_id: item.entity_id,
-        from_location_id: null,
-        to_location_id: returnLocation.id,
-        quantity: returnQty,
-        unit: item.unit,
-        job_id: item.job_id,
-        note: null,
-        metadata: null,
-        device_id: null,
-        latitude: coords?.latitude ?? null,
-        longitude: coords?.longitude ?? null,
-        location_accuracy: coords?.accuracy ?? null,
-        ...(!primaryCheckinLogged && { id: checkinEventId }),
-      });
-      primaryCheckinLogged = true;
+    } catch (err) {
+      setSubmitting(false);
+      Alert.alert(
+        'Check-In Failed',
+        `Could not return the selected items, so nothing was changed. Please try again.\n\n${err instanceof Error ? err.message : String(err)}`
+      );
+      return;
     }
 
+    // Side-effects only after the writes have committed.
     setSubmitting(false);
     setShowModal(false);
     // Reset modal inputs after successful submit
@@ -238,54 +264,73 @@ export default function CheckinScreen() {
   async function handleUnitCheckin() {
     if (isWriteBlocked()) return;
     if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
+    if (!canCheckin) {
+      Alert.alert('Not Allowed', 'You don’t have permission to check in inventory.');
+      return;
+    }
     const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
     setUnitSubmitting(true);
-    let primaryUnitCheckinLogged = false;
 
-    for (const unit of toReturn) {
-      // Capture job_id before setUnitStatus clears it
-      const jobIdForLog = unit.current_job_id;
-      const u = setUnitStatus(unit.id, {
-        status: 'available',
-        current_location_id: unitReturnLocation.id,
-        current_job_id: null,
+    // Atomic batch: each unit's status update + outbox + log lands together, or
+    // nothing does — a mid-loop failure can't leave some units returned and
+    // others not.
+    try {
+      runInTransaction(() => {
+        let primaryUnitCheckinLogged = false;
+        for (const unit of toReturn) {
+          // Capture job_id before setUnitStatus clears it
+          const jobIdForLog = unit.current_job_id;
+          const u = setUnitStatus(unit.id, {
+            status: 'available',
+            current_location_id: unitReturnLocation.id,
+            current_job_id: null,
+          });
+          // Full upsert by id; no synced_at
+          appendOutbox('INSERT', 'equipment_units', {
+            id: u.id,
+            item_id: u.item_id,
+            asset_tag: u.asset_tag,
+            serial_number: u.serial_number,
+            status: 'available',
+            current_location_id: unitReturnLocation.id,
+            current_job_id: null,
+            notes: u.notes,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+          });
+          // appendLog self-enqueues activity_log — never separately outbox it
+          appendLog({
+            user_id: user.id,
+            team_id: null,
+            action: 'checkin',
+            entity_type: 'item',
+            entity_id: u.item_id,
+            from_location_id: null,
+            to_location_id: unitReturnLocation.id,
+            quantity: 1,
+            unit: null,
+            job_id: jobIdForLog,
+            note: 'unit ' + u.asset_tag,
+            metadata: null,
+            device_id: null,
+            latitude: coords?.latitude ?? null,
+            longitude: coords?.longitude ?? null,
+            location_accuracy: coords?.accuracy ?? null,
+            ...(!primaryUnitCheckinLogged && { id: unitCheckinEventId }),
+          });
+          primaryUnitCheckinLogged = true;
+        }
       });
-      // Full upsert by id; no synced_at
-      appendOutbox('INSERT', 'equipment_units', {
-        id: u.id,
-        item_id: u.item_id,
-        asset_tag: u.asset_tag,
-        serial_number: u.serial_number,
-        status: 'available',
-        current_location_id: unitReturnLocation.id,
-        current_job_id: null,
-        notes: u.notes,
-        created_at: u.created_at,
-        updated_at: u.updated_at,
-      });
-      // appendLog self-enqueues activity_log — never separately outbox it
-      appendLog({
-        user_id: user.id,
-        team_id: null,
-        action: 'checkin',
-        entity_type: 'item',
-        entity_id: u.item_id,
-        from_location_id: null,
-        to_location_id: unitReturnLocation.id,
-        quantity: 1,
-        unit: null,
-        job_id: jobIdForLog,
-        note: 'unit ' + u.asset_tag,
-        metadata: null,
-        device_id: null,
-        latitude: coords?.latitude ?? null,
-        longitude: coords?.longitude ?? null,
-        location_accuracy: coords?.accuracy ?? null,
-        ...(!primaryUnitCheckinLogged && { id: unitCheckinEventId }),
-      });
-      primaryUnitCheckinLogged = true;
+    } catch (err) {
+      setUnitSubmitting(false);
+      Alert.alert(
+        'Check-In Failed',
+        `Could not return the selected units, so nothing was changed. Please try again.\n\n${err instanceof Error ? err.message : String(err)}`
+      );
+      return;
     }
 
+    // Side-effects only after the writes have committed.
     setUnitSubmitting(false);
     setShowUnitModal(false);
     // Reset modal inputs after successful submit
@@ -467,9 +512,12 @@ export default function CheckinScreen() {
             <PrimaryButton
               label={submitting ? 'Returning...' : 'Confirm Return'}
               loading={submitting}
-              disabled={!returnLocation || locked}
+              disabled={!returnLocation || locked || !canCheckin}
               onPress={handleCheckin}
             />
+            {!canCheckin && (
+              <Text style={s.permNote}>You don’t have permission to check in inventory.</Text>
+            )}
             {locked && <MaintenanceBanner />}
             <TouchableOpacity style={s.cancel} onPress={() => setShowModal(false)}>
               <Text style={s.cancelText}>Cancel</Text>
@@ -521,9 +569,12 @@ export default function CheckinScreen() {
             <PrimaryButton
               label={unitSubmitting ? 'Returning...' : 'Confirm Return'}
               loading={unitSubmitting}
-              disabled={!unitReturnLocation || locked}
+              disabled={!unitReturnLocation || locked || !canCheckin}
               onPress={handleUnitCheckin}
             />
+            {!canCheckin && (
+              <Text style={s.permNote}>You don’t have permission to check in inventory.</Text>
+            )}
             {locked && <MaintenanceBanner />}
             <TouchableOpacity style={s.cancel} onPress={() => setShowUnitModal(false)}>
               <Text style={s.cancelText}>Cancel</Text>
@@ -582,4 +633,5 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   scanAddText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
+  permNote: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
 });

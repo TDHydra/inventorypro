@@ -14,6 +14,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { getDb } from '../../../src/db/schema';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
@@ -169,33 +170,42 @@ export default function LocationDetailScreen() {
       longitude: rules.gps ? (editLongitude ?? null) : null,
     };
     // subareas_require_owner: real boolean in the outbox, INTEGER locally (mirrors `active`).
-    upsertLocation({
-      ...location, ...changes,
-      subareas_require_owner: editRequireOwner ? 1 : 0,
-      has_shelves: editHasShelves ? 1 : 0,
-      active: 1, updated_at: now, synced_at: null,
-    });
-    appendOutbox('UPDATE', 'locations', {
-      id, ...changes,
-      subareas_require_owner: editRequireOwner,
-      has_shelves: editHasShelves,
-      active: true, updated_at: now,
-    });
-    appendLog({
-      action: 'location_updated',
-      entity_type: 'location',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: changes.name,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: null,
-      device_id: null,
-    });
+    // Atomic: local row upsert + outbox + log either all land or none do.
+    try {
+      runInTransaction(() => {
+        upsertLocation({
+          ...location, ...changes,
+          subareas_require_owner: editRequireOwner ? 1 : 0,
+          has_shelves: editHasShelves ? 1 : 0,
+          active: 1, updated_at: now, synced_at: null,
+        });
+        appendOutbox('UPDATE', 'locations', {
+          id, ...changes,
+          subareas_require_owner: editRequireOwner,
+          has_shelves: editHasShelves,
+          active: true, updated_at: now,
+        });
+        appendLog({
+          action: 'location_updated',
+          entity_type: 'location',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          job_id: null,
+          note: changes.name,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Save failed', `Couldn't save changes to this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    // Only reflect success in the UI after the writes committed.
     setLocation(getLocationById(id));
     setShowEdit(false);
   }
@@ -213,26 +223,33 @@ export default function LocationDetailScreen() {
           text: 'Restore',
           onPress: () => {
             const now = new Date().toISOString();
-            getDb().executeSync(
-              `UPDATE locations SET active=1, updated_at=? WHERE id=?`,
-              [now, id]
-            );
-            appendOutbox('UPDATE', 'locations', { id, active: true, updated_at: now });
-            appendLog({
-              action: 'location_restored',
-              entity_type: 'location',
-              entity_id: id,
-              user_id: user?.id ?? null,
-              team_id: null,
-              job_id: null,
-              note: location.name,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              metadata: null,
-              device_id: null,
-            });
+            try {
+              runInTransaction(() => {
+                getDb().executeSync(
+                  `UPDATE locations SET active=1, updated_at=? WHERE id=?`,
+                  [now, id]
+                );
+                appendOutbox('UPDATE', 'locations', { id, active: true, updated_at: now });
+                appendLog({
+                  action: 'location_restored',
+                  entity_type: 'location',
+                  entity_id: id,
+                  user_id: user?.id ?? null,
+                  team_id: null,
+                  job_id: null,
+                  note: location.name,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  metadata: null,
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Restore failed', `Couldn't restore this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+              return;
+            }
             setLocation(getLocationById(id));
           },
         },
@@ -254,26 +271,34 @@ export default function LocationDetailScreen() {
           style: 'destructive',
           onPress: () => {
             const now = new Date().toISOString();
-            getDb().executeSync(
-              `UPDATE locations SET active=0, updated_at=? WHERE id=?`,
-              [now, id]
-            );
-            appendOutbox('UPDATE', 'locations', { id, active: false, updated_at: now });
-            appendLog({
-              action: 'location_archived',
-              entity_type: 'location',
-              entity_id: id,
-              user_id: user?.id ?? null,
-              team_id: null,
-              job_id: null,
-              note: location.name,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              metadata: null,
-              device_id: null,
-            });
+            try {
+              runInTransaction(() => {
+                getDb().executeSync(
+                  `UPDATE locations SET active=0, updated_at=? WHERE id=?`,
+                  [now, id]
+                );
+                appendOutbox('UPDATE', 'locations', { id, active: false, updated_at: now });
+                appendLog({
+                  action: 'location_archived',
+                  entity_type: 'location',
+                  entity_id: id,
+                  user_id: user?.id ?? null,
+                  team_id: null,
+                  job_id: null,
+                  note: location.name,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  metadata: null,
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Archive failed', `Couldn't archive this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+              return;
+            }
+            // Navigate away only after the archive actually committed.
             router.back();
           },
         },

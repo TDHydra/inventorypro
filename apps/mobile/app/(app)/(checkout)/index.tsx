@@ -82,6 +82,7 @@ export default function CheckoutScreen() {
   const { coords, request } = useCurrentPosition();
 
   // Permission gates
+  const canCheckout = usePermission('checkout_inventory');
   const canCreateJobs = usePermission('create_jobs');
   const canUploadMedia = usePermission('upload_media');
   // Stable UUID for the checkout event; refreshed each time we enter the confirm step
@@ -376,6 +377,10 @@ export default function CheckoutScreen() {
 
   async function handleConfirm() {
     if (isWriteBlocked()) return;
+    if (!canCheckout) {
+      Alert.alert('Not allowed', "You don't have permission to check out inventory.");
+      return;
+    }
     if (!selectedItem || !selectedLocation || !user || !destType) return;
     const itemId = selectedItem.id;
     const source = selectedLocation.location_id;
@@ -881,7 +886,7 @@ export default function CheckoutScreen() {
         <PrimaryButton
           label="Confirm ✓"
           loading={submitting}
-          disabled={locked}
+          disabled={locked || !canCheckout}
           onPress={handleConfirm}
           style={{ marginTop: 20 }}
         />

@@ -8,6 +8,7 @@ import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, Job,
 } from '../../../src/db/queries/jobs';
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
@@ -130,22 +131,31 @@ export default function JobDetailScreen() {
       insurance_carrier: editInsuranceCarrier.trim() || null,
     };
 
-    updateJobFields(id, fields);
-    appendLog({
-      action: 'job_updated',
-      entity_type: 'job',
-      entity_id: id,
-      user_id: user.id,
-      note: trimmed,
-      team_id: null,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: id,
-      metadata: null,
-      device_id: null,
-    });
+    // Field update + audit log must commit together; on failure keep the edit
+    // form open (don't close/reload) so the user can retry without losing input.
+    try {
+      runInTransaction(() => {
+        updateJobFields(id, fields);
+        appendLog({
+          action: 'job_updated',
+          entity_type: 'job',
+          entity_id: id,
+          user_id: user.id,
+          note: trimmed,
+          team_id: null,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: id,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not save changes', e instanceof Error ? e.message : 'Your changes could not be saved. Please try again.');
+      return;
+    }
 
     setEditing(false);
     reload();
@@ -161,22 +171,31 @@ export default function JobDetailScreen() {
         {
           text: 'Archive', style: 'destructive',
           onPress: () => {
-            archiveJob(id);
-            appendLog({
-              action: 'job_archived',
-              entity_type: 'job',
-              entity_id: id,
-              user_id: user.id,
-              note: job!.name,
-              team_id: null,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              job_id: id,
-              metadata: null,
-              device_id: null,
-            });
+            // Archive + audit log atomically; only navigate away once committed
+            // so a failed archive doesn't leave the user thinking it worked.
+            try {
+              runInTransaction(() => {
+                archiveJob(id);
+                appendLog({
+                  action: 'job_archived',
+                  entity_type: 'job',
+                  entity_id: id,
+                  user_id: user.id,
+                  note: job!.name,
+                  team_id: null,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  job_id: id,
+                  metadata: null,
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Could not archive job', e instanceof Error ? e.message : 'The job could not be archived. Please try again.');
+              return;
+            }
             router.back();
           },
         },

@@ -12,6 +12,8 @@ import {
 } from '../../../src/db/queries/users';
 import { loadRolePermissionCache } from '../../../src/auth/permissions';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { runInTransaction } from '../../../src/db/tx';
+import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
@@ -103,22 +105,39 @@ export default function RolesScreen() {
     const def = ROLE_DEFAULTS[role][perm];
     const { value: cur } = effectivePerm(role, perm);
     const next = !cur;
-    // Toggling back to the default removes the override key (clean reset).
-    setRolePermission(role, perm, next === def ? null : next);
+    try {
+      // The override write + its activity log land together so a mid-flow failure
+      // can't leave the override saved without a log entry (or vice-versa).
+      runInTransaction(() => {
+        // Toggling back to the default removes the override key (clean reset).
+        // setRolePermission already mirrors the permission_overrides UPDATE to the
+        // sync outbox internally (see queries/users.ts), so the change syncs — we do
+        // NOT append another outbox row here or it would double-sync the same row.
+        setRolePermission(role, perm, next === def ? null : next);
+        appendLog({
+          action: 'role_permission_changed',
+          entity_type: 'role_settings',
+          // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
+          // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
+          // input syntax for type uuid"). Keep entity_id null; carry the role in the
+          // note + metadata. The permission change itself syncs via role_settings UPDATE.
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not update permission',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
+    // Commit succeeded — refresh the permission cache + local override map so the UI
+    // reflects the committed change.
     loadRolePermissionCache();
-    appendLog({
-      action: 'role_permission_changed',
-      entity_type: 'role_settings',
-      // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
-      // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
-      // input syntax for type uuid"). Keep entity_id null; carry the role in the
-      // note + metadata. The permission change itself syncs via role_settings UPDATE.
-      entity_id: null,
-      user_id: sessionUser?.id ?? null,
-      note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
-      team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
-    });
     setOverrides(getRolePermissionOverrides());
   }
 
@@ -129,18 +148,30 @@ export default function RolesScreen() {
   function changeRoleColor(role: UserRole, color: string | null) {
     if (!canManage) return;
     if (isWriteBlocked()) return;
-    const now = setRoleColor(role, color);
-    setRoleColors(getRoleColorMap()); // refresh local map → preview + swatches update
-    appendOutbox('UPDATE', 'role_settings', { role, color, updated_at: now });
-    appendLog({
-      action: 'role_color_changed',
-      entity_type: 'role_settings',
-      entity_id: null,
-      user_id: sessionUser?.id ?? null,
-      note: `${role} color → ${color ?? 'default'}`,
-      team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
-    });
+    try {
+      // Write + outbox + log land atomically so we never sync/log a color the DB
+      // didn't actually persist.
+      runInTransaction(() => {
+        const now = setRoleColor(role, color);
+        appendOutbox('UPDATE', 'role_settings', { role, color, updated_at: now });
+        appendLog({
+          action: 'role_color_changed',
+          entity_type: 'role_settings',
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} color → ${color ?? 'default'}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not change role color',
+        e instanceof Error ? e.message : 'The color change was not saved. Please try again.'
+      );
+      return;
+    }
+    setRoleColors(getRoleColorMap()); // refresh local map (after commit) → preview + swatches update
   }
 
   function changeMinPin(role: UserRole, delta: number) {
@@ -148,19 +179,31 @@ export default function RolesScreen() {
     if (isWriteBlocked()) return;
     const next = Math.min(MAX_PIN, Math.max(MIN_PIN, effectiveMinPin(role) + delta));
     if (next === effectiveMinPin(role)) return;
-    const now = setRoleMinPin(role, next);
-    appendOutbox('UPDATE', 'role_settings', { role, min_pin_length: next, updated_at: now });
-    appendLog({
-      action: 'role_min_pin_changed',
-      entity_type: 'role_settings',
-      // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
-      entity_id: null,
-      user_id: sessionUser?.id ?? null,
-      note: `${role} → ${next}`,
-      team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
-    });
-    setMinPins(prev => ({ ...prev, [role]: next }));
+    try {
+      // Write + outbox + log land atomically so a partial failure can't sync/log a
+      // PIN length the DB didn't persist.
+      runInTransaction(() => {
+        const now = setRoleMinPin(role, next);
+        appendOutbox('UPDATE', 'role_settings', { role, min_pin_length: next, updated_at: now });
+        appendLog({
+          action: 'role_min_pin_changed',
+          entity_type: 'role_settings',
+          // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} → ${next}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not change minimum PIN length',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
+    setMinPins(prev => ({ ...prev, [role]: next })); // refresh local state after commit
   }
 
   return (

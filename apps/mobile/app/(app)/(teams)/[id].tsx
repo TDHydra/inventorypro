@@ -9,6 +9,7 @@ import {
 } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -95,29 +96,37 @@ export default function TeamDetailScreen() {
       type: editType,
       updated_at: now,
     };
-    upsertTeam(updated);
-    appendOutbox('UPDATE', 'teams', {
-      id: team.id,
-      name: trimmed,
-      type: editType,
-      manager_id: team.manager_id ?? null,
-      updated_at: now,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: team.id,
-      action: 'team_updated',
-      entity_type: 'team',
-      entity_id: team.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: null,
-      metadata: null,
-      device_id: null,
-    });
+    try {
+      runInTransaction(() => {
+        upsertTeam(updated);
+        appendOutbox('UPDATE', 'teams', {
+          id: team.id,
+          name: trimmed,
+          type: editType,
+          manager_id: team.manager_id ?? null,
+          updated_at: now,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: 'team_updated',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not save team', 'The changes were not saved. Please try again.');
+      return;
+    }
+    // Success side-effects only after the write committed.
     setTeam(updated);
     setShowEdit(false);
   }
@@ -127,37 +136,50 @@ export default function TeamDetailScreen() {
   function handleAddMember() {
     if (!newMemberOption || !team) return;
     if (isWriteBlocked()) return;
-    const result = addTeamMember(team.id, newMemberOption.id, {}, user?.id ?? null);
+    let result: ReturnType<typeof addTeamMember>;
+    try {
+      result = runInTransaction(() => {
+        const r = addTeamMember(team.id, newMemberOption.id, {}, user?.id ?? null);
+        if (r === null) {
+          // INSERT OR IGNORE skipped — composite key already exists; no outbox/log.
+          return null;
+        }
+        const { joined_at } = r;
+        appendOutbox('INSERT', 'team_members', {
+          team_id: team.id,
+          user_id: newMemberOption.id,
+          team_permission_overrides: '{}',
+          added_by: user?.id ?? null,
+          joined_at,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: 'team_member_added',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: newMemberOption.label,
+          metadata: JSON.stringify({ member_user_id: newMemberOption.id }),
+          device_id: null,
+        });
+        return r;
+      });
+    } catch (e) {
+      Alert.alert('Could not add member', `${newMemberOption.label} was not added. Please try again.`);
+      return;
+    }
     if (result === null) {
-      // INSERT OR IGNORE skipped — composite key already exists
       Alert.alert('Already a member', `${newMemberOption.label} is already on this team.`);
       setNewMemberOption(null);
       setShowAddMember(false);
       return;
     }
-    const { joined_at } = result;
-    appendOutbox('INSERT', 'team_members', {
-      team_id: team.id,
-      user_id: newMemberOption.id,
-      team_permission_overrides: '{}',
-      added_by: user?.id ?? null,
-      joined_at,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: team.id,
-      action: 'team_member_added',
-      entity_type: 'team',
-      entity_id: team.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: newMemberOption.label,
-      metadata: JSON.stringify({ member_user_id: newMemberOption.id }),
-      device_id: null,
-    });
+    // Success side-effects only after the write committed.
     setMembers(getTeamMembers(team.id));
     setNewMemberOption(null); // clear only after successful submit
     setShowAddMember(false);
@@ -178,27 +200,35 @@ export default function TeamDetailScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            removeTeamMember(team.id, member.user_id);
-            // Composite-key DELETE: server matches by {team_id, user_id}
-            appendOutbox('DELETE', 'team_members', {
-              team_id: team.id,
-              user_id: member.user_id,
-            });
-            appendLog({
-              user_id: user?.id ?? null,
-              team_id: team.id,
-              action: 'team_member_removed',
-              entity_type: 'team',
-              entity_id: team.id,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              job_id: null,
-              note: memberName,
-              metadata: JSON.stringify({ member_user_id: member.user_id }),
-              device_id: null,
-            });
+            try {
+              runInTransaction(() => {
+                removeTeamMember(team.id, member.user_id);
+                // Composite-key DELETE: server matches by {team_id, user_id}
+                appendOutbox('DELETE', 'team_members', {
+                  team_id: team.id,
+                  user_id: member.user_id,
+                });
+                appendLog({
+                  user_id: user?.id ?? null,
+                  team_id: team.id,
+                  action: 'team_member_removed',
+                  entity_type: 'team',
+                  entity_id: team.id,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  job_id: null,
+                  note: memberName,
+                  metadata: JSON.stringify({ member_user_id: member.user_id }),
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Could not remove member', `${memberName} was not removed. Please try again.`);
+              return;
+            }
+            // Refresh only after the write committed.
             setMembers(getTeamMembers(team.id));
           },
         },
@@ -213,23 +243,34 @@ export default function TeamDetailScreen() {
     if (isWriteBlocked()) return;
     const willBeManager = member.is_manager !== 1;
     const memberName = member.user_name ?? member.user_id;
-    // setMemberManager bundles its own outbox row (real boolean, no synced_at).
-    setMemberManager(team.id, member.user_id, willBeManager);
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: team.id,
-      action: willBeManager ? 'team_manager_added' : 'team_manager_removed',
-      entity_type: 'team',
-      entity_id: team.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: memberName,
-      metadata: JSON.stringify({ member_user_id: member.user_id }),
-      device_id: null,
-    });
+    try {
+      runInTransaction(() => {
+        // setMemberManager bundles its own outbox row (real boolean, no synced_at).
+        setMemberManager(team.id, member.user_id, willBeManager);
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: willBeManager ? 'team_manager_added' : 'team_manager_removed',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: memberName,
+          metadata: JSON.stringify({ member_user_id: member.user_id }),
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not update manager',
+        `${memberName}'s manager status was not changed. Please try again.`,
+      );
+      return;
+    }
+    // Refresh only after the write committed.
     setMembers(getTeamMembers(team.id));
   }
 

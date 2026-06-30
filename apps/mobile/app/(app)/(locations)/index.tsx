@@ -16,6 +16,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
@@ -153,23 +154,33 @@ export default function LocationsScreen() {
       longitude: longitude ?? null,
       has_shelves: hasShelves,
     };
-    upsertLocation({ ...payload, active: 1, has_shelves: hasShelves ? 1 : 0, synced_at: null });
-    appendOutbox('INSERT', 'locations', payload);
-    appendLog({
-      action: 'location_created',
-      entity_type: 'location',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: trimmed,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: null,
-      device_id: null,
-    });
+    // Atomic: local row insert + outbox + log either all land or none do.
+    try {
+      runInTransaction(() => {
+        upsertLocation({ ...payload, active: 1, has_shelves: hasShelves ? 1 : 0, synced_at: null });
+        appendOutbox('INSERT', 'locations', payload);
+        appendLog({
+          action: 'location_created',
+          entity_type: 'location',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          job_id: null,
+          note: trimmed,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Create failed', `Couldn't create this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    // Only refresh the tree, expand the parent, close the modal, and reset the
+    // form after the writes committed.
     setTree(getLocationTree());
     if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     setShowCreate(false);

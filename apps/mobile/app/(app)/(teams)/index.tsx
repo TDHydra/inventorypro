@@ -7,6 +7,7 @@ import { generateUUID } from '../../../src/utils/uuid';
 import { getAllTeams, upsertTeam, Team } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
@@ -72,30 +73,38 @@ export default function TeamsScreen() {
       synced_at: null,
     };
 
-    upsertTeam(team);
-    appendOutbox('INSERT', 'teams', {
-      id,
-      name: trimmed,
-      type,
-      manager_id: null,
-      updated_at: now,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: id,
-      action: 'team_created',
-      entity_type: 'team',
-      entity_id: id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: trimmed,
-      metadata: null,
-      device_id: null,
-    });
+    try {
+      runInTransaction(() => {
+        upsertTeam(team);
+        appendOutbox('INSERT', 'teams', {
+          id,
+          name: trimmed,
+          type,
+          manager_id: null,
+          updated_at: now,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: id,
+          action: 'team_created',
+          entity_type: 'team',
+          entity_id: id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: trimmed,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not create team', `"${trimmed}" was not created. Please try again.`);
+      return;
+    }
 
+    // Success side-effects only after the write committed.
     setTeams(getAllTeams());
     setShowCreate(false);
     resetForm(); // clear only after successful submit
