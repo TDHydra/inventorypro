@@ -16,6 +16,37 @@ interface SetPinBody {
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {
+  // GET /auth/roster — PUBLIC login picker roster. Intentionally unauthenticated:
+  // a brand-new device has no token yet and needs the list of names to sign in.
+  // Returns ONLY the minimum the picker needs — id, name, role (display subtitle),
+  // pin_length_required, and pin_set (chooses the set-PIN vs enter-PIN screen).
+  // Deliberately NOT exposed: pin_hash, permission_overrides, expires_at, and ALL
+  // business data — those require a token and arrive via the post-login full sync.
+  // Inactive/expired users are filtered so they never appear as a sign-in option.
+  fastify.get('/roster', async (_request, reply) => {
+    const { rows } = await fastify.pg.query<{
+      id: string; name: string; role: string;
+      pin_length_required: number; pin_set: boolean;
+    }>(
+      `SELECT id, name, role, pin_length_required,
+              (pin_hash IS NOT NULL) AS pin_set
+         FROM users
+        WHERE active = true
+          AND (expires_at IS NULL OR expires_at > NOW())
+        ORDER BY name`,
+      []
+    );
+    return reply.send({
+      users: rows.map(u => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        pin_length_required: u.pin_length_required,
+        pin_set: u.pin_set ? 1 : 0,
+      })),
+    });
+  });
+
   // POST /auth/token — verify PIN, return JWT + refresh token
   fastify.post<{ Body: TokenBody }>('/token', {
     schema: {

@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { userHasPermission } from '../lib/permissions';
 
 interface OutboxEntry {
   id: string;
@@ -17,6 +18,20 @@ const ALLOWED_TABLES = new Set([
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs',
 ]);
+
+// Tables whose writes confer privilege — a crew JWT must NOT be able to escalate
+// roles, rewrite the permission matrix, flip maintenance mode, or restructure
+// teams via a hand-crafted outbox entry. Each maps to the permission the caller
+// must actually hold (resolved server-side from the DB, never trusted from the
+// JWT role claim). Operational tables (stock, inventory, equipment, jobs, media,
+// activity_log, locations, taxonomy) stay open — that's the normal sync surface.
+const PRIVILEGED_TABLE_PERM: Record<string, string> = {
+  users:         'manage_users',
+  role_settings: 'manage_roles_permissions',
+  app_config:    'system_settings',
+  teams:         'manage_teams',
+  team_members:  'manage_teams',
+};
 
 // Upsert conflict target per table. Most are keyed by `id`, but a few use a
 // composite primary key — using `id` for those throws "column id does not exist"
@@ -180,7 +195,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // GET /sync/full — first-launch paginated full download
   fastify.get<{
     Querystring: { table?: string; page?: string; limit?: string }
-  }>('/full', async (request, reply) => {
+  }>('/full', { preHandler: [(fastify as any).authenticate] }, async (request, reply) => {
     const { table, page = '0', limit = '500' } = request.query;
     const pageNum = parseInt(page, 10);
     const limitNum = Math.min(parseInt(limit, 10), 500);
@@ -230,14 +245,58 @@ const routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-  }, async (request) => {
+  }, async (request, reply) => {
     const { entries } = request.body;
     const ok: string[] = [];
     const conflicts: Array<{ id: string; error: string }> = [];
 
+    // Resolve the caller's *current* permissions from the DB — not the JWT role
+    // claim, which can be stale or forged-stale within the 15m token window.
+    const userId = (request.user as { sub?: string })?.sub;
+    if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
+    const { rows: callerRows } = await fastify.pg.query(
+      `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+         FROM users u
+         LEFT JOIN role_settings rs ON rs.role = u.role
+        WHERE u.id = $1`,
+      [userId],
+    );
+    const caller = callerRows[0] as
+      | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+      | undefined;
+    if (!caller) return reply.status(403).send({ error: 'Unknown user' });
+    const can = (perm: string) =>
+      userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
+
+    // Server-side maintenance freeze: when on, only admins (system_settings) may
+    // write — mirrors the client's assertWritable() so a device with queued
+    // outbox entries can't push past an admin's freeze.
+    const { rows: mRows } = await fastify.pg.query(
+      `SELECT value FROM app_config WHERE key = 'maintenance_mode'`,
+      [],
+    );
+    const maintenanceOn = !!mRows[0] && (mRows[0] as { value: string }).value === '1';
+    const maintenanceExempt = can('system_settings');
+
     for (const entry of entries) {
       if (!ALLOWED_TABLES.has(entry.table_name)) {
         conflicts.push({ id: entry.id, error: 'Table not allowed' });
+        continue;
+      }
+
+      if (maintenanceOn && !maintenanceExempt) {
+        conflicts.push({ id: entry.id, error: 'Maintenance mode: writes are frozen' });
+        continue;
+      }
+
+      // Privileged-table authorization — block escalation via crafted outbox rows.
+      const reqPerm = PRIVILEGED_TABLE_PERM[entry.table_name];
+      if (reqPerm && !can(reqPerm)) {
+        request.log.warn(
+          { userId, role: caller.role, table: entry.table_name, operation: entry.operation, reqPerm },
+          'sync push entry denied (authz)',
+        );
+        conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} requires ${reqPerm}` });
         continue;
       }
 
