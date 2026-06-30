@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { createRepair, Repair } from '../../db/queries/repairs';
 import { getRepairStatuses, isTerminalStatus } from '../../db/queries/taxonomy';
-import { setUnitStatus, getUnitByTag } from '../../db/queries/equipmentUnits';
+import { setUnitStatus, searchUnitsByTag } from '../../db/queries/equipmentUnits';
 import { searchItems } from '../../db/queries/items';
 import { getAllLocations, findOrCreateVehicleByName } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
@@ -64,10 +64,10 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         searchItems(q, 12).map(i => ({ id: i.id, label: i.name, sublabel: i.sku ?? undefined }));
     }
     if (entityType === 'equipment_unit') {
-      return (q: string) => {
-        const u = getUnitByTag(q.trim());
-        return u ? [{ id: u.id, label: u.asset_tag }] : [];
-      };
+      // Typeahead over asset tags (ranked, prefix-first) so the user sees existing
+      // units as they type rather than needing the exact full tag.
+      return (q: string) =>
+        searchUnitsByTag(q, 12).map(u => ({ id: u.id, label: u.asset_tag, sublabel: u.serial_number ?? undefined }));
     }
     return undefined; // vehicles use the static options list below
   }, [entityType]);
@@ -147,7 +147,7 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         <SearchablePicker
           placeholder={
             entityType === 'equipment_unit'
-              ? 'Enter asset tag…'
+              ? 'Search asset tag…'
               : entityType === 'location'
                 ? 'Search vehicles…'
                 : 'Search items…'

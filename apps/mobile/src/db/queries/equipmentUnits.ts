@@ -32,6 +32,24 @@ export function getUnitByTag(tag: string): EquipmentUnit | null {
   return (db.executeSync(`SELECT * FROM equipment_units WHERE asset_tag = ?`, [tag]).rows[0] as unknown as EquipmentUnit) ?? null;
 }
 
+// Typeahead over asset tags (and serial numbers) for pickers. Ranks prefix matches
+// first, then shorter tags, then alphabetically — so the closest existing units
+// surface as you type. Empty query → no results.
+export function searchUnitsByTag(q: string, limit = 12): EquipmentUnit[] {
+  const trimmed = q.trim();
+  if (!trimmed) return [];
+  const db = getDb();
+  const like = `%${trimmed}%`;
+  const prefix = `${trimmed}%`;
+  return rowsAs<EquipmentUnit>(db.executeSync(
+    `SELECT * FROM equipment_units
+       WHERE asset_tag LIKE ? OR serial_number LIKE ?
+       ORDER BY (CASE WHEN asset_tag LIKE ? THEN 0 ELSE 1 END), LENGTH(asset_tag), asset_tag
+       LIMIT ?`,
+    [like, like, prefix, limit],
+  ).rows);
+}
+
 export function countUnitsByStatus(itemId: string): { available: number; deployed: number; in_repair: number; retired: number } {
   const db = getDb();
   const rows = db.executeSync(`SELECT status, COUNT(*) AS n FROM equipment_units WHERE item_id = ? GROUP BY status`, [itemId]).rows as { status: string; n: number }[];
