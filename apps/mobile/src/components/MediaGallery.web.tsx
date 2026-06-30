@@ -11,6 +11,9 @@ interface Props {
   entityType: string;
   entityId: string;
   canUpload?: boolean;
+  // 'grid' (default) = full multi-photo grid; 'thumb' = a single compact 64×64
+  // thumbnail (Quick Add) that reuses the same upload flow.
+  variant?: 'grid' | 'thumb';
 }
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -19,9 +22,10 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 // a native <input type="file">; the upload streams the File (a Blob) straight to
 // the presigned URL via fetch PUT — the same /media/upload-url + DB + outbox path
 // the native MediaGallery uses, so the DB/sync contract is identical.
-export function MediaGallery({ entityType, entityId, canUpload = true }: Props) {
+export function MediaGallery({ entityType, entityId, canUpload = true, variant = 'grid' }: Props) {
   const { user } = useSession();
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
+  const primary = media.find(m => m.is_primary === 1) ?? media[0] ?? null;
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -139,32 +143,51 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void handleFile(f); }}
       />
 
-      <div style={styles.grid}>
-        {media.map(m => (
-          <button key={m.id} style={styles.thumbBtn} onClick={() => setLightbox(m.url)}>
-            <img
-              src={m.thumbnail_url ?? m.url}
-              alt=""
-              style={{ ...styles.thumb, ...(m.is_primary === 1 ? styles.thumbPrimary : null) }}
-            />
-            {m.is_primary === 1 && <span style={styles.primaryBadge}>★</span>}
-            {m.media_type === 'video' && <span style={styles.videoBadge}>▶</span>}
-          </button>
-        ))}
+      {variant === 'thumb' ? (
+        <button
+          style={styles.thumbBox}
+          disabled={uploading}
+          onClick={() => { if (canUpload) setPickerOpen(true); else if (primary) setLightbox(primary.url); }}
+        >
+          {uploading ? (
+            <span style={styles.addText}>…</span>
+          ) : primary ? (
+            <img src={primary.thumbnail_url ?? primary.url} alt="" style={styles.thumbBoxImg} />
+          ) : (
+            <>
+              <span style={styles.thumbBoxIcon}>＋</span>
+              <span style={styles.thumbBoxText}>Photo</span>
+            </>
+          )}
+        </button>
+      ) : (
+        <div style={styles.grid}>
+          {media.map(m => (
+            <button key={m.id} style={styles.thumbBtn} onClick={() => setLightbox(m.url)}>
+              <img
+                src={m.thumbnail_url ?? m.url}
+                alt=""
+                style={{ ...styles.thumb, ...(m.is_primary === 1 ? styles.thumbPrimary : null) }}
+              />
+              {m.is_primary === 1 && <span style={styles.primaryBadge}>★</span>}
+              {m.media_type === 'video' && <span style={styles.videoBadge}>▶</span>}
+            </button>
+          ))}
 
-        {canUpload && (
-          <button style={styles.addBtn} onClick={() => setPickerOpen(true)} disabled={uploading}>
-            {uploading ? (
-              <span style={styles.addText}>Uploading…</span>
-            ) : (
-              <>
-                <span style={styles.addIcon}>＋</span>
-                <span style={styles.addText}>Add photo</span>
-              </>
-            )}
-          </button>
-        )}
-      </div>
+          {canUpload && (
+            <button style={styles.addBtn} onClick={() => setPickerOpen(true)} disabled={uploading}>
+              {uploading ? (
+                <span style={styles.addText}>Uploading…</span>
+              ) : (
+                <>
+                  <span style={styles.addIcon}>＋</span>
+                  <span style={styles.addText}>Add photo</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Source picker — bottom sheet (mirrors the native MediaGallery sheet) */}
       {pickerOpen && (
@@ -203,6 +226,15 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
 const styles: Record<string, CSSProperties> = {
   container: { margin: '8px 0' },
   hiddenInput: { display: 'none' },
+  thumbBox: {
+    width: 64, height: 64, borderRadius: 10, padding: 0, overflow: 'hidden',
+    border: `2px dashed ${colors.border}`, cursor: 'pointer',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.background,
+  },
+  thumbBoxImg: { width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 },
+  thumbBoxIcon: { fontSize: 22, color: colors.primary, fontWeight: 300, lineHeight: 1 },
+  thumbBoxText: { fontSize: 10, color: colors.textSecondary, fontWeight: 600 },
   grid: { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   thumbBtn: {
     position: 'relative', padding: 0, border: 'none', background: 'none', cursor: 'pointer',

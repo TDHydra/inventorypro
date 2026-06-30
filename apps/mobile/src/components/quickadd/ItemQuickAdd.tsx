@@ -4,7 +4,7 @@ import {
 import { Alert } from '../../lib/themedAlert';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
-import { upsertItem, getItemBySku, searchItems } from '../../db/queries/items';
+import { upsertItem, getItemBySku, searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
 import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
@@ -14,7 +14,8 @@ import { getItemTypes, parseItemTypeMeta } from '../../db/queries/taxonomy';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { runInTransaction } from '../../db/tx';
-import { parsePackSize } from '../../lib/validation';
+import { parsePackSize, parseQuantity } from '../../lib/validation';
+import { MediaGallery } from '../MediaGallery';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
@@ -45,9 +46,16 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // unit class in meta. Equipment is NOT here (own tab); items are kind='product'.
   const itemTypes = useMemo(() => getItemTypes(), []);
 
+  // Generate the item id up front so the photo thumbnail can upload to this
+  // entity before the row is committed (mirrors the full Add screen). Reset on
+  // clear so the next item gets a fresh id (and a fresh, empty thumbnail).
+  const [itemId, setItemId] = useState(() => generateUUID());
+
   const [name, setName] = useState('');
   const [barcode, setBarcode] = useState(params.barcode ?? ''); // seeded from a scan
   const [sku, setSku] = useState(''); // item # / part #
+  const [description, setDescription] = useState('');
+  const [currentStock, setCurrentStock] = useState(''); // optional starting qty (→ home location)
   const [packSize, setPackSize] = useState(''); // units per pack (optional)
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
   // unit_category stores a product_class id (drives formatQuantity decimals).
@@ -121,6 +129,9 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     setName('');
     setBarcode('');
     setSku('');
+    setDescription('');
+    setCurrentStock('');
+    setItemId(generateUUID()); // fresh id → the photo thumbnail resets for the next item
     setPackSize('');
     setItemType('');
     setUnitCat(CLASS_PIECE_ID);
@@ -145,8 +156,17 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       return;
     }
 
+    // Optional starting quantity. Blank → no stock written. If provided, it must
+    // be a valid positive number (parseQuantity guards NaN / ≤0 / overflow).
+    let stockQty = 0;
+    if (currentStock.trim()) {
+      const q = parseQuantity(currentStock, 'Current stock');
+      if (!q.ok) { Alert.alert('Check current stock', q.error); return; }
+      stockQty = q.value;
+    }
+
     const now = new Date().toISOString();
-    const id = generateUUID();
+    const id = itemId;
 
     // Resolve a freshly-typed shelf ('__new__') into a real Shelf location id.
     // This can fail (throw) or return null — either way we must NOT save the item
@@ -171,11 +191,21 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       homeLocationId = homeLocation?.id ?? null;
     }
 
+    // Current stock must attach to a location — use the home location. Require
+    // one rather than silently dropping the entered quantity.
+    if (stockQty > 0 && !homeLocationId) {
+      Alert.alert(
+        'Set a home location',
+        'To record current stock, pick or add a home location below so we know where it lives.',
+      );
+      return;
+    }
+
     const item: InventoryItem = {
       id,
       name: trimmedName,
       barcode: barcode.trim() || null,
-      description: null,
+      description: description.trim() || null,
       sku: sku.trim() || null,
       supplier: null,
       model: null,
@@ -223,6 +253,30 @@ export default function ItemQuickAdd({ onSaved }: Props) {
           metadata: null,
           device_id: null,
         });
+
+        // Optional starting stock → home location (same all-or-nothing transaction).
+        if (stockQty > 0 && homeLocationId) {
+          adjustStock(id, homeLocationId, stockQty);
+          const newQty = getStockQuantity(id, homeLocationId);
+          appendOutbox('INSERT', 'stock_by_location', {
+            item_id: id, location_id: homeLocationId, quantity: newQty, updated_at: now,
+          });
+          appendLog({
+            action: 'add_stock',
+            entity_type: 'item',
+            entity_id: id,
+            user_id: user?.id ?? null,
+            team_id: null,
+            from_location_id: null,
+            to_location_id: homeLocationId,
+            quantity: stockQty,
+            unit,
+            job_id: null,
+            note: null,
+            metadata: null,
+            device_id: null,
+          });
+        }
       });
     } catch {
       Alert.alert(
@@ -240,17 +294,21 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   return (
     <View style={s.container}>
-      <TextInput
-        ref={nameRef}
-        style={[s.input, !!nameError && s.inputError]}
-        placeholder="Item name *"
-        placeholderTextColor={colors.textMuted}
-        value={name}
-        onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
-        autoFocus
-        returnKeyType="done"
-        onSubmitEditing={handleSave}
-      />
+      <View style={s.topRow}>
+        {/* Compact 64×64 photo thumbnail — keyed by itemId so it resets per item. */}
+        <MediaGallery key={itemId} entityType="item" entityId={itemId} canUpload variant="thumb" />
+        <TextInput
+          ref={nameRef}
+          style={[s.input, s.nameInput, !!nameError && s.inputError]}
+          placeholder="Item name *"
+          placeholderTextColor={colors.textMuted}
+          value={name}
+          onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
+          autoFocus
+          returnKeyType="done"
+          onSubmitEditing={handleSave}
+        />
+      </View>
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
       {nameMatches.length > 0 && (
@@ -282,6 +340,24 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       ) : !sku.trim() ? (
         <Text style={s.skuHint}>💡 Most items have a part # — adding it makes them quicker to find.</Text>
       ) : null}
+
+      <AppInput
+        placeholder="Description (optional)"
+        value={description}
+        onChangeText={setDescription}
+        multiline
+      />
+
+      <FieldLabel>Current stock (optional)</FieldLabel>
+      <AppInput
+        placeholder={`Starting quantity — e.g. 12 ${unit || 'each'}`}
+        value={currentStock}
+        onChangeText={setCurrentStock}
+        keyboardType="decimal-pad"
+      />
+      {!!currentStock.trim() && (
+        <Text style={s.skuHint}>📍 Added to the home location set below.</Text>
+      )}
 
       <FieldLabel>Barcode (optional)</FieldLabel>
       <BarcodeInput
@@ -359,6 +435,8 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
 const s = StyleSheet.create({
   container: { gap: 10 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  nameInput: { flex: 1 },
   input: {
     backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
