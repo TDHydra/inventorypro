@@ -18,6 +18,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -48,6 +49,7 @@ export default function InventoryScreen() {
   const canEdit = usePermission('edit_inventory');
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<Item>();
+  const refreshKey = useFocusRefresh();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [minQtyOpen, setMinQtyOpen] = useState(false);
@@ -59,7 +61,7 @@ export default function InventoryScreen() {
       { id: ALL_FILTER, label: 'All' },
       ...getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
     ],
-    [],
+    [refreshKey],
   );
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<string>(ALL_FILTER);
@@ -123,11 +125,11 @@ export default function InventoryScreen() {
   // get a real type and become filterable). Falls back to any free-typed value.
   const itemTypeOptions = useMemo<PickerOption[]>(
     () => getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
-    [],
+    [refreshKey],
   );
   const supplierOptions = useMemo<PickerOption[]>(
     () => getDistinctValues('supplier').map(v => ({ id: v, label: v })),
-    [],
+    [refreshKey],
   );
 
   // Mirror the per-item audit trail for batch catalog edits (the single-row edit

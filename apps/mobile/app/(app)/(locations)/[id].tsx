@@ -11,6 +11,7 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
@@ -41,6 +42,7 @@ export default function LocationDetailScreen() {
   const canAddStock = usePermission('edit_inventory');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const refreshKey = useFocusRefresh();
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));
   const [stock, setStock] = useState<StockAtLocation[]>(() => getStockAtLocation(id));
@@ -63,13 +65,13 @@ export default function LocationDetailScreen() {
 
   // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
   // and a label→icon map (incl. archived) for rendering the header badge.
-  const locationTypes = useMemo(() => getLocationTypesWithFallback(), []);
+  const locationTypes = useMemo(() => getLocationTypesWithFallback(), [refreshKey]);
   const typeIconByLabel = useMemo(
     () => new Map(getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon])),
-    [],
+    [refreshKey],
   );
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  const allUsers = useMemo(() => getAllActiveUsers(), [refreshKey]);
   const userMap = useMemo<Map<string, string>>(
     () => new Map(allUsers.map(u => [u.id, u.name])),
     [allUsers],
@@ -86,7 +88,7 @@ export default function LocationDetailScreen() {
     return getAllLocations()
       .filter(l => !blocked.has(l.id))
       .map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, [id]);
+  }, [id, refreshKey]);
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
   // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false.

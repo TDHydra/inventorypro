@@ -16,6 +16,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
@@ -30,6 +31,7 @@ export default function EquipmentScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<EquipmentModel>();
+  const refreshKey = useFocusRefresh();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -51,11 +53,11 @@ export default function EquipmentScreen() {
   // ── Bulk multi-select (gated on edit_inventory, matching the detail edit) ──
   const categoryOptions = useMemo<PickerOption[]>(
     () => getDistinctValues('category').map(v => ({ id: v, label: v })),
-    [],
+    [refreshKey],
   );
   const supplierOptions = useMemo<PickerOption[]>(
     () => getDistinctValues('supplier').map(v => ({ id: v, label: v })),
-    [],
+    [refreshKey],
   );
 
   // Equipment models are inventory_items (kind='equipment'); the detail screen logs

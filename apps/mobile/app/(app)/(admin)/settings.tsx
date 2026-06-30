@@ -5,6 +5,7 @@ import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
@@ -74,6 +75,7 @@ export default function SettingsScreen() {
   const isAdmin = usePermission('system_settings');
   const { user, logout } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
+  const refreshKey = useFocusRefresh();
 
   const [lastSync, setLastSync] = useState('Never');
   const [pending, setPending] = useState(0);
@@ -92,7 +94,7 @@ export default function SettingsScreen() {
   // (the shelf id when a shelf is chosen, else the location id).
   const [storageLoc, setStorageLoc] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).location);
   const [storageShelf, setStorageShelf] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).shelf);
-  const allLocations = useMemo(() => getAllLocations(), []);
+  const allLocations = useMemo(() => getAllLocations(), [refreshKey]);
   const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
   const locationOptions = useMemo<PickerOption[]>(
     () => allLocations.map(l => ({ id: l.id, label: l.name, sublabel: l.parent_id ? locationById.get(l.parent_id)?.name : undefined })),

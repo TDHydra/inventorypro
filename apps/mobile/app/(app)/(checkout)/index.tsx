@@ -24,6 +24,7 @@ import {
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -58,6 +59,7 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const refreshKey = useFocusRefresh();
   const params = useLocalSearchParams<{ itemId?: string }>();
 
   const [step, setStep] = useState<Step>('find');
@@ -111,7 +113,7 @@ export default function CheckoutScreen() {
   const isUnitTracked = !!selectedItem?.unit_tracked;
 
   // All locations — used for destination picker AND to look up lat/lng for source ranking.
-  const allLocations = useMemo(() => getAllLocations(), []);
+  const allLocations = useMemo(() => getAllLocations(), [refreshKey]);
   const locNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const l of allLocations) m.set(l.id, l.name);
@@ -188,7 +190,7 @@ export default function CheckoutScreen() {
 
   // Manager-tier destinations (ROLE_TIER >= 2): heads, production/carpet
   // managers, office/HR/franchise managers — all act as checkout destinations.
-  const pms = useMemo(() => getManagerTierUsers(), []);
+  const pms = useMemo(() => getManagerTierUsers(), [refreshKey]);
   const pmOptions: PickerOption[] = useMemo(() => pms.map(u => ({ id: u.id, label: u.name })), [pms]);
 
   // Build source-location rows for a unit-tracked item from its available units

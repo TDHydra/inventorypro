@@ -11,6 +11,7 @@ import {
 import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
 import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType } from '../../../src/db/queries/taxonomy';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
@@ -30,6 +31,7 @@ export default function ItemDetailScreen() {
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
+  const refreshKey = useFocusRefresh();
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -51,8 +53,8 @@ export default function ItemDetailScreen() {
 
   // Admin-managed Item Types (PPE, Filters, …) and product classes (unit class
   // override). Each item type carries its curated units + unit class in meta.
-  const itemTypes = useMemo(() => getItemTypes(), []);
-  const productClasses = useMemo(() => getProductClasses(), []);
+  const itemTypes = useMemo(() => getItemTypes(), [refreshKey]);
+  const productClasses = useMemo(() => getProductClasses(), [refreshKey]);
   // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
   // Falls back to the full breadcrumb list when no shelves exist yet so the field
   // stays usable.
@@ -61,11 +63,11 @@ export default function ItemDetailScreen() {
     return shelves.length
       ? shelves.map(s => ({ id: s.id, label: s.name }))
       : getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, []);
+  }, [refreshKey]);
 
-  const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
-  const modelOptions = useMemo(() => getDistinctValues('model'), []);
-  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
+  const supplierOptions = useMemo(() => getDistinctValues('supplier'), [refreshKey]);
+  const modelOptions = useMemo(() => getDistinctValues('model'), [refreshKey]);
+  const categoryOptions = useMemo(() => getDistinctValues('category'), [refreshKey]);
 
   // Label print sheet state
   const [printItemSheet, setPrintItemSheet] = useState(false);

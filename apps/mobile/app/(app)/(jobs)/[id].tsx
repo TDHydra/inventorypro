@@ -14,6 +14,7 @@ import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queri
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
@@ -33,6 +34,7 @@ export default function JobDetailScreen() {
   const canEdit = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
   const canUpload = usePermission('upload_media');
+  const refreshKey = useFocusRefresh();
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
   const [editing, setEditing] = useState(false);
@@ -74,13 +76,13 @@ export default function JobDetailScreen() {
   const [editReferenceNumber, setEditReferenceNumber] = useState('');
   const [editInsuranceCarrier, setEditInsuranceCarrier] = useState('');
 
-  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
-  const deployments = useMemo(() => getJobDeployments(id), [id]);
-  const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id]);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), [refreshKey]);
+  const deployments = useMemo(() => getJobDeployments(id), [id, refreshKey]);
+  const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id, refreshKey]);
 
   const locationOptions = useMemo((): PickerOption[] => {
     return getAllLocations().map(l => ({ id: l.id, label: l.name }));
-  }, []);
+  }, [refreshKey]);
 
   function reload() {
     setJob(getJobById(id));
