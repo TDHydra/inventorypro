@@ -3,11 +3,12 @@ import { View, Text, ScrollView, TouchableOpacity, Switch, StyleSheet } from 're
 import { Stack } from 'expo-router';
 import {
   ROLE_DISPLAY_NAMES, ROLE_TIER, ROLE_DEFAULTS, PIN_LENGTH_BY_TIER,
-  UserRole, Permission,
+  UserRole, Permission, ROLE_COLOR_PALETTE, resolveRoleColor,
 } from '../../../src/constants/roles';
 import {
   getRoleSettings, setRoleMinPin,
   getRolePermissionOverrides, setRolePermission,
+  getRoleColorMap, setRoleColor,
 } from '../../../src/db/queries/users';
 import { loadRolePermissionCache } from '../../../src/auth/permissions';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -70,6 +71,7 @@ export default function RolesScreen() {
     () => getRolePermissionOverrides()
   );
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [roleColors, setRoleColors] = useState<Record<string, string>>(() => getRoleColorMap());
 
   // Effective value of a role→permission cell: ROLE_DEFAULTS merged with the
   // role override (when a key exists). `modified` flags an active override.
@@ -122,6 +124,23 @@ export default function RolesScreen() {
 
   function effectiveMinPin(role: UserRole): number {
     return minPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
+  }
+
+  function changeRoleColor(role: UserRole, color: string | null) {
+    if (!canManage) return;
+    if (isWriteBlocked()) return;
+    const now = setRoleColor(role, color);
+    setRoleColors(getRoleColorMap()); // refresh local map → preview + swatches update
+    appendOutbox('UPDATE', 'role_settings', { role, color, updated_at: now });
+    appendLog({
+      action: 'role_color_changed',
+      entity_type: 'role_settings',
+      entity_id: null,
+      user_id: sessionUser?.id ?? null,
+      note: `${role} color → ${color ?? 'default'}`,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+    });
   }
 
   function changeMinPin(role: UserRole, delta: number) {
@@ -196,6 +215,33 @@ export default function RolesScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
+
+              {/* Color swatch picker */}
+              {isOpen && (() => {
+                const effective = resolveRoleColor(role, roleColors[role]);
+                return (
+                  <View style={s.colorSection}>
+                    <Text style={s.pinLabel}>Name color</Text>
+                    <Text style={[s.colorPreview, { color: effective }]}>{ROLE_DISPLAY_NAMES[role]}</Text>
+                    <View style={s.colorRow}>
+                      {ROLE_COLOR_PALETTE.map(c => (
+                        <TouchableOpacity
+                          key={c}
+                          style={[s.colorCell, { backgroundColor: c }, effective === c && s.colorCellActive]}
+                          onPress={() => changeRoleColor(role, c)}
+                        >
+                          {effective === c && <Text style={s.colorCheck}>✓</Text>}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    {!!roleColors[role] && (
+                      <TouchableOpacity onPress={() => changeRoleColor(role, null)}>
+                        <Text style={s.colorReset}>Reset to default</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })()}
 
               {/* Editable permission matrix */}
               {isOpen && (
@@ -275,4 +321,12 @@ const s = StyleSheet.create({
   lockedBadge: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
 
   readOnly: { fontSize: fontSizes.body2, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
+
+  colorSection: { paddingHorizontal: spacing.base, paddingVertical: spacing.sm, gap: spacing.sm },
+  colorPreview: { fontSize: fontSizes.base, fontWeight: '700' },
+  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  colorCell: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  colorCellActive: { borderWidth: 3, borderColor: colors.textPrimary },
+  colorCheck: { color: '#fff', fontSize: fontSizes.body, fontWeight: '800' },
+  colorReset: { fontSize: fontSizes.caption, color: colors.primaryText, fontWeight: '600' },
 });
