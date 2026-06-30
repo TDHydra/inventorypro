@@ -6,6 +6,7 @@ import { Stack } from 'expo-router';
 import {
   getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings,
   getRolePermissionOverrides, setUserActive, setUserRole, User,
+  roleColor, getRoleColorMap,
 } from '../../../src/db/queries/users';
 import {
   ROLE_DISPLAY_NAMES, UserRole, ROLE_TIER, PIN_LENGTH_BY_TIER, Permission,
@@ -157,6 +158,7 @@ export default function AdminUsersScreen() {
   // diffed against ROLE_DEFAULTS merged with these, so a user override only reads
   // as "modified" when it differs from the role's CURRENT effective value.
   const roleOverrides = useMemo(() => getRolePermissionOverrides(), [users]);
+  const roleColors = useMemo(() => getRoleColorMap(), []);
 
   function refresh() { setUsers(getAllUsers()); }
 
@@ -583,7 +585,7 @@ export default function AdminUsersScreen() {
                   <Text style={s.avatarText}>{u.name.charAt(0).toUpperCase()}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.name}>{u.name}</Text>
+                  <Text style={[s.name, { color: roleColor(u.role, roleColors) }]}>{u.name}</Text>
                   <View style={s.cardSub}>
                     <Text style={s.role}>{ROLE_DISPLAY_NAMES[u.role as UserRole]}</Text>
                     {u.pin_set === 0 && <Text style={s.pinPending}>· PIN not set</Text>}

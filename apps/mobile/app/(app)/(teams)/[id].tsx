@@ -14,7 +14,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { getAllActiveUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
@@ -52,6 +52,7 @@ export default function TeamDetailScreen() {
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
   const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
+  const roleColors = useMemo(() => getRoleColorMap(), []);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
@@ -302,7 +303,7 @@ export default function TeamDetailScreen() {
                 style={[s.memberRow, i < members.length - 1 && s.divider]}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={s.memberName}>{m.user_name ?? m.user_id}</Text>
+                  <Text style={[s.memberName, { color: roleColor(m.user_role ?? '', roleColors) }]}>{m.user_name ?? m.user_id}</Text>
                   {!!m.user_role && (
                     <Text style={s.memberRole}>
                       {ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role}

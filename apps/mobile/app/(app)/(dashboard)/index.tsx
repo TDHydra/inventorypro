@@ -6,6 +6,7 @@ import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { DashboardSearch } from '../../../src/components/DashboardSearch';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
+import { roleColor } from '../../../src/db/queries/users';
 import { useMemo, useState } from 'react';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { colors } from '../../../src/theme';
@@ -29,7 +30,7 @@ export default function DashboardScreen() {
         {/* Greeting */}
         <View style={styles.greeting}>
           <View style={styles.greetingText}>
-            <Text style={styles.hi}>Hi, {user.name.split(' ')[0]}</Text>
+            <Text style={[styles.hi, { color: roleColor(user.role) }]}>Hi, {user.name.split(' ')[0]}</Text>
             <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
           </View>
           <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>

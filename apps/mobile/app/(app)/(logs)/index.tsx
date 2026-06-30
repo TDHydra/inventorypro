@@ -11,7 +11,7 @@ import {
   getUnsyncedLogs,
   LogEntry,
 } from '../../../src/db/queries/log';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { getAllActiveUsers, getAllUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
 import { MovePhotoThumb } from '../../../src/components/MovePhotoThumb';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
@@ -77,6 +77,15 @@ export default function LogsScreen() {
     if (!canViewAll) return [];
     return getAllActiveUsers().map(u => ({ id: u.id, label: u.name }));
   }, [canViewAll]);
+
+  const roleColors = useMemo(() => getRoleColorMap(), []);
+  // Map user name → role for tinting actor names in server-fetched log rows
+  // (ServerLogRow carries user_name but not user_id; getAllUsers includes inactive
+  // users who may appear in historical log entries).
+  const userRoleByName = useMemo(
+    () => Object.fromEntries(getAllUsers().map(u => [u.name, u.role])),
+    [],
+  );
 
   // Action options derived from the shared ACTION_ICONS map
   const actionOptions = useMemo<PickerOption[]>(
@@ -289,7 +298,7 @@ export default function LogsScreen() {
                   <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
                   <View style={s.middle}>
                     <Text style={s.action}>{actionLabel(log.action)}</Text>
-                    {log.user_name ? <Text style={s.user}>{log.user_name}</Text> : null}
+                    {log.user_name ? <Text style={[s.user, { color: roleColor(userRoleByName[log.user_name] ?? '', roleColors) }]}>{log.user_name}</Text> : null}
                     {log.quantity != null && log.unit && (
                       <Text style={s.qty}>
                         {log.quantity} {log.unit}

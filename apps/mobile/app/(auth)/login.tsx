@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/theme';
 import { PINPad } from '../../src/components/PINPad';
-import { getAllActiveUsers, markUserPinSet } from '../../src/db/queries/users';
+import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
 import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/auth/pin';
 import { saveSession } from '../../src/auth/session';
@@ -58,6 +58,8 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => { loadRoster(); }, [loadRoster]);
+
+  const roleColors = useMemo(() => getRoleColorMap(), []);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return users;
@@ -200,7 +202,7 @@ export default function LoginScreen() {
         </View>
 
         <Text style={styles.greeting}>Welcome,</Text>
-        <Text style={styles.userName}>{selectedUser.name}</Text>
+        <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
 
         <View style={styles.pinSection}>
           <Text style={styles.pinLabel}>
@@ -235,7 +237,7 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <Text style={styles.greeting}>Welcome,</Text>
-        <Text style={styles.userName}>{selectedUser.name}</Text>
+        <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
 
         <View style={styles.pinSection}>
           <Text style={styles.pinLabel}>Enter your PIN</Text>
@@ -279,7 +281,7 @@ export default function LoginScreen() {
               <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.userName2}>{item.name}</Text>
+              <Text style={[styles.userName2, { color: roleColor(item.role, roleColors) }]}>{item.name}</Text>
               <Text style={styles.userRole}>{item.role.replace(/_/g, ' ')}</Text>
             </View>
             <Text style={styles.chevron}>›</Text>
