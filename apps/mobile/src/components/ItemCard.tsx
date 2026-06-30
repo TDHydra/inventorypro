@@ -121,7 +121,7 @@ export function ItemCard({ item, onCheckout }: Props) {
 
           {/* Quick actions — do everything to the item from here */}
           <View style={styles.actions}>
-            {canCheckout && onCheckout && (
+            {canCheckout && onCheckout && item.total_stock > 0 && (
               <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={() => onCheckout(item.id)}>
                 <Text style={styles.actPrimaryText}>Check Out</Text>
               </TouchableOpacity>
