@@ -1,5 +1,8 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
+import { getValidJwt } from '../../auth/session';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 export interface Team {
   id: string;
@@ -91,17 +94,25 @@ export function removeTeamMember(teamId: string, userId: string): void {
 
 // Promote/demote an existing member as a team manager. Bundles the outbox row
 // (UPDATE team_members) itself — real boolean payload, no synced_at.
-export function setMemberManager(teamId: string, userId: string, isManager: boolean): void {
-  const db = getDb();
-  const updated_at = new Date().toISOString();
-  db.executeSync(
-    `UPDATE team_members SET is_manager = ?, updated_at = ? WHERE team_id = ? AND user_id = ?`,
-    bindParams([isManager ? 1 : 0, updated_at, teamId, userId]),
-  );
-  appendOutbox('UPDATE', 'team_members', {
-    team_id: teamId,
-    user_id: userId,
-    is_manager: isManager,
-    updated_at,
+// is_manager is server-controlled: the sync push ignores client writes to it (it
+// was a self-promotion vector). Promotion therefore goes through the gated
+// PATCH /teams/:id/members/:uid endpoint (online), then reflects locally. No
+// outbox row — the server is authoritative and other devices pull the change.
+export async function setMemberManagerOnline(teamId: string, userId: string, isManager: boolean): Promise<void> {
+  const jwt = await getValidJwt();
+  if (!jwt) throw new Error('Connect to the server to change team managers.');
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ is_manager: isManager }),
   });
+  if (!res.ok) {
+    throw new Error(res.status === 403
+      ? 'You do not have permission to change team managers.'
+      : `Could not update manager (${res.status}).`);
+  }
+  getDb().executeSync(
+    `UPDATE team_members SET is_manager = ?, updated_at = ? WHERE team_id = ? AND user_id = ?`,
+    bindParams([isManager ? 1 : 0, new Date().toISOString(), teamId, userId]),
+  );
 }

@@ -5,7 +5,7 @@ import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
-  setMemberManager, Team, TeamMember,
+  setMemberManagerOnline, Team, TeamMember,
 } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
@@ -238,15 +238,17 @@ export default function TeamDetailScreen() {
 
   // ── Promote / demote manager ────────────────────────────────────────────────
 
-  function handleToggleManager(member: TeamMember) {
+  // is_manager is server-controlled (sync ignores it — was a self-promotion hole),
+  // so promotion goes through the gated PATCH endpoint online, then reflects
+  // locally. Online-only, like creating a user.
+  async function handleToggleManager(member: TeamMember) {
     if (!team) return;
-    if (isWriteBlocked()) return;
     const willBeManager = member.is_manager !== 1;
     const memberName = member.user_name ?? member.user_id;
     try {
-      runInTransaction(() => {
-        // setMemberManager bundles its own outbox row (real boolean, no synced_at).
-        setMemberManager(team.id, member.user_id, willBeManager);
+      await setMemberManagerOnline(team.id, member.user_id, willBeManager);
+      // Activity log is best-effort (and never blocks the change).
+      try {
         appendLog({
           user_id: user?.id ?? null,
           team_id: team.id,
@@ -262,15 +264,12 @@ export default function TeamDetailScreen() {
           metadata: JSON.stringify({ member_user_id: member.user_id }),
           device_id: null,
         });
-      });
+      } catch { /* logging is non-critical */ }
     } catch (e) {
-      Alert.alert(
-        'Could not update manager',
-        `${memberName}'s manager status was not changed. Please try again.`,
-      );
+      Alert.alert('Could not update manager', (e as Error).message);
       return;
     }
-    // Refresh only after the write committed.
+    // Refresh only after the server confirmed + local row updated.
     setMembers(getTeamMembers(team.id));
   }
 
