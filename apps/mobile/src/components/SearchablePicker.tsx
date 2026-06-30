@@ -30,10 +30,28 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
     const q = query.trim();
     if (searchFn) return searchFn(q).slice(0, 12);
     const ql = q.toLowerCase();
-    if (!ql) return options.slice(0, 8);
-    return options.filter(o =>
-      o.label.toLowerCase().includes(ql) || (o.sublabel?.toLowerCase().includes(ql) ?? false)
-    ).slice(0, 8);
+    // No query yet → show an alphabetized slice so the user can browse what
+    // already exists.
+    if (!ql) return [...options].sort((a, b) => a.label.localeCompare(b.label)).slice(0, 8);
+    // Rank matches so the CLOSEST existing options surface first (and aren't lost
+    // to the 8-row cap): exact → prefix → a delimited segment starting with the
+    // query (e.g. "A1" → "WH-A1") → substring → sublabel. Ties break by shorter
+    // label, then alphabetically.
+    const rank = (o: PickerOption): number => {
+      const l = o.label.toLowerCase();
+      if (l === ql) return 0;
+      if (l.startsWith(ql)) return 1;
+      if (l.split(/[^a-z0-9]+/i).some(seg => seg.startsWith(ql))) return 2;
+      if (l.includes(ql)) return 3;
+      if ((o.sublabel?.toLowerCase() ?? '').includes(ql)) return 4;
+      return 99;
+    };
+    return options
+      .map(o => ({ o, r: rank(o) }))
+      .filter(x => x.r < 99)
+      .sort((a, b) => a.r - b.r || a.o.label.length - b.o.label.length || a.o.label.localeCompare(b.o.label))
+      .slice(0, 8)
+      .map(x => x.o);
   }, [query, options, searchFn]);
 
   const exact = useMemo(() => {
