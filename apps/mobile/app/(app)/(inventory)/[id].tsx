@@ -13,7 +13,8 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
-import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType } from '../../../src/db/queries/taxonomy';
+import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
+import { resolveTypeColor } from '../../../src/constants/typeColors';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
@@ -54,6 +55,9 @@ export default function ItemDetailScreen() {
   // Admin-managed Item Types (PPE, Filters, …) and product classes (unit class
   // override). Each item type carries its curated units + unit class in meta.
   const itemTypes = useMemo(() => getItemTypes(), [refreshKey]);
+  // Item Types are a managed taxonomy → an admin can override the auto color.
+  // Keyed on refreshKey so the map refreshes after a sync.
+  const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), [refreshKey]);
   const productClasses = useMemo(() => getProductClasses(), [refreshKey]);
   // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
   // Falls back to the full breadcrumb list when no shelves exist yet so the field
@@ -264,12 +268,14 @@ export default function ItemDetailScreen() {
                   <FieldLabel>Item type</FieldLabel>
                   <View style={s.chipRow}>
                     {itemTypes.map(t => (
-                      <FilterChip
-                        key={t.id}
-                        label={t.icon ? `${t.icon} ${t.label}` : t.label}
-                        active={editItemType === t.label}
-                        onPress={() => selectItemType(t)}
-                      />
+                      <View key={t.id} style={s.chipWithDot}>
+                        <View style={[s.typeDot, { backgroundColor: resolveTypeColor(t.label, itemTypeColorMap[t.label]) }]} />
+                        <FilterChip
+                          label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                          active={editItemType === t.label}
+                          onPress={() => selectItemType(t)}
+                        />
+                      </View>
                     ))}
                   </View>
                 </View>
@@ -485,6 +491,9 @@ const s = StyleSheet.create({
   stockZero: { color: colors.textDisabled },
   fieldWrap: { gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // Item-type chip + its colored type dot, grouped so they read as one unit.
+  chipWithDot: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  typeDot: { width: 9, height: 9, borderRadius: 5 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },

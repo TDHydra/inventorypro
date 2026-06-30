@@ -7,6 +7,7 @@ import { getStockByItem, getItemById, InventoryItem } from '../db/queries/items'
 import { getLocationPath } from '../db/queries/locations';
 import { isRepairableCategory } from '../constants/repairable';
 import { usePermission } from '../hooks/usePermission';
+import { resolveTypeColor } from '../constants/typeColors';
 import { MediaThumbnail } from './MediaThumbnail';
 
 interface ItemRow {
@@ -16,6 +17,8 @@ interface ItemRow {
   unit: string;
   unit_category: string;
   total_stock: number;
+  // Present on search rows (SELECT i.*) — the item-type label drives the color.
+  category?: string | null;
 }
 
 interface StockRow {
@@ -28,6 +31,7 @@ interface StockRow {
 interface Props {
   item: ItemRow;
   onCheckout?: (itemId: string) => void;
+  typeColorMap?: Record<string, string>;
 }
 
 function Stat({ k, v }: { k: string; v: string }) {
@@ -39,7 +43,7 @@ function Stat({ k, v }: { k: string; v: string }) {
   );
 }
 
-export function ItemCard({ item, onCheckout }: Props) {
+export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [stock, setStock] = useState<StockRow[] | null>(null);
   const [full, setFull] = useState<InventoryItem | null>(null);
@@ -57,6 +61,10 @@ export function ItemCard({ item, onCheckout }: Props) {
 
   const totalDisplay = formatQuantity(item.total_stock, item.unit, item.unit_category as any);
   const lowStock = item.total_stock <= 0;
+  // Item categories are a managed taxonomy → admin override (typeColorMap) wins,
+  // else a stable auto color. Empty category → no accent/badge.
+  const hasCategory = !!(item.category && item.category.trim());
+  const typeColor = resolveTypeColor(item.category, typeColorMap?.[item.category ?? '']);
   const homePath = full?.home_location_id ? getLocationPath(full.home_location_id) : '';
   const unitLabel = full?.pack_size && full.pack_size > 1
     ? `${full.unit} · pack of ${full.pack_size}`
@@ -73,7 +81,7 @@ export function ItemCard({ item, onCheckout }: Props) {
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, hasCategory && { borderLeftWidth: 4, borderLeftColor: typeColor }]}>
       <TouchableOpacity style={styles.header} onPress={toggle} activeOpacity={0.7}>
         <MediaThumbnail entityType="item" entityId={item.id} size={44} />
         <View style={styles.headerLeft}>
@@ -92,7 +100,14 @@ export function ItemCard({ item, onCheckout }: Props) {
           {full && (
             <View style={styles.stats}>
               {!!full.sku && <Stat k="Item #" v={full.sku} />}
-              {!!full.category && <Stat k="Type" v={full.category} />}
+              {!!full.category && (
+                <View style={styles.statRow}>
+                  <Text style={styles.statKey}>Type</Text>
+                  <View style={[styles.typeBadge, { backgroundColor: typeColor }]}>
+                    <Text style={styles.typeBadgeText} numberOfLines={1}>{full.category}</Text>
+                  </View>
+                </View>
+              )}
               <Stat k="Unit" v={unitLabel} />
               {!!homePath && <Stat k="Belongs at" v={homePath} />}
               {full.min_qty_alert > 0 && (
@@ -176,6 +191,8 @@ const styles = StyleSheet.create({
   statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
   statKey: { fontSize: 12, color: colors.textMuted },
   statVal: { fontSize: 12, fontWeight: '600', color: '#334155', flexShrink: 1, marginLeft: 12, textAlign: 'right' },
+  typeBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 12, flexShrink: 1 },
+  typeBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginTop: 2 },
   noStock: { fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
   locationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },

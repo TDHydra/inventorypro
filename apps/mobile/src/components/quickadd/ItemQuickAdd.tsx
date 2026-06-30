@@ -11,7 +11,8 @@ import { getMainStorageLocationId } from '../../db/mainStorage';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
-import { getItemTypes, parseItemTypeMeta } from '../../db/queries/taxonomy';
+import { getItemTypes, parseItemTypeMeta, getItemTypeColorMap } from '../../db/queries/taxonomy';
+import { resolveTypeColor } from '../../constants/typeColors';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { runInTransaction } from '../../db/tx';
@@ -46,6 +47,8 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
   // unit class in meta. Equipment is NOT here (own tab); items are kind='product'.
   const itemTypes = useMemo(() => getItemTypes(), []);
+  // Item Types are a managed taxonomy → an admin can override the auto color.
+  const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), []);
 
   // Generate the item id up front so the photo thumbnail can upload to this
   // entity before the row is committed (mirrors the full Add screen). Reset on
@@ -404,12 +407,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
           <FieldLabel>Item type</FieldLabel>
           <View style={s.chipRow}>
             {itemTypes.map(t => (
-              <FilterChip
-                key={t.id}
-                label={t.icon ? `${t.icon} ${t.label}` : t.label}
-                active={itemType === t.label}
-                onPress={() => selectItemType(t)}
-              />
+              <View key={t.id} style={s.chipWithDot}>
+                <View style={[s.typeDot, { backgroundColor: resolveTypeColor(t.label, itemTypeColorMap[t.label]) }]} />
+                <FilterChip
+                  label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                  active={itemType === t.label}
+                  onPress={() => selectItemType(t)}
+                />
+              </View>
             ))}
           </View>
         </>
@@ -495,6 +500,9 @@ const s = StyleSheet.create({
   nameMatchLabel: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1 },
   nameMatchSub: { fontSize: fontSizes.caption, color: colors.textMuted },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  // Item-type chip + its colored type dot, grouped so they read as one unit.
+  chipWithDot: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  typeDot: { width: 9, height: 9, borderRadius: 5 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 });

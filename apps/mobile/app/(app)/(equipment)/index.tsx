@@ -22,6 +22,7 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
+import { autoTypeColor } from '../../../src/constants/typeColors';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
 
 export default function EquipmentScreen() {
@@ -164,6 +165,7 @@ export default function EquipmentScreen() {
           keyExtractor={m => m.id}
           renderItem={({ item: m }) => {
             const selected = ms.isSelected(m.id);
+            const catColor = autoTypeColor(m.category);
             return (
             <TouchableOpacity
               activeOpacity={0.8}
@@ -176,6 +178,7 @@ export default function EquipmentScreen() {
             >
               <Card style={[s.card, ms.active && selected && s.cardSelected]}>
                 <View style={s.row}>
+                  <View style={[s.accent, { backgroundColor: catColor }]} />
                   {ms.active && (
                     <View style={[s.checkbox, selected && s.checkboxOn]}>
                       {selected && <Text style={s.checkMark}>✓</Text>}
@@ -184,6 +187,13 @@ export default function EquipmentScreen() {
                   <MediaThumbnail entityType="item" entityId={m.id} size={44} />
                   <View style={s.info}>
                     <Text style={s.name} numberOfLines={1}>{m.name}</Text>
+                    {!!m.category && (
+                      <View style={s.catRow}>
+                        <View style={[s.catBadge, { backgroundColor: catColor }]}>
+                          <Text style={s.catBadgeText} numberOfLines={1}>{m.category}</Text>
+                        </View>
+                      </View>
+                    )}
                     <View style={s.chips}>
                       {m.counts.available > 0 && (
                         <View style={[s.chip, s.chipAvail]}>
@@ -321,8 +331,12 @@ const s = StyleSheet.create({
   checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
   sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  accent: { width: 4, alignSelf: 'stretch', borderRadius: 2, marginRight: 2 },
   info: { flex: 1, gap: 4 },
   name: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },
+  catRow: { flexDirection: 'row' },
+  catBadge: { borderRadius: radii.sm, paddingHorizontal: 8, paddingVertical: 2, maxWidth: '100%' },
+  catBadgeText: { fontSize: fontSizes.caption, fontWeight: '700', color: '#fff' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { borderRadius: radii.sm, paddingHorizontal: 8, paddingVertical: 2 },
   chipAvail: { backgroundColor: '#D1FAE5' },

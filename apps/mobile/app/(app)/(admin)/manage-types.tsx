@@ -20,7 +20,13 @@ import {
   setTaxonomyUnits,
   setTaxonomyClassId,
   setTaxonomyTerminal,
+  setTaxonomyColor,
 } from '../../../src/db/queries/taxonomy';
+import {
+  TYPE_COLOR_PALETTE,
+  autoTypeColor,
+  resolveTypeColor,
+} from '../../../src/constants/typeColors';
 import { loadClassConfigCache } from '../../../src/constants/units';
 import { ICON_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
@@ -51,6 +57,38 @@ function IconPicker({
           onPress={() => onSelect(icon)}
         />
       ))}
+    </View>
+  );
+}
+
+// ── Color picker ─────────────────────────────────────────────────────────────
+// Row of palette swatches (the palette is dark → used as badge bg with white
+// text in lists). The selected swatch shows a white check. `selected` is the
+// EFFECTIVE color (override or auto default) so the active default reads clearly.
+
+function ColorPicker({
+  selected,
+  onSelect,
+}: {
+  selected: string | null;
+  onSelect: (color: string) => void;
+}) {
+  const sel = selected?.toLowerCase();
+  return (
+    <View style={s.colorGrid}>
+      {TYPE_COLOR_PALETTE.map(color => {
+        const active = sel === color.toLowerCase();
+        return (
+          <TouchableOpacity
+            key={color}
+            onPress={() => onSelect(color)}
+            style={[s.colorSwatch, { backgroundColor: color }, active && s.colorSwatchActive]}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            {active && <Text style={s.colorSwatchCheck}>✓</Text>}
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -146,11 +184,15 @@ export default function ManageTypesScreen() {
   const [addCategory, setAddCategory] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
   const [newIcon, setNewIcon] = useState<string | null>(null);
+  // Optional color pick for new Item Types (null → auto color applies).
+  const [newColor, setNewColor] = useState<string | null>(null);
 
   // Edit modal
   const [editType, setEditType] = useState<TaxonomyType | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [editIcon, setEditIcon] = useState<string | null>(null);
+  // Item Type color override (null → falls back to the auto/default color).
+  const [editColorOverride, setEditColorOverride] = useState<string | null>(null);
 
   // Product-class units editor (only populated when editing a product_class)
   const [editClass, setEditClass] = useState<ProductClass | null>(null);
@@ -180,12 +222,14 @@ export default function ManageTypesScreen() {
     setAddCategory(category);
     setNewLabel('');
     setNewIcon(null);
+    setNewColor(null);
   }
 
   function closeAdd() {
     setAddCategory(null);
     setNewLabel('');
     setNewIcon(null);
+    setNewColor(null);
   }
 
   function handleAdd() {
@@ -198,10 +242,13 @@ export default function ManageTypesScreen() {
     }
     try {
       // New product classes seed empty curated units + decimals allowed.
-      const meta =
-        addCategory === 'product_class'
-          ? JSON.stringify({ units: [], allowDecimals: true })
-          : undefined;
+      // New Item Types optionally carry a pinned color (omit → auto applies).
+      let meta: string | undefined;
+      if (addCategory === 'product_class') {
+        meta = JSON.stringify({ units: [], allowDecimals: true });
+      } else if (addCategory === 'item_category' && newColor) {
+        meta = JSON.stringify({ color: newColor });
+      }
       addTaxonomyType({ category: addCategory, label, icon: newIcon, meta });
       if (addCategory === 'product_class') loadClassConfigCache();
       refresh();
@@ -232,6 +279,7 @@ export default function ManageTypesScreen() {
       setEditAllowDecimals(true);
       setEditClassId(m.classId ?? '');
       setEditClassIdOriginal(m.classId ?? '');
+      setEditColorOverride(m.color);
     } else if (item.category === 'repair_status') {
       setEditClass(null);
       setEditUnits([]);
@@ -263,6 +311,7 @@ export default function ManageTypesScreen() {
     setEditClassIdOriginal('');
     setEditTerminal(false);
     setEditTerminalOriginal(false);
+    setEditColorOverride(null);
   }
 
   function handleMoveUnitUp(index: number) {
@@ -293,6 +342,32 @@ export default function ManageTypesScreen() {
 
   function handleRemoveUnit(unit: string) {
     setEditUnits(editUnits.filter(u => u !== unit));
+  }
+
+  // Item Type color override applies immediately (no Save needed), then re-pulls
+  // the list so the stored meta.color is reflected.
+  function handlePickColor(color: string) {
+    if (!editType) return;
+    if (isWriteBlocked()) return;
+    try {
+      setTaxonomyColor(editType.id, color);
+      setEditColorOverride(color);
+      refresh();
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message);
+    }
+  }
+
+  function handleResetColor() {
+    if (!editType) return;
+    if (isWriteBlocked()) return;
+    try {
+      setTaxonomyColor(editType.id, null);
+      setEditColorOverride(null);
+      refresh();
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message);
+    }
   }
 
   function handleSaveEdit() {
@@ -500,6 +575,20 @@ export default function ManageTypesScreen() {
           />
           <Text style={s.fieldLabel}>Icon</Text>
           <IconPicker selected={newIcon} onSelect={icon => setNewIcon(icon)} />
+          {addCategory === 'item_category' && (
+            <>
+              <Text style={s.fieldLabel}>Color</Text>
+              <Text style={s.rowSub}>
+                Optional. Tap a swatch to pin a color for this type in lists.
+                Leave unset to use the automatic color
+                {newLabel.trim() ? '' : ' (assigned from the name)'}.
+              </Text>
+              <ColorPicker
+                selected={newColor ?? (newLabel.trim() ? autoTypeColor(newLabel) : null)}
+                onSelect={color => setNewColor(c => (c === color ? null : color))}
+              />
+            </>
+          )}
           <PrimaryButton label="Add Type" onPress={handleAdd} disabled={locked} />
           <TouchableOpacity style={s.cancelBtn} onPress={closeAdd}>
             <Text style={s.cancelText}>Cancel</Text>
@@ -633,6 +722,30 @@ export default function ManageTypesScreen() {
                           />
                         ))}
                       </View>
+
+                      <View style={s.colorHeaderRow}>
+                        <Text style={s.fieldLabel}>Color</Text>
+                        {editColorOverride != null && (
+                          <TouchableOpacity
+                            onPress={handleResetColor}
+                            disabled={locked}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Text style={[s.resetColorText, locked && s.addRowTextDisabled]}>
+                              Reset to default
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <Text style={s.rowSub}>
+                        {editColorOverride != null
+                          ? 'Pinned color used for this type in lists. Tap another swatch to change.'
+                          : 'Using the automatic color (from the name). Tap a swatch to pin one.'}
+                      </Text>
+                      <ColorPicker
+                        selected={resolveTypeColor(editType.label, editColorOverride)}
+                        onSelect={handlePickColor}
+                      />
                     </>
                   )}
                 </>
@@ -839,6 +952,27 @@ const s = StyleSheet.create({
 
   // Icon picker (FilterChip grid)
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+
+  // Color picker (palette swatches)
+  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: spacing.xs },
+  colorSwatch: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorSwatchActive: { borderColor: colors.textPrimary },
+  colorSwatchCheck: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  colorHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+  },
+  resetColorText: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primary },
 
   // Archive / restore action button
   archiveBtn: {

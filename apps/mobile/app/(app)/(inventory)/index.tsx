@@ -7,7 +7,7 @@ import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { searchItems, updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
-import { getItemTypes } from '../../../src/db/queries/taxonomy';
+import { getItemTypes, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { PermissionGate } from '../../../src/components/PermissionGate';
@@ -63,6 +63,8 @@ export default function InventoryScreen() {
     ],
     [refreshKey],
   );
+  // Item-type label → admin color override; re-read on focus so synced overrides show.
+  const typeColorMap = useMemo(() => getItemTypeColorMap(), [refreshKey]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<string>(ALL_FILTER);
   const [items, setItems] = useState<Item[]>([]);
@@ -269,7 +271,7 @@ export default function InventoryScreen() {
                       selection mode is done via the explicit "Select" button (long-press
                       is a bonus that fires on the card's non-touchable regions). */}
                   <View style={styles.rowCard} pointerEvents={ms.active ? 'none' : 'auto'}>
-                    <ItemCard item={item} onCheckout={handleCheckout} />
+                    <ItemCard item={item} onCheckout={handleCheckout} typeColorMap={typeColorMap} />
                   </View>
                 </View>
               </TouchableOpacity>
