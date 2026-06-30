@@ -1,5 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { UserRole, ROLE_TIER } from '../../constants/roles';
+import { UserRole, ROLE_TIER, resolveRoleColor } from '../../constants/roles';
 import { appendOutbox } from '../../sync/outbox';
 import { getValidJwt } from '../../auth/session';
 
@@ -125,6 +125,36 @@ export function getRoleSettings(): Record<string, number> {
     (result.rows as { role: string; min_pin_length: number }[])
       .map(r => [r.role, r.min_pin_length])
   );
+}
+
+// Role → override color (only non-null overrides). Callers build this ONCE per
+// screen and pass it to roleColor() per row to avoid per-row DB reads.
+export function getRoleColorMap(): Record<string, string> {
+  const db = getDb();
+  const result = db.executeSync(`SELECT role, color FROM role_settings WHERE color IS NOT NULL`);
+  const map: Record<string, string> = {};
+  for (const row of result.rows as { role: string; color: string | null }[]) {
+    if (row.color) map[row.role] = row.color;
+  }
+  return map;
+}
+
+// Effective name color for a role. Pass a prebuilt map in hot lists.
+export function roleColor(role: string, map?: Record<string, string>): string {
+  const override = (map ?? getRoleColorMap())[role];
+  return resolveRoleColor(role, override);
+}
+
+// Set (or clear, with null) a role's override color. Returns new updated_at.
+export function setRoleColor(role: string, color: string | null): string {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.executeSync(
+    `INSERT INTO role_settings (role, color, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(role) DO UPDATE SET color = excluded.color, updated_at = excluded.updated_at`,
+    [role, color, now]
+  );
+  return now;
 }
 
 // Apply admin edits to the local users row. PIN/pin_set are NEVER written here —
