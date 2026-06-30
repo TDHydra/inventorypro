@@ -6,7 +6,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertItem, getItemBySku, searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
-import { getAllLocations, getShelvesForParent, findOrCreateShelf } from '../../db/queries/locations';
+import { getAllLocations, getShelvesForParent, findOrCreateShelf, resolveLocationShelf } from '../../db/queries/locations';
+import { getMainStorageLocationId } from '../../db/mainStorage';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -61,10 +62,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // unit_category stores a product_class id (drives formatQuantity decimals).
   const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
   const [unit, setUnit] = useState<string>(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
-  // Optional "home" location. Two-stage: pick a location, and if that location
-  // has shelves, pick (or add) a shelf within it.
-  const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null);
-  const [shelfValue, setShelfValue] = useState<PickerOption | null>(null);
+  // Optional "home" location. Two-stage: pick a location, and if it has shelves,
+  // pick (or add) a shelf. Defaults to the admin-set "main storage area" (which may
+  // itself be a shelf, resolved to its location + shelf) — the user can change it.
+  function storageDefault() {
+    return resolveLocationShelf(getMainStorageLocationId());
+  }
+  const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(() => storageDefault().location);
+  const [shelfValue, setShelfValue] = useState<PickerOption | null>(() => storageDefault().shelf);
   const [nameError, setNameError] = useState('');
 
   // Location typeahead over ALL locations (parent shown as sublabel). Selecting a
@@ -156,8 +161,9 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     setItemType('');
     setUnitCat(CLASS_PIECE_ID);
     setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
-    setSelectedLocation(null);
-    setShelfValue(null);
+    const def = storageDefault();
+    setSelectedLocation(def.location);
+    setShelfValue(def.shelf);
     setNameError('');
   }
 

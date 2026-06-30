@@ -41,6 +41,33 @@ export function getAllLocations(): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+export interface LocationShelfPick {
+  location: { id: string; label: string } | null;
+  shelf: { id: string; label: string } | null;
+}
+
+/**
+ * Resolve a stored location id (which may be a shelf — a child of a shelf-bearing
+ * location) into a (location, shelf) pair for the two-stage picker. If the id is a
+ * shelf, returns its parent as the location and itself as the shelf; otherwise the
+ * location with no shelf. Unknown/null id → both null. Used to seed the main-storage
+ * default in Quick Add and the main-storage setting in admin.
+ */
+export function resolveLocationShelf(locationId: string | null): LocationShelfPick {
+  if (!locationId) return { location: null, shelf: null };
+  const byId = new Map(getAllLocations().map(l => [l.id, l]));
+  const loc = byId.get(locationId);
+  if (!loc) return { location: null, shelf: null };
+  const parent = loc.parent_id ? byId.get(loc.parent_id) : undefined;
+  if (parent && parent.has_shelves === 1) {
+    return {
+      location: { id: parent.id, label: parent.name },
+      shelf: { id: loc.id, label: loc.name },
+    };
+  }
+  return { location: { id: loc.id, label: loc.name }, shelf: null };
+}
+
 export function getTopLevelLocations(): Location[] {
   const db = getDb();
   const result = db.executeSync(

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
@@ -19,6 +19,10 @@ import {
   getFormModeOverride,
   setFormModeOverride,
 } from '../../../src/db/formMode';
+import { getMainStorageLocationId, setMainStorageLocation } from '../../../src/db/mainStorage';
+import { getAllLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
+import { SearchablePicker } from '../../../src/components/SearchablePicker';
+import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
 
@@ -83,6 +87,45 @@ export default function SettingsScreen() {
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
 
+  // Main storage area (app-wide default stock location). Two-stage like Quick Add:
+  // a location, plus a shelf when that location has shelves. Stored as a single id
+  // (the shelf id when a shelf is chosen, else the location id).
+  const [storageLoc, setStorageLoc] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).location);
+  const [storageShelf, setStorageShelf] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).shelf);
+  const allLocations = useMemo(() => getAllLocations(), []);
+  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
+  const locationOptions = useMemo<PickerOption[]>(
+    () => allLocations.map(l => ({ id: l.id, label: l.name, sublabel: l.parent_id ? locationById.get(l.parent_id)?.name : undefined })),
+    [allLocations, locationById],
+  );
+  const storageLocHasShelves = (storageLoc ? locationById.get(storageLoc.id) : undefined)?.has_shelves === 1;
+  const storageShelfOptions = useMemo<PickerOption[]>(
+    () => (storageLocHasShelves && storageLoc) ? getShelvesForParent(storageLoc.id).map(s => ({ id: s.id, label: s.name })) : [],
+    [storageLocHasShelves, storageLoc],
+  );
+
+  // Pick a storage location: toggle off if re-tapped (clears the setting); else set
+  // it and reset the shelf. The location id is stored immediately (shelf optional).
+  function handleStorageLocationSelect(opt: PickerOption) {
+    if (storageLoc?.id === opt.id) {
+      setStorageLoc(null);
+      setStorageShelf(null);
+      try { setMainStorageLocation(null); } catch { /* blocked write — ignore */ }
+      return;
+    }
+    setStorageLoc(opt);
+    setStorageShelf(null);
+    try { setMainStorageLocation(opt.id); } catch { /* blocked write — ignore */ }
+  }
+
+  // Pick/clear a shelf within the storage location → store the shelf id (or fall
+  // back to the location id when the shelf is cleared).
+  function handleStorageShelfSelect(opt: PickerOption) {
+    const next = storageShelf?.id === opt.id ? null : opt;
+    setStorageShelf(next);
+    try { setMainStorageLocation(next ? next.id : (storageLoc?.id ?? null)); } catch { /* blocked write — ignore */ }
+  }
+
   const refreshStatus = useCallback(() => {
     const { lastSync: ls, pending: p } = readSyncStatus();
     setLastSync(ls);
@@ -92,6 +135,9 @@ export default function SettingsScreen() {
     setFormDefaultState(getFormModeDefault());
     setFormOverrideState(getFormModeOverride());
     setFormResolvedState(getFormMode());
+    const st = resolveLocationShelf(getMainStorageLocationId());
+    setStorageLoc(st.location);
+    setStorageShelf(st.shelf);
   }, []);
 
   // Re-read DB values every time the screen gains focus
@@ -344,6 +390,29 @@ export default function SettingsScreen() {
                     </Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.base }}>
+                <Text style={s.rowLabel}>Main storage area</Text>
+                <Text style={s.rowSub}>New stock (e.g. Quick Add) defaults to this location. Pick a shelf if the area has them.</Text>
+                <View style={{ marginTop: spacing.sm }}>
+                  <SearchablePicker
+                    placeholder="Search locations…"
+                    options={locationOptions}
+                    value={storageLoc}
+                    onSelect={handleStorageLocationSelect}
+                  />
+                  {storageLocHasShelves && (
+                    <View style={{ marginTop: spacing.sm }}>
+                      <SearchablePicker
+                        placeholder="Pick a shelf (e.g. A1)…"
+                        options={storageShelfOptions}
+                        value={storageShelf}
+                        onSelect={handleStorageShelfSelect}
+                      />
+                    </View>
+                  )}
+                </View>
               </View>
               <View style={s.divider} />
               <TouchableOpacity
