@@ -25,9 +25,19 @@ const fastify = Fastify({
 });
 
 async function build() {
-  // CORS — allow Expo dev client and production app
+  // CORS — allowlist instead of reflecting any Origin. Native apps send no Origin
+  // (fetch omits it) → allowed; browser origins must match the configured web
+  // host(s) or localhost (dev). Override/extend via CORS_ORIGINS (comma-separated).
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'https://frontend.plexcontrol.com')
+    .split(',').map(s => s.trim()).filter(Boolean);
   await fastify.register(fastifyCors, {
-    origin: true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // native app / curl / same-origin
+      if (allowedOrigins.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+        return cb(null, true);
+      }
+      cb(null, false);
+    },
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   });
 
@@ -36,9 +46,14 @@ async function build() {
     connectionString: process.env.DATABASE_URL,
   });
 
-  // JWT
+  // JWT — refuse to boot on a missing/weak secret (HS256 needs real entropy, else
+  // tokens are forgeable). Better to fail loudly at startup than run insecure.
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret || jwtSecret.length < 32) {
+    throw new Error('JWT_SECRET must be set and at least 32 characters.');
+  }
   await fastify.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET!,
+    secret: jwtSecret,
     sign: { expiresIn: '15m' },
   });
 

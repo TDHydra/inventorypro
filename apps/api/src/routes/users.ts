@@ -1,6 +1,23 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
-import { requirePermission } from '../lib/permissions';
+import { requirePermission, userHasPermission } from '../lib/permissions';
+
+// Resolve the caller's effective permissions (role default + role/user overrides),
+// same source requirePermission uses. Returns null when the caller is unknown.
+async function callerCan(fastify: any, userId: string) {
+  const { rows } = await fastify.pg.query(
+    `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+       FROM users u LEFT JOIN role_settings rs ON rs.role = u.role
+      WHERE u.id = $1`, [userId]);
+  const u = rows[0];
+  if (!u) return null;
+  return (perm: string) => userHasPermission(u.role, u.permission_overrides, perm, u.role_overrides);
+}
+
+// Roles that confer broad authority — creating or assigning these (or any explicit
+// permission overrides) is itself a privilege grant, so it requires the
+// roles-&-permissions permission, not merely manage_users.
+const PRIVILEGED_ROLES = new Set(['full_admin', 'franchise_manager']);
 
 interface CreateUserBody {
   name: string;
@@ -20,19 +37,14 @@ interface UpdateUserBody {
   permission_overrides?: Record<string, boolean>;
 }
 
-const ADMIN_ROLES = new Set(['full_admin', 'hr_manager', 'office_manager', 'franchise_manager']);
-
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = { preHandler: [(fastify as any).authenticate] };
 
   // GET /users
   fastify.get('/', auth, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const { rows: [caller] } = await fastify.pg.query(
-      `SELECT role FROM users WHERE id = $1`, [userId]
-    );
-
-    if (!ADMIN_ROLES.has((caller as { role: string }).role)) {
+    const can = await callerCan(fastify, userId);
+    if (!can || !can('manage_users')) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
@@ -62,6 +74,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request, reply) => {
     const { name, role, pin, expires_at, permission_overrides = {} } = request.body;
+
+    // Creating a privileged role or any explicit permission override is itself a
+    // privilege grant → require manage_roles_permissions, not just manage_users.
+    if (PRIVILEGED_ROLES.has(role) || Object.keys(permission_overrides).length > 0) {
+      const can = await callerCan(fastify, (request.user as { sub: string }).sub);
+      if (!can || !can('manage_roles_permissions')) {
+        return reply.status(403).send({ error: 'Creating an admin role or custom permissions requires the roles & permissions permission.' });
+      }
+    }
     // Default PIN length expectation from role tier could be added later; for now
     // store the provided length, or 4 as a placeholder until the user sets it.
     const pinHash = pin ? await bcrypt.hash(pin, 10) : null;
@@ -80,15 +101,28 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // PATCH /users/:id — update user
   fastify.patch<{ Params: { id: string }; Body: UpdateUserBody }>('/:id', auth, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const { rows: [caller] } = await fastify.pg.query(
-      `SELECT role FROM users WHERE id = $1`, [userId]
-    );
-
-    if (!ADMIN_ROLES.has((caller as { role: string }).role) && userId !== request.params.id) {
+    const targetId = request.params.id;
+    const can = await callerCan(fastify, userId);
+    if (!can || !can('manage_users')) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
     const { name, role, pin, reset_pin, active, expires_at, permission_overrides } = request.body;
+
+    // Changing role or permission_overrides is a privilege operation: it requires
+    // manage_roles_permissions (tier-4), and you may NOT change your OWN role/perms
+    // (blocks self-escalation — the old self-edit path let any user grant
+    // themselves full_admin). Assigning a privileged role needs the same gate.
+    const changingPrivilege =
+      role !== undefined || permission_overrides !== undefined;
+    if (changingPrivilege) {
+      if (!can('manage_roles_permissions')) {
+        return reply.status(403).send({ error: 'Changing role or permissions requires the roles & permissions permission.' });
+      }
+      if (targetId === userId) {
+        return reply.status(403).send({ error: 'You cannot change your own role or permissions.' });
+      }
+    }
     const updates: string[] = [];
     const values: unknown[] = [request.params.id];
     let i = 2;

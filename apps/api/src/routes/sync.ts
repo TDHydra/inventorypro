@@ -71,7 +71,8 @@ function selectColsFor(table: string): string {
 
 async function applyEntry(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
-  entry: OutboxEntry
+  entry: OutboxEntry,
+  callerUserId: string,
 ): Promise<void> {
   const { operation, table_name, payload } = entry;
 
@@ -79,6 +80,9 @@ async function applyEntry(
   // incompatible with rules, so insert idempotently via WHERE NOT EXISTS.
   if (table_name === 'activity_log') {
     if (operation !== 'INSERT') return;
+    // Attribute to the AUTHENTICATED caller, not the client-supplied user_id —
+    // otherwise any token could forge audit entries blaming another user.
+    // (created_at stays client-supplied: offline events carry their real time.)
     await pg.query(
       `INSERT INTO activity_log
          (id, user_id, team_id, action, entity_type, entity_id,
@@ -88,7 +92,7 @@ async function applyEntry(
        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),$16,$17,$18
        WHERE NOT EXISTS (SELECT 1 FROM activity_log WHERE id = $1)`,
       [
-        payload.id, payload.user_id ?? null, payload.team_id ?? null,
+        payload.id, callerUserId, payload.team_id ?? null,
         payload.action, payload.entity_type, payload.entity_id ?? null,
         payload.from_location_id ?? null, payload.to_location_id ?? null,
         payload.quantity ?? null, payload.unit ?? null,
@@ -301,7 +305,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        await applyEntry(fastify.pg, entry);
+        await applyEntry(fastify.pg, entry, userId);
         ok.push(entry.id);
       } catch (err) {
         // Log the offending entry so a stuck/rejected outbox row is diagnosable

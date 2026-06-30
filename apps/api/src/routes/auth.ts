@@ -15,6 +15,26 @@ interface SetPinBody {
   pin: string;
 }
 
+// In-memory brute-force guard (the API runs as a single container). Keyed per
+// target (user_id); a sliding window of failures triggers a temporary lockout.
+// Blocks PIN guessing on /auth/token and hammering a single account on /set-pin.
+const attempts = new Map<string, { count: number; first: number; lockedUntil: number }>();
+const MAX_ATTEMPTS = 8;
+const WINDOW_MS = 15 * 60_000;
+const LOCK_MS = 15 * 60_000;
+function isLocked(key: string): boolean {
+  const r = attempts.get(key);
+  return !!r && r.lockedUntil > Date.now();
+}
+function recordFail(key: string): void {
+  const now = Date.now();
+  const r = attempts.get(key);
+  if (!r || now - r.first > WINDOW_MS) { attempts.set(key, { count: 1, first: now, lockedUntil: 0 }); return; }
+  r.count += 1;
+  if (r.count >= MAX_ATTEMPTS) r.lockedUntil = now + LOCK_MS;
+}
+function recordSuccess(key: string): void { attempts.delete(key); }
+
 const routes: FastifyPluginAsync = async (fastify) => {
   // GET /auth/roster — PUBLIC login picker roster. Intentionally unauthenticated:
   // a brand-new device has no token yet and needs the list of names to sign in.
@@ -61,6 +81,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request, reply) => {
     const { user_id, pin } = request.body;
+    const lockKey = `token:${user_id}`;
+    if (isLocked(lockKey)) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
 
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string; pin_hash: string;
@@ -75,7 +99,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     const user = rows[0];
 
+    // Unify the unknown-user and wrong-PIN responses to one generic message so a
+    // caller can't enumerate valid accounts. (active/expired/no-PIN below are
+    // distinct because the client needs them for sign-in UX.)
     if (!user) {
+      recordFail(lockKey);
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
@@ -94,8 +122,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     const pinMatch = await bcrypt.compare(pin, user.pin_hash);
     if (!pinMatch) {
-      return reply.status(401).send({ error: 'Incorrect PIN' });
+      recordFail(lockKey);
+      return reply.status(401).send({ error: 'Invalid credentials' });
     }
+    recordSuccess(lockKey);
 
     const payload = {
       sub: user.id,
@@ -106,7 +136,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const jwt = fastify.jwt.sign(payload, { expiresIn: '15m' });
     const refreshToken = fastify.jwt.sign(
       { sub: user.id, type: 'refresh' },
-      { expiresIn: '30d' }
+      { expiresIn: '7d' }
     );
 
     // Log successful login
@@ -147,6 +177,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
   }, async (request, reply) => {
     const { user_id, pin } = request.body;
+    // Rate-limit per target to blunt hammering. NOTE: this does NOT fully close
+    // the first-login takeover (an unauthenticated caller can still set the PIN of
+    // a not-yet-onboarded user). The proper fix is an admin-issued one-time
+    // enrollment token required here — tracked as a follow-up (needs onboarding UX).
+    const lockKey = `setpin:${user_id}`;
+    if (isLocked(lockKey)) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
 
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
@@ -164,6 +202,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
     if (user.pin_set) {
       // Already set — refuse so nobody can overwrite an existing PIN.
+      recordFail(lockKey);
       return reply.status(409).send({ error: 'PIN already set' });
     }
 
@@ -174,8 +213,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
       [pinHash, pin.length, user.id]
     );
 
+    recordSuccess(lockKey);
     const jwt = fastify.jwt.sign({ sub: user.id, name: user.name, role: user.role }, { expiresIn: '15m' });
-    const refreshToken = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '30d' });
+    const refreshToken = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
 
     await fastify.pg.query(
       `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at)

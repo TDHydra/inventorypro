@@ -121,8 +121,9 @@ export default function LoginScreen() {
       proceedAfterAuth(result.userId);
     } catch (err) {
       const msg = (err as Error).message;
-      if (msg.includes('Incorrect') || msg.includes('expired') || msg.includes('inactive')) {
-        // Definitive server rejection — wrong PIN or disabled account.
+      if (msg.includes('Incorrect') || msg.includes('Invalid credentials') || msg.includes('expired') || msg.includes('inactive') || msg.includes('Too many')) {
+        // Definitive server rejection — wrong PIN, disabled/expired account, or
+        // rate-limited (too many attempts). Show the server's message.
         setPinError(msg);
       } else {
         // First-time sign-in requires the server (PIN is never verified on-device).
