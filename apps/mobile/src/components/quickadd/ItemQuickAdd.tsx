@@ -27,13 +27,14 @@ import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { BarcodeInput } from '../BarcodeInput';
+import type { QuickAddSaveMeta } from './justAdded';
 
 // Pieces class id (migration 012) — the default unit class when no item type is
 // selected (most products are counted in pieces).
 const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
 interface Props {
-  onSaved: (label: string, createdId?: string) => void;
+  onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
 }
 
 export default function ItemQuickAdd({ onSaved }: Props) {
@@ -323,7 +324,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     }
 
     // Writes succeeded — only now clear the form and signal success.
-    onSaved(trimmedName, id);
+    onSaved(trimmedName, id, { kind: 'item' });
     clearForm();
     setTimeout(() => nameRef.current?.focus(), 100);
   }

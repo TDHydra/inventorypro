@@ -24,9 +24,10 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
-  onSaved: (label: string, createdId?: string) => void;
+  onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
 }
 
 // One row of the batch: an asset tag with its own (optional) nested serial.
@@ -256,11 +257,14 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       return;
     }
 
-    // Writes succeeded — only now clear the batch and signal success.
+    // Writes succeeded — only now clear the batch and signal success. When more
+    // than one unit was saved, the edit affordance targets just the last one
+    // (the one most likely to still be "fresh" in mind for a quick fix) rather
+    // than trying to represent a whole batch.
     const label = cleaned.length === 1
       ? cleaned[0].tag
       : `${cleaned.length} units (${cleaned.map(r => r.tag).join(', ')})`;
-    onSaved(label, createdIds[0]);
+    onSaved(label, createdIds[createdIds.length - 1], { kind: 'equipment_unit' });
     setRows([newRow()]); // fresh single row; item + location stay sticky for the next batch
   }
 

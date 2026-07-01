@@ -16,9 +16,10 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
-  onSaved: (label: string, createdId?: string) => void;
+  onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
 }
 
 type Mode = 'delta' | 'set';
@@ -141,6 +142,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
         ? `Set to ${parsedQty} ${itemUnit} @ ${locName}`
         : `${parsedQty} ${itemUnit} @ ${locName}`,
       itemId,
+      { kind: 'stock', itemId, locationId, qty: parsedQty, mode, unit: itemUnit },
     );
 
     // Clear item+qty; keep location sticky

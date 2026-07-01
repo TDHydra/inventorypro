@@ -27,6 +27,13 @@ export function getAvailableUnitsAtLocation(itemId: string, locationId: string):
     [itemId, locationId]).rows);
 }
 
+// Point lookup by id — used by the Quick Add "edit just-added unit" sheet to seed
+// its form fields (getUnitByTag above is for tag-based dup/lookup checks).
+export function getUnitById(id: string): EquipmentUnit | null {
+  const db = getDb();
+  return (db.executeSync(`SELECT * FROM equipment_units WHERE id = ?`, [id]).rows[0] as unknown as EquipmentUnit) ?? null;
+}
+
 export function getUnitByTag(tag: string): EquipmentUnit | null {
   const db = getDb();
   // Case-insensitive: a tag differing only in case is the same physical asset,
