@@ -13,12 +13,21 @@ import { getAppSetting } from '../src/db/appSettings';
 // module load (setNotificationHandler).
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 import { AlertHost } from '../src/lib/themedAlert';
+import { useScreenTracking } from '../src/telemetry/useScreenTracking';
+import { installGlobalErrorTracking } from '../src/telemetry/capture';
+import { useNotificationObservers } from '../src/push/handlers';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
   const [user, setUser] = useState<UserSession | null>(null);
 
+  // Telemetry screen-view tracking + push tap/deep-link observers. Hooks are
+  // called unconditionally (before any early return) per the rules of hooks.
+  useScreenTracking();
+  useNotificationObservers();
+
   useEffect(() => {
+    installGlobalErrorTracking();
     initDb()
       .then(() => {
         setDbReady(true);
