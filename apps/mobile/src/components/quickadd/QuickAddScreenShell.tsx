@@ -42,6 +42,11 @@ export function QuickAddScreenShell({
   // delete_inventory — see ROLE_DEFAULTS), so it's checked separately below.
   const canEdit = usePermission('edit_inventory');
   const canDeleteItems = usePermission('delete_inventory');
+  // Stock adjust/undo hits the server's ADJUST path, which requires checkin OR
+  // checkout (NOT edit_inventory) — gate the stock sheet on the same perm the
+  // server enforces, or a permission_overrides combo would silently stick the
+  // outbox entry ("Forbidden: stock adjust requires checkin/checkout").
+  const canAdjustStock = usePermission('checkin_inventory') || usePermission('checkout_inventory');
   const router = useRouter();
   const [count, setCount] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
@@ -87,6 +92,7 @@ export function QuickAddScreenShell({
   // delete_inventory is granted, but "Save" stays hidden without edit_inventory).
   function canManage(ref: JustAddedRef): boolean {
     if (ref.kind === 'item') return canEdit || canDeleteItems;
+    if (ref.kind === 'stock') return canAdjustStock;
     return canEdit;
   }
 
@@ -121,6 +127,7 @@ export function QuickAddScreenShell({
         entityRef={editingRef}
         canEdit={canEdit}
         canDeleteItems={canDeleteItems}
+        canAdjustStock={canAdjustStock}
         onClose={() => setEditingRef(null)}
         onSaved={(label, patch) => {
           setRecent(prev => prev.map(r => (r.ref === editingRef && r.ref

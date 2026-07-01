@@ -26,6 +26,9 @@ interface Props {
    * roles have edit_inventory without it) — units/stock have no such split, they
    * stay behind `canEdit` (see QuickAddScreenShell.canManage). */
   canDeleteItems: boolean;
+  /** Stock adjust/undo requires checkin OR checkout (the server's ADJUST gate),
+   * NOT edit_inventory — the shell resolves this and passes it here. */
+  canAdjustStock: boolean;
   onClose: () => void;
   /** `patch` lets the sheet hand back updated ref fields (stock's `qty`) so the
    * shell's recent-list entry stays correct if it's edited again. */
@@ -41,7 +44,7 @@ interface Props {
  * for stock) so quick-add corrections sync the same way. Deliberately covers only
  * the handful of fields most likely to need a quick fix — not a full editor.
  */
-export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems, onClose, onSaved, onDeleted }: Props) {
+export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems, canAdjustStock, onClose, onSaved, onDeleted }: Props) {
   const { user } = useSession();
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
@@ -188,7 +191,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   // checkout use). A "set" (recount) has no prior value to restore, so undo is
   // only offered for "delta" adds. ────────────────────────────────────────────────
   function saveStock(ref: Extract<JustAddedRef, { kind: 'stock' }>) {
-    if (!canEdit) return;
+    if (!canAdjustStock) return;
     const parsed = parseFloat(qty);
     const invalid = !qty.trim() || isNaN(parsed) || (ref.mode === 'delta' ? parsed <= 0 : parsed < 0);
     if (invalid) {
@@ -232,7 +235,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   }
 
   function deleteStock(ref: Extract<JustAddedRef, { kind: 'stock' }>) {
-    if (!canEdit) return;
+    if (!canAdjustStock) return;
     confirmDestructive({
       title: 'Undo this stock add?',
       message: `Remove the ${ref.qty} ${ref.unit} just added? This reverses the addition.`,
@@ -300,9 +303,9 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
         <View style={s.body}>
           <Text style={s.title}>Edit stock</Text>
           <FieldLabel>{entityRef.mode === 'set' ? 'New quantity' : 'Quantity added'}</FieldLabel>
-          <AppInput value={qty} onChangeText={setQty} placeholder="Quantity" keyboardType="decimal-pad" autoFocus editable={canEdit} />
+          <AppInput value={qty} onChangeText={setQty} placeholder="Quantity" keyboardType="decimal-pad" autoFocus editable={canAdjustStock} />
           {!!error && <Text style={s.error}>{error}</Text>}
-          {canEdit && (
+          {canAdjustStock && (
             <>
               <PrimaryButton label="Save" onPress={() => saveStock(entityRef)} style={{ marginTop: spacing.md }} />
               {entityRef.mode === 'delta' && (

@@ -383,6 +383,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
           conflicts.push({ id: entry.id, error: 'Forbidden: stock adjust requires checkin/checkout permission' });
           continue;
         }
+      } else if (entry.table_name === 'inventory_items' && entry.operation === 'UPDATE' && entry.payload.active === false) {
+        // Deactivating an item IS the delete (items are soft-deleted, never row-
+        // deleted). The generic UPDATE op-perm is only `edit_inventory`, so gate
+        // the active:false case on the stricter `delete_inventory` — otherwise the
+        // UI's delete gate would be advisory-only and an edit_inventory-only role
+        // could deactivate items via a crafted push.
+        if (!can('delete_inventory')) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: deactivating an item requires delete_inventory' });
+          continue;
+        }
       } else {
         const opPerm = requiredOperationPerm(entry.table_name, entry.operation as 'INSERT' | 'UPDATE' | 'DELETE');
         if (opPerm === 'DENY') {

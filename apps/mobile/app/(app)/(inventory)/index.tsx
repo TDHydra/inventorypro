@@ -97,7 +97,16 @@ export default function InventoryScreen() {
   // pulling to refresh. Deliberately keyed only on dataVersion — query/filter
   // changes are already handled by handleSearch/handleFilter below.
   useEffect(() => {
-    runSearch(query, filter, 0);
+    // Reload the CURRENTLY-loaded window (not just page 1) so a background sync
+    // — which bumps the global dataVersion for any table — doesn't truncate an
+    // infinite-scrolled list back to the first page. Re-query 0..current-extent
+    // in one shot; fall back to one page on first load.
+    const limit = Math.max(PAGE_SIZE, offset);
+    const typeFilter = filter === ALL_FILTER ? undefined : filter;
+    const rows = searchItems(query, limit, 0, undefined, 'product', undefined, typeFilter) as Item[];
+    setItems(rows);
+    setHasMore(rows.length === limit);
+    setOffset(rows.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataVersion]);
 
