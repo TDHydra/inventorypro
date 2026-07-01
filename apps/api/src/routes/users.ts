@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
+import { randomInt } from 'node:crypto';
 import { requirePermission, userHasPermission } from '../lib/permissions';
 
 // Resolve the caller's effective permissions (role default + role/user overrides),
@@ -89,13 +90,19 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const pinLength = pin ? pin.length : 4;
     const pinSet = !!pin;
 
+    // One-time enrollment code — required (see /auth/set-pin) before an
+    // unauthenticated first-login caller can set this user's PIN. Bcrypt-hashed
+    // at rest; the plaintext is returned ONCE here and never stored or synced.
+    const enrollmentCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const enrollmentCodeHash = await bcrypt.hash(enrollmentCode, 10);
+
     const { rows } = await fastify.pg.query(
-      `INSERT INTO users (name, role, pin_hash, pin_length_required, pin_set, permission_overrides, expires_at)
-       VALUES ($1, $2::user_role, $3, $4, $5, $6::jsonb, $7)
+      `INSERT INTO users (name, role, pin_hash, pin_length_required, pin_set, permission_overrides, expires_at, enrollment_code_hash)
+       VALUES ($1, $2::user_role, $3, $4, $5, $6::jsonb, $7, $8)
        RETURNING id, name, role, pin_length_required, pin_set, active, created_at`,
-      [name, role, pinHash, pinLength, pinSet, JSON.stringify(permission_overrides), expires_at ?? null]
+      [name, role, pinHash, pinLength, pinSet, JSON.stringify(permission_overrides), expires_at ?? null, enrollmentCodeHash]
     );
-    return reply.status(201).send(rows[0]);
+    return reply.status(201).send({ ...rows[0], enrollment_code: enrollmentCode });
   });
 
   // PATCH /users/:id — update user

@@ -13,15 +13,22 @@ interface RefreshBody {
 interface SetPinBody {
   user_id: string;
   pin: string;
+  enrollment_code: string;
 }
 
 // In-memory brute-force guard (the API runs as a single container). Keyed per
 // target (user_id); a sliding window of failures triggers a temporary lockout.
 // Blocks PIN guessing on /auth/token and hammering a single account on /set-pin.
 const attempts = new Map<string, { count: number; first: number; lockedUntil: number }>();
-const MAX_ATTEMPTS = 8;
 const WINDOW_MS = 15 * 60_000;
-const LOCK_MS = 15 * 60_000;
+
+// Exponential backoff once a target has racked up enough failures: no lock below
+// the threshold, then 1m,2m,4m,8m... doubling per additional failure, capped at 1h.
+// Pure + exported so it can be unit-tested without touching the in-memory Map.
+export function nextLockMs(count: number): number {
+  if (count < 5) return 0;
+  return Math.min(60 * 60_000, 60_000 * 2 ** (count - 5)); // 1m,2m,4m… cap 1h
+}
 function isLocked(key: string): boolean {
   const r = attempts.get(key);
   return !!r && r.lockedUntil > Date.now();
@@ -31,9 +38,26 @@ function recordFail(key: string): void {
   const r = attempts.get(key);
   if (!r || now - r.first > WINDOW_MS) { attempts.set(key, { count: 1, first: now, lockedUntil: 0 }); return; }
   r.count += 1;
-  if (r.count >= MAX_ATTEMPTS) r.lockedUntil = now + LOCK_MS;
+  const ms = nextLockMs(r.count);
+  if (ms > 0) r.lockedUntil = now + ms;
 }
 function recordSuccess(key: string): void { attempts.delete(key); }
+
+// IP-keyed rate limit for the public /auth/roster endpoint (no auth to gate it,
+// so this is the only thing standing between it and enumeration/scraping abuse).
+// Reuses the same `attempts` map/window; count-only, no lockout escalation.
+const ROSTER_LIMIT = 30;
+function rosterRateLimited(ip: string): boolean {
+  const key = `roster:${ip}`;
+  const now = Date.now();
+  const r = attempts.get(key);
+  if (!r || now - r.first > WINDOW_MS) {
+    attempts.set(key, { count: 1, first: now, lockedUntil: 0 });
+    return false;
+  }
+  r.count += 1;
+  return r.count > ROSTER_LIMIT;
+}
 
 const routes: FastifyPluginAsync = async (fastify) => {
   // GET /auth/roster — PUBLIC login picker roster. Intentionally unauthenticated:
@@ -43,7 +67,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // Deliberately NOT exposed: pin_hash, permission_overrides, expires_at, and ALL
   // business data — those require a token and arrive via the post-login full sync.
   // Inactive/expired users are filtered so they never appear as a sign-in option.
-  fastify.get('/roster', async (_request, reply) => {
+  fastify.get('/roster', async (request, reply) => {
+    if (rosterRateLimited(request.ip)) {
+      return reply.status(429).send({ error: 'Too many requests. Try again later.' });
+    }
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
       pin_length_required: number; pin_set: boolean;
@@ -168,19 +195,19 @@ const routes: FastifyPluginAsync = async (fastify) => {
     schema: {
       body: {
         type: 'object',
-        required: ['user_id', 'pin'],
+        required: ['user_id', 'pin', 'enrollment_code'],
         properties: {
           user_id: { type: 'string' },
           pin: { type: 'string', minLength: 4, maxLength: 8 },
+          enrollment_code: { type: 'string', minLength: 4, maxLength: 12 },
         },
       },
     },
   }, async (request, reply) => {
     const { user_id, pin } = request.body;
-    // Rate-limit per target to blunt hammering. NOTE: this does NOT fully close
-    // the first-login takeover (an unauthenticated caller can still set the PIN of
-    // a not-yet-onboarded user). The proper fix is an admin-issued one-time
-    // enrollment token required here — tracked as a follow-up (needs onboarding UX).
+    // Rate-limit per target to blunt hammering. The admin-issued one-time
+    // enrollment code (below) closes the first-login takeover: an unauthenticated
+    // caller can no longer set the PIN of a not-yet-onboarded user without it.
     const lockKey = `setpin:${user_id}`;
     if (isLocked(lockKey)) {
       return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
@@ -189,8 +216,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
       pin_set: boolean; active: boolean; expires_at: string | null;
+      enrollment_code_hash: string | null;
     }>(
-      `SELECT id, name, role, pin_set, active, expires_at FROM users WHERE id = $1`,
+      `SELECT id, name, role, pin_set, active, expires_at, enrollment_code_hash FROM users WHERE id = $1`,
       [user_id]
     );
     const user = rows[0];
@@ -206,9 +234,19 @@ const routes: FastifyPluginAsync = async (fastify) => {
       return reply.status(409).send({ error: 'PIN already set' });
     }
 
+    if (!user.enrollment_code_hash) {
+      recordFail(lockKey);
+      return reply.status(403).send({ error: 'Enrollment not available for this account' });
+    }
+    const codeOk = await bcrypt.compare(request.body.enrollment_code, user.enrollment_code_hash);
+    if (!codeOk) {
+      recordFail(lockKey);
+      return reply.status(401).send({ error: 'Invalid enrollment code' });
+    }
+
     const pinHash = await bcrypt.hash(pin, 10);
     await fastify.pg.query(
-      `UPDATE users SET pin_hash = $1, pin_length_required = $2, pin_set = TRUE, updated_at = NOW()
+      `UPDATE users SET pin_hash = $1, pin_length_required = $2, pin_set = TRUE, enrollment_code_hash = NULL, updated_at = NOW()
        WHERE id = $3`,
       [pinHash, pin.length, user.id]
     );
@@ -252,14 +290,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
       return reply.status(401).send({ error: 'Invalid token type' });
     }
 
-    const { rows } = await fastify.pg.query<{ id: string; name: string; role: string; active: boolean }>(
-      `SELECT id, name, role, active FROM users WHERE id = $1`,
+    const { rows } = await fastify.pg.query<{ id: string; name: string; role: string; active: boolean; expires_at: string | null }>(
+      `SELECT id, name, role, active, expires_at FROM users WHERE id = $1`,
       [decoded.sub]
     );
 
     const user = rows[0];
-    if (!user || !user.active) {
-      return reply.status(403).send({ error: 'Account inactive' });
+    if (!user || !user.active || (user.expires_at && new Date(user.expires_at) < new Date())) {
+      return reply.status(403).send({ error: 'Account inactive or expired' });
     }
 
     const jwt = fastify.jwt.sign(
