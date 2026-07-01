@@ -122,3 +122,11 @@ ON CONFLICT DO NOTHING;
 INSERT INTO jobs (name, status, created_by)
 SELECT '789 Pine Rd Completed',   'closed', id FROM users WHERE name = 'Alex Admin' LIMIT 1
 ON CONFLICT DO NOTHING;
+
+-- Notification config defaults (also created lazily by getNotifyConfig()'s
+-- built-in defaults — this seed is a convenience, not a hard dependency).
+INSERT INTO app_config (key, value) VALUES
+  ('notify_enabled', '1'),
+  ('notify_poll_interval_min', '5'),
+  ('notify_checkout_idle_min', '15')
+ON CONFLICT (key) DO NOTHING;

@@ -12,6 +12,9 @@ import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes, getAppSetting, setAppSetting } from '../../../src/db/appSettings';
 import { ensureNotificationPermission } from '../../../src/notifications/localAlerts';
 import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
+import { getAppConfig, setAppConfigLocal } from '../../../src/db/appConfig';
+import { appendOutbox } from '../../../src/sync/outbox';
+import { AppInput } from '../../../src/components/ui/AppInput';
 import {
   FormMode,
   getFormMode,
@@ -47,7 +50,27 @@ const FORM_OVERRIDE_OPTIONS: { label: string; value: FormMode | null }[] = [
   { label: 'Use app default', value: null },
 ];
 
+// ── Notification trigger config keys (app_config, admin-editable) ──────────
+
+const NOTIFY_ENABLED_KEY = 'notify_enabled';
+const NOTIFY_POLL_MIN_KEY = 'notify_poll_interval_min';
+const NOTIFY_IDLE_MIN_KEY = 'notify_checkout_idle_min';
+
 // ── DB helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Writes a synced `app_config` value: locally + through the outbox so it
+ * reaches the server (same write path as `setMaintenanceMode` — INSERT is the
+ * outbox's full-row upsert op; the server applies ON CONFLICT (key) DO UPDATE).
+ */
+function setAppConfigSynced(key: string, value: string): void {
+  setAppConfigLocal(key, value);
+  appendOutbox('INSERT', 'app_config', {
+    key,
+    value,
+    updated_at: new Date().toISOString(),
+  });
+}
 
 function readSyncStatus(): { lastSync: string; pending: number } {
   try {
@@ -85,6 +108,10 @@ export default function SettingsScreen() {
   // Default ON when the pref is unset.
   const [notifEnabled, setNotifEnabled] = useState<boolean>(() => getAppSetting('notifications_enabled') !== 'false');
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
+  // Notification trigger config (admin, synced) — defaults mirror getNotifyConfig() on the API.
+  const [notifyTriggersOn, setNotifyTriggersOn] = useState<boolean>(() => getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
+  const [pollMinInput, setPollMinInput] = useState<string>(() => getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
+  const [idleMinInput, setIdleMinInput] = useState<string>(() => getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
@@ -147,6 +174,9 @@ export default function SettingsScreen() {
     useCallback(() => {
       refreshStatus();
       setMaintOn(isMaintenanceActive());
+      setNotifyTriggersOn(getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
+      setPollMinInput(getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
+      setIdleMinInput(getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
     }, [refreshStatus])
   );
 
@@ -211,6 +241,37 @@ export default function SettingsScreen() {
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to save form mode override:', err);
     }
+  };
+
+  const handleToggleNotifyTriggers = (enabled: boolean) => {
+    try {
+      setAppConfigSynced(NOTIFY_ENABLED_KEY, enabled ? '1' : '0');
+      setNotifyTriggersOn(enabled);
+    } catch (err) {
+      if (__DEV__) console.warn('[Settings] Failed to toggle notify_enabled:', err);
+    }
+  };
+
+  // Commits a numeric app_config field on blur: parses to an integer >= 1,
+  // reverting the field to its last-known-good value on invalid input.
+  const commitNotifyIntConfig = (
+    key: string,
+    text: string,
+    fallback: string,
+    setInput: (v: string) => void
+  ) => {
+    const n = parseInt(text, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      setInput(fallback);
+      return;
+    }
+    const value = String(n);
+    try {
+      setAppConfigSynced(key, value);
+    } catch (err) {
+      if (__DEV__) console.warn(`[Settings] Failed to save ${key}:`, err);
+    }
+    setInput(value);
   };
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
@@ -427,6 +488,51 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* ── Notification Triggers (admin only — server push config) ──── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Notification Triggers</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>Enable push triggers</Text>
+                  <Text style={s.rowSub}>
+                    Assignment, low-stock, and checkout-idle pushes. Turning this off stops all three server-side.
+                  </Text>
+                </View>
+                <Switch
+                  value={notifyTriggersOn}
+                  onValueChange={handleToggleNotifyTriggers}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Poll interval (minutes)</Text>
+                <Text style={s.rowSub}>How often the server checks for checkout-idle sessions.</Text>
+                <AppInput
+                  value={pollMinInput}
+                  onChangeText={setPollMinInput}
+                  onEndEditing={() => commitNotifyIntConfig(NOTIFY_POLL_MIN_KEY, pollMinInput, getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5', setPollMinInput)}
+                  keyboardType="number-pad"
+                  style={{ width: 100 }}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Checkout idle timeout (minutes)</Text>
+                <Text style={s.rowSub}>How long after a user's last checkout before their manager is notified.</Text>
+                <AppInput
+                  value={idleMinInput}
+                  onChangeText={setIdleMinInput}
+                  onEndEditing={() => commitNotifyIntConfig(NOTIFY_IDLE_MIN_KEY, idleMinInput, getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15', setIdleMinInput)}
+                  keyboardType="number-pad"
+                  style={{ width: 100 }}
+                />
+              </View>
             </View>
           </View>
         )}
