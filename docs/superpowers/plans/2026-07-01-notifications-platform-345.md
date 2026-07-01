@@ -10,7 +10,7 @@
 
 ## Global Constraints
 - **Migration numbers:** API next = **032**, mobile next = **025**. (API max currently 031, mobile 024.)
-- **Sync parity (every synced column):** API migration + mobile migration registered in **both** `apps/mobile/src/db/schema.ts` AND `apps/mobile/src/db/schema.web.ts`; `apps/api/src/routes/pull.ts`… — NOTE: pull logic lives in `apps/api/src/routes/sync.ts` (there is no separate pull.ts). Add table to `ALLOWED_TABLES`, `FULL_TABLES`, `CONFLICT_TARGETS` as needed; `selectColumnsFor` in `apps/api/src/lib/syncPolicy.ts`; and the mobile upsert (`TABLE_UPSERT_SQL` + `rowToValues`) in `apps/mobile/src/db/sync/pull.ts` — **column count == placeholder count**.
+- **Sync parity (every synced column):** API migration + mobile migration registered in **both** `apps/mobile/src/db/schema.ts` AND `apps/mobile/src/db/schema.web.ts`; `apps/api/src/routes/pull.ts`… — NOTE: pull logic lives in `apps/api/src/routes/sync.ts` (there is no separate pull.ts). Add table to `ALLOWED_TABLES`, `FULL_TABLES`, `CONFLICT_TARGETS` as needed; `selectColumnsFor` in `apps/api/src/lib/syncPolicy.ts`; and the mobile upsert (`TABLE_UPSERT_SQL` + `rowToValues`) in `apps/mobile/src/sync/pull.ts` — **column count == placeholder count**.
 - **No PII in push payloads:** titles/bodies are fixed templates (triggers/approvals), the sender's text (broadcast), or item *names* + counts only — never customer content or field values.
 - **Every server notification hook is `try/catch`-wrapped** — a notification failure must never break `/sync/push` or crash the timer.
 - **Verify each task:** `cd apps/api && npx tsc --noEmit && npm test`; `cd apps/mobile && npx tsc --noEmit`.
@@ -35,7 +35,7 @@
 **Mobile (`apps/mobile`)**
 - `src/db/migrations/025_notifications_and_approvals.ts` — CREATE both tables (**new**).
 - `src/db/schema.ts` + `src/db/schema.web.ts` — register migration 025 (**modify both**).
-- `src/db/sync/pull.ts` — `TABLE_UPSERT_SQL` + `rowToValues` for both tables (**modify**).
+- `src/sync/pull.ts` — `TABLE_UPSERT_SQL` + `rowToValues` for both tables (**modify**).
 - `src/constants/roles.ts` — `send_notifications` in `Permission` + 4 tier maps (**modify**).
 - `src/db/queries/notifications.ts` — inbox queries + mark-read + `countUnread` + `createApprovalRequest` + `decideApproval` (**new**).
 - `src/db/queries/appConfig.ts` (or existing config query file) — routing-rule + threshold config getters/setters (**modify/confirm path**).
@@ -53,7 +53,7 @@
 - Create: `apps/api/src/db/migrations/032_notifications_and_approvals.sql`
 - Create: `apps/mobile/src/db/migrations/025_notifications_and_approvals.ts`
 - Modify: `apps/mobile/src/db/schema.ts`, `apps/mobile/src/db/schema.web.ts`
-- Modify: `apps/mobile/src/db/sync/pull.ts` (TABLE_UPSERT_SQL + rowToValues)
+- Modify: `apps/mobile/src/sync/pull.ts` (TABLE_UPSERT_SQL + rowToValues)
 - Modify: `apps/api/src/routes/sync.ts` (ALLOWED_TABLES, FULL_TABLES, CONFLICT_TARGETS, SCOPED_TABLES + scoped pull)
 - Modify: `apps/api/src/lib/syncPolicy.ts` (selectColumnsFor, SENSITIVE_DENY, OPERATION_PERM, applyWritePolicy rules)
 
