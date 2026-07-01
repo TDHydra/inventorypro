@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Alert } from '../lib/themedAlert';
@@ -15,6 +15,8 @@ import { adjustStock, getStockQuantity, getItemById } from '../db/queries/items'
 import { appendLog } from '../db/queries/log';
 import { appendOutbox } from '../sync/outbox';
 import { useSession } from '../hooks/useSession';
+import { useCurrentPosition } from '../hooks/useCurrentPosition';
+import { sortByProximity } from '../location/proximity';
 import { SearchablePicker, PickerOption } from './SearchablePicker';
 
 interface Props {
@@ -32,7 +34,10 @@ interface Props {
  *
  * Picker options:
  *   - Item: from `getStockAtLocation(fromLocationId)` (only items with qty > 0)
- *   - Destination: from `getAllLocations()` excluding the source location
+ *   - Destination: from `getAllLocations()` excluding the source location,
+ *     proximity-sorted via `sortByProximity` using the device's current coords
+ *     (same `useCurrentPosition` pattern as the check-in return-location list) —
+ *     falls back to the existing (alphabetical-ish) order when coords aren't available
  *
  * On confirm:
  *   1. adjustStock(itemId, fromLocationId, -qty)  [deducts from source]
@@ -48,6 +53,12 @@ export default function MoveStockModal({
   onDone,
 }: Props) {
   const { user } = useSession();
+  // Position: request once whenever the modal opens (fire-and-forget; never blocks UI).
+  const { coords, request } = useCurrentPosition();
+  useEffect(() => {
+    if (visible) void request();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   // Load data once (these are sync queries, so useMemo is fine)
   const stock = useMemo(() => getStockAtLocation(fromLocationId), [fromLocationId]);
@@ -58,12 +69,28 @@ export default function MoveStockModal({
     [stock],
   );
 
+  // Proximity-sorted destination list; re-runs when coords arrive after the async
+  // request. Un-anchored locations (no lat/lng, or coords unavailable) sink to the
+  // bottom in their original order — never reordered ahead of anchored ones.
+  const sortedLocs = useMemo(
+    () =>
+      sortByProximity(
+        allLocs
+          .filter(l => l.id !== fromLocationId)
+          .map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+        coords,
+      ),
+    [allLocs, fromLocationId, coords],
+  );
+
   const locOptions = useMemo<PickerOption[]>(
     () =>
-      allLocs
-        .filter(l => l.id !== fromLocationId)
-        .map(l => ({ id: l.id, label: l.name })),
-    [allLocs, fromLocationId],
+      sortedLocs.map(l => ({
+        id: l.id,
+        label: l.name,
+        sublabel: l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined,
+      })),
+    [sortedLocs],
   );
 
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null);
