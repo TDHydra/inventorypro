@@ -106,3 +106,6 @@ map tiles · geofence radius enforcement / auto-switching (suggest-only by desig
 - [ ] Telemetry: unit-test the ring-buffer eviction path + the /telemetry route handler (auth/rate-limit/maxItems/bad-event-skip).
 - [ ] Telemetry: exempt /telemetry from the global per-user mut: rate-limit bucket so telemetry can't consume the /sync/push quota (it has its own telemetry: bucket).
 - [ ] Push: schedule a delayed receipts re-poll (Expo recommends ~15min) in addition to the immediate poll, to catch receipts not ready at send time.
+
+## Camera UX (2026-07-01)
+- [ ] Add a **flash/torch toggle button** in the camera screen so users can quickly turn the flash on/off while capturing (barcode scan + photo capture). expo-camera supports `enableTorch` / `flashMode` — surface it as a tappable control in the camera overlay.
