@@ -90,6 +90,11 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-inventorypro-media}
       PUBLIC_MEDIA_URL: ${PUBLIC_MEDIA_URL}
+      # Browser CORS allowlist (comma-separated) — the web origin(s). Without this
+      # the API falls back to its built-in default and blocks the real web origin.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Trusted proxy subnet (NPM/Docker bridge) for correct request.ip behind the proxy.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       PORT: "3000"
       HOST: "0.0.0.0"
     ports:
