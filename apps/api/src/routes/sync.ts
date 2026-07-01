@@ -24,7 +24,7 @@ interface PushBody {
 const ALLOWED_TABLES = new Set([
   'users', 'locations', 'inventory_items', 'stock_by_location',
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
-  'equipment_units', 'app_config', 'taxonomy_types', 'repairs',
+  'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -68,7 +68,7 @@ function keyColumns(table: string): string[] {
 const FULL_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
-  'equipment_units', 'app_config', 'taxonomy_types', 'repairs',
+  'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
 ];
 
 async function applyEntry(

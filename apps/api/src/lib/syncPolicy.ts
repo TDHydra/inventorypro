@@ -75,7 +75,8 @@ export function requiresRolesPermForTarget(targetRole: string | null | undefined
 // and dropped on UPDATE (creator can't be reassigned). NOTE: locations.owner_user_id
 // is intentionally NOT here — it's a deliberate assignment, not "who created it".
 export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
-  jobs: ['created_by'], repairs: ['created_by'], media: ['uploaded_by'], team_members: ['added_by'],
+  jobs: ['created_by'], repairs: ['created_by'], repair_parts: ['created_by'],
+  media: ['uploaded_by'], team_members: ['added_by'],
 };
 
 export function applyWritePolicy(
@@ -122,6 +123,7 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string>>> = {
   locations:       { INSERT: 'manage_locations', UPDATE: 'manage_locations', DELETE: 'manage_locations' },
   jobs:            { INSERT: 'create_jobs', UPDATE: 'create_jobs', DELETE: 'close_jobs' },
   repairs:         { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
+  repair_parts:    { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   taxonomy_types:  { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   media:           { INSERT: 'upload_media', UPDATE: 'upload_media', DELETE: 'upload_media' },
   stock_by_location: { INSERT: 'checkin_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
