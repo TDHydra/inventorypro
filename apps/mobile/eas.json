@@ -16,7 +16,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.plexcontrol.com"
+        "EXPO_PUBLIC_API_URL": "https://api.invenpro.app"
       }
     },
     "production": {
@@ -24,7 +24,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.plexcontrol.com"
+        "EXPO_PUBLIC_API_URL": "https://api.invenpro.app"
       }
     }
   },

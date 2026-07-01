@@ -1,6 +1,6 @@
 ---
 name: deploy-api
-description: Build, ship, and deploy the InventoryPro Fastify API (and the Expo Web app) to the Unraid prod stack behind Nginx Proxy Manager. Use whenever the user wants to deploy/ship/release the API or backend, push a migration to prod, update the web app, or "get the changes live" on api.plexcontrol.com / frontend.plexcontrol.com. Migrations run automatically on API boot, so shipping the image also applies them — treat every API deploy as a schema change.
+description: Build, ship, and deploy the InventoryPro Fastify API (and the Expo Web app) to the Unraid prod stack behind Nginx Proxy Manager. Use whenever the user wants to deploy/ship/release the API or backend, push a migration to prod, update the web app, or "get the changes live" on api.invenpro.app / invenpro.app. Migrations run automatically on API boot, so shipping the image also applies them — treat every API deploy as a schema change.
 ---
 
 # Deploy InventoryPro — API + Web (Unraid prod)
@@ -9,7 +9,7 @@ Build locally (Docker 20+), ship a saved image tarball to Unraid, load + recreat
 
 - **Unraid:** `root@192.168.1.239`, appdata `/mnt/user/appdata/inventorypro`. Runbook: `infra/DEPLOY-COMMANDS.md`.
 - **Containers:** `inventorypro-api-1`, `inventorypro-postgres-1` (user+db = `inventorypro`), `inventorypro-minio-1`, `inventorypro-web` (**standalone** — see Web below).
-- **Edge:** NPM → `api.plexcontrol.com` (host `API_PORT`, default 3100), `frontend.plexcontrol.com` (8088), `s3.plexcontrol.com` (9000).
+- **Edge:** NPM → `api.invenpro.app` (host `API_PORT`, default 3100), `invenpro.app` (8088), `s3.invenpro.app` (9000).
 - Prod `.env` lives at `/mnt/user/appdata/inventorypro/.env` (secrets — never commit/print values).
 
 ## Git — deploy from a committed, pushed state (do this, don't ship dirty)
@@ -44,7 +44,7 @@ The logs should show `Applying migration NNN…` → `✓ Migration NNN applied`
 
 ## Verify
 ```bash
-curl -s https://api.plexcontrol.com/health            # {"ok":true,...}
+curl -s https://api.invenpro.app/health            # {"ok":true,...}
 # schema version + a new column landed:
 ssh root@192.168.1.239 "docker exec inventorypro-postgres-1 psql -U inventorypro -d inventorypro -tAc \
   \"SELECT max(version) FROM schema_migrations;\""
@@ -59,13 +59,13 @@ ssh root@192.168.1.239 "docker exec inventorypro-postgres-1 psql -U inventorypro
 `inventorypro-web` is a plain `docker run`, so update it with rm+run, not `compose up`.
 ```bash
 cd ~/inventorypro
-docker build -f infra/Dockerfile.web --build-arg EXPO_PUBLIC_API_URL=https://api.plexcontrol.com -t inventorypro-web:latest .
+docker build -f infra/Dockerfile.web --build-arg EXPO_PUBLIC_API_URL=https://api.invenpro.app -t inventorypro-web:latest .
 docker save inventorypro-web:latest | gzip > inventorypro-web.tar.gz
 scp inventorypro-web.tar.gz root@192.168.1.239:/mnt/user/appdata/inventorypro/
 ssh root@192.168.1.239 'cd /mnt/user/appdata/inventorypro && docker load -i inventorypro-web.tar.gz \
   && docker rm -f inventorypro-web \
   && docker run -d --name inventorypro-web --restart unless-stopped -p 8088:80 inventorypro-web:latest'
-curl -s -o /dev/null -w "%{http_code}\n" https://frontend.plexcontrol.com/   # 200
+curl -s -o /dev/null -w "%{http_code}\n" https://invenpro.app/   # 200
 ```
 
 ## C. Push to GitHub (final step)

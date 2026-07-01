@@ -4,7 +4,7 @@ Copy/paste sheet for shipping the API image to Unraid and bringing the stack up
 behind Nginx Proxy Manager (NPM). Replace the two placeholders before running:
 
 - `<UNRAID-IP>` — your Unraid box's LAN IP (e.g. `10.0.20.5`)
-- `plexcontrol.com` — your domain (already set in the env if you use this one)
+- `invenpro.app` — your domain (already set in the env if you use this one)
 
 The tarball was rebuilt **2026-06-26** and includes: user edit/roles screens,
 `reset_pin`, and the `role_settings` sync fix.
@@ -64,9 +64,9 @@ MINIO_BUCKET=inventorypro-media
 
 JWT_SECRET=<secret — set in infra/.env on the server; never commit>
 
-MINIO_PUBLIC_ENDPOINT=https://s3.plexcontrol.com
-PUBLIC_MEDIA_URL=https://s3.plexcontrol.com/inventorypro-media
-MINIO_CONSOLE_URL=https://minio.plexcontrol.com
+MINIO_PUBLIC_ENDPOINT=https://s3.invenpro.app
+PUBLIC_MEDIA_URL=https://s3.invenpro.app/inventorypro-media
+MINIO_CONSOLE_URL=https://minio.invenpro.app
 
 API_PORT=3100
 MINIO_PORT=9000
@@ -78,7 +78,7 @@ API_IMAGE=inventorypro-api:latest
 > listens on 3000 internally, so you never touch the image. If Unraid says
 > `bind: address already in use`, pick any free port here (e.g. `3100`, `3200`,
 > `8088`) and re-run `docker compose -f docker-compose.prod.yml up -d`. Then
-> point the `api.plexcontrol.com` NPM proxy at that same port. Same applies to
+> point the `api.invenpro.app` NPM proxy at that same port. Same applies to
 > `MINIO_PORT` / `MINIO_CONSOLE_PORT` if 9000/9001 are taken.
 
 > These secrets were generated for this project. Rotate them anytime — change
@@ -110,13 +110,13 @@ uploads are used; `minio.` is optional (admin console only).
 
 | Domain | Scheme | Forward host / IP | Port | Extra (Advanced tab) |
 |---|---|---|---|---|
-| `api.plexcontrol.com`   | http | `<UNRAID-IP>` | `3100` | match `API_PORT` in `.env` |
-| `s3.plexcontrol.com`    | http | `<UNRAID-IP>` | `9000` | see snippet below |
-| `minio.plexcontrol.com` | http | `<UNRAID-IP>` | `9001` | (optional) |
+| `api.invenpro.app`   | http | `<UNRAID-IP>` | `3100` | match `API_PORT` in `.env` |
+| `s3.invenpro.app`    | http | `<UNRAID-IP>` | `9000` | see snippet below |
+| `minio.invenpro.app` | http | `<UNRAID-IP>` | `9001` | (optional) |
 
 For each: **SSL tab → request a Let's Encrypt cert + Force SSL.**
 
-`s3.plexcontrol.com` → Advanced → Custom Nginx Configuration:
+`s3.invenpro.app` → Advanced → Custom Nginx Configuration:
 ```nginx
 client_max_body_size 100m;          # allow photo/video uploads
 proxy_set_header Host $host;         # MinIO presigned URLs need the real host
@@ -129,11 +129,11 @@ proxy_set_header X-Real-IP $remote_addr;
 
 ```bash
 # API over HTTPS (expect {"ok":true,...})
-curl https://api.plexcontrol.com/health
+curl https://api.invenpro.app/health
 ```
 
 Once that returns `ok`, tell me and I'll kick off the standalone "on the go"
-APK build (`eas build --profile preview`, which points at `api.plexcontrol.com`).
+APK build (`eas build --profile preview`, which points at `api.invenpro.app`).
 
 ---
 

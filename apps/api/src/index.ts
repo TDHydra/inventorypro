@@ -38,7 +38,7 @@ async function build() {
   // CORS — allowlist instead of reflecting any Origin. Native apps send no Origin
   // (fetch omits it) → allowed; browser origins must match the configured web
   // host(s) or localhost (dev). Override/extend via CORS_ORIGINS (comma-separated).
-  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'https://frontend.plexcontrol.com')
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'https://invenpro.app')
     .split(',').map(s => s.trim()).filter(Boolean);
   await fastify.register(fastifyCors, {
     origin: (origin, cb) => {
@@ -55,8 +55,8 @@ async function build() {
   // HTML), and a default CSP can break presigned-image hosts / the web client's
   // fetches without adding meaningful protection here. crossOriginResourcePolicy
   // is relaxed to 'cross-origin': helmet's default 'same-origin' blocks the
-  // split-origin web client (frontend.plexcontrol.com) from reading responses
-  // from this API (api.plexcontrol.com) even though CORS above allows it —
+  // split-origin web client (invenpro.app) from reading responses
+  // from this API (api.invenpro.app) even though CORS above allows it —
   // CORP is enforced by the browser independently of CORS.
   await fastify.register(helmet, {
     contentSecurityPolicy: false,

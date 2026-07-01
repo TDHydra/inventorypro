@@ -36,7 +36,7 @@ the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Un
 - Locations: tree, create/edit, archive, owner; Jobs: list/detail/edit/archive + server-assigned `job_number`
 - Equipment units: asset-tag tracking, status, deploy/return, repair history — fully logged
 - Checkout/checkin: Job / Location / Production Manager destinations, multi-PM, unit + count flows; retrievable move-photos
-- Universal media (`media` + MinIO presigned, `s3.plexcontrol.com`); admin user/role/PIN/override mgmt
+- Universal media (`media` + MinIO presigned, `s3.invenpro.app`); admin user/role/PIN/override mgmt
 - Settings 3a (core) · 3b (maintenance mode, app_config, migration 010) · 3c (Simple/Detailed form mode) · SERVPRO rebrand/polish pass
 - Standalone APK in field use
 
@@ -80,7 +80,7 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 1. ✅ **Native rebuild** — `npx expo prebuild --clean` → re-pinned Gradle 8.13 → `assembleRelease` against prod URL.
    Output: `~/inventorypro/inventorypro-preview.apk` (130MB, 2026-06-28; Hermes; prod URL + POST_NOTIFICATIONS verified baked in).
 2. ✅ **API deployed** — image rebuilt, shipped to Unraid, migration 016 (insurance_carrier) applied; `schema_migrations` max=16;
-   `https://api.plexcontrol.com/health` = ok; `jobs.insurance_carrier` confirmed in prod.
+   `https://api.invenpro.app/health` = ok; `jobs.insurance_carrier` confirmed in prod.
 3. ⏳ **On-device verification** (user) — install `inventorypro-preview.apk`, accept the notification permission, and confirm
    P3 alerts fire once per episode (low-stock + temp-employee expiry) and re-fire after recovery.
 

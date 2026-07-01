@@ -17,11 +17,11 @@ Working dir: `~/inventorypro/apps/mobile`. Device id (Pixel): `58060DLCQ001ZR`. 
 ## A. Field-use release APK (points at prod)
 ```bash
 cd ~/inventorypro/apps/mobile/android
-EXPO_PUBLIC_API_URL=https://api.plexcontrol.com ./gradlew assembleRelease
+EXPO_PUBLIC_API_URL=https://api.invenpro.app ./gradlew assembleRelease
 cp app/build/outputs/apk/release/app-release.apk ~/inventorypro/inventorypro-preview.apk
 adb install -r ~/inventorypro/inventorypro-preview.apk   # uninstall first if signature mismatch
 ```
-Verify: `unzip -p app/build/outputs/apk/release/app-release.apk assets/index.android.bundle | strings | grep -o api.plexcontrol.com` (URL baked) and `aapt2 dump permissions ...apk | grep POST_NOTIFICATIONS` (native perms present).
+Verify: `unzip -p app/build/outputs/apk/release/app-release.apk assets/index.android.bundle | strings | grep -o api.invenpro.app` (URL baked) and `aapt2 dump permissions ...apk | grep POST_NOTIFICATIONS` (native perms present).
 
 ## B. Debug dev-client (for live debugging via Metro + hot reload)
 ```bash
@@ -30,13 +30,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk           # uninstall r
 adb reverse tcp:8081 tcp:8081
 # Metro must run non-interactively (no TTY in automation): CI=1 + stdin from /dev/null
 cd ~/inventorypro/apps/mobile
-EXPO_PUBLIC_API_URL=https://api.plexcontrol.com CI=1 nohup npx expo start --dev-client --localhost --port 8081 </dev/null >/tmp/metro.log 2>&1 &
+EXPO_PUBLIC_API_URL=https://api.invenpro.app CI=1 nohup npx expo start --dev-client --localhost --port 8081 </dev/null >/tmp/metro.log 2>&1 &
 adb shell am start -a android.intent.action.VIEW -d "exp+inventorypro://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081" com.inventorypro.app
 ```
 The "React Native DevTools chrome-sandbox" error in Metro output is harmless. Read JS errors via `adb logcat ReactNativeJS:* '*:S'` or the on-device red box.
 
 ## C. Play Store (EAS cloud build) — when Google API/signing is set up
-EAS project: `@tdhydra/inventorypro` (id d4244438-0520-46c3-9ad1-fd5da43f7f86). `eas.json` `preview`/`production` profiles set `EXPO_PUBLIC_API_URL=https://api.plexcontrol.com`.
+EAS project: `@tdhydra/inventorypro` (id d4244438-0520-46c3-9ad1-fd5da43f7f86). `eas.json` `preview`/`production` profiles set `EXPO_PUBLIC_API_URL=https://api.invenpro.app`.
 ```bash
 cd ~/inventorypro/apps/mobile
 eas build --platform android --profile production   # AAB for the Play Store
