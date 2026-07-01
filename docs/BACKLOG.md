@@ -60,6 +60,16 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [ ] Destination-location **proximity sorting** (only source/current is sorted today)
 
 ## F. Sync / UX polish & hardening
+- [ ] **Sync should mirror REST's target-role guard for privileged-user edits** — a `manage_users`
+      holder without `manage_roles_permissions` can currently deactivate/expire a privileged-role
+      user (e.g. a `full_admin`) via a sync `UPDATE users {active|expires_at}`, which REST PATCH
+      blocks (`PRIVILEGED_ROLES` check). Add the target-role lookup + guard last-admin/self
+      deactivation. *(Security fast-follow from 2026-07-01 audit; DELETE-of-privileged already blocked.)*
+- [ ] **Media thumbnail-object hygiene** — DELETE only collision-checks/cleans the primary object,
+      not `thumbnail_url`; thumbnails can be orphaned, and a forged row targeting a victim's
+      thumbnail key isn't collision-protected (LOW, needs `upload_media`). Validate + clean thumbnails.
+- [ ] **Pin `trustProxy` to the proxy subnet** (currently `true`) so `X-Forwarded-For` can't be
+      spoofed to evade the roster IP rate-limit if the API is ever reachable outside NPM (LOW).
 - [ ] **Reactive post-sync auto-refresh** of already-open lists (pull-to-refresh only today)
 - [ ] Taxonomy hardening: migrate entity `type` from **label → FK id** (rename-propagation safety)
 - [ ] Drag-and-drop **reorder** for taxonomy (up/down today)
