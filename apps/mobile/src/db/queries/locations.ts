@@ -49,7 +49,11 @@ export function getAllLocations(): Location[] {
 // item-assign two-stage pickers (ItemQuickAdd, inventory/add) intentionally keep
 // using getAllLocations() so shelves stay reachable there.
 export function getBrowsableLocations(): Location[] {
-  return getAllLocations().filter(l => l.type !== 'Shelf');
+  // Hide shelves that belong to a parent location (they're managed inside that
+  // location's detail). Keep TOP-LEVEL shelves (parent_id null) — e.g. ones a
+  // findOrCreateShelfByName home-location quick-create made — visible, or they'd
+  // become unreachable/unmanageable anywhere in the Locations UI.
+  return getAllLocations().filter(l => !(l.type === 'Shelf' && l.parent_id != null));
 }
 
 export interface LocationShelfPick {

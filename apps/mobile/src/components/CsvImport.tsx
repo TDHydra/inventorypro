@@ -77,7 +77,10 @@ function parseDelimited(text: string, delimiter: string): string[][] {
       }
       continue;
     }
-    if (ch === '"') { inQuotes = true; continue; }
+    // A quote only opens a quoted field at the START of a field (RFC4180). A bare
+    // quote mid-field (e.g. a 1/2" dimension in a value) is a literal character,
+    // not a quote-open — otherwise it swallows the rest of the row/paste.
+    if (ch === '"' && field === '') { inQuotes = true; continue; }
     if (ch === delimiter) { row.push(field); field = ''; continue; }
     if (ch === '\r') continue;
     if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue; }

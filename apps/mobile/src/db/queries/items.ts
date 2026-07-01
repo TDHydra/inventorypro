@@ -96,7 +96,7 @@ export function searchItems(
 export function getItemByBarcode(barcode: string): InventoryItem | null {
   const db = getDb();
   const result = db.executeSync(
-    `SELECT * FROM inventory_items WHERE barcode = ? AND active = 1`,
+    `SELECT * FROM inventory_items WHERE LOWER(barcode) = LOWER(?) AND active = 1`,
     [barcode]
   );
   return (result.rows[0] as unknown as InventoryItem) ?? null;

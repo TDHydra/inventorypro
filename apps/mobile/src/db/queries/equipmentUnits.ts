@@ -29,7 +29,9 @@ export function getAvailableUnitsAtLocation(itemId: string, locationId: string):
 
 export function getUnitByTag(tag: string): EquipmentUnit | null {
   const db = getDb();
-  return (db.executeSync(`SELECT * FROM equipment_units WHERE asset_tag = ?`, [tag]).rows[0] as unknown as EquipmentUnit) ?? null;
+  // Case-insensitive: a tag differing only in case is the same physical asset,
+  // and dup-checks/scan lookups must not let "am-0007" slip past "AM-0007".
+  return (db.executeSync(`SELECT * FROM equipment_units WHERE LOWER(asset_tag) = LOWER(?)`, [tag]).rows[0] as unknown as EquipmentUnit) ?? null;
 }
 
 // Typeahead over asset tags (and serial numbers) for pickers. Ranks prefix matches
