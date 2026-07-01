@@ -16,6 +16,11 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [ ] Equipment **depreciation**
 
 ## B. Inventory data entry & accuracy
+- [ ] **Quick Add – Equipment bulk mode** — after the asset-tag box, reveal an optional
+      *add-another* asset-tag field so several units can be entered rapidly in one pass;
+      nest each unit's **serial** input as a child of its asset tag (visually indented — asset
+      tag is the parent, serial the child); and add a **location** selector like the other
+      add screens so bulk-added units land in a chosen location.
 - [ ] **CSV / paste bulk import** of catalog items
 - [ ] **Edit / delete from the quick-add tool** (today: use the normal screens)
 - [ ] **"Set exact / recount" stock UI** — absolute set / stocktake (only delta adjustments exist today)
@@ -32,11 +37,25 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [ ] **Auto-generated / "quick generate" asset tags** (today: `tag_prefix` hint, tags typed by hand)
 
 ## D. Teams & roles
+- [ ] **Force PIN reset on next login when a permission/role change alters `pin_length_required`** —
+      if editing a user's role/permissions changes their required PIN length, mark the account so it
+      re-runs first-login PIN setup on next sign-in (mirror the admin PIN-reset path).
+- [ ] **Quick Add – Team: member selection + per-team permissions** — pick team members while creating
+      the team and set each member's per-team permission overrides inline (writes `team_permission_overrides`;
+      overlaps the "Per-team permission editing UI" item below).
 - [ ] **Per-team permission editing UI** (`team_permission_overrides` exists in data; no UI)
 - [ ] `view_team_activity` permission + multi-manager teams + cross-team activity (5b leftovers)
 - [ ] Cleanup migration: drop the deprecated `teams.manager_id` column
 
 ## E. Locations / maps (leftovers)
+- [ ] **Distinct "shelves" sub-level under locations** —
+      - Locations list shows **only locations** by default; shelves are hidden there.
+      - Selecting a location that **has shelves** reveals its shelves, each showing which
+        location it belongs to + an **optional color**.
+      - Shelves are their **own taxonomy category**, surfaced **only in the item-inventory
+        context** (assigning/placing an item), never in the general locations browser.
+      - UX: **create-if-missing** — typing a new shelf (or location) name creates it inline
+        rather than erroring / requiring a separate "add" step.
 - [ ] Show stamped **move coordinates on a map** in the log views (data captured, not visualized)
 - [ ] Destination-location **proximity sorting** (only source/current is sorted today)
 
