@@ -2,6 +2,7 @@ import { buildUserSession } from './session';
 import type { UserSession } from './permissions';
 import { setMaintenanceRole } from '../db/maintenance';
 import { appendLog } from '../db/queries/log';
+import { registerForPush } from '../push/register';
 
 /**
  * Builds the in-memory session for a freshly-authenticated user, wires the
@@ -44,5 +45,11 @@ export function finishLogin(userId: string, setUser: (s: UserSession) => void): 
   }
 
   setUser(session);
+
+  // Best-effort push token registration — fire-and-forget, never awaited and
+  // never allowed to affect the login result (registerForPush swallows its
+  // own errors, including permission-denied/offline/unsupported-platform).
+  registerForPush().catch(() => {});
+
   return true;
 }
