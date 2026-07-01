@@ -26,6 +26,11 @@ const ALLOWED_TABLES = new Set([
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs',
 ]);
 
+// Rows that must never be DELETED through the generic sync path: users are
+// deactivated (active=false) not deleted, and roles/config persist. Blocks a
+// manage_users holder from destroying a full_admin row via a crafted DELETE.
+const DELETE_FORBIDDEN_TABLES = new Set(['users', 'role_settings', 'app_config']);
+
 // Tables whose writes confer privilege — a crew JWT must NOT be able to escalate
 // roles, rewrite the permission matrix, flip maintenance mode, or restructure
 // teams via a hand-crafted outbox entry. Each maps to the permission the caller
@@ -351,6 +356,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
           'sync push entry denied (authz)',
         );
         conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} requires ${reqPerm}` });
+        continue;
+      }
+
+      // Privileged rows are never DELETED via sync: users deactivate (active=false),
+      // not delete; roles/config persist. Without this, a manage_users holder (e.g. a
+      // tier-3 hr_manager) could remove a full_admin row via a crafted DELETE entry —
+      // a capability the REST API deliberately never exposes.
+      if (entry.operation === 'DELETE' && DELETE_FORBIDDEN_TABLES.has(entry.table_name)) {
+        conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} cannot be deleted via sync` });
         continue;
       }
 
