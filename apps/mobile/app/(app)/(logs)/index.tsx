@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator,
-  RefreshControl,
+  RefreshControl, Modal,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -14,18 +14,24 @@ import {
 import { getAllActiveUsers, getAllUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
 import { MovePhotoThumb } from '../../../src/components/MovePhotoThumb';
+import { MapDisplay } from '../../../src/components/MapDisplay';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getValidJwt } from '../../../src/auth/session';
 import { syncNow } from '../../../src/sync/engine';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
-import { colors } from '../../../src/theme';
+import { colors, radii } from '../../../src/theme';
 
 // Local ACTION_ICONS removed — imported from ActivityFeed (single source of truth).
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-/** Shape of rows returned by GET /logs (server-side joins included). */
+/**
+ * Shape of rows returned by GET /logs (server-side joins included).
+ * The API selects `al.*`, so move-stamped coordinates ride along even though
+ * most columns aren't otherwise surfaced in this screen — declared here so
+ * the map affordance below can read them.
+ */
 interface ServerLogRow {
   id: string;
   action: string;
@@ -34,9 +40,26 @@ interface ServerLogRow {
   unit: string | null;
   note: string | null;
   created_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  location_accuracy?: number | null;
 }
 
 type Filter = 'mine' | 'unsynced' | 'all' | 'my_teams';
+
+/** Data needed to render the map-detail modal, gathered from either the local
+ * (LogEntry) or server (ServerLogRow) row shape. */
+interface MapModalData {
+  latitude: number;
+  longitude: number;
+  location_accuracy: number | null;
+  action: string;
+  note: string | null;
+  quantity: number | null;
+  unit: string | null;
+  created_at: string;
+  user_name?: string | null;
+}
 
 export default function LogsScreen() {
   const { user } = useSession();
@@ -61,6 +84,9 @@ export default function LogsScreen() {
   // Refetch key — increment to re-trigger the server fetch useEffect
   const [refetchKey, setRefetchKey] = useState(0);
   const refetch = useCallback(() => setRefetchKey(k => k + 1), []);
+
+  // Log-detail map modal — set when a row with stamped coordinates is tapped
+  const [mapLog, setMapLog] = useState<MapModalData | null>(null);
 
   // Pull-to-refresh state for the All-Activity list
   const [refreshing, setRefreshing] = useState(false);
@@ -305,6 +331,26 @@ export default function LogsScreen() {
                       </Text>
                     )}
                     {log.note ? <Text style={s.note}>{log.note}</Text> : null}
+                    {log.latitude != null && log.longitude != null && (
+                      <TouchableOpacity
+                        style={s.mapLink}
+                        onPress={() =>
+                          setMapLog({
+                            latitude: log.latitude!,
+                            longitude: log.longitude!,
+                            location_accuracy: log.location_accuracy ?? null,
+                            action: log.action,
+                            note: log.note,
+                            quantity: log.quantity,
+                            unit: log.unit,
+                            created_at: log.created_at,
+                            user_name: log.user_name,
+                          })
+                        }
+                      >
+                        <Text style={s.mapLinkText}>📍 View on map</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <View style={s.right}>
                     <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
@@ -336,6 +382,26 @@ export default function LogsScreen() {
                     </Text>
                   )}
                   {log.note ? <Text style={s.note}>{log.note}</Text> : null}
+                  {log.latitude != null && log.longitude != null && (
+                    <TouchableOpacity
+                      style={s.mapLink}
+                      onPress={() =>
+                        setMapLog({
+                          latitude: log.latitude!,
+                          longitude: log.longitude!,
+                          location_accuracy: log.location_accuracy,
+                          action: log.action,
+                          note: log.note,
+                          quantity: log.quantity,
+                          unit: log.unit,
+                          created_at: log.created_at,
+                          user_name: log.user_name,
+                        })
+                      }
+                    >
+                      <Text style={s.mapLinkText}>📍 View on map</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 <View style={s.right}>
                   <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
@@ -352,6 +418,49 @@ export default function LogsScreen() {
           />
         )}
       </View>
+
+      {/* ── Log-detail map modal ──────────────────────────────────────── */}
+      <Modal
+        visible={mapLog !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setMapLog(null)}
+      >
+        <View style={s.modalBackdrop}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>{mapLog ? actionLabel(mapLog.action) : ''}</Text>
+              <TouchableOpacity onPress={() => setMapLog(null)} hitSlop={10}>
+                <Text style={s.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {mapLog && (
+              <>
+                <MapDisplay latitude={mapLog.latitude} longitude={mapLog.longitude} height={240} />
+                <View style={s.modalDetails}>
+                  {mapLog.user_name ? (
+                    <Text style={s.modalDetailText}>{mapLog.user_name}</Text>
+                  ) : null}
+                  {mapLog.quantity != null && mapLog.unit && (
+                    <Text style={s.modalDetailText}>
+                      {mapLog.quantity} {mapLog.unit}
+                    </Text>
+                  )}
+                  {mapLog.note ? <Text style={s.modalDetailText}>{mapLog.note}</Text> : null}
+                  <Text style={s.modalDetailText}>
+                    {new Date(mapLog.created_at).toLocaleString()}
+                  </Text>
+                  {mapLog.location_accuracy != null && (
+                    <Text style={s.modalAccuracy}>
+                      ±{Math.round(mapLog.location_accuracy)}m accuracy
+                    </Text>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -418,4 +527,37 @@ const s = StyleSheet.create({
   pending: { fontSize: 10, color: '#F59E0B', fontWeight: '600' },
   empty: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, color: colors.textMuted },
+
+  // Map affordance on rows with stamped coordinates
+  mapLink: { marginTop: 4, alignSelf: 'flex-start' },
+  mapLinkText: { fontSize: 12, color: colors.primaryText, fontWeight: '600' },
+
+  // Log-detail map modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: 16,
+    gap: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textTransform: 'capitalize',
+  },
+  modalClose: { fontSize: 18, color: colors.textMuted, padding: 4 },
+  modalDetails: { gap: 4 },
+  modalDetailText: { fontSize: 13, color: colors.textSecondary },
+  modalAccuracy: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });
