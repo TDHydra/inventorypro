@@ -3,6 +3,9 @@ import { UserSession, parsePermissionOverrides } from './permissions';
 import { getUserById } from '../db/queries/users';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+if (!__DEV__ && !API_BASE.startsWith('https://')) {
+  throw new Error('EXPO_PUBLIC_API_URL must be https in production');
+}
 const JWT_KEY = 'inventorypro_jwt';
 const REFRESH_KEY = 'inventorypro_refresh';
 const USER_ID_KEY = 'inventorypro_user_id';

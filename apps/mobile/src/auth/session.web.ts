@@ -6,6 +6,14 @@ const JWT_KEY = 'inventorypro_jwt';
 const REFRESH_KEY = 'inventorypro_refresh';
 const USER_ID_KEY = 'inventorypro_user_id';
 
+// The refresh token is long-lived (30 days) and, unlike the 15-minute JWT, is
+// deliberately NOT persisted to IndexedDB on web — anything written there sits
+// on disk in plaintext and readable by anyone with local file access. Keeping
+// it only in this module-scoped variable means a page reload drops it, so the
+// user falls back to PIN/login instead of silently resuming a long-lived
+// session from disk. See D4 in the 2026-07-01 security audit remediation plan.
+let inMemoryRefreshToken: string | null = null;
+
 // ── Minimal IndexedDB kv store (web replacement for expo-secure-store) ────────
 // Shares the same DB/store names as the sql.js snapshot persistence so the web
 // build keeps a single IndexedDB database.
@@ -55,10 +63,13 @@ async function idbDel(key: string): Promise<void> {
 }
 
 export async function saveSession(jwt: string, refreshToken: string, userId: string): Promise<void> {
+  inMemoryRefreshToken = refreshToken;
   await Promise.all([
     idbSet(JWT_KEY, jwt),
-    idbSet(REFRESH_KEY, refreshToken),
     idbSet(USER_ID_KEY, userId),
+    // Purge any refresh token persisted by a pre-D4 build so nothing long-lived
+    // is left at rest, even though we no longer write one here.
+    idbDel(REFRESH_KEY),
   ]);
 }
 
@@ -67,7 +78,7 @@ export async function getJwt(): Promise<string | null> {
 }
 
 export async function getRefreshToken(): Promise<string | null> {
-  return idbGet(REFRESH_KEY);
+  return inMemoryRefreshToken;
 }
 
 // Decode a JWT's `exp` (seconds since epoch) without verifying the signature.
@@ -121,6 +132,7 @@ export async function getSavedUserId(): Promise<string | null> {
 }
 
 export async function clearSession(): Promise<void> {
+  inMemoryRefreshToken = null;
   await Promise.all([
     idbDel(JWT_KEY),
     idbDel(REFRESH_KEY),

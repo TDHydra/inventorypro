@@ -86,8 +86,9 @@ export function MapPickerModal({ visible, initial, onPick, onClose }: Props) {
       </View>
       {visible && (
         <WebView
-          originWhitelist={['*']}
+          originWhitelist={['https://*.openstreetmap.org', 'https://unpkg.com', 'about:blank']}
           javaScriptEnabled
+          setSupportMultipleWindows={false}
           source={{ html }}
           onMessage={handleMessage}
           style={{ flex: 1 }}

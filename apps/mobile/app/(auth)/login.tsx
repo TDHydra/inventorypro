@@ -30,6 +30,7 @@ export default function LoginScreen() {
   // First-login PIN setup (enter → confirm)
   const [setStep, setSetStep] = useState<SetStep>('enter');
   const [firstPin, setFirstPin] = useState('');
+  const [enrollmentCode, setEnrollmentCode] = useState('');
 
   // Sign-in roster. Returning devices read it from the local DB (offline-capable);
   // a brand-new device (empty local DB) fetches the minimal public /auth/roster.
@@ -71,6 +72,7 @@ export default function LoginScreen() {
     setSelectedUser(user);
     setPin('');
     setFirstPin('');
+    setEnrollmentCode('');
     setPinError(null);
     if (user.pin_set === 0) {
       // Brand-new account — set & confirm a PIN before first sign-in.
@@ -146,13 +148,23 @@ export default function LoginScreen() {
     }
   };
 
-  // First-login: collect the PIN, then a confirmation entry, then set it server-side.
+  // First-login: collect the enrollment code, then the PIN + confirmation, then set it server-side.
   async function submitSetPin(pinValue: string) {
     if (!selectedUser) return;
+
+    const codeError = validatePinFormat(enrollmentCode, 6);
+    if (codeError) {
+      setPinError('Enter the 6-digit enrollment code your admin gave you.');
+      setFirstPin('');
+      setPin('');
+      setSetStep('enter');
+      return;
+    }
+
     setLoading(true);
     setPinError(null);
     try {
-      const result = await setPinFirstTime(selectedUser.id, pinValue);
+      const result = await setPinFirstTime(selectedUser.id, pinValue, enrollmentCode);
       await saveSession(result.jwt, result.refreshToken, result.userId);
       markUserPinSet(selectedUser.id, pinValue.length);
       proceedAfterAuth(result.userId);
@@ -204,6 +216,22 @@ export default function LoginScreen() {
 
         <Text style={styles.greeting}>Welcome,</Text>
         <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
+
+        {setStep === 'enter' && (
+          <View style={styles.enrollSection}>
+            <Text style={styles.pinLabel}>Enrollment code</Text>
+            <Text style={styles.pinSub}>Enter the 6-digit code your admin gave you.</Text>
+            <TextInput
+              style={styles.enrollInput}
+              placeholder="000000"
+              placeholderTextColor={colors.textMuted}
+              value={enrollmentCode}
+              onChangeText={v => setEnrollmentCode(v.replace(/\D/g, '').slice(0, 6))}
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+          </View>
+        )}
 
         <View style={styles.pinSection}>
           <Text style={styles.pinLabel}>
@@ -359,6 +387,19 @@ const styles = StyleSheet.create({
   pinSection: { alignItems: 'center', width: '100%' },
   pinLabel: { fontSize: 18, fontWeight: '600', color: colors.textPrimary, marginBottom: 6 },
   pinSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
+  enrollSection: { alignItems: 'center', width: '100%', marginBottom: 28 },
+  enrollInput: {
+    width: 160,
+    textAlign: 'center',
+    fontSize: 22,
+    letterSpacing: 6,
+    color: colors.textPrimary,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 10,
+  },
   loading: { marginTop: 20, color: colors.textSecondary },
   firstBanner: { backgroundColor: colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
   firstBannerText: { color: colors.primaryText, fontSize: 13, fontWeight: '700' },
