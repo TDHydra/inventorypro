@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getLocationById, getStockAtLocation, upsertLocation,
-  getAllLocations, getLocationPath, getDescendantIds,
+  getBrowsableLocations, getLocationPath, getDescendantIds,
+  getShelvesForParent, setShelfColor,
   StockAtLocation, Location,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -65,7 +66,9 @@ export default function LocationDetailScreen() {
 
   // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
   // and a label→icon map (incl. archived) for rendering the header badge.
-  const locationTypes = useMemo(() => getLocationTypesWithFallback(), [refreshKey]);
+  // 'Shelf' is filtered out defensively — it's a hardcoded sub-level type (see
+  // findOrCreateShelf), never a real admin-managed location type to re-assign to.
+  const locationTypes = useMemo(() => getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'), [refreshKey]);
   const typeIconByLabel = useMemo(
     () => new Map(getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon])),
     [refreshKey],
@@ -80,15 +83,36 @@ export default function LocationDetailScreen() {
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
   );
-  // Valid parent choices = all active locations EXCEPT this one and its
-  // descendants (re-parenting under a descendant would create a cycle), labelled
-  // by full path. Locations are bounded → client-side filtering is fine.
+  // Valid parent choices = all active, non-shelf locations EXCEPT this one and
+  // its descendants (re-parenting under a descendant would create a cycle),
+  // labelled by full path. Shelves are excluded — they're a sub-level, not a
+  // container, so nothing can be nested "inside" one. Locations are bounded →
+  // client-side filtering is fine.
   const parentOptions = useMemo<PickerOption[]>(() => {
     const blocked = getDescendantIds(id);
-    return getAllLocations()
+    return getBrowsableLocations()
       .filter(l => !blocked.has(l.id))
       .map(l => ({ id: l.id, label: getLocationPath(l.id) }));
   }, [id, refreshKey]);
+
+  // This location's shelves (only relevant when has_shelves is/was on). Reloaded
+  // after any color change or focus refresh.
+  const [shelves, setShelves] = useState<Location[]>(() => getShelvesForParent(id));
+  useEffect(() => { setShelves(getShelvesForParent(id)); }, [id, refreshKey]);
+  // Which shelf's color-picker row is expanded, if any.
+  const [coloringShelfId, setColoringShelfId] = useState<string | null>(null);
+
+  function handleSetShelfColor(shelfId: string, color: string | null) {
+    if (isWriteBlocked()) return;
+    try {
+      setShelfColor(shelfId, color, user?.id ?? null);
+    } catch (e) {
+      Alert.alert('Save failed', `Couldn't update the shelf color. Please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    setShelves(getShelvesForParent(id));
+    setColoringShelfId(null);
+  }
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
   // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false.
@@ -384,6 +408,65 @@ export default function LocationDetailScreen() {
           )}
         </View>
 
+        {/* ── Shelves ──────────────────────────────────────────────────────── */}
+        {/* Shelves are a sub-level of this location, not first-class locations, so
+            they're hidden from the Locations browser — this is their home screen.
+            Shown whenever the flag is on OR shelves already exist (e.g. the flag
+            was turned off after shelves were created). */}
+        {(location.has_shelves === 1 || shelves.length > 0) && (
+          <>
+            <Text style={s.sectionLabel}>Shelves</Text>
+            <View style={s.card}>
+              {shelves.length === 0 ? (
+                <Text style={s.muted}>
+                  No shelves yet. Typing a new shelf name while adding stock here creates one.
+                </Text>
+              ) : (
+                shelves.map((shelf, i) => (
+                  <View key={shelf.id}>
+                    <View style={[s.shelfRow, i < shelves.length - 1 && coloringShelfId !== shelf.id && s.divider]}>
+                      <View style={s.shelfRowMain}>
+                        <View style={[s.shelfColorDot, { backgroundColor: shelf.color ?? colors.border }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.shelfName}>{shelf.name}</Text>
+                          <Text style={s.shelfParent}>{location.name}</Text>
+                        </View>
+                      </View>
+                      {canManage && (
+                        <TouchableOpacity
+                          onPress={() => setColoringShelfId(prev => (prev === shelf.id ? null : shelf.id))}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={s.shelfColorBtn}>Color</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {coloringShelfId === shelf.id && (
+                      <View style={[s.colorRow, i < shelves.length - 1 && s.divider, { paddingBottom: 10 }]}>
+                        <TouchableOpacity
+                          style={[s.colorCell, s.colorCellNone, shelf.color === null && s.colorCellActive]}
+                          onPress={() => handleSetShelfColor(shelf.id, null)}
+                        >
+                          <Text style={s.colorCellNoneText}>✕</Text>
+                        </TouchableOpacity>
+                        {COLOR_OPTIONS.map(c => (
+                          <TouchableOpacity
+                            key={c}
+                            style={[s.colorCell, { backgroundColor: c }, shelf.color === c && s.colorCellActive]}
+                            onPress={() => handleSetShelfColor(shelf.id, c)}
+                          >
+                            {shelf.color === c && <Text style={s.colorCheck}>✓</Text>}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
+
         {/* ── Report repair (vehicles only) ───────────────────────────────── */}
         {canAddStock && location.type === 'Vehicle' && location.active === 1 && (
           <TouchableOpacity
@@ -639,6 +722,19 @@ const s = StyleSheet.create({
   colorCell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
   colorCellActive: { borderColor: colors.textPrimary },
   colorCheck: { color: '#fff', fontWeight: '800', fontSize: fontSizes.base },
+  colorCellNone: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  colorCellNoneText: { color: colors.textMuted, fontWeight: '800', fontSize: fontSizes.body },
+
+  // ── Shelves section ────────────────────────────────────────────────────────
+  shelfRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, gap: spacing.sm,
+  },
+  shelfRowMain: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  shelfColorDot: { width: 14, height: 14, borderRadius: 7 },
+  shelfName: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
+  shelfParent: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 1 },
+  shelfColorBtn: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body2 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: spacing.sm },
   linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },

@@ -119,13 +119,20 @@ export default function AddStockScreen() {
   );
   // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
   // Falls back to the full breadcrumb list when no shelves exist yet so the field
-  // stays usable.
+  // stays usable. Shelves span every parent here (not scoped to one location like
+  // the add-stock Shelf field below), so each option shows its parent as a
+  // sublabel — otherwise two shelves named the same (e.g. "A1" in two rooms)
+  // would be indistinguishable.
   const homeLocationOptions: PickerOption[] = useMemo(() => {
     const shelves = getShelfLocations();
     return shelves.length
-      ? shelves.map(s => ({ id: s.id, label: s.name }))
+      ? shelves.map(s => ({
+          id: s.id,
+          label: s.name,
+          sublabel: s.parent_id ? locationById.get(s.parent_id)?.name : undefined,
+        }))
       : allLocations.map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, [allLocations]);
+  }, [allLocations, locationById]);
 
   // Units available for the current selection: the selected item type's curated
   // list, falling back to the unit class's units (or piece) when none/empty.

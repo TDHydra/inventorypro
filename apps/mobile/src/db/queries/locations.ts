@@ -2,6 +2,7 @@ import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../tx';
+import { appendLog } from './log';
 
 export interface Location {
   id: string;
@@ -39,6 +40,16 @@ export function getAllLocations(): Location[] {
     `SELECT * FROM locations WHERE active = 1 ORDER BY parent_id NULLS FIRST, name`
   );
   return rowsAs<Location>(result.rows);
+}
+
+// "Real" browsable locations — everything EXCEPT shelves (type='Shelf'). Shelves
+// are a sub-level of a has_shelves location (created via findOrCreateShelf), not
+// first-class locations: they're excluded from the Locations browser tree/list
+// and from parent choices (a shelf can't itself contain sub-areas). The
+// item-assign two-stage pickers (ItemQuickAdd, inventory/add) intentionally keep
+// using getAllLocations() so shelves stay reachable there.
+export function getBrowsableLocations(): Location[] {
+  return getAllLocations().filter(l => l.type !== 'Shelf');
 }
 
 export interface LocationShelfPick {
@@ -89,7 +100,12 @@ export function getSubAreas(parentId: string): Location[] {
 // for indentation. A visited set guards against any cyclic parent_id data so the
 // recursion can't loop forever.
 export function getLocationTree(): LocationWithChildren[] {
-  const all = getAllLocations();
+  // Shelves are excluded so the Locations browser tree only shows real
+  // locations — see getBrowsableLocations(). Since nothing in the UI lets a
+  // shelf be chosen as a parent (the "Inside" pickers use getBrowsableLocations
+  // too), no non-shelf location is ever parented under a shelf, so this filter
+  // can't orphan a real sub-area out of the tree.
+  const all = getBrowsableLocations();
   const byParent = new Map<string | null, Location[]>();
   for (const loc of all) {
     const key = loc.parent_id ?? null;
@@ -262,6 +278,44 @@ export function findOrCreateShelf(parentId: string, name: string): string | null
     return null;
   }
   return id;
+}
+
+// Set (or clear, with null) a shelf's optional display color — reuses the same
+// locations.color column a regular location's edit form writes, so a shelf can
+// carry a color without a schema change. Mirrors the location edit screen's
+// upsert + outbox + log pattern (kept as its own small setter rather than a full
+// upsertLocation call so callers touching just the color don't need every other
+// location field). No-ops on an unknown id or a non-Shelf location.
+export function setShelfColor(shelfId: string, color: string | null, userId: string | null): void {
+  const shelf = getLocationById(shelfId);
+  if (!shelf || shelf.type !== 'Shelf') return;
+  const now = new Date().toISOString();
+  try {
+    runInTransaction(() => {
+      getDb().executeSync(
+        `UPDATE locations SET color = ?, updated_at = ? WHERE id = ?`,
+        [color, now, shelfId],
+      );
+      appendOutbox('UPDATE', 'locations', { id: shelfId, color, updated_at: now });
+      appendLog({
+        action: 'location_updated',
+        entity_type: 'location',
+        entity_id: shelfId,
+        user_id: userId,
+        team_id: null,
+        job_id: null,
+        note: shelf.name,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('setShelfColor: failed to set shelf color', err);
+  }
 }
 
 // Find (case-insensitive, across any parent) or create a Shelf location by name,

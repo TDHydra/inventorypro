@@ -5,7 +5,7 @@ import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
-  getLocationTree, upsertLocation, getLocationById, getAllLocations, getLocationPath,
+  getLocationTree, upsertLocation, getLocationById, getBrowsableLocations, getLocationPath,
   LocationWithChildren,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -44,8 +44,12 @@ export default function LocationsScreen() {
   const [showCreate, setShowCreate] = useState(false);
 
   // Location-type taxonomy (Shop, Vehicle, Locker, …) for the create-form picker,
-  // the list section filter, and per-row type badges. Active types only.
-  const locationTypes = useMemo(() => getLocationTypes(), []);
+  // the list section filter, and per-row type badges. Active types only. 'Shelf'
+  // is filtered out defensively — it's a hardcoded sub-level type (see
+  // findOrCreateShelf), not a real admin-managed location type, so it must never
+  // appear as a browsable section or a choosable create-form type even if an
+  // admin manually adds a "Shelf" label under Manage Types.
+  const locationTypes = useMemo(() => getLocationTypes().filter(t => t.label !== 'Shelf'), []);
   // label → icon, used to render a row's type badge from its stored `type` label.
   const typeIconByLabel = useMemo(
     () => new Map(locationTypes.map(t => [t.label, t.icon])),
@@ -54,7 +58,7 @@ export default function LocationsScreen() {
   // Create-form Type picker options: never empty when rows exist (falls back to
   // inactive types) so deactivating every type doesn't dead-end the picker. The
   // active-only `locationTypes` still backs the section filter chips + icon badges.
-  const locationTypeOptions = useMemo(() => getLocationTypesWithFallback(), []);
+  const locationTypeOptions = useMemo(() => getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'), []);
   // Section filter: null = All (show full tree); a label = flat list of that type.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
@@ -79,11 +83,13 @@ export default function LocationsScreen() {
     setRefreshing(false);
   }, [refreshing]);
 
-  // All active locations as parent options, labelled by full path (e.g.
-  // "Site A › Floor 2"). Locations are a bounded set, so client-side filtering in
-  // the picker is fine (unlike the 1000+ item catalog).
+  // Browsable (non-shelf) locations as parent options, labelled by full path
+  // (e.g. "Site A › Floor 2"). Shelves are excluded — they're a sub-level, not a
+  // container, so a location/sub-area can never be nested "inside" a shelf.
+  // Locations are a bounded set, so client-side filtering in the picker is fine
+  // (unlike the 1000+ item catalog).
   const parentOptions = useMemo<PickerOption[]>(
-    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
+    () => getBrowsableLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
     [tree],
   );
 
@@ -103,7 +109,9 @@ export default function LocationsScreen() {
     const n = name.trim().toLowerCase();
     if (!n) return null;
     // Siblings = locations sharing the chosen parent (works at any depth).
-    const siblings = getAllLocations().filter(l => (l.parent_id ?? null) === parentId);
+    // Browsable-only so a same-named shelf under this parent doesn't false-flag
+    // a real sub-area as a duplicate.
+    const siblings = getBrowsableLocations().filter(l => (l.parent_id ?? null) === parentId);
     return siblings.find(l => l.name.trim().toLowerCase() === n) ?? null;
   }, [name, parentId, tree]);
 
@@ -221,7 +229,7 @@ export default function LocationsScreen() {
   // matching locations instead of the nested tree, giving Vehicles/Lockers/etc.
   // "sections".
   const filteredLocations = useMemo(
-    () => (typeFilter ? getAllLocations().filter(l => l.type === typeFilter) : []),
+    () => (typeFilter ? getBrowsableLocations().filter(l => l.type === typeFilter) : []),
     [typeFilter, tree],
   );
 
