@@ -9,7 +9,7 @@ import {
   requiresRolesPermForTarget,
 } from '../lib/syncPolicy';
 import { sendPush } from '../lib/push';
-import { claimEvent, releaseEvent, dedupKeys, resolveRoleRecipients, getNotifyConfig } from '../lib/notifications';
+import { getNotifyConfig, notifyLowStock } from '../lib/notifications';
 
 interface OutboxEntry {
   id: string;
@@ -79,6 +79,9 @@ async function applyEntry(
   callerUserId: string,
   realColumns: Map<string, Set<string>>,
   can: (perm: string) => boolean,
+  // Items touched by ADJUSTs this batch — the caller runs one low-stock check per
+  // item AFTER the whole batch commits (avoids the transfer race + re-arm gap).
+  touchedItems?: Set<string>,
 ): Promise<void> {
   const { operation, table_name, payload } = entry;
 
@@ -139,29 +142,10 @@ async function applyEntry(
              updated_at = NOW()`,
       [entry.id, itemId, locationId, delta]
     );
-    // Low-stock notification (fire-and-forget; never blocks the stock write).
-    if (typeof delta === 'number' && delta < 0) {
-      (async () => {
-        try {
-          if (!(await getNotifyConfig(pg)).enabled) return;
-          const { rows } = await pg.query(
-            `SELECT i.name, i.min_qty_alert,
-                    COALESCE((SELECT SUM(quantity) FROM stock_by_location WHERE item_id = i.id), 0) AS on_hand
-               FROM inventory_items i WHERE i.id = $1`, [itemId]);
-          const it = rows[0] as { name: string; min_qty_alert: number; on_hand: number } | undefined;
-          if (!it) return;
-          const key = dedupKeys.lowstock(String(itemId));
-          if (Number(it.on_hand) <= Number(it.min_qty_alert)) {
-            if (await claimEvent(pg, key)) {
-              const to = await resolveRoleRecipients(pg, ['full_admin', 'franchise_manager']);
-              await sendPush(pg, to, { title: 'Low stock', body: `${it.name} is at or below its alert level.`, data: { screen: 'inventory', itemId } });
-            }
-          } else {
-            await releaseEvent(pg, key); // back above threshold → re-arm
-          }
-        } catch { /* telemetry-grade: never disrupt sync */ }
-      })();
-    }
+    // Record the touched item; the low-stock check runs once per item after the
+    // whole batch commits (see the /sync/push loop) so paired transfer legs have
+    // all landed and re-arm works regardless of delta sign.
+    if (itemId != null) touchedItems?.add(String(itemId));
     return;
   }
 
@@ -204,6 +188,17 @@ async function applyEntry(
     });
     if (hasUpdatedAt) setParts.push('updated_at = NOW()');
     const setClause = setParts.join(', ');
+    // Capture the pre-update assignee so we notify only on an ACTUAL assignment
+    // change (not retries of a settled row, and not unrelated edits that happen
+    // to carry assignee_id) and only when the repair actually exists. A failed
+    // pre-read → skip the notify, never block the write.
+    let prevAssignee: string | null | undefined; // undefined = repair not found / unknown
+    if (table_name === 'repairs' && payload.assignee_id) {
+      try {
+        const { rows: pre } = await pg.query(`SELECT assignee_id FROM repairs WHERE id = $1`, [payload.id]);
+        prevAssignee = pre[0] ? ((pre[0] as { assignee_id: string | null }).assignee_id ?? null) : undefined;
+      } catch { prevAssignee = undefined; }
+    }
     const where = keys.map((k, i) => `${k} = $${cols.length + i + 1}`).join(' AND ');
     await pg.query(
       `UPDATE ${table_name} SET ${setClause} WHERE ${where}`,
@@ -211,15 +206,16 @@ async function applyEntry(
     );
     // Assignment notification (fire-and-forget; never blocks the sync write).
     // jobs has no assignee column (checked migrations) — repairs-only is correct.
-    if (table_name === 'repairs' && payload.assignee_id) {
+    // Change-detection (new !== prev) makes this idempotent on retry and re-fires
+    // on a genuine re-assignment, without a persistent dedup key.
+    if (table_name === 'repairs' && payload.assignee_id && prevAssignee !== undefined
+        && String(payload.assignee_id) !== String(prevAssignee ?? '')) {
       const assignee = String(payload.assignee_id);
       const repairId = String(payload.id);
-      (async () => {
+      void (async () => {
         try {
           if (!(await getNotifyConfig(pg)).enabled) return;
-          if (await claimEvent(pg, dedupKeys.assign(repairId, assignee))) {
-            await sendPush(pg, [assignee], { title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs/[id]', id: repairId } });
-          }
+          await sendPush(pg, [assignee], { title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs/[id]', id: repairId } });
         } catch { /* never disrupt sync */ }
       })();
     }
@@ -376,6 +372,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     );
     const maintenanceOn = !!mRows[0] && (mRows[0] as { value: string }).value === '1';
     const maintenanceExempt = can('system_settings');
+    const touchedItems = new Set<string>(); // items adjusted this batch (low-stock check runs post-batch)
 
     for (const entry of entries) {
       if (!ALLOWED_TABLES.has(entry.table_name)) {
@@ -496,7 +493,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        await applyEntry(fastify.pg, entry, userId, realColumns, can);
+        await applyEntry(fastify.pg, entry, userId, realColumns, can, touchedItems);
         ok.push(entry.id);
       } catch (err) {
         // Log the offending entry so a stuck/rejected outbox row is diagnosable
@@ -518,6 +515,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     if (conflicts.length > 0) {
       request.log.warn({ count: conflicts.length }, 'sync push had conflicts');
+    }
+
+    // Low-stock notifications: one check per item touched by an ADJUST this batch,
+    // AFTER every entry (incl. paired transfer legs) has committed. Fire-and-forget
+    // — never delays the sync response. notifyLowStock re-arms + is idempotent.
+    if (touchedItems.size > 0) {
+      void (async () => {
+        try {
+          if (!(await getNotifyConfig(fastify.pg)).enabled) return;
+          for (const itemId of touchedItems) await notifyLowStock(fastify.pg, itemId);
+        } catch { /* never disrupt sync */ }
+      })();
     }
 
     return { ok, conflicts };

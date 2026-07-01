@@ -12,7 +12,7 @@ async function runCheckoutIdleCheck(pg: Pg, idleMin: number, pollMin: number): P
        SELECT user_id, created_at,
               LAG(created_at) OVER (PARTITION BY user_id ORDER BY created_at) AS prev_at
          FROM activity_log
-        WHERE action IN ('checkout','checkout_to_job') AND created_at > NOW() - INTERVAL '1 day'
+        WHERE action IN ('checkout','checkout_to_job') AND created_at > NOW() - INTERVAL '2 days'
      ),
      sessioned AS (
        SELECT user_id, created_at,
@@ -28,9 +28,12 @@ async function runCheckoutIdleCheck(pg: Pg, idleMin: number, pollMin: number): P
   for (const r of rows) {
     const userId = String(r.user_id);
     const lastTs = new Date(r.last_ts).toISOString();
-    if (!(await claimEvent(pg, dedupKeys.session(userId, lastTs)))) continue;
+    // Resolve recipients BEFORE claiming the dedup key — otherwise a manager-less
+    // crew member's session burns its key with no push sent, and a manager added
+    // to the team later would get no retroactive notice.
     const managers = await resolveTeamManagers(pg, userId);
     if (!managers.length) continue;
+    if (!(await claimEvent(pg, dedupKeys.session(userId, lastTs)))) continue;
     const { rows: u } = await pg.query(`SELECT name FROM users WHERE id = $1`, [userId]);
     const who = u[0]?.name ?? 'A team member';
     await sendPush(pg, managers, { title: 'Checkout complete', body: `${who} finished checking out — ${r.cnt} item(s).`, data: { screen: 'activity' } });

@@ -75,6 +75,17 @@ export async function runMigrations(): Promise<void> {
     if (prunedTel.rowCount) {
       console.log(`✓ Pruned ${prunedTel.rowCount} stale telemetry_events row(s).`);
     }
+
+    // Prune notification_dedup (migration 031): a backstop against unbounded
+    // growth. 30 days is well past when any key still matters — a still-relevant
+    // low-stock key just re-arms (a fresh alert on the next dip), and session
+    // keys are one-shot. Runs on every boot after 031 exists.
+    const prunedNotif = await client.query(
+      `DELETE FROM notification_dedup WHERE created_at < NOW() - INTERVAL '30 days'`
+    );
+    if (prunedNotif.rowCount) {
+      console.log(`✓ Pruned ${prunedNotif.rowCount} stale notification_dedup row(s).`);
+    }
   } finally {
     await client.end();
   }

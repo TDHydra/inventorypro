@@ -17,3 +17,13 @@ test('getNotifyConfig applies defaults + parses + clamps + disable flag', async 
   ] }) };
   assert.deepEqual(await getNotifyConfig(pgSet as any), { enabled: false, pollMin: 2, idleMin: 30 });
 });
+test('getNotifyConfig clamps durations to [1,1440] (guards setInterval overflow + dead-timer)', async () => {
+  const pgHuge = { query: async () => ({ rows: [
+    { key: 'notify_poll_interval_min', value: '999999' },
+    { key: 'notify_checkout_idle_min', value: '99999' },
+  ] }) };
+  assert.deepEqual(await getNotifyConfig(pgHuge as any), { enabled: true, pollMin: 1440, idleMin: 1440 });
+  // Invalid/zero/garbage → falls back to the default (0 is falsy → default), never < 1.
+  const pgZero = { query: async () => ({ rows: [{ key: 'notify_poll_interval_min', value: '0' }] }) };
+  assert.equal((await getNotifyConfig(pgZero as any)).pollMin, 5);
+});

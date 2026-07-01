@@ -252,8 +252,11 @@ export default function SettingsScreen() {
     }
   };
 
-  // Commits a numeric app_config field on blur: parses to an integer >= 1,
-  // reverting the field to its last-known-good value on invalid input.
+  // Commits a numeric app_config field on blur: parses to an integer in
+  // [1, 1440] minutes, reverting the field to its last-known-good value on
+  // invalid input. The upper bound mirrors the server clamp (getNotifyConfig) —
+  // huge values would otherwise overflow the timer's interval or make the
+  // checkout-idle check unsatisfiable.
   const commitNotifyIntConfig = (
     key: string,
     text: string,
@@ -261,7 +264,7 @@ export default function SettingsScreen() {
     setInput: (v: string) => void
   ) => {
     const n = parseInt(text, 10);
-    if (!Number.isFinite(n) || n < 1) {
+    if (!Number.isFinite(n) || n < 1 || n > 1440) {
       setInput(fallback);
       return;
     }
