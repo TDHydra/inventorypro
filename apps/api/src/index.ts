@@ -24,6 +24,10 @@ const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
   },
+  // Behind the NPM reverse proxy, request.ip is otherwise always the proxy's
+  // IP — collapsing all clients onto one IP-keyed rate-limit bucket. Trust
+  // X-Forwarded-For so request.ip reflects the real client.
+  trustProxy: true,
 });
 
 async function build() {
@@ -45,8 +49,15 @@ async function build() {
 
   // Security headers. CSP off: this is a JSON+image API (no server-rendered
   // HTML), and a default CSP can break presigned-image hosts / the web client's
-  // fetches without adding meaningful protection here.
-  await fastify.register(helmet, { contentSecurityPolicy: false });
+  // fetches without adding meaningful protection here. crossOriginResourcePolicy
+  // is relaxed to 'cross-origin': helmet's default 'same-origin' blocks the
+  // split-origin web client (frontend.plexcontrol.com) from reading responses
+  // from this API (api.plexcontrol.com) even though CORS above allows it —
+  // CORP is enforced by the browser independently of CORS.
+  await fastify.register(helmet, {
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  });
 
   // Postgres
   await fastify.register(fastifyPostgres, {

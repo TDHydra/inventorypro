@@ -23,11 +23,12 @@ const attempts = new Map<string, { count: number; first: number; lockedUntil: nu
 const WINDOW_MS = 15 * 60_000;
 
 // Exponential backoff once a target has racked up enough failures: no lock below
-// the threshold, then 1m,2m,4m,8m... doubling per additional failure, capped at 1h.
-// Pure + exported so it can be unit-tested without touching the in-memory Map.
+// the threshold, then a small initial delay doubling per additional failure,
+// capped at 1h. Pure + exported so it can be unit-tested without touching the
+// in-memory Map.
 export function nextLockMs(count: number): number {
-  if (count < 5) return 0;
-  return Math.min(60 * 60_000, 60_000 * 2 ** (count - 5)); // 1m,2m,4m… cap 1h
+  if (count < 3) return 0;
+  return Math.min(60 * 60_000, 15_000 * 2 ** (count - 3)); // 15s,30s,60s… cap 1h
 }
 function isLocked(key: string): boolean {
   const r = attempts.get(key);
@@ -36,7 +37,16 @@ function isLocked(key: string): boolean {
 function recordFail(key: string): void {
   const now = Date.now();
   const r = attempts.get(key);
-  if (!r || now - r.first > WINDOW_MS) { attempts.set(key, { count: 1, first: now, lockedUntil: 0 }); return; }
+  if (!r) { attempts.set(key, { count: 1, first: now, lockedUntil: 0 }); return; }
+  if (now - r.first > WINDOW_MS) {
+    // Window since the first failure elapsed — DECAY the retained count instead
+    // of fully resetting it. A full reset lets an attacker pace ≤(threshold-1)
+    // fails per window forever without ever locking; halving still lets a
+    // genuinely stale record cool down, but escalation state isn't shed for free.
+    const decayed = Math.max(0, Math.floor(r.count / 2));
+    attempts.set(key, { count: decayed + 1, first: now, lockedUntil: 0 });
+    return;
+  }
   r.count += 1;
   const ms = nextLockMs(r.count);
   if (ms > 0) r.lockedUntil = now + ms;
@@ -46,7 +56,10 @@ function recordSuccess(key: string): void { attempts.delete(key); }
 // IP-keyed rate limit for the public /auth/roster endpoint (no auth to gate it,
 // so this is the only thing standing between it and enumeration/scraping abuse).
 // Reuses the same `attempts` map/window; count-only, no lockout escalation.
-const ROSTER_LIMIT = 30;
+// Kept generous: request.ip is the real client now that trustProxy is on
+// (see index.ts), but a shared-NAT office still puts many users behind one
+// public IP, so a normal morning login rush shouldn't trip this.
+const ROSTER_LIMIT = 200;
 function rosterRateLimited(ip: string): boolean {
   const key = `roster:${ip}`;
   const now = Date.now();

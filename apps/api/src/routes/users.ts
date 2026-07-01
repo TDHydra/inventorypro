@@ -20,6 +20,17 @@ async function callerCan(fastify: any, userId: string) {
 // roles-&-permissions permission, not merely manage_users.
 const PRIVILEGED_ROLES = new Set(['full_admin', 'franchise_manager']);
 
+// One-time enrollment code — required by /auth/set-pin before an unauthenticated
+// first-login caller can set a user's PIN. Bcrypt-hashed at rest; the plaintext
+// is returned ONCE to the caller and never stored or synced. Shared by user
+// creation and by admin-triggered PIN resets (a reset otherwise leaves the
+// account dead-ended: no PIN, and no enrollment code to set a new one).
+async function issueEnrollmentCode(): Promise<{ code: string; hash: string }> {
+  const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+  const hash = await bcrypt.hash(code, 10);
+  return { code, hash };
+}
+
 interface CreateUserBody {
   name: string;
   role: string;
@@ -90,11 +101,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const pinLength = pin ? pin.length : 4;
     const pinSet = !!pin;
 
-    // One-time enrollment code — required (see /auth/set-pin) before an
-    // unauthenticated first-login caller can set this user's PIN. Bcrypt-hashed
-    // at rest; the plaintext is returned ONCE here and never stored or synced.
-    const enrollmentCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    const enrollmentCodeHash = await bcrypt.hash(enrollmentCode, 10);
+    const { code: enrollmentCode, hash: enrollmentCodeHash } = await issueEnrollmentCode();
 
     const { rows } = await fastify.pg.query(
       `INSERT INTO users (name, role, pin_hash, pin_length_required, pin_set, permission_overrides, expires_at, enrollment_code_hash)
@@ -139,10 +146,17 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (active !== undefined) { updates.push(`active = $${i++}`); values.push(active); }
     if (expires_at !== undefined) { updates.push(`expires_at = $${i++}`); values.push(expires_at); }
     if (permission_overrides !== undefined) { updates.push(`permission_overrides = $${i++}::jsonb`); values.push(JSON.stringify(permission_overrides)); }
+    let newEnrollmentCode: string | undefined;
     if (reset_pin) {
       // Architecture: no admin-chosen PINs. Reset clears the hash so the user
       // sets and confirms a fresh PIN themselves on next sign-in (pin_set=false).
-      updates.push(`pin_hash = NULL`, `pin_set = FALSE`);
+      // It also must reissue an enrollment code — pin_hash/pin_set alone leave
+      // the account dead-ended, since /auth/set-pin requires a code and the
+      // original one-time code was already consumed (nulled) at first onboarding.
+      const issued = await issueEnrollmentCode();
+      newEnrollmentCode = issued.code;
+      updates.push(`pin_hash = NULL`, `pin_set = FALSE`, `enrollment_code_hash = $${i++}`);
+      values.push(issued.hash);
     } else if (pin !== undefined) {
       const hash = await bcrypt.hash(pin, 10);
       updates.push(`pin_hash = $${i++}`, `pin_length_required = $${i++}`, `pin_set = TRUE`);
@@ -157,7 +171,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       values
     );
     if (!rows[0]) return reply.status(404).send({ error: 'User not found' });
-    return rows[0];
+    return newEnrollmentCode ? { ...rows[0], enrollment_code: newEnrollmentCode } : rows[0];
   });
 };
 

@@ -70,6 +70,7 @@ async function applyEntry(
   entry: OutboxEntry,
   callerUserId: string,
   realColumns: Map<string, Set<string>>,
+  can: (perm: string) => boolean,
 ): Promise<void> {
   const { operation, table_name, payload } = entry;
 
@@ -154,7 +155,7 @@ async function applyEntry(
   if (operation === 'UPDATE') {
     // Filter to real columns, strip server-controlled cols, drop attribution
     // reassignment, and reject the whole entry if it touched a sensitive column.
-    const { row, rejected } = applyWritePolicy(table_name, 'UPDATE', payload, callerUserId, realColumns);
+    const { row, rejected } = applyWritePolicy(table_name, 'UPDATE', payload, callerUserId, realColumns, can);
     if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
     const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
     // Real partial update — only the columns the device actually changed.
@@ -184,7 +185,7 @@ async function applyEntry(
   // Apply the write policy first so attribution cols are forced to the caller,
   // sensitive cols reject the entry, and non-column keys are dropped; build the
   // row from the resulting policy-filtered `row`.
-  const { row, rejected } = applyWritePolicy(table_name, 'INSERT', payload, callerUserId, realColumns);
+  const { row, rejected } = applyWritePolicy(table_name, 'INSERT', payload, callerUserId, realColumns, can);
   if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
@@ -354,9 +355,20 @@ const routes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Operational-table authorization — gate writes on the per-operation
-      // permission (ADJUST is the signed-delta checkout/checkin path and only
-      // needs auth, handled separately in applyEntry).
-      if (entry.operation !== 'ADJUST') {
+      // permission. ADJUST is the signed-delta checkout/checkin path on
+      // stock_by_location; it requires checkin_inventory or checkout_inventory
+      // rather than the generic op-perm map (any authenticated user was
+      // previously able to mutate stock via ADJUST — closed here).
+      if (entry.operation === 'ADJUST') {
+        if (!can('checkin_inventory') && !can('checkout_inventory')) {
+          request.log.warn(
+            { userId, role: caller.role, table: entry.table_name, operation: entry.operation },
+            'sync push ADJUST denied (authz)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: stock adjust requires checkin/checkout permission' });
+          continue;
+        }
+      } else {
         const opPerm = requiredOperationPerm(entry.table_name, entry.operation as 'INSERT' | 'UPDATE' | 'DELETE');
         if (opPerm === 'DENY') {
           conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} not permitted via sync` });
@@ -373,7 +385,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        await applyEntry(fastify.pg, entry, userId, realColumns);
+        await applyEntry(fastify.pg, entry, userId, realColumns, can);
         ok.push(entry.id);
       } catch (err) {
         // Log the offending entry so a stuck/rejected outbox row is diagnosable

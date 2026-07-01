@@ -45,6 +45,16 @@ export const SENSITIVE_DENY: Record<string, Set<string>> = {
   team_members: new Set(['is_manager']),
 };
 
+// users columns that are ALWAYS denied via sync regardless of permission — these
+// are credentials / auth material, never editable through the generic write path.
+const USERS_ALWAYS_DENY = new Set(['pin_hash', 'pin_set', 'enrollment_code_hash']);
+
+// users columns that require manage_roles_permissions specifically — a caller
+// with only manage_users (e.g. an hr_manager editing name/active/expires_at via
+// the mobile admin UI's sync outbox) must NOT be able to escalate role or the
+// permission matrix.
+const USERS_ROLE_GATED = new Set(['role', 'permission_overrides']);
+
 // Attribution columns: forced to the caller on INSERT (can't claim another creator)
 // and dropped on UPDATE (creator can't be reassigned). NOTE: locations.owner_user_id
 // is intentionally NOT here — it's a deliberate assignment, not "who created it".
@@ -58,9 +68,20 @@ export function applyWritePolicy(
   payload: Record<string, unknown>,
   callerUserId: string,
   realColumns: Map<string, Set<string>>,
+  can: (perm: string) => boolean,
 ): { row: Record<string, unknown>; rejected: string[] } {
   const { kept } = keepRealColumns(table, payload, realColumns);
-  const deny = SENSITIVE_DENY[table];
+  let deny = SENSITIVE_DENY[table];
+  // `users` writes are permission-aware: credential columns are always denied,
+  // but role/permission_overrides are only denied when the caller lacks
+  // manage_roles_permissions (the `users` table itself is already gated on
+  // manage_users at the push-handler level, so name/active/expires_at/
+  // pin_length_required are allowed through here).
+  if (table === 'users') {
+    deny = can('manage_roles_permissions')
+      ? USERS_ALWAYS_DENY
+      : new Set([...USERS_ALWAYS_DENY, ...USERS_ROLE_GATED]);
+  }
   const rejected: string[] = [];
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(kept)) {

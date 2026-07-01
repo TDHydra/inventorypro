@@ -28,24 +28,35 @@ test('keepRealColumns drops everything for an unknown table (fail closed)', () =
 
 const realUsers = new Map([['users', new Set(['id', 'name', 'role', 'pin_hash', 'permission_overrides', 'active', 'expires_at', 'updated_at'])]]);
 
-test('applyWritePolicy rejects privilege columns on users', () => {
+test('applyWritePolicy rejects privilege columns on users (no manage_roles_permissions)', () => {
   const { rejected } = applyWritePolicy(
     'users', 'UPDATE',
     { id: 'self', role: 'full_admin', permission_overrides: { system_settings: true } },
-    'self', realUsers,
+    'self', realUsers, () => false,
   );
   assert.deepEqual(rejected.sort(), ['permission_overrides', 'role']);
 });
 
+test('applyWritePolicy allows role + permission_overrides with manage_roles_permissions, but still rejects pin_hash', () => {
+  const { row, rejected } = applyWritePolicy(
+    'users', 'UPDATE',
+    { id: 'self', role: 'full_admin', permission_overrides: { system_settings: true }, pin_hash: 'x' },
+    'self', realUsers, () => true,
+  );
+  assert.deepEqual(rejected, ['pin_hash']);
+  assert.equal(row.role, 'full_admin');
+  assert.deepEqual(row.permission_overrides, { system_settings: true });
+});
+
 test('applyWritePolicy allows a benign users.name edit', () => {
-  const { row, rejected } = applyWritePolicy('users', 'UPDATE', { id: 'self', name: 'New Name' }, 'self', realUsers);
+  const { row, rejected } = applyWritePolicy('users', 'UPDATE', { id: 'self', name: 'New Name' }, 'self', realUsers, () => false);
   assert.deepEqual(rejected, []);
   assert.deepEqual(row, { id: 'self', name: 'New Name' });
 });
 
 test('applyWritePolicy forces attribution to caller on INSERT', () => {
   const realJobs = new Map([['jobs', new Set(['id', 'name', 'created_by'])]]);
-  const { row } = applyWritePolicy('jobs', 'INSERT', { id: 'j', name: 'J', created_by: 'someone-else' }, 'caller', realJobs);
+  const { row } = applyWritePolicy('jobs', 'INSERT', { id: 'j', name: 'J', created_by: 'someone-else' }, 'caller', realJobs, () => true);
   assert.equal(row.created_by, 'caller');
 });
 
