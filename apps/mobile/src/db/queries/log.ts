@@ -1,6 +1,7 @@
 import { getDb, rowsAs } from '../schema';
 import { generateUUID } from '../../utils/uuid';
 import { appendOutbox } from '../../sync/outbox';
+import { track } from '../../telemetry';
 
 export interface LogEntry {
   id: string;
@@ -66,6 +67,12 @@ export function appendLog(
     note: entry.note, metadata: entry.metadata, device_id: entry.device_id, created_at,
     latitude, longitude, location_accuracy,
   });
+  // Audit blend: every business action logged here also shows up in
+  // telemetry as an 'audit' event (name only, entity kind via the allowlisted
+  // `table` prop — never note/metadata content) so dashboards see business
+  // activity without instrumenting each call site individually. track() never
+  // throws, so this can't affect the business log write above.
+  track('audit', entry.action, { props: { table: entry.entity_type } });
 }
 
 export function getLogForUser(userId: string, limit = 50): LogEntry[] {

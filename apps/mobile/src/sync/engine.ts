@@ -7,6 +7,8 @@ import { getValidJwt } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
 import { loadRolePermissionCache } from '../auth/permissions';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
+import { track } from '../telemetry';
+import { flushTelemetry } from '../telemetry/flush';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const MAX_ATTEMPTS = MAX_OUTBOX_ATTEMPTS;
@@ -37,6 +39,15 @@ function scheduleFastRetry(): void {
   }, FAST_RETRY_MS);
 }
 
+// Fires 'outbox_dead' the moment an entry's attempt count crosses
+// MAX_ATTEMPTS (i.e. it just fell out of the active retry set) — not on every
+// subsequent cycle, since the entry stays in this dead state indefinitely.
+function trackIfNewlyDead(e: OutboxEntry): void {
+  if (e.attempts + 1 >= MAX_ATTEMPTS) {
+    track('error', 'outbox_dead', { props: { table: e.table_name, operation: e.operation, attempts: e.attempts + 1 } });
+  }
+}
+
 async function drainOutbox(): Promise<void> {
   if (running) return;
   running = true;
@@ -59,7 +70,10 @@ async function drainOutbox(): Promise<void> {
 
     if (!res.ok) {
       const errText = await res.text();
-      entries.forEach(e => incrementOutboxAttempt(e.id, `HTTP ${res.status}: ${errText}`));
+      entries.forEach(e => {
+        incrementOutboxAttempt(e.id, `HTTP ${res.status}: ${errText}`);
+        trackIfNewlyDead(e);
+      });
       return;
     }
 
@@ -75,8 +89,17 @@ async function drainOutbox(): Promise<void> {
     // silently — they stayed pending at attempts=0 and were re-sent every cycle
     // forever, keeping the indicator stuck with no diagnostic. Count the attempt
     // and record the error so they're bounded by MAX_ATTEMPTS and visible.
+    const entryById = new Map(entries.map(e => [e.id, e]));
     for (const c of result.conflicts ?? []) {
       incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
+      const e = entryById.get(c.id);
+      if (e) {
+        // "reason" here is the server's own short rejection message (already
+        // non-PII — e.g. "Table not allowed", "Rejected by server") — never the
+        // synced row's field content.
+        track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server' } });
+        trackIfNewlyDead(e);
+      }
     }
 
     // activity_log is push-only (never pulled back), so its rows' synced_at is
@@ -127,6 +150,11 @@ async function runDrainAndPull(): Promise<void> {
     // It swallows its own errors and resolves void, so it can't disturb the
     // existing try/catch/return behaviour of this cycle.
     void runLocalAlertChecks();
+    // Fire-and-forget telemetry flush — rides the same ~60s cadence + the
+    // reconnect/foreground triggers as the rest of this cycle. Deliberately
+    // NOT part of the /sync/push request: its own transport, its own
+    // endpoint, never blocks or fails the business sync.
+    flushTelemetry().catch(() => {});
   } catch (err) {
     console.warn('[Sync] Cycle error:', (err as Error).message);
   }

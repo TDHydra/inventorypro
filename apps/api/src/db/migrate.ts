@@ -66,6 +66,15 @@ export async function runMigrations(): Promise<void> {
     if (pruned.rowCount) {
       console.log(`✓ Pruned ${pruned.rowCount} stale processed_outbox row(s).`);
     }
+
+    // Prune telemetry_events: lossy-by-design behavioral sink, retained 90 days
+    // (see migration 029). Runs on every boot alongside the other dedup prunes.
+    const prunedTel = await client.query(
+      `DELETE FROM telemetry_events WHERE received_at < NOW() - INTERVAL '90 days'`
+    );
+    if (prunedTel.rowCount) {
+      console.log(`✓ Pruned ${prunedTel.rowCount} stale telemetry_events row(s).`);
+    }
   } finally {
     await client.end();
   }
