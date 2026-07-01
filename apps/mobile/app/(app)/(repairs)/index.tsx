@@ -10,6 +10,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { syncNow } from '../../../src/sync/engine';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 type StatusFilter = 'open' | 'done' | 'all';
 
@@ -32,6 +33,7 @@ export default function RepairsScreen() {
   const [filter, setFilter] = useState<StatusFilter>('open');
   const [reloadKey, setReloadKey] = useState(0);
   const reloadLocalData = useCallback(() => setReloadKey(k => k + 1), []);
+  const dataVersion = useDataVersion();
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -42,10 +44,12 @@ export default function RepairsScreen() {
     setRefreshing(false);
   }, [refreshing, reloadLocalData]);
 
+  // Include dataVersion so an already-open list refreshes after a background
+  // sync pull applies changes, without a manual pull-to-refresh.
   const repairs = useMemo((): Repair[] => {
     const done = filter === 'all' ? undefined : filter === 'done';
     return getRepairs({ done });
-  }, [filter, reloadKey]);
+  }, [filter, reloadKey, dataVersion]);
 
   return (
     <>

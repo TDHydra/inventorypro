@@ -1,5 +1,6 @@
 import { getDb } from '../db/schema';
 import { getValidJwt } from '../auth/session';
+import { bumpDataVersion } from './dataVersion';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -66,6 +67,11 @@ export async function pullChanges(): Promise<void> {
   const data = await res.json() as Record<string, { rows: Record<string, unknown>[] }>;
   const db = getDb();
 
+  // Track whether any row was actually applied so open lists (via
+  // useDataVersion) only re-query when a pull genuinely changed local data,
+  // not on every empty-diff heartbeat pull.
+  let changed = false;
+
   for (const [table, { rows }] of Object.entries(data)) {
     const sql = TABLE_UPSERT_SQL[table];
     if (!sql || rows.length === 0) continue;
@@ -74,9 +80,12 @@ export async function pullChanges(): Promise<void> {
       const values = rowToValues(table, row);
       if (values.length > 0) {
         db.executeSync(sql, values as (string | number | null)[]);
+        changed = true;
       }
     }
   }
 
   setLastPulledAt(new Date().toISOString());
+
+  if (changed) bumpDataVersion();
 }

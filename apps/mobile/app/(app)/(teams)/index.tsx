@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -21,6 +21,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 export default function TeamsScreen() {
   const router = useRouter();
@@ -30,6 +31,13 @@ export default function TeamsScreen() {
   const [teams, setTeams] = useState<Team[]>(() => getAllTeams());
   const [showCreate, setShowCreate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const dataVersion = useDataVersion();
+
+  // Re-read teams whenever a background sync pull applies changes, so an
+  // already-open list refreshes without a manual pull-to-refresh.
+  useEffect(() => {
+    setTeams(getAllTeams());
+  }, [dataVersion]);
 
   // Create form state
   const [name, setName] = useState('');

@@ -17,6 +17,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
@@ -33,6 +34,7 @@ export default function EquipmentScreen() {
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<EquipmentModel>();
   const refreshKey = useFocusRefresh();
+  const dataVersion = useDataVersion();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -107,11 +109,14 @@ export default function EquipmentScreen() {
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
   ], []);
 
-  // Load on mount and on screen focus (e.g. returning from add or detail)
+  // Load on mount, on screen focus (e.g. returning from add or detail), and
+  // whenever a background sync pull applies changes (dataVersion bumps) while
+  // this screen is focused — so an already-open list refreshes without the
+  // user pulling to refresh.
   useFocusEffect(
     useCallback(() => {
       load(queryRef.current.trim() || undefined);
-    }, [load]),
+    }, [load, dataVersion]),
   );
 
   const handleSearch = (text: string) => {

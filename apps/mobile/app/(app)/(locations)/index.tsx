@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -32,6 +32,7 @@ import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner'
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { syncNow } from '../../../src/sync/engine';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
@@ -42,6 +43,13 @@ export default function LocationsScreen() {
   const [tree, setTree] = useState<LocationWithChildren[]>(() => getLocationTree());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showCreate, setShowCreate] = useState(false);
+  const dataVersion = useDataVersion();
+
+  // Re-read the location tree whenever a background sync pull applies changes,
+  // so an already-open list refreshes without a manual pull-to-refresh.
+  useEffect(() => {
+    setTree(getLocationTree());
+  }, [dataVersion]);
 
   // Location-type taxonomy (Shop, Vehicle, Locker, …) for the create-form picker,
   // the list section filter, and per-row type badges. Active types only. 'Shelf'

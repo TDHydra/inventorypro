@@ -20,6 +20,7 @@ import { getValidJwt } from '../../../src/auth/session';
 import { syncNow } from '../../../src/sync/engine';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { colors, radii } from '../../../src/theme';
 
 // Local ACTION_ICONS removed — imported from ActivityFeed (single source of truth).
@@ -66,6 +67,7 @@ export default function LogsScreen() {
   const canViewAll = usePermission('view_all_logs');
   const canViewTeam = usePermission('view_team_activity');
   const [filter, setFilter] = useState<Filter>('mine');
+  const dataVersion = useDataVersion();
 
   // Both the All-Activity and My-Team tabs fetch from the server (/logs).
   const serverMode = filter === 'all' || filter === 'my_teams';
@@ -127,13 +129,15 @@ export default function LogsScreen() {
       ? filterUntil.trim() + 'T23:59:59.999Z'
       : undefined;
 
-  // Local logs for My Activity and Pending Sync tabs (offline-first, unchanged)
+  // Local logs for My Activity and Pending Sync tabs (offline-first). dataVersion
+  // is included so this list refreshes after a background sync pull applies
+  // changes, without a manual pull-to-refresh.
   const logs = useMemo<LogEntry[]>(() => {
     if (!user) return [];
     if (filter === 'unsynced') return getUnsyncedLogs();
     // Default: 'mine' — filter === 'all' is handled by the server fetch below
     return getLogForUser(user.id, 50);
-  }, [user, filter]);
+  }, [user, filter, dataVersion]);
 
   // Server fetch for the All-Activity / My-Team tabs — re-runs whenever tab,
   // filters, or refetchKey change

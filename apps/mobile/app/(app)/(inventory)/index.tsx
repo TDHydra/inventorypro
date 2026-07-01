@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   View, TextInput, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
   RefreshControl,
@@ -19,6 +19,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -50,6 +51,7 @@ export default function InventoryScreen() {
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<Item>();
   const refreshKey = useFocusRefresh();
+  const dataVersion = useDataVersion();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [minQtyOpen, setMinQtyOpen] = useState(false);
@@ -89,6 +91,15 @@ export default function InventoryScreen() {
     setOffset(newOffset + rows.length);
     setLoading(false);
   }, []);
+
+  // Re-run the current search whenever a background sync pull applies changes
+  // (dataVersion bumps), so an already-open list refreshes without the user
+  // pulling to refresh. Deliberately keyed only on dataVersion — query/filter
+  // changes are already handled by handleSearch/handleFilter below.
+  useEffect(() => {
+    runSearch(query, filter, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion]);
 
   const handleSearch = (text: string) => {
     setQuery(text);
