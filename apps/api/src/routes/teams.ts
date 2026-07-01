@@ -11,6 +11,11 @@ interface MemberBody {
   team_permission_overrides?: Record<string, boolean>;
 }
 
+interface MemberPatchBody {
+  is_manager?: boolean;
+  team_permission_overrides?: Record<string, boolean>;
+}
+
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = [(fastify as any).authenticate];
 
@@ -122,23 +127,48 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // PATCH /teams/:id/members/:uid — set/clear a member's manager flag. is_manager
-  // is server-controlled (sync ignores client writes to it), so this gated
-  // endpoint is the ONLY way to promote/demote — closing the self-promotion hole
-  // while keeping the feature (and logs.ts scope=my_teams) working.
-  fastify.patch<{ Params: { id: string; uid: string }; Body: { is_manager: boolean } }>(
+  // PATCH /teams/:id/members/:uid — set a member's manager flag and/or their
+  // per-team permission overrides. is_manager is server-controlled (sync ignores
+  // client writes to it), so this gated endpoint is the ONLY way to promote/
+  // demote — closing the self-promotion hole while keeping the feature (and
+  // logs.ts scope=my_teams) working. team_permission_overrides is a normal
+  // (non-SENSITIVE_DENY) column that CAN also be written via the generic sync
+  // outbox, but routing edits through this same manage_teams-gated endpoint gives
+  // the admin UI an immediate online round-trip with consistent 403 handling,
+  // matching the manager-toggle UX.
+  fastify.patch<{ Params: { id: string; uid: string }; Body: MemberPatchBody }>(
     '/:id/members/:uid', {
       preHandler: [...auth, requirePermission('manage_teams')],
       schema: {
-        body: { type: 'object', required: ['is_manager'], properties: { is_manager: { type: 'boolean' } } },
+        body: {
+          type: 'object',
+          minProperties: 1,
+          properties: {
+            is_manager: { type: 'boolean' },
+            team_permission_overrides: { type: 'object' },
+          },
+        },
       },
     },
     async (request, reply) => {
+      const { is_manager, team_permission_overrides } = request.body;
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      if (is_manager !== undefined) {
+        params.push(is_manager);
+        sets.push(`is_manager = $${params.length}`);
+      }
+      if (team_permission_overrides !== undefined) {
+        params.push(JSON.stringify(team_permission_overrides));
+        sets.push(`team_permission_overrides = $${params.length}`);
+      }
+      sets.push(`updated_at = NOW()`);
+      params.push(request.params.id, request.params.uid);
       const { rows } = await fastify.pg.query(
-        `UPDATE team_members SET is_manager = $3, updated_at = NOW()
-         WHERE team_id = $1 AND user_id = $2
-         RETURNING team_id, user_id, is_manager`,
-        [request.params.id, request.params.uid, request.body.is_manager]
+        `UPDATE team_members SET ${sets.join(', ')}
+         WHERE team_id = $${params.length - 1} AND user_id = $${params.length}
+         RETURNING team_id, user_id, is_manager, team_permission_overrides`,
+        params
       );
       if (!rows[0]) return reply.status(404).send({ error: 'Member not found' });
       return rows[0];
