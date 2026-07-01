@@ -8,6 +8,8 @@ import {
   selectColumnsFor,
   requiresRolesPermForTarget,
 } from '../lib/syncPolicy';
+import { sendPush } from '../lib/push';
+import { claimEvent, releaseEvent, dedupKeys, resolveRoleRecipients, getNotifyConfig } from '../lib/notifications';
 
 interface OutboxEntry {
   id: string;
@@ -137,6 +139,29 @@ async function applyEntry(
              updated_at = NOW()`,
       [entry.id, itemId, locationId, delta]
     );
+    // Low-stock notification (fire-and-forget; never blocks the stock write).
+    if (typeof delta === 'number' && delta < 0) {
+      (async () => {
+        try {
+          if (!(await getNotifyConfig(pg)).enabled) return;
+          const { rows } = await pg.query(
+            `SELECT i.name, i.min_qty_alert,
+                    COALESCE((SELECT SUM(quantity) FROM stock_by_location WHERE item_id = i.id), 0) AS on_hand
+               FROM inventory_items i WHERE i.id = $1`, [itemId]);
+          const it = rows[0] as { name: string; min_qty_alert: number; on_hand: number } | undefined;
+          if (!it) return;
+          const key = dedupKeys.lowstock(String(itemId));
+          if (Number(it.on_hand) <= Number(it.min_qty_alert)) {
+            if (await claimEvent(pg, key)) {
+              const to = await resolveRoleRecipients(pg, ['full_admin', 'franchise_manager']);
+              await sendPush(pg, to, { title: 'Low stock', body: `${it.name} is at or below its alert level.`, data: { screen: 'inventory', itemId } });
+            }
+          } else {
+            await releaseEvent(pg, key); // back above threshold → re-arm
+          }
+        } catch { /* telemetry-grade: never disrupt sync */ }
+      })();
+    }
     return;
   }
 
@@ -184,6 +209,20 @@ async function applyEntry(
       `UPDATE ${table_name} SET ${setClause} WHERE ${where}`,
       [...cols.map(c => row[c] ?? null), ...keys.map(k => payload[k])]
     );
+    // Assignment notification (fire-and-forget; never blocks the sync write).
+    // jobs has no assignee column (checked migrations) — repairs-only is correct.
+    if (table_name === 'repairs' && payload.assignee_id) {
+      const assignee = String(payload.assignee_id);
+      const repairId = String(payload.id);
+      (async () => {
+        try {
+          if (!(await getNotifyConfig(pg)).enabled) return;
+          if (await claimEvent(pg, dedupKeys.assign(repairId, assignee))) {
+            await sendPush(pg, [assignee], { title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs/[id]', id: repairId } });
+          }
+        } catch { /* never disrupt sync */ }
+      })();
+    }
     return;
   }
 

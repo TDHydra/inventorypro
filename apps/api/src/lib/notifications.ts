@@ -2,7 +2,7 @@
 // admin-configurable durations. Consumed by the write-triggered hooks in
 // routes/sync.ts and the in-process timer in notificationTimer.ts. Everything
 // that actually sends goes through sendPush (lib/push), which is fire-and-forget.
-type Pg = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> };
+type Pg = { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> };
 
 export const dedupKeys = {
   assign: (repairId: string, assignee: string) => `assign:repair:${repairId}:${assignee}`,
