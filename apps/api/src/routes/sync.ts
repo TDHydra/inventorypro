@@ -1,5 +1,12 @@
 import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission } from '../lib/permissions';
+import {
+  loadTableColumns,
+  applyWritePolicy,
+  requiredOperationPerm,
+  isAllowedActivity,
+  selectColumnsFor,
+} from '../lib/syncPolicy';
 
 interface OutboxEntry {
   id: string;
@@ -58,57 +65,11 @@ const FULL_TABLES = [
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs',
 ];
 
-// Columns synced to devices, per table. Sensitive fields (e.g. users.pin_hash)
-// are deliberately NOT sent — PIN verification happens server-side only, so the
-// device never holds an extractable credential. Tables not listed sync with '*'.
-const SELECT_COLUMNS: Record<string, string> = {
-  users: 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at',
-};
-
-function selectColsFor(table: string): string {
-  return SELECT_COLUMNS[table] ?? '*';
-}
-
-// Columns a CLIENT may never write via sync (server-controlled). team_members
-// .is_manager is a privilege flag — accepting it from an outbox row let a crew
-// member self-promote to manager (→ manager log scope). Only the dedicated
-// manager-promotion endpoint (teams.ts) may set it.
-const SERVER_ONLY_COLUMNS: Record<string, string[]> = {
-  team_members: ['is_manager'],
-};
-// Attribution columns: forced to the authenticated caller on INSERT (so a client
-// can't claim someone else created/uploaded/added the row) and dropped on UPDATE
-// (creator/uploader can't be reassigned). NOTE: locations.owner_user_id is
-// intentionally NOT here — it's a deliberate assignment (which manager owns an
-// area/vehicle), not "who created it".
-const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
-  jobs: ['created_by'],
-  repairs: ['created_by'],
-  media: ['uploaded_by'],
-  team_members: ['added_by'],
-};
-
-// Apply the server-controlled / attribution rules to a client payload before it
-// reaches the generic UPDATE/INSERT SQL builders.
-function sanitizePayload(
-  table: string,
-  op: 'INSERT' | 'UPDATE',
-  payload: Record<string, unknown>,
-  callerUserId: string,
-): Record<string, unknown> {
-  const p = { ...payload };
-  for (const c of SERVER_ONLY_COLUMNS[table] ?? []) delete p[c];
-  for (const c of ATTRIBUTION_COLUMNS[table] ?? []) {
-    if (op === 'INSERT') p[c] = callerUserId;
-    else delete p[c];
-  }
-  return p;
-}
-
 async function applyEntry(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   entry: OutboxEntry,
   callerUserId: string,
+  realColumns: Map<string, Set<string>>,
 ): Promise<void> {
   const { operation, table_name, payload } = entry;
 
@@ -116,6 +77,9 @@ async function applyEntry(
   // incompatible with rules, so insert idempotently via WHERE NOT EXISTS.
   if (table_name === 'activity_log') {
     if (operation !== 'INSERT') return;
+    if (!isAllowedActivity(payload.action, payload.entity_type)) {
+      throw new Error('Invalid activity_log action/entity_type');
+    }
     // Attribute to the AUTHENTICATED caller, not the client-supplied user_id —
     // otherwise any token could forge audit entries blaming another user.
     // (created_at stays client-supplied: offline events carry their real time.)
@@ -188,44 +152,60 @@ async function applyEntry(
   // generated SQL never references a nonexistent column (which would throw and
   // strand the entry as a conflict forever).
   if (operation === 'UPDATE') {
-    // Strip server-controlled cols + reassignment of attribution before building SQL.
-    const sp = sanitizePayload(table_name, 'UPDATE', payload, callerUserId);
+    // Filter to real columns, strip server-controlled cols, drop attribution
+    // reassignment, and reject the whole entry if it touched a sensitive column.
+    const { row, rejected } = applyWritePolicy(table_name, 'UPDATE', payload, callerUserId, realColumns);
+    if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
+    const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
     // Real partial update — only the columns the device actually changed.
-    const cols = Object.keys(sp).filter(k => k !== '__version' && k !== 'synced_at' && !keys.includes(k));
-    if (cols.length === 0) return;
+    // updated_at is server-authoritative (never trust the client clock) — strip
+    // any client-supplied value and force NOW() below instead.
+    const cols = Object.keys(row).filter(k => k !== '__version' && k !== 'synced_at' && k !== 'updated_at' && !keys.includes(k));
+    if (cols.length === 0 && !hasUpdatedAt) return;
     // Clamp absolute stock writes so a bad value can't throw the quantity >= 0
     // CHECK and strand the entry forever.
-    const setClause = cols.map((c, i) => {
+    const setParts = cols.map((c, i) => {
       const ph = `$${i + 1}`;
       return table_name === 'stock_by_location' && c === 'quantity'
         ? `${c} = GREATEST(0, ${ph})`
         : `${c} = ${ph}`;
-    }).join(', ');
+    });
+    if (hasUpdatedAt) setParts.push('updated_at = NOW()');
+    const setClause = setParts.join(', ');
     const where = keys.map((k, i) => `${k} = $${cols.length + i + 1}`).join(' AND ');
     await pg.query(
       `UPDATE ${table_name} SET ${setClause} WHERE ${where}`,
-      [...cols.map(c => payload[c] ?? null), ...keys.map(k => payload[k])]
+      [...cols.map(c => row[c] ?? null), ...keys.map(k => payload[k])]
     );
     return;
   }
 
   // INSERT — full-row upsert (keyed by primary/composite key).
-  // Sanitize first so attribution cols are forced to the caller and server-only
-  // cols (is_manager) are dropped; build the row from the sanitized payload.
-  const sp = sanitizePayload(table_name, 'INSERT', payload, callerUserId);
+  // Apply the write policy first so attribution cols are forced to the caller,
+  // sensitive cols reject the entry, and non-column keys are dropped; build the
+  // row from the resulting policy-filtered `row`.
+  const { row, rejected } = applyWritePolicy(table_name, 'INSERT', payload, callerUserId, realColumns);
+  if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
-  const allKeys = Object.keys(sp).filter(k => k !== '__version' && k !== 'synced_at');
-  const cols = allKeys.join(', ');
+  const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
+  // updated_at is server-authoritative on INSERT too (offline created_at stays
+  // client-supplied — see the activity_log rationale above — but updated_at is
+  // always the server's NOW()).
+  const allKeys = Object.keys(row).filter(k => k !== '__version' && k !== 'synced_at' && k !== 'updated_at');
+  const cols = (hasUpdatedAt ? [...allKeys, 'updated_at'] : allKeys).join(', ');
   // Clamp absolute stock writes (both the VALUES and the DO UPDATE) with
-  // GREATEST(0, …) so a bad absolute can't throw the quantity >= 0 CHECK.
+  // GREATEST(0, …) so a bad absolute can't violate the quantity >= 0 CHECK.
   const clampStock = (k: string, ph: string) =>
     table_name === 'stock_by_location' && k === 'quantity' ? `GREATEST(0, ${ph})` : ph;
-  const vals = allKeys.map((k, i) => clampStock(k, `$${i + 1}`)).join(', ');
-  const updates = allKeys
+  const valParts = allKeys.map((k, i) => clampStock(k, `$${i + 1}`));
+  if (hasUpdatedAt) valParts.push('NOW()');
+  const vals = valParts.join(', ');
+  const updateParts = allKeys
     .filter(k => !targetCols.has(k))
-    .map(k => `${k} = ${clampStock(k, `$${allKeys.indexOf(k) + 1}`)}`)
-    .join(', ');
+    .map(k => `${k} = ${clampStock(k, `$${allKeys.indexOf(k) + 1}`)}`);
+  if (hasUpdatedAt) updateParts.push('updated_at = NOW()');
+  const updates = updateParts.join(', ');
 
   const sql = updates
     ? `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
@@ -233,10 +213,35 @@ async function applyEntry(
     : `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO NOTHING`;
 
-  await pg.query(sql, allKeys.map(k => sp[k] ?? null));
+  await pg.query(sql, allKeys.map(k => row[k] ?? null));
+}
+
+// Resolve the caller's *current* role + permission overrides from the DB — not
+// the JWT role claim, which can be stale or forged-stale within the 15m token
+// window. Shared by /full, /pull, and /push so all three authorize identically.
+async function resolveCaller(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  userId: string,
+): Promise<
+  | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+  | undefined
+> {
+  const { rows } = await pg.query(
+    `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+       FROM users u
+       LEFT JOIN role_settings rs ON rs.role = u.role
+      WHERE u.id = $1`,
+    [userId],
+  );
+  return rows[0] as
+    | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+    | undefined;
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {
+  // Boot-time column introspection — the allowlist of real identifiers per table.
+  const realColumns = await loadTableColumns(fastify.pg, [...ALLOWED_TABLES]);
+
   // GET /sync/full — first-launch paginated full download
   fastify.get<{
     Querystring: { table?: string; page?: string; limit?: string }
@@ -250,8 +255,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: 'Invalid table' });
     }
 
+    const userId = (request.user as { sub?: string })?.sub;
+    if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
+    const caller = await resolveCaller(fastify.pg, userId);
+    if (!caller) return reply.status(403).send({ error: 'Unknown user' });
+    const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
+
     const { rows } = await fastify.pg.query(
-      `SELECT ${selectColsFor(table)} FROM ${table} ORDER BY 1 LIMIT $1 OFFSET $2`,
+      `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} ORDER BY 1 LIMIT $1 OFFSET $2`,
       [limitNum + 1, offset]
     );
 
@@ -262,14 +273,20 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // GET /sync/pull — incremental changes since timestamp
   fastify.get<{
     Querystring: { since?: string }
-  }>('/pull', { preHandler: [(fastify as any).authenticate] }, async (request) => {
+  }>('/pull', { preHandler: [(fastify as any).authenticate] }, async (request, reply) => {
     const since = request.query.since ?? new Date(0).toISOString();
     const results: Record<string, { rows: unknown[] }> = {};
+
+    const userId = (request.user as { sub?: string })?.sub;
+    if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
+    const caller = await resolveCaller(fastify.pg, userId);
+    if (!caller) return reply.status(403).send({ error: 'Unknown user' });
+    const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
 
     for (const table of FULL_TABLES) {
       const dateCol = table === 'media' ? 'created_at' : 'updated_at';
       const { rows } = await fastify.pg.query(
-        `SELECT ${selectColsFor(table)} FROM ${table} WHERE ${dateCol} > $1`,
+        `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1`,
         [since]
       );
       results[table] = { rows };
@@ -299,16 +316,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     // claim, which can be stale or forged-stale within the 15m token window.
     const userId = (request.user as { sub?: string })?.sub;
     if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
-    const { rows: callerRows } = await fastify.pg.query(
-      `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
-         FROM users u
-         LEFT JOIN role_settings rs ON rs.role = u.role
-        WHERE u.id = $1`,
-      [userId],
-    );
-    const caller = callerRows[0] as
-      | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
-      | undefined;
+    const caller = await resolveCaller(fastify.pg, userId);
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
     const can = (perm: string) =>
       userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
@@ -345,8 +353,27 @@ const routes: FastifyPluginAsync = async (fastify) => {
         continue;
       }
 
+      // Operational-table authorization — gate writes on the per-operation
+      // permission (ADJUST is the signed-delta checkout/checkin path and only
+      // needs auth, handled separately in applyEntry).
+      if (entry.operation !== 'ADJUST') {
+        const opPerm = requiredOperationPerm(entry.table_name, entry.operation as 'INSERT' | 'UPDATE' | 'DELETE');
+        if (opPerm === 'DENY') {
+          conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} not permitted via sync` });
+          continue;
+        }
+        if (opPerm && !can(opPerm)) {
+          request.log.warn(
+            { userId, role: caller.role, table: entry.table_name, operation: entry.operation, opPerm },
+            'sync push op denied (authz)',
+          );
+          conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} requires ${opPerm}` });
+          continue;
+        }
+      }
+
       try {
-        await applyEntry(fastify.pg, entry, userId);
+        await applyEntry(fastify.pg, entry, userId, realColumns);
         ok.push(entry.id);
       } catch (err) {
         // Log the offending entry so a stuck/rejected outbox row is diagnosable
