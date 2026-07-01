@@ -6,6 +6,7 @@ import {
   requiredOperationPerm,
   isAllowedActivity,
   selectColumnsFor,
+  requiresRolesPermForTarget,
 } from '../lib/syncPolicy';
 
 interface OutboxEntry {
@@ -395,6 +396,48 @@ const routes: FastifyPluginAsync = async (fastify) => {
           );
           conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} requires ${opPerm}` });
           continue;
+        }
+      }
+
+      // Target-role guard for users writes: applyWritePolicy above already gates
+      // WHICH columns a manage_users-only caller may set, but not WHOSE row. A
+      // manage_users holder without manage_roles_permissions must not be able to
+      // deactivate/expire a full_admin/franchise_manager via a crafted outbox
+      // entry — REST PATCH /users/:id already blocks the equivalent via
+      // PRIVILEGED_ROLES (apps/api/src/routes/users.ts). DELETE on users is
+      // already unconditionally forbidden above, so only UPDATE needs this.
+      if (entry.table_name === 'users' && entry.operation === 'UPDATE') {
+        const targetId = entry.payload.id;
+        const { rows: targetRows } = await fastify.pg.query(
+          `SELECT role, active FROM users WHERE id = $1`,
+          [targetId],
+        );
+        const target = targetRows[0] as { role: string; active: boolean } | undefined;
+        if (target) {
+          if (requiresRolesPermForTarget(target.role) && !can('manage_roles_permissions')) {
+            request.log.warn(
+              { userId, role: caller.role, targetId, targetRole: target.role },
+              'sync push users update denied (target-role guard)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: target user has a privileged role; requires roles & permissions' });
+            continue;
+          }
+          const deactivating = entry.payload.active === false;
+          if (deactivating && targetId === userId) {
+            conflicts.push({ id: entry.id, error: 'Forbidden: you cannot deactivate your own account' });
+            continue;
+          }
+          if (deactivating && target.active && target.role === 'full_admin') {
+            const { rows: activeAdminRows } = await fastify.pg.query(
+              `SELECT COUNT(*)::int AS n FROM users WHERE role = 'full_admin' AND active = true`,
+              [],
+            );
+            const activeAdminCount = (activeAdminRows[0] as { n: number }).n;
+            if (activeAdminCount <= 1) {
+              conflicts.push({ id: entry.id, error: 'Forbidden: cannot deactivate the last active full_admin' });
+              continue;
+            }
+          }
         }
       }
 

@@ -26,8 +26,12 @@ const fastify = Fastify({
   },
   // Behind the NPM reverse proxy, request.ip is otherwise always the proxy's
   // IP — collapsing all clients onto one IP-keyed rate-limit bucket. Trust
-  // X-Forwarded-For so request.ip reflects the real client.
-  trustProxy: true,
+  // X-Forwarded-For so request.ip reflects the real client. Pinned to the
+  // proxy's own address/subnet (not `true`, which would trust ANY caller's
+  // X-Forwarded-For — trivially spoofable to bypass IP-keyed rate limiting).
+  // TRUST_PROXY should be set to the NPM/Docker bridge subnet (e.g.
+  // 172.18.0.0/16) in prod .env; the loopback default keeps local dev booting.
+  trustProxy: process.env.TRUST_PROXY ?? '127.0.0.1',
 });
 
 async function build() {

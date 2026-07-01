@@ -55,6 +55,22 @@ const USERS_ALWAYS_DENY = new Set(['pin_hash', 'pin_set', 'enrollment_code_hash'
 // permission matrix.
 const USERS_ROLE_GATED = new Set(['role', 'permission_overrides']);
 
+// Roles that confer broad authority. Mirrors PRIVILEGED_ROLES in
+// apps/api/src/routes/users.ts, which blocks a manage_users-only caller from
+// changing a full_admin/franchise_manager's role via REST PATCH /users/:id.
+// The sync outbox is a second write path into the SAME users table (columns
+// like active/expires_at are permission-aware but not target-role-aware) —
+// without this, a manage_users holder could deactivate or expire a full_admin
+// via a crafted outbox entry even though REST already blocks the equivalent.
+export const PRIVILEGED_ROLES = new Set(['full_admin', 'franchise_manager']);
+
+// True when writing to a user with this role requires the caller to hold
+// manage_roles_permissions (not merely manage_users) — regardless of which
+// columns the write actually touches.
+export function requiresRolesPermForTarget(targetRole: string | null | undefined): boolean {
+  return !!targetRole && PRIVILEGED_ROLES.has(targetRole);
+}
+
 // Attribution columns: forced to the caller on INSERT (can't claim another creator)
 // and dropped on UPDATE (creator can't be reassigned). NOTE: locations.owner_user_id
 // is intentionally NOT here — it's a deliberate assignment, not "who created it".

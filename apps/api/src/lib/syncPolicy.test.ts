@@ -6,6 +6,7 @@ import {
   requiredOperationPerm,
   isAllowedActivity,
   selectColumnsFor,
+  requiresRolesPermForTarget,
 } from './syncPolicy';
 
 const real = new Map([['jobs', new Set(['id', 'name', 'status'])]]);
@@ -92,4 +93,16 @@ test('users never exposes pin_hash or enrollment_code_hash', () => {
 
 test('app_config only exposes non-secret keys via projection marker', () => {
   assert.equal(selectColumnsFor('app_config', false), 'key, value, updated_at');
+});
+
+test('requiresRolesPermForTarget flags privileged roles, mirroring users.ts PRIVILEGED_ROLES', () => {
+  assert.equal(requiresRolesPermForTarget('full_admin'), true);
+  assert.equal(requiresRolesPermForTarget('franchise_manager'), true);
+  assert.equal(requiresRolesPermForTarget('crew'), false);
+  assert.equal(requiresRolesPermForTarget('hr_manager'), false);
+});
+
+test('requiresRolesPermForTarget is false for null/undefined target role', () => {
+  assert.equal(requiresRolesPermForTarget(null), false);
+  assert.equal(requiresRolesPermForTarget(undefined), false);
 });
