@@ -31,11 +31,10 @@ on the existing Roles screen. Color is cosmetic only — it never gates behavior
 - Add a pure resolver:
   `export function resolveRoleColor(role: string, override?: string | null): string`
   → `override?.trim() || ROLE_COLORS[role as UserRole] || ROLE_COLOR_FALLBACK`.
-  `ROLE_COLOR_FALLBACK` is a hardcoded neutral readable hex exported from the same
-  file (matching the theme's primary-text color value, e.g. `#1F2933`) so
-  `constants/` stays dependency-free of the theme module (value: `#1E293B`,
-  matching `colors.textPrimary`). Unknown/legacy roles
-  therefore render in the neutral color, never blank/invalid.
+  `ROLE_COLOR_FALLBACK` is a hardcoded neutral readable hex (`#1E293B`, matching
+  `colors.textPrimary`) exported from the same file so `constants/` stays
+  dependency-free of the theme module. Unknown/legacy roles therefore render in
+  the neutral color, never blank/invalid.
 
 ## Reading the override (`apps/mobile/src/db/queries/users.ts`)
 - `export function getRoleColorMap(): Record<string, string>` — `SELECT role, color
