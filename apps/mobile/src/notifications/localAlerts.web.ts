@@ -11,11 +11,14 @@ import {
 } from '../db/appSettings';
 import { getLowStockItems } from '../db/queries/items';
 import { getExpiringUsers } from '../db/queries/users';
+import { getRepairs } from '../db/queries/repairs';
+import { isTerminalStatus } from '../db/queries/taxonomy';
 import { getSavedUserId, buildUserSession } from '../auth/session';
 import { hasPermission } from '../auth/permissions';
 
 const LOWSTOCK_PREFIX = 'alert:lowstock:';
 const EXPIRY_PREFIX = 'alert:expiry:';
+const REPAIR_OVERDUE_PREFIX = 'alert:repair_overdue:';
 
 // True only when the browser exposes the Notifications API.
 function notificationsSupported(): boolean {
@@ -67,9 +70,10 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 }
 
 /**
- * Compute and fire local alerts (low stock + temp-employee expiry). Called
- * fire-and-forget after each sync cycle. Pref-gated, permission-scoped, deduped
- * via app_settings keys, and wrapped so it can never throw into the sync loop.
+ * Compute and fire local alerts (low stock + temp-employee expiry + overdue
+ * repairs). Called fire-and-forget after each sync cycle. Pref-gated,
+ * permission-scoped, deduped via app_settings keys, and wrapped so it can
+ * never throw into the sync loop.
  */
 export async function runLocalAlertChecks(): Promise<void> {
   try {
@@ -129,6 +133,34 @@ export async function runLocalAlertChecks(): Promise<void> {
     for (const key of getAppSettingKeysByPrefix(EXPIRY_PREFIX)) {
       const id = key.slice(EXPIRY_PREFIX.length);
       if (!expiringIds.includes(id)) deleteAppSetting(key);
+    }
+
+    // ── Overdue repairs ──────────────────────────────────────────────────────
+    // Scoped like low stock: edit_inventory is the same permission that gates
+    // status edits on the repair detail screen (see (repairs)/[id].tsx canEdit).
+    // getRepairs({done:false}) already excludes completed_at rows; isTerminalStatus
+    // is checked too as cheap insurance against a stale/renamed status label.
+    const canSeeRepairs = hasPermission(session, 'edit_inventory');
+    const overdueRepairs = canSeeRepairs
+      ? getRepairs({ done: false }).filter(
+          r => r.due_at != null && !isTerminalStatus(r.status) && new Date(r.due_at).getTime() < Date.now(),
+        )
+      : [];
+    const overdueIds = overdueRepairs.map(r => r.id);
+    if (canSeeRepairs) {
+      for (const r of overdueRepairs) {
+        const key = `${REPAIR_OVERDUE_PREFIX}${r.id}`;
+        if (getAppSetting(key) === null) {
+          notify('Repair overdue', `${r.entity_label ?? 'Repair'} was due ${new Date(r.due_at as string).toLocaleDateString()}`);
+          setAppSetting(key, '1');
+        }
+      }
+    }
+    // Clear keys for repairs no longer overdue — completed/reopened past terminal,
+    // due_at cleared, or the permission was lost — so they can re-fire later.
+    for (const key of getAppSettingKeysByPrefix(REPAIR_OVERDUE_PREFIX)) {
+      const id = key.slice(REPAIR_OVERDUE_PREFIX.length);
+      if (!overdueIds.includes(id)) deleteAppSetting(key);
     }
   } catch (err) {
     console.warn('[Notifications] runLocalAlertChecks failed:', (err as Error).message);

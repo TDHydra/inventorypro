@@ -4,6 +4,7 @@ import { createRepair, Repair } from '../../db/queries/repairs';
 import { getRepairStatuses, isTerminalStatus } from '../../db/queries/taxonomy';
 import { setUnitStatus, searchUnitsByTag } from '../../db/queries/equipmentUnits';
 import { searchItems } from '../../db/queries/items';
+import { getAllActiveUsers, getUserById, roleColor, getRoleColorMap } from '../../db/queries/users';
 import { getAllLocations, findOrCreateVehicleByName } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -48,6 +49,17 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   const [targetError, setTargetError] = useState('');
   const [notes, setNotes] = useState('');
   const [parts, setParts] = useState('');
+  const [assigneeOpt, setAssigneeOpt] = useState<PickerOption | null>(null);
+
+  const assigneeOptions = useMemo<PickerOption[]>(
+    () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
+    [],
+  );
+  const roleColorMap = useMemo(() => getRoleColorMap(), []);
+  const assigneeUser = useMemo(
+    () => (assigneeOpt ? getUserById(assigneeOpt.id) : null),
+    [assigneeOpt],
+  );
 
   // Vehicles = location rows tagged as 'Vehicle' (fall back to all locations so the
   // picker is never empty when no type has been set yet).
@@ -94,6 +106,7 @@ export default function RepairQuickAdd({ onSaved }: Props) {
       parts_needed: parts.trim() || null,
       status,
       created_by: user?.id ?? null,
+      assignee_id: assigneeOpt?.id ?? null,
     });
 
     // Auto-drive: opening a ticket on an equipment unit sends it to repair.
@@ -186,6 +199,22 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         </View>
       </View>
 
+      {/* ── Assignee ────────────────────────────────────────────────── */}
+      <View style={s.fieldWrap}>
+        <FieldLabel>Assignee (optional)</FieldLabel>
+        {assigneeOpt && (
+          <Text style={[s.assigneeName, { color: roleColor(assigneeUser?.role ?? '', roleColorMap) }]}>
+            {assigneeOpt.label}
+          </Text>
+        )}
+        <SearchablePicker
+          placeholder="Search users…"
+          options={assigneeOptions}
+          value={assigneeOpt}
+          onSelect={opt => setAssigneeOpt(prev => (prev?.id === opt.id ? null : opt))}
+        />
+      </View>
+
       {/* ── Notes ───────────────────────────────────────────────────── */}
       <View style={s.fieldWrap}>
         <FieldLabel>Notes</FieldLabel>
@@ -227,4 +256,5 @@ const s = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   errorText: { fontSize: fontSizes.caption, color: colors.danger },
+  assigneeName: { fontSize: fontSizes.body2, fontWeight: '600' },
 });

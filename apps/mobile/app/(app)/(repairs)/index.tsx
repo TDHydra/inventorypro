@@ -82,6 +82,7 @@ export default function RepairsScreen() {
             const icon = getTypeIcon('repair_status', item.status);
             const completed = item.completed_at != null;
             const terminal = completed || isTerminalStatus(item.status);
+            const overdue = !!item.due_at && !terminal && new Date(item.due_at).getTime() < Date.now();
             return (
               <TouchableOpacity
                 onPress={() =>
@@ -102,6 +103,11 @@ export default function RepairsScreen() {
                         {icon ? `${icon} ` : ''}{item.status}
                       </Text>
                     </View>
+                    {overdue && (
+                      <View style={s.overdueBadge}>
+                        <Text style={s.overdueBadgeText}>Overdue</Text>
+                      </View>
+                    )}
                     <Text style={s.cardDate}>{ageLabel(item.created_at)}</Text>
                   </View>
                 </Card>
@@ -142,5 +148,10 @@ const s = StyleSheet.create({
   statusBadgeText: { fontSize: 12, fontWeight: '600' },
   statusBadgeTextOpen: { color: colors.primary },
   statusBadgeTextDone: { color: colors.success },
+  overdueBadge: {
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    borderWidth: 1, backgroundColor: colors.dangerBg, borderColor: colors.danger,
+  },
+  overdueBadgeText: { fontSize: 11, fontWeight: '700', color: colors.danger },
   cardDate: { fontSize: 12, color: colors.textMuted, marginLeft: 'auto' as any },
 });
