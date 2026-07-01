@@ -98,13 +98,16 @@ INSERT INTO stock_by_location (item_id, location_id, quantity) VALUES
   ('bbbbbbbb-0007-0007-0007-000000000007','aaaaaaaa-0003-0003-0003-000000000003', 2)
 ON CONFLICT DO NOTHING;
 
--- Teams
-INSERT INTO teams (name, type, manager_id)
-SELECT 'Mito Team Alpha', 'mitigation', id FROM users WHERE name = 'Pete Production' LIMIT 1
+-- Teams (managers are team_members with is_manager=TRUE; manager_id dropped in 027)
+INSERT INTO teams (name, type) VALUES
+  ('Mito Team Alpha', 'mitigation'),
+  ('Construction A',  'construction')
 ON CONFLICT DO NOTHING;
 
-INSERT INTO teams (name, type, manager_id)
-SELECT 'Construction A', 'construction', id FROM users WHERE name = 'Carl Construction' LIMIT 1
+INSERT INTO team_members (team_id, user_id, is_manager)
+SELECT t.id, u.id, TRUE FROM teams t JOIN users u ON
+  (t.name = 'Mito Team Alpha' AND u.name = 'Pete Production') OR
+  (t.name = 'Construction A'  AND u.name = 'Carl Construction')
 ON CONFLICT DO NOTHING;
 
 -- Jobs

@@ -4,7 +4,6 @@ import { requirePermission } from '../lib/permissions';
 interface TeamBody {
   name: string;
   type: string;
-  manager_id?: string | null;
 }
 
 interface MemberBody {
@@ -15,13 +14,14 @@ interface MemberBody {
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = [(fastify as any).authenticate];
 
-  // GET /teams — list teams with member counts
+  // GET /teams — list teams with member counts. Managers are per-member
+  // (team_members.is_manager), not a single teams.manager_id — no client reads
+  // a manager field off this list today, so it's just dropped rather than
+  // replaced with an is_manager aggregate.
   fastify.get('/', { preHandler: auth }, async () => {
     const { rows } = await fastify.pg.query(
-      `SELECT t.*, u.name AS manager_name,
-              COALESCE(m.cnt, 0) AS member_count
+      `SELECT t.*, COALESCE(m.cnt, 0) AS member_count
        FROM teams t
-       LEFT JOIN users u ON u.id = t.manager_id
        LEFT JOIN (SELECT team_id, COUNT(*) AS cnt FROM team_members GROUP BY team_id) m
               ON m.team_id = t.id
        ORDER BY t.name`
@@ -59,16 +59,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: 'string', minLength: 1 },
             type: { type: 'string', minLength: 1 },
-            manager_id: { type: ['string', 'null'] },
           },
         },
       },
     },
     async (request) => {
-      const { name, type, manager_id = null } = request.body;
+      const { name, type } = request.body;
       const { rows } = await fastify.pg.query(
-        `INSERT INTO teams (name, type, manager_id) VALUES ($1, $2, $3) RETURNING *`,
-        [name, type, manager_id]
+        `INSERT INTO teams (name, type) VALUES ($1, $2) RETURNING *`,
+        [name, type]
       );
       return rows[0];
     }
@@ -78,12 +77,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
   fastify.patch<{ Params: { id: string }; Body: Partial<TeamBody> }>(
     '/:id', { preHandler: [...auth, requirePermission('manage_teams')] },
     async (request, reply) => {
-      const { name, type, manager_id } = request.body;
+      const { name, type } = request.body;
       const sets: string[] = [];
       const params: unknown[] = [];
       if (name !== undefined) { params.push(name); sets.push(`name = $${params.length}`); }
       if (type !== undefined) { params.push(type); sets.push(`type = $${params.length}`); }
-      if (manager_id !== undefined) { params.push(manager_id); sets.push(`manager_id = $${params.length}`); }
       if (sets.length === 0) return reply.status(400).send({ error: 'No fields to update' });
       sets.push(`updated_at = NOW()`);
       params.push(request.params.id);

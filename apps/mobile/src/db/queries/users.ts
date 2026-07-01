@@ -189,10 +189,22 @@ export function setUserActive(id: string, active: boolean): string {
 // promotion must not keep the shorter PIN requirement). The caller passes the
 // resolved minimum (roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]])
 // so this query layer stays free of the role-settings cache.
+//
+// When that minimum DIFFERS from the user's current required length, the
+// user's existing PIN no longer satisfies the new role's policy — mirror the
+// API's PATCH /users/:id behavior by also clearing pin_set locally (via
+// markUserPinReset, the same helper the admin reset-PIN flow uses), so this
+// device stops accepting the old PIN even before the next sync pulls the
+// server's authoritative pin_hash=NULL/enrollment_code state. A same-length
+// role change must NOT touch pin_set.
 export function setUserRole(id: string, role: string, pinLengthRequired?: number): string {
+  const current = getUserById(id);
+  const lengthChanged = pinLengthRequired != null && current != null
+    && current.pin_length_required !== pinLengthRequired;
   const fields: EditableUserFields = { role: role as UserRole };
   if (pinLengthRequired != null) fields.pin_length_required = pinLengthRequired;
   const now = updateUserLocal(id, fields);
+  if (lengthChanged) markUserPinReset(id);
   appendOutbox('UPDATE', 'users', {
     id, role, updated_at: now,
     ...(pinLengthRequired != null ? { pin_length_required: pinLengthRequired } : {}),

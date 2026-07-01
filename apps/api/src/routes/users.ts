@@ -142,17 +142,42 @@ const routes: FastifyPluginAsync = async (fastify) => {
     let i = 2;
 
     if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name); }
-    if (role !== undefined) { updates.push(`role = $${i++}::user_role`); values.push(role); }
     if (active !== undefined) { updates.push(`active = $${i++}`); values.push(active); }
     if (expires_at !== undefined) { updates.push(`expires_at = $${i++}`); values.push(expires_at); }
     if (permission_overrides !== undefined) { updates.push(`permission_overrides = $${i++}::jsonb`); values.push(JSON.stringify(permission_overrides)); }
+
+    // Role change must also move pin_length_required to the new role's minimum
+    // (role_settings.min_pin_length) — mirrors mobile's setUserRole. When that
+    // differs from the user's CURRENT required length, the existing PIN no
+    // longer satisfies the new role's policy, so it needs to be wiped below
+    // exactly like an explicit reset_pin. Skip the auto pin_length_required set
+    // when an explicit `pin` is also supplied in this request — that branch
+    // below sets pin_length_required itself, from the new PIN's own length.
+    let pinLengthMismatch = false;
+    if (role !== undefined) {
+      updates.push(`role = $${i++}::user_role`); values.push(role);
+      if (pin === undefined) {
+        const { rows: roleRows } = await fastify.pg.query(
+          `SELECT u.pin_length_required AS current_length, rs.min_pin_length
+             FROM users u LEFT JOIN role_settings rs ON rs.role = $2
+            WHERE u.id = $1`,
+          [targetId, role]
+        );
+        const minPinLength = roleRows[0]?.min_pin_length ?? 4;
+        pinLengthMismatch = roleRows[0] != null && roleRows[0].current_length !== minPinLength;
+        updates.push(`pin_length_required = $${i++}`); values.push(minPinLength);
+      }
+    }
+
     let newEnrollmentCode: string | undefined;
-    if (reset_pin) {
+    if (reset_pin || pinLengthMismatch) {
       // Architecture: no admin-chosen PINs. Reset clears the hash so the user
       // sets and confirms a fresh PIN themselves on next sign-in (pin_set=false).
       // It also must reissue an enrollment code — pin_hash/pin_set alone leave
       // the account dead-ended, since /auth/set-pin requires a code and the
       // original one-time code was already consumed (nulled) at first onboarding.
+      // A role change that changes the required PIN length triggers this same
+      // path (pinLengthMismatch) — a same-length role change does NOT wipe it.
       const issued = await issueEnrollmentCode();
       newEnrollmentCode = issued.code;
       updates.push(`pin_hash = NULL`, `pin_set = FALSE`, `enrollment_code_hash = $${i++}`);

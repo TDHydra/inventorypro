@@ -152,18 +152,19 @@ async function seed() {
     console.log('✓ stock_by_location');
 
     // ── Teams ────────────────────────────────────────────────────────────────
-    const { rows: [petersRow] } = await client.query(
-      `SELECT id FROM users WHERE name = 'Pete Production' LIMIT 1`
-    );
-    const { rows: [carlsRow] } = await client.query(
-      `SELECT id FROM users WHERE name = 'Carl Construction' LIMIT 1`
-    );
     await client.query(
-      `INSERT INTO teams (name, type, manager_id) VALUES
-         ('Mito Team Alpha', 'mitigation', $1),
-         ('Construction A',  'construction', $2)
-       ON CONFLICT DO NOTHING`,
-      [petersRow?.id ?? null, carlsRow?.id ?? null]
+      `INSERT INTO teams (name, type) VALUES
+         ('Mito Team Alpha', 'mitigation'),
+         ('Construction A',  'construction')
+       ON CONFLICT DO NOTHING`
+    );
+    // Managers are team_members with is_manager=TRUE (manager_id dropped in 027).
+    await client.query(
+      `INSERT INTO team_members (team_id, user_id, is_manager)
+         SELECT t.id, u.id, TRUE FROM teams t JOIN users u ON
+           (t.name = 'Mito Team Alpha' AND u.name = 'Pete Production') OR
+           (t.name = 'Construction A'  AND u.name = 'Carl Construction')
+       ON CONFLICT DO NOTHING`
     );
     console.log('✓ teams (2)');
 

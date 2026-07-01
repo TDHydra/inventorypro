@@ -194,6 +194,12 @@ export default function AdminUsersScreen() {
     if ((editExpiry ?? null) !== (editUser.expires_at ?? null)) fields.expires_at = editExpiry;
     if (Object.keys(fields).length === 0) { setEditUser(null); return; }
     const roleChanged = editRole !== editUser.role;
+    // A role change that also changes the required PIN length invalidates the
+    // user's current PIN — mirror the API (PATCH /users/:id) and setUserRole's
+    // bulk-edit path by clearing pin_set locally too, via the same helper the
+    // admin PIN-reset flow uses. A same-length role change must NOT do this.
+    const pinLengthChanged = roleChanged
+      && fields.pin_length_required !== editUser.pin_length_required;
     const otherFieldsChanged = editName.trim() !== editUser.name ||
       (editExpiry ?? null) !== (editUser.expires_at ?? null);
     const adminId = sessionUser?.id ?? null;
@@ -203,6 +209,7 @@ export default function AdminUsersScreen() {
       runInTransaction(() => {
         const now = updateUserLocal(editUser.id, fields as never);
         appendOutbox('UPDATE', 'users', { id: editUser.id, ...fields, updated_at: now });
+        if (pinLengthChanged) markUserPinReset(editUser.id);
         if (roleChanged) {
           appendLog({
             action: 'user_role_changed',
