@@ -5,6 +5,7 @@ import fastifyCors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { runMigrations } from './db/migrate';
 import { overRateLimit } from './lib/rateLimit';
+import { startNotificationTimer } from './lib/notificationTimer';
 
 import authRoutes from './routes/auth';
 import syncRoutes from './routes/sync';
@@ -142,6 +143,8 @@ runMigrations()
         app.log.error(err);
         process.exit(1);
       }
+      // Start the notification timer (checkout-idle etc.) once we're serving.
+      startNotificationTimer(app.pg);
     });
   })
   .catch(err => {
