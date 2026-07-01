@@ -27,11 +27,9 @@ export function buildMessages(tokens: string[], p: PushPayload): ExpoMessage[] {
   return tokens.map(to => ({ to, title: p.title, body: p.body, ...(p.data ? { data: p.data } : {}) }));
 }
 
-// Used for the receipts-polling path (Expo's two-step ticket→receipt flow).
-// v1 (sendPush below) disables tokens on immediate ticket errors, which covers
-// the common DeviceNotRegistered case without a follow-up receipts fetch. This
-// helper is exported so a later receipts-poller can reuse the same dead-token
-// classification.
+// Classifies dead tokens from Expo's receipts (the second stage of Expo's
+// ticket→receipt flow). Used by sendPush's receipts poll below, which catches
+// the uninstalled-device case that the immediate ticket doesn't report.
 export function deadTokensFromReceipts(
   receipts: Record<string, { status: string; details?: { error?: string } }>,
   ticketTokens: Record<string, string>,
@@ -59,6 +57,11 @@ export async function sendPush(pg: Pg, userIds: string[], payload: PushPayload):
     const tokens = rows.map(r => r.expo_push_token as string);
     if (!tokens.length) return { sent: 0 };
     let sent = 0;
+    // receiptId -> token, for the second-stage receipts poll below. Expo
+    // reports an uninstalled-but-valid token as DeviceNotRegistered on the
+    // RECEIPT, not the initial ticket (which comes back "ok"), so the inline
+    // ticket check alone misses the common uninstall case.
+    const receiptTokens: Record<string, string> = {};
     for (const batch of chunk(tokens, 100)) {
       const res = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
@@ -67,13 +70,30 @@ export async function sendPush(pg: Pg, userIds: string[], payload: PushPayload):
       });
       const json = await res.json().catch(() => null) as any;
       const tickets = json?.data ?? [];
-      // Immediate ticket errors that are DeviceNotRegistered → disable now.
       const deadNow: string[] = [];
       tickets.forEach((t: any, i: number) => {
-        if (t?.status === 'error' && t?.details?.error === 'DeviceNotRegistered') deadNow.push(batch[i]);
-        if (t?.status === 'ok') sent++;
+        if (t?.status === 'error' && (t?.details?.error === 'DeviceNotRegistered' || t?.details?.error === 'InvalidCredentials')) {
+          deadNow.push(batch[i]);
+        } else if (t?.status === 'ok') {
+          sent++;
+          if (typeof t.id === 'string') receiptTokens[t.id] = batch[i];
+        }
       });
       await disableTokens(pg, deadNow);
+    }
+    // Second stage: poll receipts for the accepted tickets and disable any
+    // token Expo now reports dead (DeviceNotRegistered / InvalidCredentials).
+    const receiptIds = Object.keys(receiptTokens);
+    if (receiptIds.length) {
+      try {
+        const rres = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ ids: receiptIds }),
+        });
+        const rjson = await rres.json().catch(() => null) as any;
+        if (rjson?.data) await disableTokens(pg, deadTokensFromReceipts(rjson.data, receiptTokens));
+      } catch { /* receipts are best-effort; never fail the send */ }
     }
     return { sent };
   } catch {

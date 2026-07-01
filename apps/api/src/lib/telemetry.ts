@@ -16,9 +16,21 @@ export interface CleanEvent {
   props: Record<string, unknown>; client_ts: string | null;
 }
 
+// name/screen are identifiers (route patterns, testIDs, action keys) — NOT free
+// text. The props allowlist can't protect these fields, so this is their guard:
+// drop control chars + collapse whitespace runs (a defense against a caller
+// smuggling multi-word content), and hard-cap length. The primary defense is
+// upstream (clients source these from route patterns / testIDs, never raw
+// accessibility labels), but the server never trusts that.
+export function sanitizeLabel(s: string, max = 120): string {
+  return s.replace(/[\x00-\x1f\x7f]+/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 export function sanitizeEvent(raw: any): CleanEvent | null {
   if (!raw || typeof raw.type !== 'string' || !TYPES.has(raw.type)) return null;
   if (typeof raw.name !== 'string' || !raw.name) return null;
+  const name = sanitizeLabel(raw.name);
+  if (!name) return null;
   const props: Record<string, unknown> = {};
   if (raw.props && typeof raw.props === 'object') {
     for (const k of Object.keys(raw.props)) {
@@ -30,8 +42,8 @@ export function sanitizeEvent(raw: any): CleanEvent | null {
   }
   return {
     type: raw.type,
-    name: raw.name.slice(0, 200),
-    screen: typeof raw.screen === 'string' ? raw.screen.slice(0, 200) : null,
+    name,
+    screen: typeof raw.screen === 'string' ? sanitizeLabel(raw.screen) : null,
     props,
     client_ts: typeof raw.client_ts === 'string' ? raw.client_ts.slice(0, 40) : null,
   };

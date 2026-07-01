@@ -13,6 +13,14 @@ export const TELEMETRY_PROP_ALLOWLIST = new Set([
 // UI or growing local storage unbounded is not.
 export const BUFFER_CAP = 2000;
 
+// Mirror of the server's sanitizeLabel (apps/api/src/lib/telemetry.ts). name/
+// screen are identifiers (route patterns, testIDs, action keys), NOT free text
+// — the props allowlist can't guard them, so strip control chars, collapse
+// whitespace, and cap length before they ever leave the device.
+export function sanitizeLabel(s: string, max = 120): string {
+  return s.replace(/[\x00-\x1f\x7f]+/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 export function redactProps(obj: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!obj) return out;

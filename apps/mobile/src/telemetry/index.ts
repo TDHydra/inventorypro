@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { getDb } from '../db/schema';
 import { getAppConfig } from '../db/appConfig';
 import { generateUUID } from '../utils/uuid';
-import { redactProps, BUFFER_CAP } from './redact';
+import { redactProps, sanitizeLabel, BUFFER_CAP } from './redact';
 
 export type TelemetryType = 'screen' | 'action' | 'error' | 'audit';
 
@@ -50,17 +50,20 @@ export function track(type: TelemetryType, name: string, opts?: TrackOpts): void
   try {
     if (!isTelemetryEnabled()) return;
     const props = redactProps(opts?.props);
+    const cleanName = sanitizeLabel(name);
+    if (!cleanName) return;
+    const cleanScreen = opts?.screen ? sanitizeLabel(opts.screen) : null;
     const clientTs = new Date().toISOString();
 
     if (__DEV__) {
       // eslint-disable-next-line no-console
-      console.log('[telemetry]', type, name, opts?.screen ?? null, props);
+      console.log('[telemetry]', type, cleanName, cleanScreen, props);
     }
 
     const db = getDb();
     db.executeSync(
       `INSERT INTO telemetry_buffer (type, name, screen, props, client_ts) VALUES (?, ?, ?, ?, ?)`,
-      [type, name, opts?.screen ?? null, JSON.stringify(props), clientTs],
+      [type, cleanName, cleanScreen, JSON.stringify(props), clientTs],
     );
 
     // Enforce the ring-buffer cap: once over BUFFER_CAP, evict the oldest

@@ -14,8 +14,9 @@ import { getAppSetting } from '../src/db/appSettings';
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 import { AlertHost } from '../src/lib/themedAlert';
 import { useScreenTracking } from '../src/telemetry/useScreenTracking';
-import { installGlobalErrorTracking } from '../src/telemetry/capture';
+import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
 import { useNotificationObservers } from '../src/push/handlers';
+import { unregisterPush } from '../src/push/register';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -48,6 +49,9 @@ export default function RootLayout() {
   }, []);
 
   const logout = async () => {
+    // Unregister the push token first — the /push/unregister route is authed,
+    // so it must run BEFORE clearSession() deletes the JWT. Best-effort.
+    await unregisterPush();
     await clearSession();
     setUser(null);
   };
@@ -58,9 +62,11 @@ export default function RootLayout() {
 
   return (
     <SessionContext.Provider value={sessionValue}>
-      <StatusBar style="auto" />
-      <Stack screenOptions={{ headerShown: false }} />
-      <AlertHost />
+      <TelemetryErrorBoundary>
+        <StatusBar style="auto" />
+        <Stack screenOptions={{ headerShown: false }} />
+        <AlertHost />
+      </TelemetryErrorBoundary>
     </SessionContext.Provider>
   );
 }

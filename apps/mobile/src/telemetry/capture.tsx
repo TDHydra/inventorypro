@@ -100,7 +100,7 @@ export function installGlobalErrorTracking(): void {
 // ── Tap tracking ───────────────────────────────────────────────────────────
 
 interface TrackablePressableProps extends PressableProps {
-  /** Event name for this control — falls back to testID/accessibilityLabel. */
+  /** Event name for this control — falls back to testID. */
   name?: string;
   /** Screen context tag (e.g. route name) attached to the tap event. */
   screen?: string;
@@ -108,12 +108,17 @@ interface TrackablePressableProps extends PressableProps {
 
 /**
  * Thin wrapper over Pressable that fires an 'action' telemetry event on
- * press, named after `name` (or the element's testID/accessibilityLabel) and
- * tagged with `screen`. Adopt on high-traffic controls (hub tiles, quick-add
- * save buttons, checkout/checkin) rather than globally hijacking every press.
+ * press, named after `name` (or the element's testID) and tagged with
+ * `screen`. Adopt on high-traffic controls (hub tiles, quick-add save buttons,
+ * checkout/checkin) rather than globally hijacking every press.
+ *
+ * NOTE: the event name is sourced from `name`/`testID` only — NOT
+ * accessibilityLabel, which routinely embeds dynamic content (e.g. "Call
+ * ${customerName}") that must never reach telemetry. sanitizeLabel in track()
+ * is the backstop, but the identifier source is kept content-free by design.
  */
 export function TrackablePressable({ name, screen, onPress, testID, accessibilityLabel, ...rest }: TrackablePressableProps) {
-  const eventName = name ?? testID ?? accessibilityLabel ?? 'tap';
+  const eventName = name ?? testID ?? 'tap';
   const handlePress = (event: GestureResponderEvent) => {
     track('action', eventName, { screen });
     onPress?.(event);

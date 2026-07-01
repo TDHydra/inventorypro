@@ -3,15 +3,19 @@ import { overRateLimit } from '../lib/rateLimit';
 import { sendPush } from '../lib/push';
 
 // Registration/unregistration of Expo push tokens + a self-test send.
-// NOT wired into index.ts here — the controller registers this plugin at
-// `/push` alongside the notification-observer wiring on the client side.
+// Registered at `/push` in index.ts alongside the client-side notification
+// observers. All three routes are authed + rate-limited.
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = { preHandler: [(fastify as any).authenticate] };
 
   fastify.post<{ Body: { expo_push_token: string; platform?: string; device_id?: string } }>('/register', {
     ...auth,
     schema: { body: { type: 'object', required: ['expo_push_token'],
-      properties: { expo_push_token: { type: 'string' }, platform: { type: 'string' }, device_id: { type: 'string' } } } },
+      properties: {
+        expo_push_token: { type: 'string', maxLength: 256 },
+        platform: { type: 'string', maxLength: 20 },
+        device_id: { type: 'string', maxLength: 128 },
+      } } },
   }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { expo_push_token, platform = null, device_id = null } = request.body;
@@ -30,14 +34,25 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{ Body: { expo_push_token: string } }>('/unregister', {
     ...auth,
-    schema: { body: { type: 'object', required: ['expo_push_token'], properties: { expo_push_token: { type: 'string' } } } },
-  }, async (request) => {
-    await fastify.pg.query(`UPDATE device_push_tokens SET disabled = TRUE WHERE expo_push_token = $1`, [request.body.expo_push_token]);
+    schema: { body: { type: 'object', required: ['expo_push_token'],
+      properties: { expo_push_token: { type: 'string', maxLength: 256 } } } },
+  }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    if (overRateLimit(`push-unreg:${userId}`)) return reply.status(429).send({ error: 'rate' });
+    // Scope to the caller's own row: without `user_id`, any authed user who
+    // learns another user's (non-secret) token could disable their push
+    // delivery — a cross-account DoS. No-ops silently if it isn't theirs.
+    await fastify.pg.query(
+      `UPDATE device_push_tokens SET disabled = TRUE WHERE expo_push_token = $1 AND user_id = $2`,
+      [request.body.expo_push_token, userId],
+    );
     return { ok: true };
   });
 
-  fastify.post('/test', auth, async (request) => {
+  fastify.post('/test', auth, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
+    // Rate-limit: /test triggers outbound calls to Expo's push relay per hit.
+    if (overRateLimit(`push-test:${userId}`)) return reply.status(429).send({ error: 'rate' });
     const r = await sendPush(fastify.pg, [userId], { title: 'InvenPro test', body: 'Push is working 🎉', data: { screen: 'dashboard' } });
     return { ...r };
   });
