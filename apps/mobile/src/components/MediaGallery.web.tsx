@@ -1,4 +1,5 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { colors } from '../theme';
 import { useSession } from '../hooks/useSession';
 import { getDb } from '../db/schema';
@@ -124,6 +125,14 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
     input?.click();
   }
 
+  // Render overlays into <body> so `position: fixed` is viewport-relative.
+  // React Navigation applies a `transform` to the screen container, which would
+  // otherwise trap fixed positioning inside that box — dropping the "bottom"
+  // sheet into the middle of the screen, superimposed on the form. Portaling out
+  // is what react-native-web's <Modal> (used by the native MediaGallery) does.
+  const portal = (node: ReactNode): ReactNode =>
+    typeof document !== 'undefined' ? createPortal(node, document.body) : node;
+
   return (
     <div style={styles.container}>
       {/* Hidden file inputs drive capture (camera) and pick (gallery). */}
@@ -190,7 +199,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
       )}
 
       {/* Source picker — bottom sheet (mirrors the native MediaGallery sheet) */}
-      {pickerOpen && (
+      {pickerOpen && portal(
         <div style={styles.sheetOverlay} onClick={() => setPickerOpen(false)}>
           <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
             <div style={styles.sheetHandle} />
@@ -213,7 +222,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
       )}
 
       {/* Lightbox */}
-      {lightbox && (
+      {lightbox && portal(
         <div style={styles.lightbox} onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="" style={styles.lightboxImg} />
           <span style={styles.lightboxClose}>✕ Tap to close</span>
