@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyPostgres from '@fastify/postgres';
 import fastifyCors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { runMigrations } from './db/migrate';
 import { overRateLimit } from './lib/rateLimit';
 
@@ -41,6 +42,11 @@ async function build() {
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   });
+
+  // Security headers. CSP off: this is a JSON+image API (no server-rendered
+  // HTML), and a default CSP can break presigned-image hosts / the web client's
+  // fetches without adding meaningful protection here.
+  await fastify.register(helmet, { contentSecurityPolicy: false });
 
   // Postgres
   await fastify.register(fastifyPostgres, {
@@ -95,6 +101,16 @@ async function build() {
 
   // Health check
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
+
+  // Global error handler — never leak internal error detail (stack traces,
+  // SQL errors, etc.) on 5xx. Intentional 4xx messages (validation, auth) are
+  // preserved since routes rely on those being visible to the client.
+  fastify.setErrorHandler((err, request, reply) => {
+    request.log.error({ err }, 'request error');
+    const status = (err as any).statusCode ?? 500;
+    if (status >= 500) return reply.status(status).send({ error: 'Internal Server Error' });
+    return reply.status(status).send({ error: err.message });
+  });
 
   return fastify;
 }
