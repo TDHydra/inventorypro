@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
-import { requirePermission } from '../lib/permissions';
+import { requirePermission, userHasPermission } from '../lib/permissions';
+import { sanitizeTeamOverrides } from '../lib/syncPolicy';
 
 interface TeamBody {
   name: string;
@@ -112,16 +113,33 @@ const routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { user_id, team_permission_overrides = {} } = request.body;
       const addedBy = (request.user as { sub: string }).sub;
+      // Same server-side allowlist + can't-grant-beyond-own-authority guard as the
+      // PATCH path — add-member also accepts overrides, so it must sanitize too
+      // (else a manage_teams holder could seed admin keys at insert time).
+      const { rows: callerRows } = await fastify.pg.query(
+        `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+           FROM users u LEFT JOIN role_settings rs ON rs.role = u.role WHERE u.id = $1`,
+        [addedBy],
+      );
+      const caller = callerRows[0] as
+        | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+        | undefined;
+      const can = (perm: string): boolean =>
+        !!caller && userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
+      const { clean, rejected } = sanitizeTeamOverrides(team_permission_overrides, can);
+      if (rejected.length) {
+        return reply.status(400).send({ error: `Disallowed permission override key(s): ${rejected.join(', ')}` });
+      }
       const { rows } = await fastify.pg.query(
         `INSERT INTO team_members (team_id, user_id, team_permission_overrides, added_by)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (team_id, user_id)
          DO UPDATE SET team_permission_overrides = EXCLUDED.team_permission_overrides
          RETURNING *`,
-        [request.params.id, user_id, JSON.stringify(team_permission_overrides), addedBy]
+        [request.params.id, user_id, JSON.stringify(clean), addedBy]
       );
       return rows[0];
     }
@@ -159,7 +177,33 @@ const routes: FastifyPluginAsync = async (fastify) => {
         sets.push(`is_manager = $${params.length}`);
       }
       if (team_permission_overrides !== undefined) {
-        params.push(JSON.stringify(team_permission_overrides));
+        // Server-side allowlist + can't-grant-beyond-own-authority check: without
+        // this, a manage_teams holder could stuff admin keys (manage_users,
+        // system_settings, manage_roles_permissions, set_pins, manage_teams) into
+        // a member's per-team overrides — the mobile UI only limits the keys it
+        // shows, which is advisory, not enforcement. Resolve the CALLER's own
+        // permission set from the DB (never trust the JWT role claim) so
+        // sanitizeTeamOverrides' `can` check is authoritative.
+        const callerId = (request.user as { sub: string }).sub;
+        const { rows: callerRows } = await fastify.pg.query(
+          `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+             FROM users u
+             LEFT JOIN role_settings rs ON rs.role = u.role
+            WHERE u.id = $1`,
+          [callerId],
+        );
+        const caller = callerRows[0] as
+          | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+          | undefined;
+        const can = (perm: string): boolean =>
+          !!caller && userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
+        const { clean, rejected } = sanitizeTeamOverrides(team_permission_overrides, can);
+        if (rejected.length) {
+          return reply.status(400).send({
+            error: `Disallowed permission override key(s): ${rejected.join(', ')}`,
+          });
+        }
+        params.push(JSON.stringify(clean));
         sets.push(`team_permission_overrides = $${params.length}`);
       }
       sets.push(`updated_at = NOW()`);

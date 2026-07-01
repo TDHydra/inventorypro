@@ -7,6 +7,8 @@ import {
   isAllowedActivity,
   selectColumnsFor,
   requiresRolesPermForTarget,
+  sanitizeTeamOverrides,
+  TEAM_OVERRIDABLE_PERMISSIONS,
 } from './syncPolicy';
 
 const real = new Map([['jobs', new Set(['id', 'name', 'status'])]]);
@@ -105,4 +107,86 @@ test('requiresRolesPermForTarget flags privileged roles, mirroring users.ts PRIV
 test('requiresRolesPermForTarget is false for null/undefined target role', () => {
   assert.equal(requiresRolesPermForTarget(null), false);
   assert.equal(requiresRolesPermForTarget(undefined), false);
+});
+
+test('repairs hides cost without view_financial_data, exposes it with', () => {
+  const restricted = selectColumnsFor('repairs', false);
+  assert.ok(!/\bcost\b/.test(restricted));
+  assert.ok(/entity_type|assignee_id|due_at/.test(restricted));
+  const full = selectColumnsFor('repairs', true);
+  assert.ok(/\bcost\b/.test(full));
+});
+
+test('TEAM_OVERRIDABLE_PERMISSIONS excludes admin/system-wide keys', () => {
+  for (const admin of ['manage_teams', 'manage_users', 'manage_roles_permissions', 'set_pins', 'system_settings']) {
+    assert.equal(TEAM_OVERRIDABLE_PERMISSIONS.has(admin), false, `${admin} must not be team-overridable`);
+  }
+  assert.ok(TEAM_OVERRIDABLE_PERMISSIONS.has('checkin_inventory'));
+  assert.ok(TEAM_OVERRIDABLE_PERMISSIONS.has('view_financial_data'));
+});
+
+test('sanitizeTeamOverrides strips admin keys even if the caller "holds" them', () => {
+  const canEverything = () => true;
+  const { clean, rejected } = sanitizeTeamOverrides(
+    { checkin_inventory: true, manage_users: true, system_settings: true, manage_teams: false },
+    canEverything,
+  );
+  assert.deepEqual(clean, { checkin_inventory: true });
+  assert.deepEqual(rejected.sort(), ['manage_teams', 'manage_users', 'system_settings']);
+});
+
+test('sanitizeTeamOverrides blocks a caller from granting a safe key they do not personally hold', () => {
+  const canOnlyCheckin = (perm: string) => perm === 'checkin_inventory';
+  const { clean, rejected } = sanitizeTeamOverrides(
+    { checkin_inventory: true, view_financial_data: true },
+    canOnlyCheckin,
+  );
+  assert.deepEqual(clean, { checkin_inventory: true });
+  assert.deepEqual(rejected, ['view_financial_data']);
+});
+
+test('sanitizeTeamOverrides accepts a JSON string (mobile stores this column as TEXT)', () => {
+  const canAll = () => true;
+  const { clean, rejected } = sanitizeTeamOverrides(
+    JSON.stringify({ edit_inventory: true, manage_teams: true }),
+    canAll,
+  );
+  assert.deepEqual(clean, { edit_inventory: true });
+  assert.deepEqual(rejected, ['manage_teams']);
+});
+
+test('sanitizeTeamOverrides coerces truthy/falsy values to real booleans', () => {
+  const canAll = () => true;
+  const { clean } = sanitizeTeamOverrides({ checkin_inventory: 1, checkout_inventory: 0 }, canAll);
+  assert.deepEqual(clean, { checkin_inventory: true, checkout_inventory: false });
+});
+
+test('applyWritePolicy sanitizes team_permission_overrides JSON keys without rejecting the whole entry', () => {
+  const realTeamMembers = new Map([
+    ['team_members', new Set(['team_id', 'user_id', 'team_permission_overrides', 'is_manager', 'updated_at'])],
+  ]);
+  const canOnlyCheckin = (perm: string) => perm === 'checkin_inventory';
+  const { row, rejected } = applyWritePolicy(
+    'team_members', 'UPDATE',
+    {
+      team_id: 't1', user_id: 'u1',
+      team_permission_overrides: { checkin_inventory: true, manage_users: true, view_financial_data: true },
+    },
+    'caller', realTeamMembers, canOnlyCheckin,
+  );
+  // The column itself is not rejected — only its unsafe inner keys are dropped.
+  assert.deepEqual(rejected, []);
+  assert.deepEqual(row.team_permission_overrides, { checkin_inventory: true });
+});
+
+test('applyWritePolicy still rejects is_manager on team_members (unrelated SENSITIVE_DENY column)', () => {
+  const realTeamMembers = new Map([
+    ['team_members', new Set(['team_id', 'user_id', 'team_permission_overrides', 'is_manager', 'updated_at'])],
+  ]);
+  const { rejected } = applyWritePolicy(
+    'team_members', 'UPDATE',
+    { team_id: 't1', user_id: 'u1', is_manager: true },
+    'caller', realTeamMembers, () => true,
+  );
+  assert.deepEqual(rejected, ['is_manager']);
 });

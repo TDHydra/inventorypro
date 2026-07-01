@@ -71,6 +71,56 @@ export function requiresRolesPermForTarget(targetRole: string | null | undefined
   return !!targetRole && PRIVILEGED_ROLES.has(targetRole);
 }
 
+// Permission keys a team manager/admin may store in team_members.team_permission_overrides
+// — SAFE (operational) perms only. MUST mirror apps/mobile/src/db/queries/teams.ts
+// TEAM_OVERRIDABLE_PERMISSIONS exactly. Deliberately EXCLUDES account/system-wide
+// administrative permissions (manage_teams, manage_users, manage_roles_permissions,
+// set_pins, system_settings, view_all_logs) — those stay role/user-level only, never
+// team-scoped, so a manage_teams holder can't use this column to mint admin authority
+// for themselves or anyone else. This is the server-side enforcement of what was
+// previously only an advisory UI-side limit.
+export const TEAM_OVERRIDABLE_PERMISSIONS: Set<string> = new Set([
+  'checkout_inventory', 'checkin_inventory', 'add_inventory', 'quick_add',
+  'edit_inventory', 'delete_inventory', 'transfer_between_locations',
+  'create_jobs', 'close_jobs', 'manage_locations', 'upload_media',
+  'view_team_activity', 'checkout_for_team', 'view_financial_data',
+]);
+
+// Filter a client-supplied team_permission_overrides map down to keys that are
+// BOTH on the safe allowlist AND personally held by the caller (`can`) — a
+// manage_teams holder can only grant a team member permissions they themselves
+// have (can't escalate beyond their own authority). Values are coerced to
+// boolean so a non-boolean payload value can't smuggle anything odd into JSONB.
+// Accepts either a parsed object or a JSON string (mobile stores this column as
+// TEXT and sends it pre-stringified through the sync outbox).
+export function sanitizeTeamOverrides(
+  overrides: unknown,
+  can: (perm: string) => boolean,
+): { clean: Record<string, boolean>; rejected: string[] } {
+  const clean: Record<string, boolean> = {};
+  const rejected: string[] = [];
+  let obj: Record<string, unknown>;
+  if (typeof overrides === 'string') {
+    try {
+      obj = JSON.parse(overrides);
+    } catch {
+      return { clean, rejected: ['<invalid JSON>'] };
+    }
+  } else if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+    obj = overrides as Record<string, unknown>;
+  } else {
+    return { clean, rejected: [] };
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (!TEAM_OVERRIDABLE_PERMISSIONS.has(k) || !can(k)) {
+      rejected.push(k);
+      continue;
+    }
+    clean[k] = !!v;
+  }
+  return { clean, rejected };
+}
+
 // Attribution columns: forced to the caller on INSERT (can't claim another creator)
 // and dropped on UPDATE (creator can't be reassigned). NOTE: locations.owner_user_id
 // is intentionally NOT here — it's a deliberate assignment, not "who created it".
@@ -103,6 +153,18 @@ export function applyWritePolicy(
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(kept)) {
     if (deny && deny.has(k)) { rejected.push(k); continue; }
+    // team_permission_overrides is a normal (non-SENSITIVE_DENY) column reachable
+    // through the generic sync outbox — a manage_teams holder could otherwise
+    // stuff admin permission keys into its JSON directly, bypassing the gated
+    // PATCH /teams/:id/members/:uid endpoint's allowlist entirely. Sanitize the
+    // JSON's keys here too (value-aware, not just a column-name check); drop only
+    // the disallowed inner keys rather than rejecting the whole entry so a
+    // legitimate mixed payload still applies its safe keys.
+    if (table === 'team_members' && k === 'team_permission_overrides') {
+      const { clean } = sanitizeTeamOverrides(v, can);
+      row[k] = clean;
+      continue;
+    }
     row[k] = v;
   }
   for (const c of ATTRIBUTION_COLUMNS[table] ?? []) {
@@ -168,10 +230,15 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
 const JOBS_BASE = 'id, name, status, type, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
 const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at';
+// Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
+// excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
+const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
+const REPAIRS_SENSITIVE = ', cost';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
   if (table === 'jobs') return canViewFinancial ? JOBS_BASE + JOBS_SENSITIVE : JOBS_BASE;
+  if (table === 'repairs') return canViewFinancial ? REPAIRS_BASE + REPAIRS_SENSITIVE : REPAIRS_BASE;
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
   return '*';
 }

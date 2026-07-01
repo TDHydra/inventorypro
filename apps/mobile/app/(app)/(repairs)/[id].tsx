@@ -51,6 +51,14 @@ export default function RepairDetailScreen() {
   const { user } = useSession();
   const canEdit = usePermission('edit_inventory');
   const canViewFinancial = usePermission('view_financial_data');
+  // "Use parts" emits an ADJUST to stock_by_location, which the server authorizes
+  // on checkin_inventory || checkout_inventory (see syncPolicy requiredOperationPerm's
+  // handling of stock_by_location adjustments in sync.ts) — not edit_inventory. An
+  // override combo with edit_inventory but neither checkin/checkout would otherwise
+  // strand the outbox entry as a permanent conflict. Mirrors the same gate applied to
+  // the quick-add stock sheet (QuickAddScreenShell's canAdjustStock).
+  const canAdjustStock = usePermission('checkin_inventory') || usePermission('checkout_inventory');
+  const canUseParts = canEdit && canAdjustStock;
   const { locked } = useMaintenanceMode();
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -204,7 +212,7 @@ export default function RepairDetailScreen() {
   }
 
   function confirmUseParts() {
-    if (!repair || isWriteBlocked() || !canEdit) return;
+    if (!repair || isWriteBlocked() || !canUseParts) return;
     if (!partItem) {
       setPartError('Choose an item.');
       return;
@@ -494,7 +502,7 @@ export default function RepairDetailScreen() {
         {/* Parts used */}
         <View style={s.sectionHeadRow}>
           <Text style={[s.sectionTitle, { marginTop: 0 }]}>Parts Used</Text>
-          {canEdit && (
+          {canUseParts && (
             <TouchableOpacity onPress={openUseParts} disabled={locked}>
               <Text style={s.usePartsLink}>+ Use parts</Text>
             </TouchableOpacity>

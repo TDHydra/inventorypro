@@ -1,5 +1,4 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { appendOutbox } from '../../sync/outbox';
 import { getValidJwt } from '../../auth/session';
 import { Permission } from '../../constants/roles';
 
@@ -158,12 +157,16 @@ export async function setMemberManagerOnline(teamId: string, userId: string, isM
 // Set a member's per-team permission overrides (a full replace, not a merge —
 // callers pass the complete override map). Unlike is_manager, this column is
 // NOT in SENSITIVE_DENY on the server, so it can legally flow through the
-// generic sync outbox too — but we still go through the same gated PATCH
-// endpoint first for an immediate online round-trip (consistent 403 handling,
-// same UX as the manager toggle), then mirror the write locally AND queue a
-// matching outbox UPDATE so other in-flight sync/reconciliation paths see a
-// normal team_members row change rather than depending solely on this one-off
-// REST call.
+// generic sync outbox too — but we go through the same gated PATCH endpoint
+// first for an immediate online round-trip (consistent 403 handling, same UX
+// as the manager toggle), then mirror the write into the LOCAL row only, so
+// this device's UI reflects the change now. Deliberately NOT also queuing a
+// matching outbox UPDATE: the PATCH above is already authoritative and
+// persisted server-side, and other devices see it on their next pull — a
+// second, blind full-replace outbox entry for the same column would race a
+// concurrent edit from another device (whichever entry's outbox flush lands
+// last on the server wins and silently clobbers the other), a lost-update bug
+// with no benefit since the online write already succeeded.
 export async function setMemberPermissionOverridesOnline(
   teamId: string,
   userId: string,
@@ -187,9 +190,4 @@ export async function setMemberPermissionOverridesOnline(
     `UPDATE team_members SET team_permission_overrides = ?, updated_at = ? WHERE team_id = ? AND user_id = ?`,
     bindParams([overridesJson, now, teamId, userId]),
   );
-  appendOutbox('UPDATE', 'team_members', {
-    team_id: teamId,
-    user_id: userId,
-    team_permission_overrides: overridesJson,
-  });
 }
