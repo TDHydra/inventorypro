@@ -12,6 +12,7 @@ import { colors, spacing, fontSizes, radii } from '../../../src/theme';
  */
 const ACTIONS: { route: Href; icon: string; label: string; sub: string }[] = [
   { route: '/(app)/(quickadd)/item', icon: '📦', label: 'Item', sub: 'New catalog item' },
+  { route: '/(app)/(quickadd)/csv-import', icon: '📋', label: 'Import CSV', sub: 'Bulk add items from a paste' },
   { route: '/(app)/(quickadd)/stock', icon: '➕', label: 'Stock', sub: 'Add stock to a location' },
   { route: '/(app)/(quickadd)/equipment', icon: '🛠️', label: 'Equipment', sub: 'New equipment + units' },
   { route: '/(app)/(quickadd)/location', icon: '📍', label: 'Location', sub: 'New location / shelf' },
