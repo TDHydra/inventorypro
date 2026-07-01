@@ -29,3 +29,5 @@ package-lock.json
 
 # SDD process scratch (briefs, reports, ledger)
 .superpowers/
+google-services.json
+*-adminsdk-*.json
