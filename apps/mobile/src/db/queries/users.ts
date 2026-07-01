@@ -184,6 +184,42 @@ export function setUserActive(id: string, active: boolean): string {
   return now;
 }
 
+export interface RoleChangeResult {
+  id: string;
+  name: string;
+  role: string;
+  pin_length_required: number;
+  active: boolean;
+  expires_at: string | null;
+  // Present only when the role change also changed the required PIN length —
+  // the server cleared the old PIN and this is the ONE time the fresh
+  // enrollment code is ever returned, so the caller must surface it to the admin.
+  enrollment_code?: string;
+}
+
+// A role change whose new role requires a DIFFERENT PIN length must go through
+// the server: PATCH /users/:id is the only path that can clear pin_hash/pin_set
+// and reissue an enrollment_code (the sync outbox always denies writes to those
+// columns — see appendOutbox's always-denied list — so routing this through
+// appendOutbox would silently leave the user's old PIN active with no code to
+// set a new one). Mirrors resetUserPinOnline/createUserOnline: online-only,
+// throws a friendly error when offline/forbidden so the caller can refuse to
+// apply the change locally. A same-length role change should NOT call this —
+// it stays on the offline-capable setUserRole/outbox path below.
+export async function changeRoleOnline(userId: string, role: UserRole): Promise<RoleChangeResult> {
+  const jwt = await getValidJwt();
+  if (!jwt) throw new Error("Changing to this role resets the user's PIN and requires a connection.");
+  const res = await fetch(`${API_BASE}/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ role }),
+  });
+  if (!res.ok) {
+    throw new Error(res.status === 403 ? 'You do not have permission to change roles.' : `Could not change role (${res.status}).`);
+  }
+  return res.json() as Promise<RoleChangeResult>;
+}
+
 // A role change must also move pin_length_required to the new role's minimum —
 // exactly like the single-row edit in users.tsx saveEdits (a crew→manager
 // promotion must not keep the shorter PIN requirement). The caller passes the

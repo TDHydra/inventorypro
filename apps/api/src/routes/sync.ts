@@ -405,8 +405,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
       // deactivate/expire a full_admin/franchise_manager via a crafted outbox
       // entry — REST PATCH /users/:id already blocks the equivalent via
       // PRIVILEGED_ROLES (apps/api/src/routes/users.ts). DELETE on users is
-      // already unconditionally forbidden above, so only UPDATE needs this.
-      if (entry.table_name === 'users' && entry.operation === 'UPDATE') {
+      // already unconditionally forbidden above; INSERT is an upsert
+      // (ON CONFLICT DO UPDATE) so it must be guarded too, not just UPDATE.
+      if (entry.table_name === 'users' && (entry.operation === 'UPDATE' || entry.operation === 'INSERT')) {
         const targetId = entry.payload.id;
         const { rows: targetRows } = await fastify.pg.query(
           `SELECT role, active FROM users WHERE id = $1`,
@@ -422,7 +423,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
             conflicts.push({ id: entry.id, error: 'Forbidden: target user has a privileged role; requires roles & permissions' });
             continue;
           }
-          const deactivating = entry.payload.active === false;
+          // "Deactivating" = explicit active:false OR pushing expires_at into the
+          // past (login enforces expires_at, so a past date locks the account out).
+          const exp = entry.payload.expires_at;
+          const expiredOut = exp != null && !Number.isNaN(Date.parse(String(exp))) && new Date(String(exp)) < new Date();
+          const deactivating = entry.payload.active === false || expiredOut;
           if (deactivating && targetId === userId) {
             conflicts.push({ id: entry.id, error: 'Forbidden: you cannot deactivate your own account' });
             continue;

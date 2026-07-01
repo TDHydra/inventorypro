@@ -151,7 +151,7 @@ export const ACTIVITY_ACTIONS = new Set([
   'job_archived', 'job_created', 'job_updated', 'location_archived', 'location_created',
   'location_restored', 'location_updated', 'repair_in', 'repair_opened',
   'team_member_added', 'team_member_removed', 'unit_edited', 'unit_retired',
-  'user_permission_changed', 'user_pin_reset', 'user_role_changed',
+  'user_permission_changed', 'user_pin_reset', 'user_role_changed', 'recount',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',

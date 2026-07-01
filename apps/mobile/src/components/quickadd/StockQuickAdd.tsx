@@ -83,10 +83,12 @@ export default function StockQuickAdd({ onSaved }: Props) {
     const itemUnit = fullItem?.unit ?? 'each';
 
     if (mode === 'set') {
-      // Absolute recount — server clamps ≥0.
+      // Absolute recount — INSERT so the server upserts via ON CONFLICT (item_id,
+      // location_id) DO UPDATE (a plain UPDATE would no-op when no stock row exists
+      // yet, silently losing the recount). Server clamps ≥0 and forces updated_at.
       upsertStock({ item_id: itemId, location_id: locationId, quantity: parsedQty, updated_at: now });
 
-      appendOutbox('UPDATE', 'stock_by_location', {
+      appendOutbox('INSERT', 'stock_by_location', {
         item_id: itemId,
         location_id: locationId,
         quantity: parsedQty,

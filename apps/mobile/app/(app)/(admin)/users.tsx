@@ -5,7 +5,7 @@ import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import {
   getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings,
-  getRolePermissionOverrides, setUserActive, setUserRole, User,
+  getRolePermissionOverrides, setUserActive, setUserRole, changeRoleOnline, User,
   roleColor, getRoleColorMap,
 } from '../../../src/db/queries/users';
 import {
@@ -181,35 +181,102 @@ export default function AdminUsersScreen() {
     (editExpiry ?? null) !== (editUser.expires_at ?? null)
   );
 
-  function saveEdits() {
+  async function saveEdits() {
     if (!editUser) return;
     if (!editName.trim()) { Alert.alert('Required', 'Name cannot be empty.'); return; }
-    const fields: Record<string, unknown> = {};
-    if (editName.trim() !== editUser.name) fields.name = editName.trim();
-    if (editRole !== editUser.role) {
-      fields.role = editRole;
-      // Keep the required PIN length in step with the new role's minimum.
-      fields.pin_length_required = roleMinPins[editRole] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[editRole]];
-    }
-    if ((editExpiry ?? null) !== (editUser.expires_at ?? null)) fields.expires_at = editExpiry;
-    if (Object.keys(fields).length === 0) { setEditUser(null); return; }
+
     const roleChanged = editRole !== editUser.role;
+    const newPinLength = roleMinPins[editRole] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[editRole]];
     // A role change that also changes the required PIN length invalidates the
-    // user's current PIN — mirror the API (PATCH /users/:id) and setUserRole's
-    // bulk-edit path by clearing pin_set locally too, via the same helper the
-    // admin PIN-reset flow uses. A same-length role change must NOT do this.
-    const pinLengthChanged = roleChanged
-      && fields.pin_length_required !== editUser.pin_length_required;
-    const otherFieldsChanged = editName.trim() !== editUser.name ||
-      (editExpiry ?? null) !== (editUser.expires_at ?? null);
+    // user's current PIN. Only the server can clear it and issue a fresh
+    // enrollment code (the sync outbox always denies pin_hash/pin_set/
+    // enrollment_code_hash writes), so THIS case must go through the REST PATCH
+    // (changeRoleOnline) instead of the outbox — same as the dedicated Reset PIN
+    // action. A same-length role change keeps the normal offline-capable path.
+    const pinLengthChanged = roleChanged && newPinLength !== editUser.pin_length_required;
+
+    // name/expiry (and, when same-length, the role itself) travel the existing
+    // offline-capable outbox path. When pinLengthChanged, role/pin_length_required
+    // are deliberately excluded here — changeRoleOnline owns those below.
+    const otherFields: Record<string, unknown> = {};
+    if (editName.trim() !== editUser.name) otherFields.name = editName.trim();
+    if ((editExpiry ?? null) !== (editUser.expires_at ?? null)) otherFields.expires_at = editExpiry;
+    if (roleChanged && !pinLengthChanged) {
+      otherFields.role = editRole;
+      otherFields.pin_length_required = newPinLength;
+    }
+
+    if (Object.keys(otherFields).length === 0 && !pinLengthChanged) { setEditUser(null); return; }
+
     const adminId = sessionUser?.id ?? null;
-    // Local update + outbox mirror + activity log all commit together; on any
+
+    if (pinLengthChanged) {
+      setBusy(true);
+      let result: Awaited<ReturnType<typeof changeRoleOnline>>;
+      try {
+        result = await changeRoleOnline(editUser.id, editRole);
+      } catch (err) {
+        setBusy(false);
+        Alert.alert('Could not change role', (err as Error).message);
+        return;
+      }
+      // The role/PIN change already landed server-side above. Mirror it locally,
+      // then apply any other (offline-capable) field edits in the same
+      // transaction — a failure here only affects name/expiry, it does not undo
+      // the role change.
+      try {
+        runInTransaction(() => {
+          updateUserLocal(editUser.id, { role: editRole, pin_length_required: result.pin_length_required } as never);
+          markUserPinReset(editUser.id);
+          appendLog({
+            action: 'user_role_changed',
+            entity_type: 'user',
+            entity_id: editUser.id,
+            user_id: adminId,
+            note: `${editUser.name}: ${editUser.role} → ${editRole}`,
+            team_id: null, from_location_id: null, to_location_id: null,
+            quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+          });
+          if (Object.keys(otherFields).length > 0) {
+            const now = updateUserLocal(editUser.id, otherFields as never);
+            appendOutbox('UPDATE', 'users', { id: editUser.id, ...otherFields, updated_at: now });
+            appendLog({
+              action: 'user_updated',
+              entity_type: 'user',
+              entity_id: editUser.id,
+              user_id: adminId,
+              note: `${editUser.name}: updated ${Object.keys(otherFields).join(', ')}`,
+              team_id: null, from_location_id: null, to_location_id: null,
+              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+            });
+          }
+        });
+      } catch (err) {
+        setBusy(false);
+        refresh();
+        setEditUser(null);
+        Alert.alert('Role changed, but could not save other changes', (err as Error).message);
+        return;
+      }
+      setBusy(false);
+      refresh();
+      setEditUser(null);
+      Alert.alert(
+        'Role changed',
+        result.enrollment_code
+          ? `${editUser.name}'s PIN was reset for the new role.\n\nOne-time enrollment code: ${result.enrollment_code}\n\nShare this with them to set a new PIN at next sign-in.`
+          : `${editUser.name} is now ${ROLE_DISPLAY_NAMES[editRole]}.`,
+      );
+      return;
+    }
+
+    // Offline-capable path (name/expiry, and/or a same-length role change):
+    // local update + outbox mirror + activity log all commit together; on any
     // failure nothing is written and we keep the sheet open so the admin can retry.
     try {
       runInTransaction(() => {
-        const now = updateUserLocal(editUser.id, fields as never);
-        appendOutbox('UPDATE', 'users', { id: editUser.id, ...fields, updated_at: now });
-        if (pinLengthChanged) markUserPinReset(editUser.id);
+        const now = updateUserLocal(editUser.id, otherFields as never);
+        appendOutbox('UPDATE', 'users', { id: editUser.id, ...otherFields, updated_at: now });
         if (roleChanged) {
           appendLog({
             action: 'user_role_changed',
@@ -220,14 +287,13 @@ export default function AdminUsersScreen() {
             team_id: null, from_location_id: null, to_location_id: null,
             quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
           });
-        }
-        if (otherFieldsChanged && !roleChanged) {
+        } else {
           appendLog({
             action: 'user_updated',
             entity_type: 'user',
             entity_id: editUser.id,
             user_id: adminId,
-            note: `${editUser.name}: updated ${Object.keys(fields).join(', ')}`,
+            note: `${editUser.name}: updated ${Object.keys(otherFields).join(', ')}`,
             team_id: null, from_location_id: null, to_location_id: null,
             quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
           });
@@ -366,7 +432,7 @@ export default function AdminUsersScreen() {
     sel.exit();
   }
 
-  function bulkChangeRole(role: UserRole) {
+  async function bulkChangeRole(role: UserRole) {
     setShowBulkRolePicker(false);
     if (isWriteBlocked()) return;
     const ids = [...sel.selected];
@@ -375,34 +441,100 @@ export default function AdminUsersScreen() {
     // Move pin_length_required to the new role's minimum too — same as the
     // single-row edit (saveEdits), so a promotion can't keep a shorter PIN.
     const pinLen = roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
-    // One transaction for the whole batch — a mid-loop failure rolls every role
-    // change back so we never leave some users promoted and others not.
-    try {
-      runInTransaction(() => {
-        for (const id of ids) {
-          const u = users.find(x => x.id === id);
-          try {
-            setUserRole(id, role, pinLen);
-            appendLog({
-              action: 'user_role_changed',
-              entity_type: 'user',
-              entity_id: id,
-              user_id: adminId,
-              note: `${u?.name ?? id}: ${u?.role ?? '?'} → ${role}`,
-              team_id: null, from_location_id: null, to_location_id: null,
-              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-            });
-          } catch (err) {
-            throw new Error(`${u?.name ?? id}: ${(err as Error).message}`);
-          }
-        }
-      });
-    } catch (err) {
-      Alert.alert('Could not change roles', `${(err as Error).message}\n\nNo changes were made.`);
-      return;
+
+    // Split the selection by whether THIS user's move to `role` also changes
+    // their required PIN length — only those need the online round-trip
+    // (changeRoleOnline resets the PIN + issues a code server-side, exactly
+    // like saveEdits' single-user decision). Same-length moves stay on the
+    // offline-capable outbox path.
+    const offlineIds: string[] = [];
+    const onlineIds: string[] = [];
+    for (const id of ids) {
+      const u = users.find(x => x.id === id);
+      if (u && u.pin_length_required !== pinLen) onlineIds.push(id);
+      else offlineIds.push(id);
     }
+
+    setBusy(true);
+
+    // Offline-capable batch first — one transaction, same as before: a mid-loop
+    // failure rolls every same-length change back so we never leave some users
+    // promoted and others not.
+    if (offlineIds.length > 0) {
+      try {
+        runInTransaction(() => {
+          for (const id of offlineIds) {
+            const u = users.find(x => x.id === id);
+            try {
+              setUserRole(id, role, pinLen);
+              appendLog({
+                action: 'user_role_changed',
+                entity_type: 'user',
+                entity_id: id,
+                user_id: adminId,
+                note: `${u?.name ?? id}: ${u?.role ?? '?'} → ${role}`,
+                team_id: null, from_location_id: null, to_location_id: null,
+                quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+              });
+            } catch (err) {
+              throw new Error(`${u?.name ?? id}: ${(err as Error).message}`);
+            }
+          }
+        });
+      } catch (err) {
+        setBusy(false);
+        Alert.alert('Could not change roles', `${(err as Error).message}\n\nNo changes were made.`);
+        return;
+      }
+    }
+
+    // Online round-trip per user whose PIN length changes — each call resets
+    // that user's PIN and reissues an enrollment code server-side, so it can't
+    // be folded into the transaction above. Sequential, like bulkResetPin;
+    // tally successes/failures and collect codes to relay to each user.
+    const codes: string[] = [];
+    let onlineFail = 0;
+    let lastErr = '';
+    for (const id of onlineIds) {
+      const u = users.find(x => x.id === id);
+      try {
+        const result = await changeRoleOnline(id, role);
+        updateUserLocal(id, { role, pin_length_required: result.pin_length_required } as never);
+        markUserPinReset(id);
+        appendLog({
+          action: 'user_role_changed',
+          entity_type: 'user',
+          entity_id: id,
+          user_id: adminId,
+          note: `${u?.name ?? id}: ${u?.role ?? '?'} → ${role}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+        });
+        if (result.enrollment_code) codes.push(`${u?.name ?? id}: ${result.enrollment_code}`);
+      } catch (err) {
+        onlineFail++;
+        lastErr = (err as Error).message;
+      }
+    }
+
+    setBusy(false);
     refresh();
     sel.exit();
+
+    const offlineOk = offlineIds.length;
+    const onlineOk = onlineIds.length - onlineFail;
+    if (onlineIds.length > 0 && offlineOk === 0 && onlineOk === 0) {
+      Alert.alert('Could not change roles', lastErr || "Changing to this role resets the user's PIN and requires a connection.");
+      return;
+    }
+    const parts: string[] = [];
+    if (offlineOk) parts.push(`${offlineOk} updated`);
+    if (onlineOk) parts.push(`${onlineOk} PIN-reset`);
+    if (onlineFail) parts.push(`${onlineFail} failed (needs a connection)`);
+    Alert.alert(
+      'Roles changed',
+      `${parts.join(', ')}.${codes.length ? `\n\nEnrollment codes:\n${codes.join('\n')}` : ''}`,
+    );
   }
 
   function bulkAddToTeam(teamId: string, teamLabel: string) {
@@ -801,7 +933,8 @@ export default function AdminUsersScreen() {
                   <PrimaryButton
                     label={editDirty ? 'Save Changes' : 'No Changes'}
                     onPress={saveEdits}
-                    disabled={!editDirty}
+                    disabled={!editDirty || busy}
+                    loading={busy}
                   />
 
                   {/* Security & lifecycle actions */}
