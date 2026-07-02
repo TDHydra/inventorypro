@@ -22,6 +22,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   notifications: `INSERT OR REPLACE INTO notifications (id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   approval_requests: `INSERT OR REPLACE INTO approval_requests (id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   maintenance_events: `INSERT OR REPLACE INTO maintenance_events (id, unit_id, event_date, type, notes, cost, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+  label_templates: `INSERT OR REPLACE INTO label_templates (id, name, width_in, height_in, dpi, fields, active, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -43,6 +44,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'notifications': return [row.id, row.user_id, row.type, row.title, row.body, row.data ?? null, row.read_at ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'approval_requests': return [row.id, row.requester_id, row.kind, row.title, row.detail ?? null, row.status, row.decided_by ?? null, row.decided_at ?? null, row.decision_note ?? null, row.entity_type ?? null, row.entity_id ?? null, row.metadata ?? null, row.created_at, row.updated_at];
     case 'maintenance_events': return [row.id, row.unit_id, row.event_date, row.type, row.notes ?? null, row.cost ?? null, row.created_by ?? null, row.created_at, row.updated_at];
+    case 'label_templates': return [row.id, row.name, row.width_in, row.height_in, row.dpi, row.fields ?? '[]', row.active ? 1 : 0, row.created_by ?? null, row.created_at, row.updated_at];
     default: return [];
   }
 }

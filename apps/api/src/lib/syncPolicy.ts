@@ -207,6 +207,9 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   // approval_requests: any authed user may file (INSERT) or update a request;
   // DELETE is explicitly denied (requests are resolved, never removed).
   approval_requests: { INSERT: null, UPDATE: null, DELETE: 'DENY' },
+  // label_templates: org-shared label layouts — only admins (system_settings) may
+  // create/edit/delete; every synced device reads them to print.
+  label_templates: { INSERT: 'system_settings', UPDATE: 'system_settings', DELETE: 'system_settings' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.

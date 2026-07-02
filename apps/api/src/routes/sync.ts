@@ -29,7 +29,7 @@ const ALLOWED_TABLES = new Set([
   'users', 'locations', 'inventory_items', 'stock_by_location',
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
-  'notifications', 'approval_requests', 'maintenance_events',
+  'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -79,7 +79,7 @@ const FULL_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
-  'notifications', 'approval_requests', 'maintenance_events',
+  'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
 ];
 
 async function applyEntry(

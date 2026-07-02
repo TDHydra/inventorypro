@@ -14,7 +14,7 @@ const SYNC_TABLES = [
   // Operational tables that were previously only backfilled via incremental
   // /sync/pull — added so a fresh device has full state after enrollment.
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
-  'maintenance_events',
+  'maintenance_events', 'label_templates',
   // notifications is SCOPED_TABLES (server returns only the caller's own rows);
   // approval_requests is unscoped but /sync/pull already returns all rows to
   // every user, so a full backfill is consistent (no new exposure).
@@ -101,6 +101,7 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'repairs':
       case 'repair_parts':
       case 'maintenance_events':
+      case 'label_templates':
       case 'notifications':
       case 'approval_requests': {
         // Generic upsert — name columns explicitly from the row keys so we

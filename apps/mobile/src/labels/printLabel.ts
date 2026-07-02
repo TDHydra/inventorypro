@@ -1,6 +1,7 @@
 import * as Print from 'expo-print';
 import * as QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
+import { buildPositionedDoc, type LabelTemplateModel, type LabelData } from './positioned';
 
 // `qrcode` ships no type declarations. Declare only the tiny (pure-JS) surface
 // we use — `toString` with `type:'svg'` returns an inline SVG string with no
@@ -265,6 +266,18 @@ export async function printLabels(
     }),
   );
   const html = buildDoc(blocks, spec, format);
+  await Print.printAsync({ html });
+}
+
+/**
+ * Print N labels using a CUSTOM (visual-designer) template — absolute-positioned
+ * fields instead of a fixed preset layout. Each LabelItem binds to the template's
+ * fields via title→name, code→asset_tag, payload→qr/code128.
+ */
+export async function printLabelsWithModel(items: LabelItem[], model: LabelTemplateModel): Promise<void> {
+  if (items.length === 0) return;
+  const data: LabelData[] = items.map((it) => ({ name: it.title, code: it.code, payload: it.payload }));
+  const html = await buildPositionedDoc(model, data);
   await Print.printAsync({ html });
 }
 

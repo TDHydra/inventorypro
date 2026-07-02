@@ -70,6 +70,12 @@ test('operational tables map op -> permission', () => {
   assert.equal(requiredOperationPerm('jobs', 'INSERT'), 'create_jobs');
 });
 
+test('label_templates writes require system_settings (admin-only)', () => {
+  assert.equal(requiredOperationPerm('label_templates', 'INSERT'), 'system_settings');
+  assert.equal(requiredOperationPerm('label_templates', 'UPDATE'), 'system_settings');
+  assert.equal(requiredOperationPerm('label_templates', 'DELETE'), 'system_settings');
+});
+
 test('privileged tables return null here (gated elsewhere)', () => {
   assert.equal(requiredOperationPerm('users', 'UPDATE'), null);
   assert.equal(requiredOperationPerm('activity_log', 'INSERT'), null);

@@ -8,6 +8,7 @@
 // program-global, so this file reuses it without redeclaring.
 import * as QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
+import { buildPositionedDoc, type LabelTemplateModel, type LabelData } from './positioned';
 
 export type LabelTemplate =
   | 'small'
@@ -254,6 +255,18 @@ export async function printLabels(
     }),
   );
   const html = buildDoc(blocks, spec, format);
+  await printHtml(html);
+}
+
+/**
+ * Print N labels using a CUSTOM (visual-designer) template — web mirror of
+ * printLabel.ts's printLabelsWithModel. Same positioned render (shared via
+ * ./positioned), web iframe print mechanism.
+ */
+export async function printLabelsWithModel(items: LabelItem[], model: LabelTemplateModel): Promise<void> {
+  if (items.length === 0) return;
+  const data: LabelData[] = items.map((it) => ({ name: it.title, code: it.code, payload: it.payload }));
+  const html = await buildPositionedDoc(model, data);
   await printHtml(html);
 }
 
