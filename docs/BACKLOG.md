@@ -101,10 +101,10 @@ product-type dimension (class *is* the measurement category) · moving equipment
 map tiles · geofence radius enforcement / auto-switching (suggest-only by design).
 
 ## Notifications/Telemetry follow-ons (from 2026-07-01 ultramode review, commit bc2147e)
-- [ ] Telemetry: allow anonymous pre-login ingestion (first-launch/login-screen funnel) WITHOUT opening an unauthenticated abuse surface — needs a scoped anon token or IP+rate-limited public path.
-- [ ] Telemetry: adopt TrackablePressable across high-traffic controls (hub tiles, checkout/checkin, quick-add) so 'action' tap capture is actually live beyond the appendLog audit blend.
-- [ ] Telemetry: unit-test the ring-buffer eviction path + the /telemetry route handler (auth/rate-limit/maxItems/bad-event-skip).
-- [ ] Telemetry: exempt /telemetry from the global per-user mut: rate-limit bucket so telemetry can't consume the /sync/push quota (it has its own telemetry: bucket).
+- [x] Telemetry: allow anonymous pre-login ingestion (first-launch/login-screen funnel) WITHOUT opening an unauthenticated abuse surface — needs a scoped anon token or IP+rate-limited public path.
+- [x] Telemetry: adopt TrackablePressable across high-traffic controls (hub tiles, checkout/checkin, quick-add) so 'action' tap capture is actually live beyond the appendLog audit blend.
+- [x] Telemetry: unit-test the ring-buffer eviction path + the /telemetry route handler (auth/rate-limit/maxItems/bad-event-skip).
+- [x] Telemetry: exempt /telemetry from the global per-user mut: rate-limit bucket so telemetry can't consume the /sync/push quota (it has its own telemetry: bucket).
 - [ ] Push: schedule a delayed receipts re-poll (Expo recommends ~15min) in addition to the immediate poll, to catch receipts not ready at send time.
 
 ## Camera UX (2026-07-01)
