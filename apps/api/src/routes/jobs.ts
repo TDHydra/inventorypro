@@ -26,7 +26,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // GET /jobs?status=open&includeArchived=true — list jobs
   // By default, archived jobs are excluded. Pass ?includeArchived=true to include them.
   fastify.get<{ Querystring: { status?: string; includeArchived?: string } }>(
-    '/', { preHandler: auth },
+    '/', {
+      preHandler: auth,
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['open', 'closed', 'archived'] },
+            includeArchived: { type: 'string', enum: ['true', 'false'] },
+          },
+        },
+      },
+    },
     async (request) => {
       const { status, includeArchived } = request.query;
       const params: unknown[] = [];
@@ -46,7 +57,17 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // GET /jobs/:id — job detail
   fastify.get<{ Params: { id: string } }>(
-    '/:id', { preHandler: auth },
+    '/:id', {
+      preHandler: auth,
+      schema: {
+        params: {
+          type: 'object', required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { rows } = await fastify.pg.query(
         `SELECT * FROM jobs WHERE id = $1`, [request.params.id]
@@ -88,7 +109,29 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /jobs/:id — update name/status/job_number/work-order fields
   fastify.patch<{ Params: { id: string }; Body: JobPatchBody }>(
-    '/:id', { preHandler: [...auth, requirePermission('close_jobs')] },
+    '/:id', {
+      preHandler: [...auth, requirePermission('close_jobs')],
+      schema: {
+        params: {
+          type: 'object', required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1 },
+            status: { type: 'string', enum: ['open', 'closed', 'archived'] },
+            job_number: { type: 'string' },
+            customer_name: { type: 'string' },
+            site_address: { type: 'string' },
+            site_location_id: { type: 'string' },
+            description: { type: 'string' },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { name, status, job_number, customer_name, site_address, site_location_id, description } = request.body;
       const sets: string[] = [];

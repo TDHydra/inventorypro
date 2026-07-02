@@ -140,15 +140,13 @@ export default function TeamQuickAdd({ onSaved }: Props) {
     const now = new Date().toISOString();
     const id = generateUUID();
 
-    // manager_id is legacy/deprecated (the column was dropped server-side in
-    // Phase 0) — managers are flagged per-member (is_manager) on the team detail
-    // screen after creation, via the gated PATCH endpoint. Leave it unset here,
-    // same as the Teams tab's create flow.
+    // Managers are flagged per-member (is_manager) on the team detail screen
+    // after creation, via the gated PATCH endpoint — the legacy teams.manager_id
+    // column has been dropped server-side (and locally in migration 026).
     const team: Team = {
       id,
       name: trimmedName,
       type,
-      manager_id: null,
       updated_at: now,
       synced_at: null,
     };

@@ -5,7 +5,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   const auth = { preHandler: [(fastify as any).authenticate] };
 
   // GET /labels/item/:id/qr.png
-  fastify.get<{ Params: { id: string } }>('/item/:id/qr.png', auth, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/item/:id/qr.png', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { rows } = await fastify.pg.query(
       `SELECT id FROM inventory_items WHERE id = $1`,
       [request.params.id]
@@ -21,7 +32,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /labels/unit/:assetTag/qr.png
-  fastify.get<{ Params: { assetTag: string } }>('/unit/:assetTag/qr.png', auth, async (request, reply) => {
+  fastify.get<{ Params: { assetTag: string } }>('/unit/:assetTag/qr.png', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['assetTag'],
+        properties: {
+          assetTag: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { rows } = await fastify.pg.query(
       `SELECT asset_tag FROM equipment_units WHERE asset_tag = $1`,
       [request.params.assetTag]

@@ -11,6 +11,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
+import { overLimit } from '../lib/rateLimit';
 
 interface OutboxEntry {
   id: string;
@@ -382,7 +383,26 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // GET /sync/full — first-launch paginated full download
   fastify.get<{
     Querystring: { table?: string; page?: string; limit?: string }
-  }>('/full', { preHandler: [(fastify as any).authenticate] }, async (request, reply) => {
+  }>('/full', {
+    preHandler: [(fastify as any).authenticate],
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          table: { type: 'string', enum: FULL_TABLES },
+          // Coerced + bounded; the handler still parseInt()s and caps limit at 500.
+          page: { type: 'integer', minimum: 0, maximum: 1000000 },
+          limit: { type: 'integer', minimum: 1, maximum: 500 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const sub = (request.user as { sub?: string })?.sub ?? '';
+    // First-launch download pages EVERY full table 500 rows at a time, sequentially
+    // (fullDownload.ts) — a real org bursts to dozens/hundreds of requests, and a 429
+    // aborts enrollment (not retried). Keep the ceiling generous; per-page DB writes on
+    // the client already throttle the true rate. Still bounds a malicious dump loop.
+    if (overLimit('syncfull:' + sub, 300)) return reply.status(429).send({ error: 'rate' });
     const { table, page = '0', limit = '500' } = request.query;
     const pageNum = parseInt(page, 10);
     const limitNum = Math.min(parseInt(limit, 10), 500);
@@ -413,7 +433,23 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // GET /sync/pull — incremental changes since timestamp
   fastify.get<{
     Querystring: { since?: string }
-  }>('/pull', { preHandler: [(fastify as any).authenticate] }, async (request, reply) => {
+  }>('/pull', {
+    preHandler: [(fastify as any).authenticate],
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          // ISO timestamp watermark; defaults to epoch when omitted.
+          since: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const sub = (request.user as { sub?: string })?.sub ?? '';
+    // Incremental pull fires on poll + after each write; bulk-entry sessions can
+    // coalesce many syncs. 120/min matches the global mutation ceiling — abuse-safe
+    // without throttling a busy offline-first client catching up.
+    if (overLimit('syncpull:' + sub, 120)) return reply.status(429).send({ error: 'rate' });
     const since = request.query.since ?? new Date(0).toISOString();
     const results: Record<string, { rows: unknown[] }> = {};
 

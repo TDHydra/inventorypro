@@ -70,13 +70,12 @@ export default function TeamsScreen() {
 
     const id = generateUUID();
     const now = new Date().toISOString();
-    // manager_id is legacy/deprecated — managers are flagged per-member (is_manager)
-    // on the team detail screen after creation. Leave it unset here.
+    // Managers are flagged per-member (is_manager) on the team detail screen
+    // after creation; the deprecated teams.manager_id column was dropped (migration 026).
     const team: Team = {
       id,
       name: trimmed,
       type,
-      manager_id: null,
       updated_at: now,
       synced_at: null,
     };
@@ -88,7 +87,6 @@ export default function TeamsScreen() {
           id,
           name: trimmed,
           type,
-          manager_id: null,
           updated_at: now,
         });
         appendLog({

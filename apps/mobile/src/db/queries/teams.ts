@@ -46,7 +46,6 @@ export interface Team {
   id: string;
   name: string;
   type: string;
-  manager_id: string | null;
   updated_at: string;
   synced_at: string | null;
 }
@@ -93,9 +92,9 @@ export function getTeamMembers(teamId: string): TeamMember[] {
 export function upsertTeam(team: Team): void {
   const db = getDb();
   db.executeSync(
-    `INSERT OR REPLACE INTO teams (id, name, type, manager_id, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    bindParams([team.id, team.name, team.type, team.manager_id, team.updated_at, team.synced_at]),
+    `INSERT OR REPLACE INTO teams (id, name, type, updated_at, synced_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    bindParams([team.id, team.name, team.type, team.updated_at, team.synced_at]),
   );
 }
 

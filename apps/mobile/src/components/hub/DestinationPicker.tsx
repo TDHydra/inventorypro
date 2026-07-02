@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
+import { useCurrentPosition } from '../../hooks/useCurrentPosition';
+import { sortByProximity } from '../../location/proximity';
 import { getOpenJobs, upsertJob, type Job } from '../../db/queries/jobs';
 import { getManagerTierUsers } from '../../db/queries/users';
 import {
@@ -35,6 +37,10 @@ export function DestinationPicker({ onResolved }: Props) {
   const { user } = useSession();
   const canCreateJobs = usePermission('create_jobs');
 
+  // Position: request once when the Location picker opens (fire-and-forget; never
+  // blocks UI). Coords feed the searchFn's proximity sort below.
+  const { coords, request } = useCurrentPosition();
+
   const [destType, setDestType] = useState<DestType | null>(null);
   const [locationValue, setLocationValue] = useState<PickerOption | null>(null);
   const [jobValue, setJobValue] = useState<PickerOption | null>(null);
@@ -56,6 +62,13 @@ export function DestinationPicker({ onResolved }: Props) {
     () => officeLocations.map(l => ({ id: l.id, label: l.name })),
     [officeLocations],
   );
+
+  // Ask for the device position once the Location picker is opened, so its
+  // searchFn can proximity-sort results. Fire-and-forget; degrades silently.
+  useEffect(() => {
+    if (destType === 'location') void request();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destType]);
 
   function resetAll() {
     setLocationValue(null);
@@ -192,7 +205,21 @@ export function DestinationPicker({ onResolved }: Props) {
             placeholder="Search location..."
             value={locationValue}
             onSelect={selectLocation}
-            searchFn={(q) => searchLocations(q).map(l => ({ id: l.id, label: l.name }))}
+            searchFn={(q) => {
+              const results = searchLocations(q);
+              // Without coords yet, keep the existing (name-ordered) behaviour.
+              if (!coords) return results.map(l => ({ id: l.id, label: l.name }));
+              // Proximity-sort this keystroke's results; un-anchored locations
+              // (no lat/lng) sink to the bottom in their original order.
+              return sortByProximity(
+                results.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+                coords,
+              ).map(l => ({
+                id: l.id,
+                label: l.name,
+                sublabel: l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined,
+              }));
+            }}
           />
         </View>
       )}

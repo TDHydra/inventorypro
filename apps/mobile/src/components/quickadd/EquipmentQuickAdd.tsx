@@ -18,7 +18,6 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { nextAssetTag } from '../../db/queries/equipment';
 import { colors, spacing, fontSizes, radii } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
@@ -38,8 +37,8 @@ interface UnitRow {
   error: string;
 }
 
-function newRow(): UnitRow {
-  return { key: generateUUID(), assetTag: '', serial: '', error: '' };
+function newRow(assetTag = ''): UnitRow {
+  return { key: generateUUID(), assetTag, serial: '', error: '' };
 }
 
 export default function EquipmentQuickAdd({ onSaved }: Props) {
@@ -101,31 +100,13 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   }
 
   function addRow() {
-    setRows(prev => [...prev, newRow()]);
+    // Seed the new batch row with the current item's tag prefix so the user only
+    // has to type the number (tags are placed physically — no auto-numbering).
+    setRows(prev => [...prev, newRow(selectedItem?.sublabel ?? '')]);
   }
 
   function removeRow(key: string) {
     setRows(prev => (prev.length <= 1 ? prev : prev.filter(r => r.key !== key)));
-  }
-
-  // Generate the next tag for one row, skipping over tags already typed into
-  // OTHER rows of this same (not-yet-saved) batch — nextAssetTag only looks at
-  // what's already in the DB, so back-to-back "Generate" taps would otherwise
-  // hand out the same tag twice before either row is committed.
-  function generateTagForRow(key: string) {
-    const prefix = selectedItem?.sublabel;
-    if (!prefix) return;
-    const used = new Set(
-      rows.filter(r => r.key !== key).map(r => r.assetTag.trim()).filter(Boolean),
-    );
-    let candidate = nextAssetTag(prefix);
-    let n = parseInt(candidate.slice(prefix.length), 10);
-    if (isNaN(n)) n = 0;
-    while (used.has(candidate)) {
-      n += 1;
-      candidate = prefix + String(n).padStart(3, '0');
-    }
-    updateRow(key, { assetTag: candidate, error: '' });
   }
 
   function handleSave() {
@@ -265,7 +246,8 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       ? cleaned[0].tag
       : `${cleaned.length} units (${cleaned.map(r => r.tag).join(', ')})`;
     onSaved(label, createdIds[createdIds.length - 1], { kind: 'equipment_unit' });
-    setRows([newRow()]); // fresh single row; item + location stay sticky for the next batch
+    // Fresh single row; item + location stay sticky, so re-seed the tag prefix too.
+    setRows([newRow(selectedItem?.sublabel ?? '')]);
   }
 
   return (
@@ -276,7 +258,25 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
         searchFn={itemSearch}
         value={selectedItem}
         onSelect={opt => {
-          setSelectedItem(prev => prev?.id === opt.id ? null : opt);
+          const toggledOff = selectedItem?.id === opt.id;
+          setSelectedItem(toggledOff ? null : opt);
+          // Tags are placed physically — we don't auto-number. On selecting a NEW
+          // item, seed its prefix into every still-empty row so the user just types
+          // the number; never clobber a row they've already typed into. On toggle
+          // off, strip any row still holding just the bare prefix.
+          const prevPrefix = selectedItem?.sublabel ?? '';
+          if (toggledOff) {
+            setRows(prev => prev.map(r =>
+              (prevPrefix && r.assetTag === prevPrefix) ? { ...r, assetTag: '' } : r,
+            ));
+          } else {
+            const prefix = opt.sublabel ?? '';
+            if (prefix) {
+              setRows(prev => prev.map(r =>
+                r.assetTag === '' ? { ...r, assetTag: prefix } : r,
+              ));
+            }
+          }
           if (formError) setFormError('');
         }}
       />
@@ -303,14 +303,6 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
               </TouchableOpacity>
             )}
           </View>
-          {!!selectedItem?.sublabel && row.assetTag === '' && (
-            <TouchableOpacity
-              style={s.generateBtn}
-              onPress={() => generateTagForRow(row.key)}
-            >
-              <Text style={s.generateBtnText}>Generate</Text>
-            </TouchableOpacity>
-          )}
           {!!row.error && <Text style={s.errorText}>{row.error}</Text>}
 
           {/* Serial is a child of the asset tag above — indented to read as nested. */}
@@ -369,19 +361,6 @@ const s = StyleSheet.create({
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
-  generateBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginTop: -spacing.xs,
-  },
-  generateBtnText: {
-    color: colors.primaryText,
-    fontSize: fontSizes.caption,
-    fontWeight: '600',
-  },
   rowBlock: {
     gap: 6,
     borderLeftWidth: 2,

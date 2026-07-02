@@ -37,7 +37,17 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // GET /teams/:id — team detail with roster
   fastify.get<{ Params: { id: string } }>(
-    '/:id', { preHandler: auth },
+    '/:id', {
+      preHandler: auth,
+      schema: {
+        params: {
+          type: 'object', required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { id } = request.params;
       const { rows: teamRows } = await fastify.pg.query(
@@ -221,7 +231,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // DELETE /teams/:id/members/:uid
   fastify.delete<{ Params: { id: string; uid: string } }>(
-    '/:id/members/:uid', { preHandler: [...auth, requirePermission('manage_teams')] },
+    '/:id/members/:uid', {
+      preHandler: [...auth, requirePermission('manage_teams')],
+      schema: {
+        params: {
+          type: 'object', required: ['id', 'uid'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+            uid: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
     async (request) => {
       await fastify.pg.query(
         `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,

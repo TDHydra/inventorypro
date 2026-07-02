@@ -23,7 +23,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /locations/:id — with stock summary
-  fastify.get<{ Params: { id: string } }>('/:id', auth, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/:id', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { rows } = await fastify.pg.query(
       `SELECT l.*,
               json_agg(json_build_object(
@@ -46,6 +57,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // POST /locations
   fastify.post<{ Body: CreateLocationBody }>('/', {
     preHandler: [(fastify as any).authenticate, requirePermission('manage_locations')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          parent_id: { type: 'string', minLength: 1, maxLength: 64 },
+          color: { type: 'string', maxLength: 32 },
+          icon: { type: 'string', maxLength: 64 },
+        },
+      },
+    },
   }, async (request, reply) => {
     const { name, parent_id, color, icon } = request.body;
     const { rows } = await fastify.pg.query(
@@ -59,7 +82,27 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /locations/:id
   fastify.patch<{ Params: { id: string }; Body: Partial<CreateLocationBody> }>(
-    '/:id', { preHandler: [(fastify as any).authenticate, requirePermission('manage_locations')] },
+    '/:id', {
+      preHandler: [(fastify as any).authenticate, requirePermission('manage_locations')],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+            parent_id: { type: 'string', minLength: 1, maxLength: 64 },
+            color: { type: 'string', maxLength: 32 },
+            icon: { type: 'string', maxLength: 64 },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const allowed = ['name', 'parent_id', 'color', 'icon'];
       const entries = Object.entries(request.body).filter(([k]) => allowed.includes(k));

@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
+import { overLimit } from '../lib/rateLimit';
 
 interface TokenBody {
   user_id: string;
@@ -301,6 +302,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     if (decoded.type !== 'refresh') {
       return reply.status(401).send({ error: 'Invalid token type' });
+    }
+
+    // Cap refreshes per subject so a leaked refresh token can't be minted into an
+    // endless stream of short-lived JWTs. Keyed on the verified sub (available now).
+    if (overLimit('refresh:' + decoded.sub, 30)) {
+      return reply.status(429).send({ error: 'rate' });
     }
 
     const { rows } = await fastify.pg.query<{ id: string; name: string; role: string; active: boolean; expires_at: string | null }>(

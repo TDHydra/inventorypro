@@ -114,7 +114,6 @@ export default function TeamDetailScreen() {
           id: team.id,
           name: trimmed,
           type: editType,
-          manager_id: team.manager_id ?? null,
           updated_at: now,
         });
         appendLog({
