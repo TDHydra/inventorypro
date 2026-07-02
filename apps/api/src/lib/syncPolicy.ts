@@ -235,7 +235,8 @@ export const ACTIVITY_ACTIONS = new Set([
   'add_stock', 'add_units', 'checkout_to_job', 'consumed', 'item_created', 'item_updated',
   'job_archived', 'job_created', 'job_updated', 'location_archived', 'location_created',
   'location_restored', 'location_updated', 'repair_in', 'repair_opened',
-  'team_member_added', 'team_member_removed', 'unit_edited', 'unit_retired',
+  'team_member_added', 'team_member_removed', 'team_manager_added', 'team_manager_removed',
+  'unit_edited', 'unit_retired',
   'user_permission_changed', 'user_pin_reset', 'user_role_changed', 'recount',
   // equipment lifecycle (migration 033): logged on maintenance_events insert.
   'maintenance_event',
