@@ -1,5 +1,4 @@
-import { getNotifyConfig, claimEvent, dedupKeys, resolveTeamManagers } from './notifications';
-import { sendPush } from './push';
+import { getNotifyConfig, claimEvent, dedupKeys, resolveRecipients, deliver } from './notifications';
 
 type Pg = { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> };
 
@@ -31,12 +30,12 @@ async function runCheckoutIdleCheck(pg: Pg, idleMin: number, pollMin: number): P
     // Resolve recipients BEFORE claiming the dedup key — otherwise a manager-less
     // crew member's session burns its key with no push sent, and a manager added
     // to the team later would get no retroactive notice.
-    const managers = await resolveTeamManagers(pg, userId);
-    if (!managers.length) continue;
+    const recipients = await resolveRecipients(pg, 'checkout_idle', { userId });
+    if (!recipients.length) continue;
     if (!(await claimEvent(pg, dedupKeys.session(userId, lastTs)))) continue;
     const { rows: u } = await pg.query(`SELECT name FROM users WHERE id = $1`, [userId]);
     const who = u[0]?.name ?? 'A team member';
-    await sendPush(pg, managers, { title: 'Checkout complete', body: `${who} finished checking out — ${r.cnt} item(s).`, data: { screen: 'activity' } });
+    await deliver(pg, recipients, { type: 'checkout_idle', title: 'Checkout complete', body: `${who} finished checking out — ${r.cnt} item(s).`, data: { screen: 'notifications' } });
   }
 }
 

@@ -26,6 +26,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -75,6 +76,9 @@ export default function ItemDetailScreen() {
 
   // Label print sheet state
   const [printItemSheet, setPrintItemSheet] = useState(false);
+
+  // Request-approval sheet state
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   const total = useMemo(
     () => stock.reduce((sum, st) => sum + st.quantity, 0),
@@ -416,6 +420,11 @@ export default function ItemDetailScreen() {
               <Text style={s.sectionLabel}>Photos</Text>
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
 
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setApprovalOpen(true)}>
+                <Text style={s.attrKey}>✅ Request Approval</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
+
               {canEdit && (
                 <PrimaryButton label="Edit Item" onPress={startEdit} />
               )}
@@ -431,6 +440,15 @@ export default function ItemDetailScreen() {
         title={item.name}
         code={item.barcode ?? item.id}
         qrUrl={`${API}/labels/item/${item.id}/qr.png`}
+      />
+
+      {/* ── Request Approval (item) ────────────────────────────────────── */}
+      <RequestApprovalSheet
+        visible={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        entityType="item"
+        entityId={item.id}
+        entityLabel={item.name}
       />
     </>
   );

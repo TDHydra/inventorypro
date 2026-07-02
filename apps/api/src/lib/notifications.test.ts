@@ -1,11 +1,73 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupKeys, getNotifyConfig } from './notifications';
+import { dedupKeys, getNotifyConfig, deliver, resolveRecipients } from './notifications';
 
 test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.assign('r1', 'u1'), 'assign:repair:r1:u1');
   assert.equal(dedupKeys.lowstock('i1'), 'lowstock:item:i1');
   assert.equal(dedupKeys.session('u1', '2026-07-01T10:00:00Z'), 'session:user:u1:2026-07-01T10:00:00Z');
+  assert.equal(dedupKeys.approval('a1'), 'approval:req:a1');
+  assert.equal(dedupKeys.apprDecision('a1', 'approved'), 'approval:dec:a1:approved');
+});
+
+test('deliver writes one inbox row per deduped user and fires exactly one push', async () => {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = { query: async (sql: string, params: unknown[]) => { calls.push({ sql, params }); return { rows: [] as any[] }; } };
+  await deliver(pg as any, ['u1', 'u2', 'u1'], { type: 'broadcast', title: 't', body: 'b', data: { screen: 'notifications' } });
+  const inserts = calls.filter(c => c.sql.includes('INSERT INTO notifications'));
+  assert.equal(inserts.length, 2); // duplicate u1 deduped to one row
+  assert.deepEqual(inserts.map(c => c.params[1]).sort(), ['u1', 'u2']);
+  // sendPush runs once: a single device_push_tokens lookup keyed by the deduped id list.
+  const pushLookups = calls.filter(c => c.sql.includes('device_push_tokens'));
+  assert.equal(pushLookups.length, 1);
+  assert.deepEqual(pushLookups[0].params[0], ['u1', 'u2']);
+});
+
+test('deliver is a no-op on empty recipients', async () => {
+  const calls: { sql: string }[] = [];
+  const pg = { query: async (sql: string) => { calls.push({ sql }); return { rows: [] as any[] }; } };
+  await deliver(pg as any, [], { type: 'broadcast', title: 't', body: 'b' });
+  assert.equal(calls.length, 0);
+});
+
+test('resolveRecipients merges intrinsic roles + configured route, deduped', async () => {
+  const cfg = JSON.stringify({ roles: ['office_manager'], teams: [], users: ['u9'] });
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('app_config')) return { rows: [{ value: cfg }] };
+    if (sql.includes('FROM users WHERE role = ANY')) {
+      const roles = params[0] as string[];
+      return { rows: roles.includes('office_manager') ? [{ id: 'u5' }] : [{ id: 'a1' }] };
+    }
+    // final active-only pass: echo the queried ids back as active
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  const to = await resolveRecipients(pg as any, 'low_stock');
+  assert.deepEqual([...to].sort(), ['a1', 'u5', 'u9']); // intrinsic managers + role members + explicit user
+});
+
+test('resolveRecipients falls back to intrinsic defaults when route unset', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('app_config')) return { rows: [] as any[] };
+    if (sql.includes('FROM users WHERE role = ANY')) return { rows: [{ id: 'a1' }] };
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual(await resolveRecipients(pg as any, 'low_stock'), ['a1']);
+});
+
+test('resolveRecipients assignment channel always includes the assignee', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual(await resolveRecipients(pg as any, 'assignment', { userId: 'u1' }), ['u1']);
 });
 test('getNotifyConfig applies defaults + parses + clamps + disable flag', async () => {
   const pgEmpty = { query: async () => ({ rows: [] }) };

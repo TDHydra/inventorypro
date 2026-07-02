@@ -3,6 +3,7 @@ import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../src/hooks/useSession';
 import { SyncIndicator } from '../../src/components/SyncIndicator';
+import { NotificationBell } from '../../src/components/NotificationBell';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
@@ -57,6 +58,7 @@ export default function AppLayout() {
           headerTitleStyle: { fontWeight: '700' },
           headerRight: () => (
             <View style={styles.headerRight}>
+              <NotificationBell />
               <SyncIndicator />
               <TouchableOpacity
                 style={styles.switchBtn}

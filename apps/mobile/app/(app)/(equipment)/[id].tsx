@@ -32,6 +32,7 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -87,6 +88,9 @@ export default function EquipmentModelDetailScreen() {
   // Label print sheet state
   const [printItemSheet, setPrintItemSheet] = useState(false);
   const [printUnit, setPrintUnit] = useState<EquipmentUnit | null>(null);
+
+  // Request-approval sheet state
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
@@ -549,6 +553,11 @@ export default function EquipmentModelDetailScreen() {
                 <Text style={s.attrVal}>›</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setApprovalOpen(true)}>
+                <Text style={s.attrKey}>✅ Request Approval</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
+
               {canEdit && (
                 <PrimaryButton label="Edit Model" onPress={startEdit} />
               )}
@@ -668,6 +677,15 @@ export default function EquipmentModelDetailScreen() {
         title={item.name}
         code={printUnit?.asset_tag ?? ''}
         qrUrl={`${API}/labels/unit/${printUnit?.asset_tag ?? ''}/qr.png`}
+      />
+
+      {/* ── Request Approval (model) ───────────────────────────────────── */}
+      <RequestApprovalSheet
+        visible={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        entityType="item"
+        entityId={item.id}
+        entityLabel={item.name}
       />
 
       {/* ── Add Units Modal ────────────────────────────────────────────── */}

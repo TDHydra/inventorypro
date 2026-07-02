@@ -34,7 +34,8 @@ export type Permission =
   | 'set_pins'
   | 'manage_roles_permissions'
   | 'view_financial_data'
-  | 'system_settings';
+  | 'system_settings'
+  | 'send_notifications';
 
 export const ROLE_TIER: Record<UserRole, 1 | 2 | 3 | 4> = {
   temporary_employee:       1,
@@ -135,6 +136,7 @@ const tier4: PermissionMap = {
   manage_roles_permissions:  true,
   view_financial_data:       true,
   system_settings:           true,
+  send_notifications:        true,
 };
 
 const tier3: PermissionMap = {
@@ -159,6 +161,7 @@ const tier3: PermissionMap = {
   manage_roles_permissions:  false,
   view_financial_data:       true,
   system_settings:           false,
+  send_notifications:        true,
 };
 
 const tier2: PermissionMap = {
@@ -183,6 +186,7 @@ const tier2: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        false,
   system_settings:            false,
+  send_notifications:         false,
 };
 
 const tier1: PermissionMap = {
@@ -207,6 +211,7 @@ const tier1: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        false,
   system_settings:            false,
+  send_notifications:         false,
 };
 
 const tempEmployee: PermissionMap = {

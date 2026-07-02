@@ -36,6 +36,10 @@ function navigateToPayload(router: Router, data: Record<string, unknown> | undef
       if (id) router.push({ pathname: '/(app)/(repairs)/[id]', params: { id } });
       else router.push('/(app)/(repairs)');
       return;
+    case 'notifications':
+      // broadcast / approval / checkout-idle pushes open the in-app inbox
+      router.push('/(app)/(notifications)');
+      return;
     case 'dashboard':
     default:
       router.push('/(app)/(dashboard)');

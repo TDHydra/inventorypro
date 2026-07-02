@@ -43,6 +43,13 @@ export function keepRealColumns(
 export const SENSITIVE_DENY: Record<string, Set<string>> = {
   users: new Set(['role', 'pin_hash', 'pin_set', 'permission_overrides', 'active', 'expires_at', 'enrollment_code_hash']),
   team_members: new Set(['is_manager']),
+  // notifications rows are server-authored; a client may ONLY flip read_at (mark
+  // read). Every other column is denied so a mark-read UPDATE can't rewrite the
+  // title/body/type, re-point created_by, or re-assign ownership. user_id is denied
+  // too: without it, a crafted payload can't set user_id=self to slip past the
+  // own-row guard — and the notifications UPDATE is additionally SQL-scoped to the
+  // caller's own rows in sync.ts (WHERE user_id = caller). (id is the key.)
+  notifications: new Set(['user_id', 'type', 'title', 'body', 'data', 'created_by', 'created_at', 'updated_at']),
 };
 
 // users columns that are ALWAYS denied via sync regardless of permission — these
@@ -127,6 +134,9 @@ export function sanitizeTeamOverrides(
 export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   jobs: ['created_by'], repairs: ['created_by'], repair_parts: ['created_by'],
   media: ['uploaded_by'], team_members: ['added_by'],
+  // requester_id is forced to the caller on INSERT (can't file a request as
+  // someone else) and can't be reassigned on UPDATE.
+  approval_requests: ['requester_id'],
 };
 
 export function applyWritePolicy(
@@ -179,7 +189,9 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // Operational-table op -> required permission. Privileged tables are intentionally
 // ABSENT (gated by PRIVILEGED_TABLE_PERM in the push handler) and resolve to null.
 // activity_log / stock_by_location have their own handling and resolve to null.
-const OPERATION_PERM: Record<string, Partial<Record<Op, string>>> = {
+// A `null` value means the op is allowed to any authenticated user (no specific
+// permission required) — distinct from an ABSENT op, which fails closed to DENY.
+const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   inventory_items: { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'delete_inventory' },
   equipment_units: { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'delete_inventory' },
   locations:       { INSERT: 'manage_locations', UPDATE: 'manage_locations', DELETE: 'manage_locations' },
@@ -189,6 +201,11 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string>>> = {
   taxonomy_types:  { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   media:           { INSERT: 'upload_media', UPDATE: 'upload_media', DELETE: 'upload_media' },
   stock_by_location: { INSERT: 'checkin_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
+  // notifications: clients may only mark-read (UPDATE); INSERT/DELETE fail closed.
+  notifications:   { UPDATE: null },
+  // approval_requests: any authed user may file (INSERT) or update a request;
+  // DELETE is explicitly denied (requests are resolved, never removed).
+  approval_requests: { INSERT: null, UPDATE: null, DELETE: 'DENY' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -196,8 +213,11 @@ const OPERATION_PERM_EXEMPT = new Set(['activity_log', 'users', 'role_settings',
 
 export function requiredOperationPerm(table: string, op: Op): string | null | 'DENY' {
   if (OPERATION_PERM_EXEMPT.has(table)) return null;
-  const perm = OPERATION_PERM[table]?.[op];
-  return perm ?? 'DENY'; // operational table with no mapping → fail closed
+  const mapping = OPERATION_PERM[table];
+  // An explicitly-listed op may resolve to null (allowed to any authed user) or
+  // 'DENY' (forbidden). Only an ABSENT op on an operational table fails closed.
+  if (mapping && op in mapping) return mapping[op] ?? null;
+  return 'DENY'; // operational table with no mapping → fail closed
 }
 
 // Verified against actual app call sites (grep `action:` in apps/mobile/src,
@@ -234,11 +254,17 @@ const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_ove
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
 const REPAIRS_SENSITIVE = ', cost';
+// notifications / approval_requests carry no financial columns — return the full
+// synced column list explicitly (never '*') so the projection is server-owned.
+const NOTIFICATIONS_COLS = 'id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at';
+const APPROVAL_REQUESTS_COLS = 'id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
   if (table === 'jobs') return canViewFinancial ? JOBS_BASE + JOBS_SENSITIVE : JOBS_BASE;
   if (table === 'repairs') return canViewFinancial ? REPAIRS_BASE + REPAIRS_SENSITIVE : REPAIRS_BASE;
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
+  if (table === 'notifications') return NOTIFICATIONS_COLS;
+  if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   return '*';
 }

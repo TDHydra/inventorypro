@@ -27,6 +27,7 @@ import { getMainStorageLocationId, setMainStorageLocation } from '../../../src/d
 import { getAllLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
+import { NotificationRoutingEditor } from '../../../src/components/NotificationRoutingEditor';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
 
@@ -55,6 +56,9 @@ const FORM_OVERRIDE_OPTIONS: { label: string; value: FormMode | null }[] = [
 const NOTIFY_ENABLED_KEY = 'notify_enabled';
 const NOTIFY_POLL_MIN_KEY = 'notify_poll_interval_min';
 const NOTIFY_IDLE_MIN_KEY = 'notify_checkout_idle_min';
+// Approval workflow: movements whose |qty| >= this value auto-flag an approval
+// request server-side. Blank/0 disables the auto-flag.
+const APPROVAL_THRESHOLD_KEY = 'approval_threshold_qty';
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -96,6 +100,7 @@ function readSyncStatus(): { lastSync: string; pending: number } {
 export default function SettingsScreen() {
   const router = useRouter();
   const isAdmin = usePermission('system_settings');
+  const canBroadcast = usePermission('send_notifications');
   const { user, logout } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   const refreshKey = useFocusRefresh();
@@ -112,6 +117,7 @@ export default function SettingsScreen() {
   const [notifyTriggersOn, setNotifyTriggersOn] = useState<boolean>(() => getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
   const [pollMinInput, setPollMinInput] = useState<string>(() => getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
   const [idleMinInput, setIdleMinInput] = useState<string>(() => getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
+  const [thresholdInput, setThresholdInput] = useState<string>(() => getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
@@ -177,6 +183,7 @@ export default function SettingsScreen() {
       setNotifyTriggersOn(getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
       setPollMinInput(getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
       setIdleMinInput(getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
+      setThresholdInput(getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
     }, [refreshStatus])
   );
 
@@ -275,6 +282,26 @@ export default function SettingsScreen() {
       if (__DEV__) console.warn(`[Settings] Failed to save ${key}:`, err);
     }
     setInput(value);
+  };
+
+  // Commits the approval threshold on blur. Blank clears it (auto-flag off);
+  // otherwise it must be a positive integer. Reverts to last-known-good on
+  // invalid non-blank input.
+  const commitApprovalThreshold = () => {
+    const t = thresholdInput.trim();
+    if (t === '') {
+      try { setAppConfigSynced(APPROVAL_THRESHOLD_KEY, ''); } catch (err) { if (__DEV__) console.warn('[Settings] Failed to clear approval threshold:', err); }
+      setThresholdInput('');
+      return;
+    }
+    const n = parseInt(t, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 100000) {
+      setThresholdInput(getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
+      return;
+    }
+    const value = String(n);
+    try { setAppConfigSynced(APPROVAL_THRESHOLD_KEY, value); } catch (err) { if (__DEV__) console.warn('[Settings] Failed to save approval threshold:', err); }
+    setThresholdInput(value);
   };
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
@@ -495,6 +522,22 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* ── Broadcast (send_notifications holders — may not be full admins) ── */}
+        {canBroadcast && (
+          <View style={s.card}>
+            <TouchableOpacity
+              style={s.row}
+              onPress={() => router.push('/(app)/(admin)/broadcast')}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>📣 Send Broadcast</Text>
+                <Text style={s.rowSub}>Compose a notification to roles, teams, or everyone.</Text>
+              </View>
+              <Text style={s.rowSub}>›</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── Notification Triggers (admin only — server push config) ──── */}
         {isAdmin && (
           <View>
@@ -533,6 +576,37 @@ export default function SettingsScreen() {
                   onChangeText={setIdleMinInput}
                   onEndEditing={() => commitNotifyIntConfig(NOTIFY_IDLE_MIN_KEY, idleMinInput, getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15', setIdleMinInput)}
                   keyboardType="number-pad"
+                  style={{ width: 100 }}
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Notification Routing (admin only — synced app_config) ────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Notification Routing</Text>
+            <View style={s.card}>
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Who gets notified</Text>
+                <Text style={s.rowSub}>
+                  Add extra roles, teams, or people to each notification channel. These are added on top of each channel's built-in recipients.
+                </Text>
+                <View style={{ marginTop: spacing.sm }}>
+                  <NotificationRoutingEditor onSave={setAppConfigSynced} />
+                </View>
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Require approval for movements ≥ (blank = off)</Text>
+                <Text style={s.rowSub}>Checkouts or transfers of this quantity or more auto-create an approval request for review.</Text>
+                <AppInput
+                  value={thresholdInput}
+                  onChangeText={setThresholdInput}
+                  onEndEditing={commitApprovalThreshold}
+                  keyboardType="number-pad"
+                  placeholder="Off"
                   style={{ width: 100 }}
                 />
               </View>

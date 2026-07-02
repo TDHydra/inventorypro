@@ -8,8 +8,9 @@ import {
   selectColumnsFor,
   requiresRolesPermForTarget,
 } from '../lib/syncPolicy';
-import { sendPush } from '../lib/push';
-import { getNotifyConfig, notifyLowStock } from '../lib/notifications';
+import { randomUUID } from 'node:crypto';
+import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
+import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 
 interface OutboxEntry {
   id: string;
@@ -27,6 +28,7 @@ const ALLOWED_TABLES = new Set([
   'users', 'locations', 'inventory_items', 'stock_by_location',
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
+  'notifications', 'approval_requests',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -59,6 +61,11 @@ const CONFLICT_TARGETS: Record<string, string> = {
   taxonomy_types: 'id',
 };
 
+// Tables whose pull is scoped to the authenticated caller (private per-user data).
+// The listed column is matched against the caller's user id so a device only ever
+// downloads its own rows (e.g. the per-user notifications inbox).
+const SCOPED_TABLES: Record<string, string> = { notifications: 'user_id' };
+
 function conflictTarget(table: string): string {
   return CONFLICT_TARGETS[table] ?? 'id';
 }
@@ -71,6 +78,7 @@ const FULL_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
+  'notifications', 'approval_requests',
 ];
 
 async function applyEntry(
@@ -199,10 +207,46 @@ async function applyEntry(
         prevAssignee = pre[0] ? ((pre[0] as { assignee_id: string | null }).assignee_id ?? null) : undefined;
       } catch { prevAssignee = undefined; }
     }
-    const where = keys.map((k, i) => `${k} = $${cols.length + i + 1}`).join(' AND ');
+    // Approval-decision guard + notify. Capture the pre-row status/requester so we
+    // (a) only let an approver — or the requester CANCELLING their own row — change
+    // the status, and (b) notify the requester only on a real open->decided move.
+    // Attribution (requester_id) was already stripped by applyWritePolicy above, so
+    // the guard trusts the DB's requester_id, never the payload's. A failed pre-read
+    // → apprPre undefined → no guard/notify (the write still applies).
+    let apprPre: { status: string; requester_id: string } | undefined;
+    if (table_name === 'approval_requests') {
+      try {
+        const { rows: pre } = await pg.query(`SELECT status, requester_id FROM approval_requests WHERE id = $1`, [payload.id]);
+        apprPre = pre[0] as { status: string; requester_id: string } | undefined;
+      } catch { apprPre = undefined; }
+      if (apprPre) {
+        const touchesDecision = ['status', 'decided_by', 'decided_at', 'decision_note'].some(k => k in payload);
+        const nextStatus = payload.status != null ? String(payload.status) : apprPre.status;
+        const changesStatus = nextStatus !== apprPre.status;
+        // Any write to a decision field requires authorization — not only a status
+        // change. Otherwise a non-approver could stamp decided_by/decided_at on an
+        // open row (status unchanged) and pollute the audit trail.
+        if (touchesDecision) {
+          const approvers = await resolveRecipients(pg, 'approvals', { userId: apprPre.requester_id });
+          const callerIsApprover = approvers.includes(callerUserId) || can('manage_teams');
+          const callerIsRequester = String(apprPre.requester_id) === callerUserId;
+          const guard = approvalUpdateAllowed({ changesStatus, nextStatus, callerIsApprover, callerIsRequester });
+          if (!guard.allowed) throw new Error(guard.reason ?? 'Forbidden: approval decision not permitted');
+        }
+      }
+    }
+    let where = keys.map((k, i) => `${k} = $${cols.length + i + 1}`).join(' AND ');
+    const whereParams: unknown[] = keys.map(k => payload[k]);
+    // notifications: enforce row ownership in SQL, not just via the payload check —
+    // a mark-read UPDATE keyed on id alone (SENSITIVE_DENY strips user_id from the
+    // payload) would otherwise be able to flip ANY row's read_at by guessing its id.
+    if (table_name === 'notifications') {
+      where += ` AND user_id = $${cols.length + keys.length + 1}`;
+      whereParams.push(callerUserId);
+    }
     await pg.query(
       `UPDATE ${table_name} SET ${setClause} WHERE ${where}`,
-      [...cols.map(c => row[c] ?? null), ...keys.map(k => payload[k])]
+      [...cols.map(c => row[c] ?? null), ...whereParams]
     );
     // Assignment notification (fire-and-forget; never blocks the sync write).
     // jobs has no assignee column (checked migrations) — repairs-only is correct.
@@ -215,7 +259,25 @@ async function applyEntry(
       void (async () => {
         try {
           if (!(await getNotifyConfig(pg)).enabled) return;
-          await sendPush(pg, [assignee], { title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs/[id]', id: repairId } });
+          await deliver(pg, await resolveRecipients(pg, 'assignment', { userId: assignee }), { type: 'assignment', title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs', id: repairId } });
+        } catch { /* never disrupt sync */ }
+      })();
+    }
+    // Approval-decision notification (fire-and-forget). Only a genuine open->approved/
+    // rejected transition notifies the requester; deduped on (id,status) so a retried
+    // push doesn't re-notify, and a later re-decision (different status) still fires.
+    if (table_name === 'approval_requests' && apprPre
+        && shouldNotifyDecision(apprPre.status, payload.status != null ? String(payload.status) : undefined)) {
+      const requester = String(apprPre.requester_id);
+      const reqId = String(payload.id);
+      const newStatus = String(payload.status);
+      void (async () => {
+        try {
+          if (!(await getNotifyConfig(pg)).enabled) return;
+          if (await claimEvent(pg, dedupKeys.apprDecision(reqId, newStatus))) {
+            const body = String(payload.decision_note ?? payload.title ?? '');
+            await deliver(pg, [requester], { type: 'approval_decision', title: `Request ${newStatus}`, body, data: { screen: 'notifications', id: reqId } });
+          }
         } catch { /* never disrupt sync */ }
       })();
     }
@@ -228,6 +290,18 @@ async function applyEntry(
   // row from the resulting policy-filtered `row`.
   const { row, rejected } = applyWritePolicy(table_name, 'INSERT', payload, callerUserId, realColumns, can);
   if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
+  // approval_requests: a client INSERT may only CREATE an OPEN request. The
+  // decision fields are reachable ONLY through the guarded UPDATE path — otherwise
+  // an INSERT carrying an EXISTING id would upsert (ON CONFLICT DO UPDATE) straight
+  // past the approver guard, letting a non-approver approve or a requester
+  // self-approve with a forged decided_by. Force the row open + strip any
+  // client-supplied decision; the DO-NOTHING conflict below makes a re-sent create
+  // idempotent instead of an update. (decided_by/decided_at are also in
+  // SENSITIVE_DENY, so a present value would already have been rejected above.)
+  if (table_name === 'approval_requests') {
+    row.status = 'open';
+    delete row.decided_by; delete row.decided_at; delete row.decision_note;
+  }
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
   const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
@@ -249,13 +323,34 @@ async function applyEntry(
   if (hasUpdatedAt) updateParts.push('updated_at = NOW()');
   const updates = updateParts.join(', ');
 
-  const sql = updates
+  // approval_requests never upserts: a create is a create, and its decisions must
+  // flow through the guarded UPDATE path — so an INSERT with an existing id is a
+  // no-op, not a back-door update (see the force-open block above).
+  const sql = updates && table_name !== 'approval_requests'
     ? `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO UPDATE SET ${updates}`
     : `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO NOTHING`;
 
   await pg.query(sql, allKeys.map(k => row[k] ?? null));
+
+  // New approval request → notify the approvers once (deduped on request id so a
+  // retried push doesn't re-notify). Fire-and-forget; never blocks the sync write.
+  // requester_id was forced to the caller by applyWritePolicy (ATTRIBUTION_COLUMNS).
+  if (table_name === 'approval_requests' && row.id) {
+    const reqId = String(row.id);
+    const requester = row.requester_id != null ? String(row.requester_id) : callerUserId;
+    const reqTitle = row.title != null ? String(row.title) : 'Approval requested';
+    void (async () => {
+      try {
+        if (!(await getNotifyConfig(pg)).enabled) return;
+        if (await claimEvent(pg, dedupKeys.approval(reqId))) {
+          const to = await resolveRecipients(pg, 'approvals', { userId: requester });
+          await deliver(pg, to, { type: 'approval_request', title: 'Approval requested', body: reqTitle, data: { screen: 'notifications', id: reqId }, createdBy: requester });
+        }
+      } catch { /* never disrupt sync */ }
+    })();
+  }
 }
 
 // Resolve the caller's *current* role + permission overrides from the DB — not
@@ -303,9 +398,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
     const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
 
+    // Scoped tables (e.g. notifications) only ever return the caller's own rows.
+    const scopeCol = SCOPED_TABLES[table];
+    const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3` : '';
     const { rows } = await fastify.pg.query(
-      `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} ORDER BY 1 LIMIT $1 OFFSET $2`,
-      [limitNum + 1, offset]
+      `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
+      scopeCol ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
     );
 
     const hasMore = rows.length > limitNum;
@@ -327,9 +425,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     for (const table of FULL_TABLES) {
       const dateCol = table === 'media' ? 'created_at' : 'updated_at';
+      // Scoped tables (e.g. notifications) only ever return the caller's own rows.
+      const scopeCol = SCOPED_TABLES[table];
+      const scopeSql = scopeCol ? ` AND ${scopeCol} = $2` : '';
       const { rows } = await fastify.pg.query(
-        `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1`,
-        [since]
+        `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
+        scopeCol ? [since, userId] : [since]
       );
       results[table] = { rows };
     }
@@ -492,6 +593,22 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // notifications are per-user inbox rows: clients may only UPDATE (mark read),
+      // never INSERT/DELETE (op-perm already denies those), and only their OWN row.
+      // A crafted entry claiming another user's row (payload.user_id != caller) is
+      // rejected here; the only client-writable column is read_at (SENSITIVE_DENY).
+      if (entry.table_name === 'notifications') {
+        if (entry.operation !== 'UPDATE') {
+          conflicts.push({ id: entry.id, error: 'Forbidden: notifications are read-only except marking read' });
+          continue;
+        }
+        const targetUser = entry.payload.user_id;
+        if (targetUser != null && String(targetUser) !== userId) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: cannot modify another user\'s notification' });
+          continue;
+        }
+      }
+
       try {
         await applyEntry(fastify.pg, entry, userId, realColumns, can, touchedItems);
         ok.push(entry.id);
@@ -525,6 +642,46 @@ const routes: FastifyPluginAsync = async (fastify) => {
         try {
           if (!(await getNotifyConfig(fastify.pg)).enabled) return;
           for (const itemId of touchedItems) await notifyLowStock(fastify.pg, itemId);
+        } catch { /* never disrupt sync */ }
+      })();
+    }
+
+    // Threshold auto-flag: any large (|qty| >= approval_threshold_qty) stock movement
+    // committed this batch auto-files a review approval_request + notifies approvers.
+    // Non-blocking — the movement already applied; this is a post-hoc review flag.
+    // Deduped per source outbox op id so a retried push can't file duplicates.
+    const okSet = new Set(ok);
+    if (entries.some(e => okSet.has(e.id) && e.table_name === 'stock_by_location' && e.operation === 'ADJUST')) {
+      void (async () => {
+        try {
+          const { rows: tRows } = await fastify.pg.query(`SELECT value FROM app_config WHERE key = 'approval_threshold_qty'`, []);
+          const threshold = parseThreshold(tRows[0] ? (tRows[0] as { value: string }).value : undefined);
+          if (!(threshold > 0)) return;
+          for (const entry of entries) {
+            if (!okSet.has(entry.id) || !isThresholdMovement(entry, threshold)) continue;
+            // Dedup on the source op id: a retried push must not re-file the request.
+            if (!(await claimEvent(fastify.pg, `approval:auto:${entry.id}`))) continue;
+            const qty = Number((entry.payload as { delta?: unknown }).delta);
+            const itemId = (entry.payload as { item_id?: unknown }).item_id ?? null;
+            const locationId = (entry.payload as { location_id?: unknown }).location_id ?? null;
+            let itemName = 'an item';
+            try {
+              const { rows: iRows } = await fastify.pg.query(`SELECT name FROM inventory_items WHERE id = $1`, [itemId]);
+              if (iRows[0]) itemName = String((iRows[0] as { name: string }).name);
+            } catch { /* name is best-effort */ }
+            const reqId = randomUUID();
+            const title = `Large movement: ${itemName} (${qty >= 0 ? '+' : ''}${qty})`;
+            const metadata = JSON.stringify({ opId: entry.id, itemId, locationId, qty });
+            await fastify.pg.query(
+              `INSERT INTO approval_requests (id, requester_id, kind, title, status, entity_type, entity_id, metadata)
+               VALUES ($1,$2,'threshold_checkout',$3,'open','item',$4,$5)`,
+              [reqId, userId, title, itemId, metadata]);
+            // Notify approvers (deduped on the new request id, mirroring the INSERT hook).
+            if (await claimEvent(fastify.pg, dedupKeys.approval(reqId))) {
+              const to = await resolveRecipients(fastify.pg, 'approvals', { userId });
+              await deliver(fastify.pg, to, { type: 'approval_request', title: 'Approval requested', body: title, data: { screen: 'notifications', id: reqId }, createdBy: userId });
+            }
+          }
         } catch { /* never disrupt sync */ }
       })();
     }

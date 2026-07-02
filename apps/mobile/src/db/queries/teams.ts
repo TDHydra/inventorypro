@@ -39,6 +39,7 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   manage_roles_permissions: 'Manage roles & permissions',
   view_financial_data: 'View financial data',
   system_settings: 'Change system settings',
+  send_notifications: 'Send broadcast notifications',
 };
 
 export interface Team {

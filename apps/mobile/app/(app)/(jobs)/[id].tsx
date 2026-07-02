@@ -24,6 +24,7 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
 type LogWithUser = LogEntry & { user_name?: string };
 
@@ -40,6 +41,7 @@ export default function JobDetailScreen() {
   const [editing, setEditing] = useState(false);
   const [siteCoords, setSiteCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geocodeFailed, setGeocodeFailed] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   // Geocode the free-text site address (online, no API key) so we can show a
   // view-only map. Failures/empties are swallowed — the map just doesn't appear.
@@ -480,6 +482,7 @@ export default function JobDetailScreen() {
               <MediaGallery entityType="job" entityId={id} canUpload={canUpload} />
 
               {/* Actions */}
+              <PrimaryButton label="Request Approval" onPress={() => setApprovalOpen(true)} />
               {(canEdit || canClose) && (
                 <PrimaryButton label="Edit Job" onPress={startEdit} />
               )}
@@ -490,6 +493,15 @@ export default function JobDetailScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── Request Approval (job) ─────────────────────────────────────── */}
+      <RequestApprovalSheet
+        visible={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        entityType="job"
+        entityId={id}
+        entityLabel={job.name}
+      />
     </>
   );
 }
