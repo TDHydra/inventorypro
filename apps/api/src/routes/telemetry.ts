@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { overRateLimit, overLimit } from '../lib/rateLimit';
-import { ingestEvents } from '../lib/telemetry';
+import { ingestEvents, getTelemetrySummary } from '../lib/telemetry';
+import { requirePermission } from '../lib/permissions';
 
 // POST /telemetry — batched, fire-and-forget behavioral event ingest.
 // Auth is OPTIONAL: a valid bearer attributes events to a user; without one we
@@ -33,6 +34,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
       sessionId: sid, userId, deviceId: dev, platform: plat, appVersion: ver,
     });
     return { accepted };
+  });
+
+  // GET /telemetry/summary — aggregate analytics for the admin Insights screen.
+  // Gated on system_settings (full_admin floor; grantable via overrides). The
+  // ONLY read path into telemetry_events. `days` clamped to the 90d retention.
+  fastify.get<{ Querystring: { days?: number } }>('/summary', {
+    preHandler: [(fastify as any).authenticate, requirePermission('system_settings')],
+    schema: { querystring: { type: 'object',
+      properties: { days: { type: 'integer', minimum: 1, maximum: 90 } } } },
+  }, async (request) => {
+    const days = Math.min(90, Math.max(1, Number(request.query.days) || 7));
+    return getTelemetrySummary(fastify.pg, days);
   });
 };
 export default routes;

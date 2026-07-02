@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeEvent, sanitizeLabel, ingestEvents } from './telemetry';
+import { sanitizeEvent, sanitizeLabel, ingestEvents, getTelemetrySummary } from './telemetry';
 
 const CTRL0 = String.fromCharCode(0);   // NUL
 const CTRL31 = String.fromCharCode(31);  // unit separator
@@ -60,4 +60,26 @@ test('ingestEvents never aborts the batch when one INSERT throws', async () => {
     { type: 'action', name: 'b' }, // INSERT ok
   ], ctx);
   assert.equal(accepted, 1);
+});
+
+test('getTelemetrySummary shapes the report + binds the day window', async () => {
+  const seenParams: unknown[][] = [];
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    seenParams.push(params);
+    if (sql.includes('FILTER (WHERE type')) return { rows: [{ events: 100, sessions: 12, users: 8, devices: 9, errors: 3 }] };
+    if (sql.includes("type = 'screen'")) return { rows: [{ name: 'inventory', count: 40 }, { name: 'hub', count: 25 }] };
+    if (sql.includes("type = 'action'")) return { rows: [{ name: 'checkout_confirm', count: 15 }] };
+    if (sql.includes("type = 'error'")) return { rows: [{ name: 'render_crash', count: 2 }] };
+    if (sql.includes('GROUP BY platform')) return { rows: [{ platform: 'android', count: 90 }] };
+    if (sql.includes('GROUP BY app_version')) return { rows: [{ version: '1.0.0', count: 100 }] };
+    return { rows: [] };
+  } };
+  const s = await getTelemetrySummary(pg as any, 30);
+  assert.equal(s.windowDays, 30);
+  assert.deepEqual(s.totals, { events: 100, sessions: 12, users: 8, devices: 9, errors: 3 });
+  assert.equal(s.topScreens[0].name, 'inventory');
+  assert.equal(s.topActions[0].name, 'checkout_confirm');
+  assert.equal(s.byPlatform[0].platform, 'android');
+  // every query is parameterized on the day window (never string-interpolated)
+  assert.ok(seenParams.every(p => p[0] === 30));
 });

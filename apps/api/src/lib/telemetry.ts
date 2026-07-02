@@ -62,6 +62,66 @@ export async function ingestEvents(
   return accepted;
 }
 
+export interface NameCount { name: string; count: number }
+export interface TelemetrySummary {
+  windowDays: number;
+  totals: { events: number; sessions: number; users: number; devices: number; errors: number };
+  topScreens: NameCount[];
+  topActions: NameCount[];
+  topErrors: NameCount[];
+  byPlatform: { platform: string; count: number }[];
+  byVersion: { version: string; count: number }[];
+}
+
+/**
+ * Aggregate read model for the admin analytics screen (GET /telemetry/summary).
+ * All counts are over the last `days` window (telemetry_events is pruned at 90d,
+ * so callers clamp days to [1,90]). `days` is bound via make_interval — never
+ * string-interpolated. Extracted from the route so it's unit-testable with a
+ * mock pg. This is the ONLY read path into telemetry_events; it's gated on
+ * system_settings at the route.
+ */
+export async function getTelemetrySummary(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> },
+  days: number,
+): Promise<TelemetrySummary> {
+  const win = `received_at > NOW() - make_interval(days => $1)`;
+  const top = (type: string) =>
+    `SELECT name, COUNT(*)::int AS count FROM telemetry_events
+       WHERE type = '${type}' AND ${win} GROUP BY name ORDER BY count DESC LIMIT 15`;
+
+  const totalsQ = await pg.query(
+    `SELECT COUNT(*)::int AS events,
+            COUNT(DISTINCT session_id)::int AS sessions,
+            COUNT(DISTINCT user_id)::int AS users,
+            COUNT(DISTINCT device_id)::int AS devices,
+            COUNT(*) FILTER (WHERE type = 'error')::int AS errors
+       FROM telemetry_events WHERE ${win}`, [days]);
+  const screensQ = await pg.query(top('screen'), [days]);
+  const actionsQ = await pg.query(top('action'), [days]);
+  const errorsQ = await pg.query(top('error'), [days]);
+  const platQ = await pg.query(
+    `SELECT COALESCE(platform, 'unknown') AS platform, COUNT(*)::int AS count
+       FROM telemetry_events WHERE ${win} GROUP BY platform ORDER BY count DESC LIMIT 10`, [days]);
+  const verQ = await pg.query(
+    `SELECT COALESCE(app_version, 'unknown') AS version, COUNT(*)::int AS count
+       FROM telemetry_events WHERE ${win} GROUP BY app_version ORDER BY count DESC LIMIT 10`, [days]);
+
+  const t = totalsQ.rows[0] ?? {};
+  return {
+    windowDays: days,
+    totals: {
+      events: t.events ?? 0, sessions: t.sessions ?? 0, users: t.users ?? 0,
+      devices: t.devices ?? 0, errors: t.errors ?? 0,
+    },
+    topScreens: screensQ.rows,
+    topActions: actionsQ.rows,
+    topErrors: errorsQ.rows,
+    byPlatform: platQ.rows,
+    byVersion: verQ.rows,
+  };
+}
+
 export function sanitizeEvent(raw: any): CleanEvent | null {
   if (!raw || typeof raw.type !== 'string' || !TYPES.has(raw.type)) return null;
   if (typeof raw.name !== 'string' || !raw.name) return null;

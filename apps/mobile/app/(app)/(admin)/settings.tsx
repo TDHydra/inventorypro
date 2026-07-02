@@ -518,6 +518,17 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
+              <View style={s.divider} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/analytics')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>📊 Analytics</Text>
+                  <Text style={s.rowSub}>Usage insights — top screens, actions, errors & devices (live, admin only).</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
