@@ -48,6 +48,43 @@ async function disableTokens(pg: Pg, tokens: string[]): Promise<void> {
   await pg.query(`UPDATE device_push_tokens SET disabled = TRUE WHERE expo_push_token = ANY($1)`, [tokens]);
 }
 
+// Expo can take a while to generate a receipt — their docs recommend waiting
+// ~15 min before reading them. The immediate poll at send time therefore misses
+// receipts that aren't ready yet (the common uninstalled-device case).
+export const RECEIPT_REPOLL_MS = 15 * 60 * 1000;
+
+// Poll Expo receipts for the given accepted tickets and disable any token Expo
+// now reports permanently dead (DeviceNotRegistered / InvalidCredentials).
+// Shared by the immediate poll and the delayed re-poll; best-effort, never throws.
+export async function pollReceiptsAndDisable(pg: Pg, receiptTokens: Record<string, string>): Promise<void> {
+  const ids = Object.keys(receiptTokens);
+  if (!ids.length) return;
+  try {
+    const rres = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const rjson = await rres.json().catch(() => null) as any;
+    if (rjson?.data) await disableTokens(pg, deadTokensFromReceipts(rjson.data, receiptTokens));
+  } catch { /* receipts are best-effort; never fail the send */ }
+}
+
+// Schedule a one-shot delayed re-poll of the same tickets ~15 min later, to
+// catch receipts that weren't ready at send time. In-memory + unref'd: a server
+// restart inside the window just skips it (self-heals — the next send re-polls),
+// which is an acceptable trade for not adding a durable job/table. delayMs is
+// injectable for tests.
+export function scheduleReceiptRepoll(
+  pg: Pg,
+  receiptTokens: Record<string, string>,
+  delayMs: number = RECEIPT_REPOLL_MS,
+): void {
+  if (!Object.keys(receiptTokens).length) return;
+  const t = setTimeout(() => { void pollReceiptsAndDisable(pg, receiptTokens); }, delayMs);
+  (t as { unref?: () => void }).unref?.();
+}
+
 // Fire-and-forget from callers' view; never throws into business logic.
 export async function sendPush(pg: Pg, userIds: string[], payload: PushPayload): Promise<{ sent: number }> {
   try {
@@ -81,20 +118,12 @@ export async function sendPush(pg: Pg, userIds: string[], payload: PushPayload):
       });
       await disableTokens(pg, deadNow);
     }
-    // Second stage: poll receipts for the accepted tickets and disable any
-    // token Expo now reports dead (DeviceNotRegistered / InvalidCredentials).
-    const receiptIds = Object.keys(receiptTokens);
-    if (receiptIds.length) {
-      try {
-        const rres = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ ids: receiptIds }),
-        });
-        const rjson = await rres.json().catch(() => null) as any;
-        if (rjson?.data) await disableTokens(pg, deadTokensFromReceipts(rjson.data, receiptTokens));
-      } catch { /* receipts are best-effort; never fail the send */ }
-    }
+    // Second stage: an IMMEDIATE receipts poll (catches receipts already ready),
+    // plus a DELAYED re-poll ~15 min later for the ones Expo hadn't generated yet
+    // — the common uninstalled-device (DeviceNotRegistered) case only surfaces on
+    // the later receipt, which the immediate poll alone misses.
+    await pollReceiptsAndDisable(pg, receiptTokens);
+    scheduleReceiptRepoll(pg, receiptTokens);
     return { sent };
   } catch {
     return { sent: 0 }; // push failures never propagate
