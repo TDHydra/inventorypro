@@ -99,6 +99,10 @@ async function build() {
     const m = request.method;
     if (m !== 'POST' && m !== 'PATCH' && m !== 'DELETE') return;
     if (request.url.startsWith('/auth')) return;
+    // /telemetry has its OWN per-user/IP `telemetry:` bucket (routes/telemetry.ts)
+    // and is fire-and-forget behavioral ingest — never let a telemetry flush burst
+    // consume a user's business `mut:` (/sync/push) quota.
+    if (request.url.startsWith('/telemetry')) return;
     let sub: string | undefined;
     try { sub = (await request.jwtVerify())?.sub; } catch { return; }
     if (sub && overRateLimit(`mut:${sub}`)) {

@@ -30,6 +30,7 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { track } from '../../../src/telemetry';
 
 interface Checkout {
   log_id: string;
@@ -137,6 +138,7 @@ export default function CheckinScreen() {
   }
 
   async function handleCheckin() {
+    track('action', 'checkin_confirm', { screen: 'checkin' });
     if (isWriteBlocked()) return;
     if (!user || selected.size === 0 || !returnLocation) return;
     if (!canCheckin) {
@@ -264,6 +266,7 @@ export default function CheckinScreen() {
   }
 
   async function handleUnitCheckin() {
+    track('action', 'checkin_confirm_units', { screen: 'checkin' });
     if (isWriteBlocked()) return;
     if (!user || selectedUnitIds.size === 0 || !unitReturnLocation) return;
     if (!canCheckin) {

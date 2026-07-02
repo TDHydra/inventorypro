@@ -36,8 +36,10 @@ export async function flushTelemetry(): Promise<void> {
     );
     if (rows.length === 0) return;
 
+    // A session token attributes events to the user; without one we still flush
+    // ANONYMOUSLY so the first-launch / login-screen funnel isn't lost (the
+    // server accepts anon telemetry on a tight per-IP rate limit).
     const jwt = await getValidJwt();
-    if (!jwt) return; // no session yet — leave buffered, retried next cycle
 
     const events = rows.map(r => ({
       type: r.type,
@@ -51,7 +53,7 @@ export async function flushTelemetry(): Promise<void> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${jwt}`,
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
         'x-telemetry-session': TELEMETRY_CONTEXT.session_id,
         'x-telemetry-device': TELEMETRY_CONTEXT.device_id,
         'x-telemetry-platform': TELEMETRY_CONTEXT.platform,

@@ -41,6 +41,7 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { track } from '../../../src/telemetry';
 
 type Step = 'find' | 'qty' | 'dest' | 'confirm';
 type DestType = 'job' | 'location' | 'pm';
@@ -378,6 +379,7 @@ export default function CheckoutScreen() {
   }
 
   async function handleConfirm() {
+    track('action', 'checkout_confirm', { screen: 'checkout' });
     if (isWriteBlocked()) return;
     if (!canCheckout) {
       Alert.alert('Not allowed', "You don't have permission to check out inventory.");

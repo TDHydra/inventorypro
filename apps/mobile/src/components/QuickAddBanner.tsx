@@ -2,6 +2,7 @@ import { TouchableOpacity, View, Text, StyleSheet, StyleProp, ViewStyle } from '
 import { useRouter } from 'expo-router';
 import { usePermission } from '../hooks/usePermission';
 import { useQuickAddBannerHidden, hideQuickAddBanner } from '../lib/quickAddBanner';
+import { track } from '../telemetry';
 import { colors, radii, spacing, fontSizes } from '../theme';
 
 /**
@@ -20,7 +21,7 @@ export function QuickAddBanner({ style }: { style?: StyleProp<ViewStyle> }) {
     <TouchableOpacity
       style={[s.btn, style]}
       activeOpacity={0.85}
-      onPress={() => router.push('/(app)/(quickadd)')}
+      onPress={() => { track('action', 'hub_quick_add', { screen: 'hub' }); router.push('/(app)/(quickadd)'); }}
     >
       <Text style={s.icon}>⚡</Text>
       <View style={s.textWrap}>

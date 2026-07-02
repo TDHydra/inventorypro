@@ -17,6 +17,7 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { track } from '../../telemetry';
 
 const DEFAULT_COLOR = colors.brand;
 const DEFAULT_ICON = '📦';
@@ -44,6 +45,7 @@ export default function LocationQuickAdd({ onSaved }: Props) {
   );
 
   function handleSave() {
+    track('action', 'quickadd_save_location', { screen: 'quick_add' });
     const trimmedName = name.trim();
     if (!trimmedName) {
       setNameError('Name is required.');

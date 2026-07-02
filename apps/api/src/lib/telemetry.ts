@@ -26,6 +26,42 @@ export function sanitizeLabel(s: string, max = 120): string {
   return s.replace(/[\x00-\x1f\x7f]+/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+export interface IngestContext {
+  sessionId: string;
+  userId: string | null;
+  deviceId: string | null;
+  platform: string | null;
+  appVersion: string | null;
+}
+
+/**
+ * The /telemetry route handler core, extracted so it's unit-testable with a
+ * mock pg (the route itself just resolves auth/rate-limit/headers). Sanitizes
+ * each raw event, inserts the survivors, and returns how many were accepted.
+ * Fire-and-forget: a bad row is skipped and a failed INSERT never aborts the
+ * batch — telemetry loss is acceptable, a failed business request is not.
+ */
+export async function ingestEvents(
+  pg: { query: (sql: string, params: unknown[]) => Promise<unknown> },
+  rawEvents: unknown[],
+  ctx: IngestContext,
+): Promise<number> {
+  let accepted = 0;
+  for (const raw of rawEvents) {
+    const e = sanitizeEvent(raw);
+    if (!e) continue;
+    try {
+      await pg.query(
+        `INSERT INTO telemetry_events (session_id,user_id,device_id,platform,app_version,type,name,screen,props,client_ts)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [ctx.sessionId, ctx.userId, ctx.deviceId, ctx.platform, ctx.appVersion, e.type, e.name, e.screen, JSON.stringify(e.props), e.client_ts],
+      );
+      accepted++;
+    } catch { /* fire-and-forget: never fail the batch on one bad row */ }
+  }
+  return accepted;
+}
+
 export function sanitizeEvent(raw: any): CleanEvent | null {
   if (!raw || typeof raw.type !== 'string' || !TYPES.has(raw.type)) return null;
   if (typeof raw.name !== 'string' || !raw.name) return null;

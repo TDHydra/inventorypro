@@ -17,6 +17,7 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { track } from '../../telemetry';
 import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
@@ -67,6 +68,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
   );
 
   function handleSave() {
+    track('action', 'quickadd_save_stock', { screen: 'quick_add' });
     if (!selectedLocation) {
       setError('Select a location.');
       return;

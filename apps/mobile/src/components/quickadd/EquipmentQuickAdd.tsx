@@ -23,6 +23,7 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { track } from '../../telemetry';
 import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
@@ -110,6 +111,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   }
 
   function handleSave() {
+    track('action', 'quickadd_save_equipment', { screen: 'quick_add' });
     if (!selectedItem) {
       setFormError('Select an item first.');
       return;

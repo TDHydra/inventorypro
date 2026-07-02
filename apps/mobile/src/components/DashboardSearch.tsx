@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import { useRouter } from 'expo-router';
 import { searchEverything } from '../db/queries/search';
 import { formatQuantity } from '../constants/units';
+import { track } from '../telemetry';
 import { colors } from '../theme';
 
 /**
@@ -33,7 +34,7 @@ export function DashboardSearch() {
     setQuery('');
   }
 
-  const openScanner = () => router.push({ pathname: '/(app)/(hub)', params: { scan: '1' } });
+  const openScanner = () => { track('action', 'hub_scan', { screen: 'hub' }); router.push({ pathname: '/(app)/(hub)', params: { scan: '1' } }); };
   const openHub = () => router.push({ pathname: '/(app)/(hub)', params: { q: query } });
   const goItem = (id: string) => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id } });
   const goEquipment = (id: string) => router.push({ pathname: '/(app)/(equipment)/[id]', params: { id } });

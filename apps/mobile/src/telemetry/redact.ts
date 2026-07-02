@@ -13,6 +13,13 @@ export const TELEMETRY_PROP_ALLOWLIST = new Set([
 // UI or growing local storage unbounded is not.
 export const BUFFER_CAP = 2000;
 
+// How many oldest rows track() must evict after an insert to hold the buffer at
+// BUFFER_CAP. Pure + exported so the ring-buffer policy is unit-testable without
+// a live SQLite handle (track() does the actual DELETE with this count).
+export function excessToEvict(count: number, cap: number = BUFFER_CAP): number {
+  return count > cap ? count - cap : 0;
+}
+
 // Mirror of the server's sanitizeLabel (apps/api/src/lib/telemetry.ts). name/
 // screen are identifiers (route patterns, testIDs, action keys), NOT free text
 // — the props allowlist can't guard them, so strip control chars, collapse

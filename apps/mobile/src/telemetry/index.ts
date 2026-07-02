@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { getDb } from '../db/schema';
 import { getAppConfig } from '../db/appConfig';
 import { generateUUID } from '../utils/uuid';
-import { redactProps, sanitizeLabel, BUFFER_CAP } from './redact';
+import { redactProps, sanitizeLabel, BUFFER_CAP, excessToEvict } from './redact';
 
 export type TelemetryType = 'screen' | 'action' | 'error' | 'audit';
 
@@ -72,12 +72,13 @@ export function track(type: TelemetryType, name: string, opts?: TrackOpts): void
     const countRow = db.executeSync(`SELECT COUNT(*) as cnt FROM telemetry_buffer`)
       .rows[0] as { cnt: number } | undefined;
     const count = countRow?.cnt ?? 0;
-    if (count > BUFFER_CAP) {
+    const evict = excessToEvict(count, BUFFER_CAP);
+    if (evict > 0) {
       db.executeSync(
         `DELETE FROM telemetry_buffer WHERE seq IN (
            SELECT seq FROM telemetry_buffer ORDER BY seq ASC LIMIT ?
          )`,
-        [count - BUFFER_CAP],
+        [evict],
       );
     }
   } catch {

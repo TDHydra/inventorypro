@@ -27,6 +27,7 @@ import { FilterChip } from '../ui/FilterChip';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { ModalSheet } from '../ui/ModalSheet';
+import { track } from '../../telemetry';
 
 interface Props {
   onSaved: (label: string, createdId?: string) => void;
@@ -130,6 +131,7 @@ export default function TeamQuickAdd({ onSaved }: Props) {
   }
 
   function handleSave() {
+    track('action', 'quickadd_save_team', { screen: 'quick_add' });
     const trimmedName = name.trim();
     if (!trimmedName) {
       setNameError('Name is required.');

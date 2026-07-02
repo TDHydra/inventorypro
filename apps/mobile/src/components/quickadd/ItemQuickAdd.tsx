@@ -27,6 +27,7 @@ import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { BarcodeInput } from '../BarcodeInput';
+import { track } from '../../telemetry';
 import type { QuickAddSaveMeta } from './justAdded';
 
 // Pieces class id (migration 012) — the default unit class when no item type is
@@ -172,6 +173,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   }
 
   function handleSave() {
+    track('action', 'quickadd_save_item', { screen: 'quick_add' });
     const trimmedName = name.trim();
     if (!trimmedName) {
       setNameError('Name is required.');
