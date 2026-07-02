@@ -23,6 +23,8 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
+import { printLabels, LabelItem } from '../../../src/labels/printLabel';
+import { Alert } from '../../../src/lib/themedAlert';
 import { autoTypeColor } from '../../../src/constants/typeColors';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
 
@@ -104,10 +106,31 @@ export default function EquipmentScreen() {
     ms.exit();
   }, [ms, reloadList, logItem]);
 
+  // Offline QR-label batch print. Selected ids are always within the loaded
+  // `models` list (toggle/selectAll only source from it), so we resolve
+  // titles/codes from memory — no DB round-trip. Equipment models are
+  // inventory_items, so the scan payload is `INV:item:{id}` (same as the detail
+  // screen's model label). Printing is read-only — exempt from the write block.
+  const handlePrintLabels = useCallback(async () => {
+    const byId = new Map(models.map(m => [m.id, m]));
+    const labels: LabelItem[] = Array.from(ms.selected)
+      .map(id => byId.get(id))
+      .filter((m): m is EquipmentModel => !!m)
+      .map(m => ({ title: m.name, code: m.barcode ?? m.id, payload: `INV:item:${m.id}` }));
+    if (labels.length === 0) { ms.exit(); return; }
+    try {
+      await printLabels(labels, 'standard');
+    } catch (err) {
+      Alert.alert('Print failed', err instanceof Error ? err.message : 'An error occurred.');
+    }
+    ms.exit();
+  }, [models, ms]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set category', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
-  ], []);
+  ], [handlePrintLabels]);
 
   // Load on mount, on screen focus (e.g. returning from add or detail), and
   // whenever a background sync pull applies changes (dataVersion bumps) while

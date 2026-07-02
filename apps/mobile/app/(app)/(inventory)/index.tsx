@@ -27,6 +27,8 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { syncNow } from '../../../src/sync/engine';
+import { printLabels, LabelItem } from '../../../src/labels/printLabel';
+import { Alert } from '../../../src/lib/themedAlert';
 import { colors } from '../../../src/theme';
 
 interface Item {
@@ -210,11 +212,31 @@ export default function InventoryScreen() {
     ms.exit();
   }, [ms, reloadList, logItem, minQtyValue]);
 
+  // Offline QR-label batch print. Selected ids are always within the currently
+  // loaded window (toggle/selectAll only source from `items`), so we resolve
+  // titles/codes from memory — no DB round-trip. Printing is read-only, so it's
+  // exempt from the maintenance write block.
+  const handlePrintLabels = useCallback(async () => {
+    const byId = new Map(items.map(i => [i.id, i]));
+    const labels: LabelItem[] = Array.from(ms.selected)
+      .map(id => byId.get(id))
+      .filter((i): i is Item => !!i)
+      .map(i => ({ title: i.name, code: i.barcode ?? i.id, payload: `INV:item:${i.id}` }));
+    if (labels.length === 0) { ms.exit(); return; }
+    try {
+      await printLabels(labels, 'standard');
+    } catch (err) {
+      Alert.alert('Print failed', err instanceof Error ? err.message : 'An error occurred.');
+    }
+    ms.exit();
+  }, [items, ms]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set item type', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
     { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
-  ], []);
+  ], [handlePrintLabels]);
 
   return (
     <>

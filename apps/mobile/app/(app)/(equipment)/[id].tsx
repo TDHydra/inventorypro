@@ -19,6 +19,10 @@ import {
   setUnitStatus, EquipmentUnit,
 } from '../../../src/db/queries/equipmentUnits';
 import { appendLog } from '../../../src/db/queries/log';
+import {
+  createMaintenanceEvent, getMaintenanceEventsForUnit, MaintenanceEvent,
+} from '../../../src/db/queries/maintenance';
+import { computeBookValue, formatMoney } from '../../../src/equipment/depreciation';
 import { getRepairsForEntity, updateRepairStatus } from '../../../src/db/queries/repairs';
 import { getRepairStatuses, isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { useSession } from '../../../src/hooks/useSession';
@@ -37,12 +41,20 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
+// Build a unit-id → maintenance-events (newest first) map for a set of units.
+function buildMaintMap(units: EquipmentUnit[]): Map<string, MaintenanceEvent[]> {
+  const map = new Map<string, MaintenanceEvent[]>();
+  for (const u of units) map.set(u.id, getMaintenanceEventsForUnit(u.id));
+  return map;
+}
+
 export default function EquipmentModelDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
   const canAddUnits = usePermission('add_inventory');
+  const canViewFinancial = usePermission('view_financial_data');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
@@ -66,6 +78,21 @@ export default function EquipmentModelDetailScreen() {
   const [tagErrors, setTagErrors] = useState<Record<number, string>>({});
   const [units, setUnits] = useState<EquipmentUnit[]>(() => getUnitsForItem(id));
   const [unitCounts, setUnitCounts] = useState(() => countUnitsByStatus(id));
+
+  // Maintenance history keyed by unit id (newest first), refreshed by reload().
+  const [maintByUnit, setMaintByUnit] = useState<Map<string, MaintenanceEvent[]>>(
+    () => buildMaintMap(getUnitsForItem(id)),
+  );
+
+  // Add-maintenance-event sheet state.
+  const [maintUnit, setMaintUnit] = useState<EquipmentUnit | null>(null);
+  const [maintDate, setMaintDate] = useState('');
+  const [maintType, setMaintType] = useState('');
+  const [maintNotes, setMaintNotes] = useState('');
+  const [maintCost, setMaintCost] = useState('');
+
+  // ISO snapshot for depreciation "as of now" (cheap; recomputed per render).
+  const nowIso = new Date().toISOString();
 
   // Repair-out modal state (note prompt, cross-platform)
 
@@ -117,9 +144,11 @@ export default function EquipmentModelDetailScreen() {
   }, [units, locationMap]);
 
   const reload = useCallback(() => {
+    const nextUnits = getUnitsForItem(id);
     setItem(getItemById(id));
-    setUnits(getUnitsForItem(id));
+    setUnits(nextUnits);
     setUnitCounts(countUnitsByStatus(id));
+    setMaintByUnit(buildMaintMap(nextUnits));
   }, [id]);
 
   if (!item) {
@@ -261,6 +290,13 @@ export default function EquipmentModelDetailScreen() {
         current_location_id: locationId,
         current_job_id: null,
         notes: null,
+        purchase_price: null,
+        acquired_at: null,
+        useful_life_months: null,
+        salvage_value: null,
+        depreciation_method: null,
+        next_service_at: null,
+        service_interval_months: null,
         created_at: now,
         updated_at: now,
         synced_at: null,
@@ -394,6 +430,42 @@ export default function EquipmentModelDetailScreen() {
     );
   }
 
+  // ── Maintenance event helpers ────────────────────────────────────────────
+  function openAddMaint(unit: EquipmentUnit) {
+    setMaintUnit(unit);
+    // Default the date to today (YYYY-MM-DD, the editable display form).
+    setMaintDate(new Date().toISOString().slice(0, 10));
+    setMaintType('');
+    setMaintNotes('');
+    setMaintCost('');
+  }
+
+  function saveMaint() {
+    if (!maintUnit || !user) return;
+    if (isWriteBlocked()) return;
+    if (!maintType.trim()) { Alert.alert('Required', 'Enter a maintenance type.'); return; }
+    // Turn the YYYY-MM-DD input back into an ISO instant; fall back to now if
+    // the field was cleared or is unparseable.
+    const parsed = maintDate.trim() ? new Date(maintDate.trim()) : null;
+    const eventDate = parsed && !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
+    // Cost is only offered to financial users; parse leniently, null when blank.
+    let cost: number | null = null;
+    if (canViewFinancial && maintCost.trim()) {
+      const n = parseFloat(maintCost.trim());
+      cost = isNaN(n) ? null : n;
+    }
+    createMaintenanceEvent({
+      unitId: maintUnit.id,
+      eventDate,
+      type: maintType.trim(),
+      notes: maintNotes.trim() || null,
+      cost,
+      userId: user.id,
+    });
+    setMaintUnit(null);
+    reload();
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: editing ? 'Edit Model' : item.name, headerShown: true }} />
@@ -480,6 +552,58 @@ export default function EquipmentModelDetailScreen() {
                       </View>
                     ))}
                   </View>
+                )}
+              </View>
+
+              {/* ── Maintenance & Lifecycle ───────────────────────────── */}
+              {/* Per-unit service history + (financial-only) book value. Cost
+                  columns and the depreciation line are gated on view_financial_data,
+                  mirroring how the repair screen hides cost. */}
+              <Text style={s.sectionLabel}>Maintenance & Lifecycle</Text>
+              <View style={s.card}>
+                {units.length === 0 ? (
+                  <Text style={s.muted}>No units registered yet.</Text>
+                ) : (
+                  units.map((u, i) => {
+                    const events = maintByUnit.get(u.id) ?? [];
+                    const bookValue = canViewFinancial ? computeBookValue(u, nowIso) : null;
+                    return (
+                      <View key={u.id} style={i < units.length - 1 ? [s.maintBlock, s.divider] : s.maintBlock}>
+                        <View style={s.maintHeaderRow}>
+                          <Text style={s.maintUnitTag}>{u.asset_tag}</Text>
+                          {canViewFinancial && bookValue != null && (
+                            <Text style={s.maintBookValue}>Book value {formatMoney(bookValue)}</Text>
+                          )}
+                        </View>
+                        {events.length === 0 ? (
+                          <Text style={s.maintEmpty}>No maintenance logged.</Text>
+                        ) : (
+                          events.map(ev => (
+                            <View key={ev.id} style={s.maintRow}>
+                              <View style={s.maintRowMain}>
+                                <Text style={s.maintDate}>
+                                  {new Date(ev.event_date).toLocaleDateString()} · {ev.type}
+                                </Text>
+                                {!!ev.notes && <Text style={s.maintNotes}>{ev.notes}</Text>}
+                              </View>
+                              {canViewFinancial && ev.cost != null && (
+                                <Text style={s.maintCost}>{formatMoney(ev.cost)}</Text>
+                              )}
+                            </View>
+                          ))
+                        )}
+                        {canEdit && (
+                          <TouchableOpacity
+                            style={s.maintAddBtn}
+                            onPress={() => openAddMaint(u)}
+                            disabled={locked}
+                          >
+                            <Text style={s.maintAddText}>+ Add maintenance event</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })
                 )}
               </View>
 
@@ -649,6 +773,58 @@ export default function EquipmentModelDetailScreen() {
         )}
       </ModalSheet>
 
+      {/* ── Add Maintenance Event Modal ─────────────────────────────────── */}
+      <ModalSheet visible={maintUnit !== null} onClose={() => setMaintUnit(null)}>
+        <ScrollView keyboardShouldPersistTaps="handled">
+          <Text style={s.promptTitle}>Log Maintenance</Text>
+          <Text style={s.promptSub}>{maintUnit?.asset_tag}</Text>
+
+          <FieldLabel style={{ marginTop: 14 }}>Date</FieldLabel>
+          <AppInput
+            value={maintDate}
+            onChangeText={setMaintDate}
+            placeholder="YYYY-MM-DD"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <FieldLabel style={{ marginTop: 10 }}>Type *</FieldLabel>
+          <AppInput
+            value={maintType}
+            onChangeText={setMaintType}
+            placeholder="Inspection, oil change, calibration…"
+          />
+
+          <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
+          <AppInput
+            style={s.multiline}
+            value={maintNotes}
+            onChangeText={setMaintNotes}
+            placeholder="Notes"
+            multiline
+          />
+
+          {canViewFinancial && (
+            <>
+              <FieldLabel style={{ marginTop: 10 }}>Cost (optional)</FieldLabel>
+              <AppInput
+                value={maintCost}
+                onChangeText={setMaintCost}
+                placeholder="0.00"
+                keyboardType="numeric"
+              />
+            </>
+          )}
+
+          <View style={[s.row, { marginTop: 16 }]}>
+            <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setMaintUnit(null)}>
+              <Text style={s.btnGhostText}>Cancel</Text>
+            </TouchableOpacity>
+            <PrimaryButton label="Save" onPress={saveMaint} disabled={locked} style={{ flex: 1 }} />
+          </View>
+        </ScrollView>
+      </ModalSheet>
+
       {/* ── Per-unit Media Modal ────────────────────────────────────────── */}
       <ModalSheet visible={unitMediaUnit !== null} onClose={() => setUnitMediaUnit(null)}>
         <Text style={s.modalTitle}>Photos — {unitMediaUnit?.asset_tag}</Text>
@@ -814,4 +990,16 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.borderDetail, gap: 0,
   },
   unitSummary: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  maintBlock: { paddingVertical: 12 },
+  maintHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  maintUnitTag: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  maintBookValue: { fontSize: 13, fontWeight: '700', color: colors.primaryText },
+  maintEmpty: { fontSize: 13, color: colors.textMuted, marginTop: 6 },
+  maintRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 8, gap: 12 },
+  maintRowMain: { flex: 1 },
+  maintDate: { fontSize: 14, color: colors.textPrimary, fontWeight: '600' },
+  maintNotes: { fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18 },
+  maintCost: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  maintAddBtn: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primaryBg, marginTop: 10 },
+  maintAddText: { fontSize: 12, fontWeight: '700', color: colors.primaryText },
 });

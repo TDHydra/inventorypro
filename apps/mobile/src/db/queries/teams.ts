@@ -1,5 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { getValidJwt } from '../../auth/session';
+import { syncNow } from '../../sync/engine';
 import { Permission } from '../../constants/roles';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -129,6 +130,39 @@ export function removeTeamMember(teamId: string, userId: string): void {
   );
 }
 
+// Shared gated PATCH for a single team_members row (both the manager toggle and
+// the per-member override editor use PATCH /teams/:id/members/:uid). If the team
+// + member were just created offline, the server has no team_members row yet and
+// PATCH returns 404 "Member not found". So we flush local writes first (syncNow)
+// to create the row server-side, then PATCH; a single 404 triggers ONE more sync
+// + retry before giving up with a friendly "still syncing" error. Returns the
+// final Response so callers can interpret 403/other statuses with their own copy.
+async function patchTeamMemberRow(
+  teamId: string,
+  userId: string,
+  jwt: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const url = `${API_BASE}/teams/${teamId}/members/${userId}`;
+  const init: RequestInit = {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify(body),
+  };
+  // Push any pending offline writes so the server has the team + member rows.
+  await syncNow().catch(() => undefined);
+  let res = await fetch(url, init);
+  if (res.status === 404) {
+    // Row may still be in flight — force one more sync, then retry exactly once.
+    await syncNow().catch(() => undefined);
+    res = await fetch(url, init);
+    if (res.status === 404) {
+      throw new Error('Member is still syncing — try again in a moment.');
+    }
+  }
+  return res;
+}
+
 // Promote/demote an existing member as a team manager. Bundles the outbox row
 // (UPDATE team_members) itself — real boolean payload, no synced_at.
 // is_manager is server-controlled: the sync push ignores client writes to it (it
@@ -138,11 +172,7 @@ export function removeTeamMember(teamId: string, userId: string): void {
 export async function setMemberManagerOnline(teamId: string, userId: string, isManager: boolean): Promise<void> {
   const jwt = await getValidJwt();
   if (!jwt) throw new Error('Connect to the server to change team managers.');
-  const res = await fetch(`${API_BASE}/teams/${teamId}/members/${userId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-    body: JSON.stringify({ is_manager: isManager }),
-  });
+  const res = await patchTeamMemberRow(teamId, userId, jwt, { is_manager: isManager });
   if (!res.ok) {
     throw new Error(res.status === 403
       ? 'You do not have permission to change team managers.'
@@ -174,11 +204,7 @@ export async function setMemberPermissionOverridesOnline(
 ): Promise<void> {
   const jwt = await getValidJwt();
   if (!jwt) throw new Error('Connect to the server to change team permissions.');
-  const res = await fetch(`${API_BASE}/teams/${teamId}/members/${userId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-    body: JSON.stringify({ team_permission_overrides: overrides }),
-  });
+  const res = await patchTeamMemberRow(teamId, userId, jwt, { team_permission_overrides: overrides });
   if (!res.ok) {
     throw new Error(res.status === 403
       ? 'You do not have permission to change team permissions.'

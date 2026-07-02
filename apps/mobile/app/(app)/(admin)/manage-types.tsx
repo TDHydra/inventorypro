@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Animated, PanResponder } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -93,27 +93,80 @@ function ColorPicker({
   );
 }
 
-// ── Type list row ────────────────────────────────────────────────────────────
+// ── Type list row (drag-to-reorder) ──────────────────────────────────────────
+// Rows are absolutely positioned inside DraggableTypeList so a lifted row can
+// float under the finger via a shared Animated.Value while the others shift to
+// open a gap. A ≡ grab handle owns a PanResponder; the up/down arrows remain as
+// a no-drag accessibility fallback.
 
-function TypeRow({
+const ROW_HEIGHT = 54;
+
+function DragRow({
   item,
   index,
   total,
+  dragging,
+  shift,
+  dragY,
   locked,
   onEdit,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   onMoveUp,
   onMoveDown,
 }: {
   item: TaxonomyType;
   index: number;
   total: number;
+  dragging: boolean;
+  shift: number;
+  dragY: Animated.Value;
   locked: boolean;
   onEdit: () => void;
+  onDragStart: (index: number) => void;
+  onDragMove: (index: number, dy: number) => void;
+  onDragEnd: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
+  // Mirror per-render values into a ref so the PanResponder (created once) always
+  // reads this row's current index / locked flag / callbacks.
+  const cfg = useRef({ index, locked, onDragStart, onDragMove, onDragEnd });
+  cfg.current = { index, locked, onDragStart, onDragMove, onDragEnd };
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !cfg.current.locked,
+        onMoveShouldSetPanResponder: () => !cfg.current.locked,
+        onPanResponderGrant: () => cfg.current.onDragStart(cfg.current.index),
+        onPanResponderMove: (_e, g) => cfg.current.onDragMove(cfg.current.index, g.dy),
+        onPanResponderRelease: () => cfg.current.onDragEnd(),
+        onPanResponderTerminate: () => cfg.current.onDragEnd(),
+      }),
+    [],
+  );
+
+  const transform = dragging ? [{ translateY: dragY }] : [{ translateY: shift }];
+
   return (
-    <View style={[s.typeRow, !item.active && s.typeRowMuted]}>
+    <Animated.View
+      style={[
+        s.dragRow,
+        index > 0 && s.dragRowBorder,
+        !item.active && s.typeRowMuted,
+        { top: index * ROW_HEIGHT, transform },
+        dragging && s.dragRowLifted,
+      ]}
+    >
+      <View
+        {...responder.panHandlers}
+        style={s.dragHandle}
+        accessibilityLabel={`Drag to reorder ${item.label}`}
+      >
+        <Text style={[s.dragHandleGlyph, locked && s.arrowDisabled]}>≡</Text>
+      </View>
       <Text style={s.typeRowIcon}>{renderIcon(item.icon)}</Text>
       <Text style={[s.typeRowLabel, !item.active && s.typeRowLabelMuted]} numberOfLines={1}>
         {item.label}
@@ -125,6 +178,7 @@ function TypeRow({
           disabled={index === 0 || locked}
           style={s.reorderBtn}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          accessibilityLabel="Move up"
         >
           <Text style={[s.reorderArrow, (index === 0 || locked) && s.arrowDisabled]}>▲</Text>
         </TouchableOpacity>
@@ -133,6 +187,7 @@ function TypeRow({
           disabled={index === total - 1 || locked}
           style={s.reorderBtn}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          accessibilityLabel="Move down"
         >
           <Text style={[s.reorderArrow, (index === total - 1 || locked) && s.arrowDisabled]}>▼</Text>
         </TouchableOpacity>
@@ -140,6 +195,95 @@ function TypeRow({
           <Text style={s.editBtnText}>Edit</Text>
         </TouchableOpacity>
       </View>
+    </Animated.View>
+  );
+}
+
+function DraggableTypeList({
+  list,
+  locked,
+  onEdit,
+  onReorder,
+  onMoveUp,
+  onMoveDown,
+}: {
+  list: TaxonomyType[];
+  locked: boolean;
+  onEdit: (item: TaxonomyType) => void;
+  onReorder: (orderedIds: string[]) => void;
+  onMoveUp: (index: number) => void;
+  onMoveDown: (index: number) => void;
+}) {
+  const dragY = useRef(new Animated.Value(0)).current;
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [targetIndex, setTargetIndex] = useState<number | null>(null);
+  // Ref mirrors for use inside the release/terminate closures (avoid stale state).
+  const dragIndexRef = useRef<number | null>(null);
+  const targetIndexRef = useRef<number | null>(null);
+  const lenRef = useRef(list.length);
+  lenRef.current = list.length;
+
+  function handleDragStart(index: number) {
+    dragIndexRef.current = index;
+    targetIndexRef.current = index;
+    setDragIndex(index);
+    setTargetIndex(index);
+    dragY.setValue(0);
+  }
+
+  function handleDragMove(startIndex: number, dy: number) {
+    dragY.setValue(dy);
+    const raw = startIndex + Math.round(dy / ROW_HEIGHT);
+    const clamped = Math.max(0, Math.min(lenRef.current - 1, raw));
+    if (clamped !== targetIndexRef.current) {
+      targetIndexRef.current = clamped;
+      setTargetIndex(clamped);
+    }
+  }
+
+  function handleDragEnd() {
+    const from = dragIndexRef.current;
+    const to = targetIndexRef.current;
+    dragIndexRef.current = null;
+    targetIndexRef.current = null;
+    setDragIndex(null);
+    setTargetIndex(null);
+    dragY.setValue(0);
+    if (from == null || to == null || from === to) return;
+    const ids = list.map(t => t.id);
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
+    onReorder(ids);
+  }
+
+  // Vertical offset for a non-dragged row so the list opens a gap at the target.
+  function slotShift(i: number): number {
+    if (dragIndex == null || targetIndex == null || i === dragIndex) return 0;
+    if (dragIndex < targetIndex && i > dragIndex && i <= targetIndex) return -ROW_HEIGHT;
+    if (dragIndex > targetIndex && i >= targetIndex && i < dragIndex) return ROW_HEIGHT;
+    return 0;
+  }
+
+  return (
+    <View style={[s.dragList, { height: list.length * ROW_HEIGHT }]}>
+      {list.map((item, i) => (
+        <DragRow
+          key={item.id}
+          item={item}
+          index={i}
+          total={list.length}
+          dragging={dragIndex === i}
+          shift={slotShift(i)}
+          dragY={dragY}
+          locked={locked}
+          onEdit={() => onEdit(item)}
+          onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
+          onDragEnd={handleDragEnd}
+          onMoveUp={() => onMoveUp(i)}
+          onMoveDown={() => onMoveDown(i)}
+        />
+      ))}
     </View>
   );
 }
@@ -469,6 +613,24 @@ export default function ManageTypesScreen() {
     }
   }
 
+  // Commit a drag-reorder: keep the category's existing set of sort_order values
+  // and reassign them by the new row position (list arrives sorted ascending),
+  // persisting only the rows whose sort_order actually changed.
+  function handleReorderCommit(list: TaxonomyType[], orderedIds: string[]) {
+    if (isWriteBlocked()) return;
+    const orders = list.map(t => t.sort_order);
+    const byId = new Map(list.map(t => [t.id, t]));
+    try {
+      orderedIds.forEach((id, i) => {
+        const t = byId.get(id);
+        if (t && t.sort_order !== orders[i]) reorderTaxonomyType(id, orders[i]);
+      });
+      refresh();
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message);
+    }
+  }
+
   // ── Section renderer ────────────────────────────────────────────────────────
 
   function renderSection(
@@ -481,23 +643,18 @@ export default function ManageTypesScreen() {
       <View style={s.section}>
         <Text style={s.sectionTitle}>{title}</Text>
         <View style={s.card}>
-          {list.length === 0 && (
+          {list.length === 0 ? (
             <Text style={s.emptyText}>No types yet. Add one below.</Text>
+          ) : (
+            <DraggableTypeList
+              list={list}
+              locked={locked}
+              onEdit={openEdit}
+              onReorder={ids => handleReorderCommit(list, ids)}
+              onMoveUp={i => handleMoveUp(list, i)}
+              onMoveDown={i => handleMoveDown(list, i)}
+            />
           )}
-          {list.map((item, index) => (
-            <View key={item.id}>
-              {index > 0 && <View style={s.divider} />}
-              <TypeRow
-                item={item}
-                index={index}
-                total={list.length}
-                locked={locked}
-                onEdit={() => openEdit(item)}
-                onMoveUp={() => handleMoveUp(list, index)}
-                onMoveDown={() => handleMoveDown(list, index)}
-              />
-            </View>
-          ))}
         </View>
         <TouchableOpacity
           style={s.addRow}
@@ -867,6 +1024,32 @@ const s = StyleSheet.create({
     borderRadius: 4,
   },
   typeRowActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+
+  // Drag-to-reorder type list (absolutely-positioned rows within a fixed height)
+  dragList: { position: 'relative' },
+  dragRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: ROW_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.base,
+    gap: 8,
+    backgroundColor: colors.surface,
+  },
+  dragRowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+  dragRowLifted: {
+    zIndex: 10,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  dragHandle: { paddingHorizontal: 4, paddingVertical: 8, marginRight: 2 },
+  dragHandleGlyph: { fontSize: 18, color: colors.textMuted, fontWeight: '700' },
+
   reorderBtn: { padding: 4 },
   reorderArrow: { fontSize: 12, color: colors.textSecondary, fontWeight: '700' },
   arrowDisabled: { color: colors.textDisabled },

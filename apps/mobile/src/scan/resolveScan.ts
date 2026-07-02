@@ -1,6 +1,7 @@
 export type ScanResult =
   | { kind: 'item'; id: string }
   | { kind: 'unit'; assetTag: string }
+  | { kind: 'location'; id: string }
   | { kind: 'barcode'; code: string }
   | null;
 
@@ -17,15 +18,22 @@ const ASSET_TAG_RE = /^[\x21-\x7E]{1,128}$/;
 /**
  * Parse a scanned string into a typed result.
  *
- * - `INV:item:<id>`   → { kind:'item', id }      (id must be a UUID)
- * - `INV:unit:<tag>`  → { kind:'unit', assetTag } (printable, ≤128 chars)
- * - anything else     → { kind:'barcode', code }
+ * - `INV:item:<id>`     → { kind:'item', id }      (id must be a UUID)
+ * - `INV:unit:<tag>`    → { kind:'unit', assetTag } (printable, ≤128 chars)
+ * - `INV:location:<id>` → { kind:'location', id }   (id must be a UUID)
+ * - anything else       → { kind:'barcode', code }
  * - malformed prefix / malformed id or tag → null
  */
 export function resolveScan(data: string): ScanResult {
   if (data.startsWith('INV:item:')) {
     const id = data.slice('INV:item:'.length);
     return UUID_RE.test(id) ? { kind: 'item', id } : null;
+  }
+  // Location ids are UUIDs (server-authoritative), same as items — accept only a
+  // canonical UUID so a crafted `INV:location:<junk>` can't reach nav/queries.
+  if (data.startsWith('INV:location:')) {
+    const id = data.slice('INV:location:'.length);
+    return UUID_RE.test(id) ? { kind: 'location', id } : null;
   }
   if (data.startsWith('INV:unit:')) {
     const assetTag = data.slice('INV:unit:'.length);

@@ -12,6 +12,7 @@ import {
 import { getLowStockItems } from '../db/queries/items';
 import { getExpiringUsers } from '../db/queries/users';
 import { getRepairs } from '../db/queries/repairs';
+import { getUnitsDueForService } from '../db/queries/maintenance';
 import { isTerminalStatus } from '../db/queries/taxonomy';
 import { getSavedUserId, buildUserSession } from '../auth/session';
 import { hasPermission } from '../auth/permissions';
@@ -19,6 +20,7 @@ import { hasPermission } from '../auth/permissions';
 const LOWSTOCK_PREFIX = 'alert:lowstock:';
 const EXPIRY_PREFIX = 'alert:expiry:';
 const REPAIR_OVERDUE_PREFIX = 'alert:repair_overdue:';
+const SERVICE_DUE_PREFIX = 'alert:service_due:';
 
 // True only when the browser exposes the Notifications API.
 function notificationsSupported(): boolean {
@@ -71,9 +73,9 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 
 /**
  * Compute and fire local alerts (low stock + temp-employee expiry + overdue
- * repairs). Called fire-and-forget after each sync cycle. Pref-gated,
- * permission-scoped, deduped via app_settings keys, and wrapped so it can
- * never throw into the sync loop.
+ * repairs + equipment service due). Called fire-and-forget after each sync
+ * cycle. Pref-gated, permission-scoped, deduped via app_settings keys, and
+ * wrapped so it can never throw into the sync loop.
  */
 export async function runLocalAlertChecks(): Promise<void> {
   try {
@@ -161,6 +163,29 @@ export async function runLocalAlertChecks(): Promise<void> {
     for (const key of getAppSettingKeysByPrefix(REPAIR_OVERDUE_PREFIX)) {
       const id = key.slice(REPAIR_OVERDUE_PREFIX.length);
       if (!overdueIds.includes(id)) deleteAppSetting(key);
+    }
+
+    // ── Equipment service due ────────────────────────────────────────────────
+    // Scoped like overdue repairs: edit_inventory is what gates maintenance
+    // logging on the equipment screen. getUnitsDueForService only returns units
+    // whose next_service_at is set and already past.
+    const canSeeService = hasPermission(session, 'edit_inventory');
+    const dueUnits = canSeeService ? getUnitsDueForService(new Date().toISOString()) : [];
+    const dueIds = dueUnits.map(u => u.id);
+    if (canSeeService) {
+      for (const u of dueUnits) {
+        const key = `${SERVICE_DUE_PREFIX}${u.id}`;
+        if (getAppSetting(key) === null) {
+          notify('Service due', `${u.asset_tag} was due ${new Date(u.next_service_at).toLocaleDateString()}`);
+          setAppSetting(key, '1');
+        }
+      }
+    }
+    // Clear keys for units no longer due — serviced (next_service_at advanced or
+    // cleared) or the permission was lost — so they can re-fire later.
+    for (const key of getAppSettingKeysByPrefix(SERVICE_DUE_PREFIX)) {
+      const id = key.slice(SERVICE_DUE_PREFIX.length);
+      if (!dueIds.includes(id)) deleteAppSetting(key);
     }
   } catch (err) {
     console.warn('[Notifications] runLocalAlertChecks failed:', (err as Error).message);

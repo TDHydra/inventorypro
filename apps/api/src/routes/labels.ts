@@ -57,6 +57,33 @@ const routes: FastifyPluginAsync = async (fastify) => {
     });
     return reply.type('image/png').send(buf);
   });
+
+  // GET /labels/location/:id/qr.png
+  fastify.get<{ Params: { id: string } }>('/location/:id/qr.png', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { rows } = await fastify.pg.query(
+      `SELECT id FROM locations WHERE id = $1`,
+      [request.params.id]
+    );
+    if (!rows[0]) return reply.status(404).send({ error: 'Not found' });
+
+    const buf = await QRCode.toBuffer(`INV:location:${request.params.id}`, {
+      type: 'png',
+      width: 512,
+      margin: 1,
+    });
+    return reply.type('image/png').send(buf);
+  });
 };
 
 export default routes;

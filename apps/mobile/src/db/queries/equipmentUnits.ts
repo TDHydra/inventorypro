@@ -11,6 +11,16 @@ export interface EquipmentUnit {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  // Lifecycle / depreciation (migration 027). purchase_price & salvage_value are
+  // financial — server only pulls them down for view_financial_data holders, so
+  // they arrive null on non-financial devices.
+  purchase_price: number | null;
+  acquired_at: string | null;
+  useful_life_months: number | null;
+  salvage_value: number | null;
+  depreciation_method: string | null;
+  next_service_at: string | null;
+  service_interval_months: number | null;
   synced_at: string | null;
 }
 
@@ -94,9 +104,11 @@ export function upsertUnit(u: EquipmentUnit): void {
   const db = getDb();
   db.executeSync(
     `INSERT OR REPLACE INTO equipment_units
-       (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    bindParams([u.id, u.item_id, u.asset_tag, u.serial_number, u.status, u.current_location_id, u.current_job_id, u.notes, u.created_at, u.updated_at, u.synced_at]));
+       (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([u.id, u.item_id, u.asset_tag, u.serial_number, u.status, u.current_location_id, u.current_job_id, u.notes, u.created_at, u.updated_at,
+      u.purchase_price ?? null, u.acquired_at ?? null, u.useful_life_months ?? null, u.salvage_value ?? null, u.depreciation_method ?? null, u.next_service_at ?? null, u.service_interval_months ?? null,
+      u.synced_at]));
 }
 
 export function setUnitStatus(

@@ -1,29 +1,29 @@
 # InventoryPro — Backlog
 
 *Single living checklist. Supersedes the scattered "Out of scope" notes in `docs/superpowers/specs/*`.
-Last reconciled against the codebase 2026-06-28 (API migrations 001–023, mobile 001–020).*
+Last reconciled against the codebase 2026-07-02 (API migrations 001–033, mobile 001–027).*
 
 Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for history) · 🚫 decided against.
 
 ---
 
 ## A. Repairs / maintenance (extend the v1 system)
-- [ ] Repair **assignee/owner** (who is fixing it)
-- [ ] **Parts → stock deduction** (consume inventory when a repair uses parts)
-- [ ] Repair **cost** tracking
-- [ ] **SLA / repair notifications**
+- [x] Repair **assignee/owner** (who is fixing it)
+- [x] **Parts → stock deduction** (consume inventory when a repair uses parts)
+- [x] Repair **cost** tracking
+- [x] **SLA / repair notifications**
 - [ ] Equipment **maintenance history** (service dates / what-was-done / costs) + scheduled-service reminders
 - [ ] Equipment **depreciation**
 
 ## B. Inventory data entry & accuracy
-- [ ] **Quick Add – Equipment bulk mode** — after the asset-tag box, reveal an optional
+- [x] **Quick Add – Equipment bulk mode** — after the asset-tag box, reveal an optional
       *add-another* asset-tag field so several units can be entered rapidly in one pass;
       nest each unit's **serial** input as a child of its asset tag (visually indented — asset
       tag is the parent, serial the child); and add a **location** selector like the other
       add screens so bulk-added units land in a chosen location.
-- [ ] **CSV / paste bulk import** of catalog items
-- [ ] **Edit / delete from the quick-add tool** (today: use the normal screens)
-- [ ] **"Set exact / recount" stock UI** — absolute set / stocktake (only delta adjustments exist today)
+- [x] **CSV / paste bulk import** of catalog items
+- [x] **Edit / delete from the quick-add tool** (today: use the normal screens)
+- [x] **"Set exact / recount" stock UI** — absolute set / stocktake (only delta adjustments exist today)
 - [ ] Bulk sample-data auto-generation (dev tool, low priority)
 
 ## C. Labels / QR (v2)
@@ -34,21 +34,21 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [ ] Non-QR barcode label formats
 - [ ] QR payload **signing / encryption**
 - [ ] QR labels for **shelves / locations**
-- [ ] **Auto-generated / "quick generate" asset tags** (today: `tag_prefix` hint, tags typed by hand)
+- [x] **Auto-generated / "quick generate" asset tags** (today: `tag_prefix` hint, tags typed by hand) *(superseded by tag-prefix prefill)*
 
 ## D. Teams & roles
-- [ ] **Force PIN reset on next login when a permission/role change alters `pin_length_required`** —
+- [x] **Force PIN reset on next login when a permission/role change alters `pin_length_required`** —
       if editing a user's role/permissions changes their required PIN length, mark the account so it
       re-runs first-login PIN setup on next sign-in (mirror the admin PIN-reset path).
-- [ ] **Quick Add – Team: member selection + per-team permissions** — pick team members while creating
+- [x] **Quick Add – Team: member selection + per-team permissions** — pick team members while creating
       the team and set each member's per-team permission overrides inline (writes `team_permission_overrides`;
       overlaps the "Per-team permission editing UI" item below).
-- [ ] **Per-team permission editing UI** (`team_permission_overrides` exists in data; no UI)
-- [ ] `view_team_activity` permission + multi-manager teams + cross-team activity (5b leftovers)
-- [ ] Cleanup migration: drop the deprecated `teams.manager_id` column
+- [x] **Per-team permission editing UI** (`team_permission_overrides` exists in data; no UI)
+- [x] `view_team_activity` permission + multi-manager teams + cross-team activity (5b leftovers)
+- [x] Cleanup migration: drop the deprecated `teams.manager_id` column
 
 ## E. Locations / maps (leftovers)
-- [ ] **Distinct "shelves" sub-level under locations** —
+- [x] **Distinct "shelves" sub-level under locations** —
       - Locations list shows **only locations** by default; shelves are hidden there.
       - Selecting a location that **has shelves** reveals its shelves, each showing which
         location it belongs to + an **optional color**.
@@ -56,21 +56,21 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
         context** (assigning/placing an item), never in the general locations browser.
       - UX: **create-if-missing** — typing a new shelf (or location) name creates it inline
         rather than erroring / requiring a separate "add" step.
-- [ ] Show stamped **move coordinates on a map** in the log views (data captured, not visualized)
-- [ ] Destination-location **proximity sorting** (only source/current is sorted today)
+- [x] Show stamped **move coordinates on a map** in the log views (data captured, not visualized)
+- [x] Destination-location **proximity sorting** (only source/current is sorted today)
 
 ## F. Sync / UX polish & hardening
-- [ ] **Sync should mirror REST's target-role guard for privileged-user edits** — a `manage_users`
+- [x] **Sync should mirror REST's target-role guard for privileged-user edits** — a `manage_users`
       holder without `manage_roles_permissions` can currently deactivate/expire a privileged-role
       user (e.g. a `full_admin`) via a sync `UPDATE users {active|expires_at}`, which REST PATCH
       blocks (`PRIVILEGED_ROLES` check). Add the target-role lookup + guard last-admin/self
       deactivation. *(Security fast-follow from 2026-07-01 audit; DELETE-of-privileged already blocked.)*
-- [ ] **Media thumbnail-object hygiene** — DELETE only collision-checks/cleans the primary object,
+- [x] **Media thumbnail-object hygiene** — DELETE only collision-checks/cleans the primary object,
       not `thumbnail_url`; thumbnails can be orphaned, and a forged row targeting a victim's
       thumbnail key isn't collision-protected (LOW, needs `upload_media`). Validate + clean thumbnails.
-- [ ] **Pin `trustProxy` to the proxy subnet** (currently `true`) so `X-Forwarded-For` can't be
+- [x] **Pin `trustProxy` to the proxy subnet** (currently `true`) so `X-Forwarded-For` can't be
       spoofed to evade the roster IP rate-limit if the API is ever reachable outside NPM (LOW).
-- [ ] **Reactive post-sync auto-refresh** of already-open lists (pull-to-refresh only today)
+- [x] **Reactive post-sync auto-refresh** of already-open lists (pull-to-refresh only today)
 - [ ] Taxonomy hardening: migrate entity `type` from **label → FK id** (rename-propagation safety)
 - [ ] Drag-and-drop **reorder** for taxonomy (up/down today)
 

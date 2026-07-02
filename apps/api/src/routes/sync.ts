@@ -29,7 +29,7 @@ const ALLOWED_TABLES = new Set([
   'users', 'locations', 'inventory_items', 'stock_by_location',
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
-  'notifications', 'approval_requests',
+  'notifications', 'approval_requests', 'maintenance_events',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -79,7 +79,7 @@ const FULL_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
-  'notifications', 'approval_requests',
+  'notifications', 'approval_requests', 'maintenance_events',
 ];
 
 async function applyEntry(
@@ -662,7 +662,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
           },
           'sync push entry rejected',
         );
-        conflicts.push({ id: entry.id, error: (err as Error).message });
+        // A3: never echo the raw DB/error message to the client (it can leak
+        // schema/constraint internals). The real error is logged server-side
+        // above (request.log.warn) for diagnosis; the client gets a generic
+        // reason so a rejected outbox entry still surfaces as a conflict.
+        conflicts.push({ id: entry.id, error: 'write rejected' });
       }
     }
 

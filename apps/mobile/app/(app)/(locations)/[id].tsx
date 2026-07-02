@@ -18,6 +18,7 @@ import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { MediaGallery } from '../../../src/components/MediaGallery';
+import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { getDb } from '../../../src/db/schema';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import ActivityFeed from '../../../src/components/ActivityFeed';
@@ -44,6 +45,7 @@ export default function LocationDetailScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusRefresh();
+  const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));
   const [stock, setStock] = useState<StockAtLocation[]>(() => getStockAtLocation(id));
@@ -63,6 +65,9 @@ export default function LocationDetailScreen() {
 
   // ── Move stock modal state ──────────────────────────────────────────────────
   const [showMoveStock, setShowMoveStock] = useState(false);
+
+  // ── Print-QR sheet state ─────────────────────────────────────────────────────
+  const [showPrintLabel, setShowPrintLabel] = useState(false);
 
   // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
   // and a label→icon map (incl. archived) for rendering the header badge.
@@ -481,6 +486,12 @@ export default function LocationDetailScreen() {
           </TouchableOpacity>
         )}
 
+        {/* ── Print QR label ──────────────────────────────────────────────── */}
+        <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setShowPrintLabel(true)}>
+          <Text style={s.attrKey}>🏷 Print QR Label</Text>
+          <Text style={s.attrVal}>›</Text>
+        </TouchableOpacity>
+
         {/* ── Photos ──────────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Photos</Text>
         <MediaGallery entityType="location" entityId={id} canUpload={canUpload} />
@@ -633,6 +644,15 @@ export default function LocationDetailScreen() {
             </View>
           </ScrollView>
       </ModalSheet>
+
+      {/* ── Print QR Label (location) ────────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={showPrintLabel}
+        onClose={() => setShowPrintLabel(false)}
+        title={location.name}
+        code={`INV:location:${id}`}
+        qrUrl={`${API}/labels/location/${id}/qr.png`}
+      />
 
       {/* ── Move Stock Modal ─────────────────────────────────────────────────── */}
       <MoveStockModal

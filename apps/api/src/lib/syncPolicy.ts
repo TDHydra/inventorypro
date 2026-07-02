@@ -198,6 +198,7 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   jobs:            { INSERT: 'create_jobs', UPDATE: 'create_jobs', DELETE: 'close_jobs' },
   repairs:         { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   repair_parts:    { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
+  maintenance_events: { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   taxonomy_types:  { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   media:           { INSERT: 'upload_media', UPDATE: 'upload_media', DELETE: 'upload_media' },
   stock_by_location: { INSERT: 'checkin_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
@@ -236,6 +237,8 @@ export const ACTIVITY_ACTIONS = new Set([
   'location_restored', 'location_updated', 'repair_in', 'repair_opened',
   'team_member_added', 'team_member_removed', 'unit_edited', 'unit_retired',
   'user_permission_changed', 'user_pin_reset', 'user_role_changed', 'recount',
+  // equipment lifecycle (migration 033): logged on maintenance_events insert.
+  'maintenance_event',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
@@ -254,6 +257,14 @@ const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_ove
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
 const REPAIRS_SENSITIVE = ', cost';
+// equipment_units: purchase_price + salvage_value are financial (gated behind
+// view_financial_data — mirrors repairs.cost). Base is every other real column.
+const EQUIPMENT_UNITS_BASE = 'id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, acquired_at, useful_life_months, depreciation_method, next_service_at, service_interval_months';
+const EQUIPMENT_UNITS_SENSITIVE = ', purchase_price, salvage_value';
+// maintenance_events: cost is financial (gated, mirrors repairs.cost). Base is
+// every other synced column.
+const MAINTENANCE_EVENTS_BASE = 'id, unit_id, event_date, type, notes, created_by, created_at, updated_at';
+const MAINTENANCE_EVENTS_SENSITIVE = ', cost';
 // notifications / approval_requests carry no financial columns — return the full
 // synced column list explicitly (never '*') so the projection is server-owned.
 const NOTIFICATIONS_COLS = 'id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at';
@@ -263,6 +274,8 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'users') return USERS_COLS;
   if (table === 'jobs') return canViewFinancial ? JOBS_BASE + JOBS_SENSITIVE : JOBS_BASE;
   if (table === 'repairs') return canViewFinancial ? REPAIRS_BASE + REPAIRS_SENSITIVE : REPAIRS_BASE;
+  if (table === 'equipment_units') return canViewFinancial ? EQUIPMENT_UNITS_BASE + EQUIPMENT_UNITS_SENSITIVE : EQUIPMENT_UNITS_BASE;
+  if (table === 'maintenance_events') return canViewFinancial ? MAINTENANCE_EVENTS_BASE + MAINTENANCE_EVENTS_SENSITIVE : MAINTENANCE_EVENTS_BASE;
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;

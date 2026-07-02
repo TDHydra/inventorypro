@@ -51,6 +51,9 @@ export default function ScanScreen() {
           { text: 'OK' },
         ]);
       }
+    } else if (resolved.kind === 'location') {
+      // Scanned a shelf/location QR — jump to that location's detail screen.
+      router.replace({ pathname: '/(app)/(locations)/[id]', params: { id: resolved.id } });
     } else {
       // kind === 'barcode' — existing path, keeps "not found → add" prompt
       const item = getItemByBarcode(resolved.code);

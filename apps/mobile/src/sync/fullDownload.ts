@@ -11,6 +11,14 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const SYNC_TABLES = [
   'role_settings', 'users', 'locations', 'inventory_items',
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
+  // Operational tables that were previously only backfilled via incremental
+  // /sync/pull — added so a fresh device has full state after enrollment.
+  'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
+  'maintenance_events',
+  // notifications is SCOPED_TABLES (server returns only the caller's own rows);
+  // approval_requests is unscoped but /sync/pull already returns all rows to
+  // every user, so a full backfill is consistent (no new exposure).
+  'notifications', 'approval_requests',
 ] as const;
 
 export const FULL_DOWNLOAD_TABLE_COUNT = SYNC_TABLES.length;
@@ -68,6 +76,7 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
   const { upsertLocation } = await import('../db/queries/locations');
   const { upsertUser } = await import('../db/queries/users');
   const { upsertJob } = await import('../db/queries/jobs');
+  const { upsertUnit } = await import('../db/queries/equipmentUnits');
 
   const schema = await import('../db/schema');
   const db = schema.getDb();
@@ -79,10 +88,21 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'locations': upsertLocation(row as any); break;
       case 'users': upsertUser(row as any); break;
       case 'jobs': upsertJob(row as any); break;
+      case 'equipment_units': upsertUnit(row as any); break;
       case 'role_settings':
       case 'teams':
       case 'team_members':
-      case 'media': {
+      case 'media':
+      // Plain TEXT/REAL tables with no bespoke upsert logic — the generic arm
+      // names columns from the row keys, so it tolerates the server omitting
+      // local-only (synced_at) or financial (cost/purchase_price) columns.
+      case 'app_config':
+      case 'taxonomy_types':
+      case 'repairs':
+      case 'repair_parts':
+      case 'maintenance_events':
+      case 'notifications':
+      case 'approval_requests': {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)
         // and sanitize values (JSONB objects / booleans) for op-sqlite.

@@ -5,7 +5,12 @@ import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FilterChip } from './ui/FilterChip';
 import { colors, spacing, fontSizes } from '../theme';
-import { printLabel, LabelTemplate } from '../labels/printLabel';
+import {
+  printLabel,
+  LabelTemplate,
+  LABEL_TEMPLATES,
+  BarcodeFormat,
+} from '../labels/printLabel';
 
 interface Props {
   visible: boolean;
@@ -13,22 +18,30 @@ interface Props {
   title: string;
   code: string;
   qrUrl: string;
+  /** Optional explicit scan payload; otherwise derived from `qrUrl`. Additive. */
+  payload?: string;
 }
 
-const TEMPLATES: { key: LabelTemplate; label: string }[] = [
-  { key: 'small', label: 'Small (2.25×1.25″)' },
-  { key: 'standard', label: 'Standard (4×2″)' },
-  { key: 'large', label: 'Large (4×3″)' },
+// Preset chips are derived from the shared template presets (DYMO / Zebra /
+// Avery / generic) so the printer list stays in sync with printLabel.ts.
+const TEMPLATE_CHIPS: { key: LabelTemplate; label: string }[] = (
+  Object.keys(LABEL_TEMPLATES) as LabelTemplate[]
+).map((key) => ({ key, label: LABEL_TEMPLATES[key].name }));
+
+const FORMAT_CHIPS: { key: BarcodeFormat; label: string }[] = [
+  { key: 'qr', label: 'QR code' },
+  { key: 'code128', label: 'Barcode (Code 128)' },
 ];
 
-export function LabelPrintSheet({ visible, onClose, title, code, qrUrl }: Props) {
+export function LabelPrintSheet({ visible, onClose, title, code, qrUrl, payload }: Props) {
   const [template, setTemplate] = useState<LabelTemplate>('standard');
+  const [format, setFormat] = useState<BarcodeFormat>('qr');
   const [printing, setPrinting] = useState(false);
 
   async function handlePrint() {
     setPrinting(true);
     try {
-      await printLabel({ title, code, qrUrl, template });
+      await printLabel({ title, code, qrUrl, template, format, payload });
     } catch (err) {
       Alert.alert('Print failed', err instanceof Error ? err.message : 'An error occurred.');
     } finally {
@@ -38,17 +51,29 @@ export function LabelPrintSheet({ visible, onClose, title, code, qrUrl }: Props)
 
   return (
     <ModalSheet visible={visible} onClose={onClose}>
-      <Text style={s.heading}>Print QR Label</Text>
+      <Text style={s.heading}>Print Label</Text>
       <Text style={s.subheading}>{title}</Text>
 
       <Text style={s.sectionLabel}>Label size</Text>
       <View style={s.chips}>
-        {TEMPLATES.map(({ key, label }) => (
+        {TEMPLATE_CHIPS.map(({ key, label }) => (
           <FilterChip
             key={key}
             label={label}
             active={template === key}
             onPress={() => setTemplate(key)}
+          />
+        ))}
+      </View>
+
+      <Text style={s.sectionLabel}>Symbol</Text>
+      <View style={s.chips}>
+        {FORMAT_CHIPS.map(({ key, label }) => (
+          <FilterChip
+            key={key}
+            label={label}
+            active={format === key}
+            onPress={() => setFormat(key)}
           />
         ))}
       </View>

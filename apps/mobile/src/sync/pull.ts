@@ -9,7 +9,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   users: `INSERT OR REPLACE INTO users (id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   locations: `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, latitude, longitude, subareas_require_owner, type, has_shelves) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, category, returnable, unit_tracked, tag_prefix, unit_category, unit, min_qty_alert, reorder_to, active, updated_at, home_location_id, pack_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  equipment_units: `INSERT OR REPLACE INTO equipment_units (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  equipment_units: `INSERT OR REPLACE INTO equipment_units (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   stock_by_location: `INSERT OR REPLACE INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES (?,?,?,?)`,
   jobs: `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at, job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   teams: `INSERT OR REPLACE INTO teams (id, name, type, updated_at) VALUES (?,?,?,?)`,
@@ -21,6 +21,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   repair_parts: `INSERT OR REPLACE INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
   notifications: `INSERT OR REPLACE INTO notifications (id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   approval_requests: `INSERT OR REPLACE INTO approval_requests (id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  maintenance_events: `INSERT OR REPLACE INTO maintenance_events (id, unit_id, event_date, type, notes, cost, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -29,7 +30,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'users': return [row.id, row.name, row.role, row.pin_length_required, row.pin_set ? 1 : 0, JSON.stringify(row.permission_overrides ?? {}), row.active ? 1 : 0, row.expires_at ?? null, row.created_at, row.updated_at];
     case 'locations': return [row.id, row.name, row.parent_id ?? null, row.color ?? null, row.icon ?? null, row.owner_user_id ?? null, row.active ? 1 : 0, row.updated_at, row.latitude ?? null, row.longitude ?? null, row.subareas_require_owner ? 1 : 0, row.type ?? null, row.has_shelves ? 1 : 0];
     case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.category ?? null, row.returnable ? 1 : 0, row.unit_tracked ? 1 : 0, row.tag_prefix ?? null, row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at, row.home_location_id ?? null, row.pack_size ?? null];
-    case 'equipment_units': return [row.id, row.item_id, row.asset_tag, row.serial_number ?? null, row.status, row.current_location_id ?? null, row.current_job_id ?? null, row.notes ?? null, row.created_at, row.updated_at];
+    case 'equipment_units': return [row.id, row.item_id, row.asset_tag, row.serial_number ?? null, row.status, row.current_location_id ?? null, row.current_job_id ?? null, row.notes ?? null, row.created_at, row.updated_at, row.purchase_price ?? null, row.acquired_at ?? null, row.useful_life_months ?? null, row.salvage_value ?? null, row.depreciation_method ?? null, row.next_service_at ?? null, row.service_interval_months ?? null];
     case 'stock_by_location': return [row.item_id, row.location_id, row.quantity, row.updated_at];
     case 'jobs': return [row.id, row.name, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.job_number ?? null, row.customer_name ?? null, row.site_address ?? null, row.site_location_id ?? null, row.description ?? null, row.type ?? null, row.reference_number ?? null, row.insurance_carrier ?? null];
     case 'teams': return [row.id, row.name, row.type, row.updated_at];
@@ -41,6 +42,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'repair_parts': return [row.id, row.repair_id, row.item_id, row.qty, row.unit, row.created_by ?? null, row.created_at, row.updated_at];
     case 'notifications': return [row.id, row.user_id, row.type, row.title, row.body, row.data ?? null, row.read_at ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'approval_requests': return [row.id, row.requester_id, row.kind, row.title, row.detail ?? null, row.status, row.decided_by ?? null, row.decided_at ?? null, row.decision_note ?? null, row.entity_type ?? null, row.entity_id ?? null, row.metadata ?? null, row.created_at, row.updated_at];
+    case 'maintenance_events': return [row.id, row.unit_id, row.event_date, row.type, row.notes ?? null, row.cost ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     default: return [];
   }
 }

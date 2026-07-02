@@ -8,6 +8,7 @@ import { getAllLocations } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -28,6 +29,12 @@ export default function StockQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  // Set/recount does an INSERT the server gates on `checkin_inventory`. The
+  // screen itself is only client-gated by `quick_add`, so a tier3 role
+  // (quick_add=true, checkin_inventory=false) would otherwise save a recount
+  // that the server silently rejects. Gate the Set toggle on the same perm the
+  // server enforces; Delta (ADJUST) stays available regardless.
+  const canRecount = usePermission('checkin_inventory');
   const qtyRef = useRef<TextInput>(null);
 
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null); // sticky
@@ -66,6 +73,12 @@ export default function StockQuickAdd({ onSaved }: Props) {
     }
     if (!selectedItemOpt) {
       setError('Select an item.');
+      return;
+    }
+    // Guard the recount path even if `mode` is somehow stale — the server rejects
+    // the INSERT without `checkin_inventory`, so never let it save silently.
+    if (mode === 'set' && !canRecount) {
+      setError('Recount requires check-in permission.');
       return;
     }
     const parsedQty = parseFloat(qty);
@@ -181,11 +194,15 @@ export default function StockQuickAdd({ onSaved }: Props) {
           active={mode === 'delta'}
           onPress={() => { setMode('delta'); if (error) setError(''); }}
         />
-        <FilterChip
-          label="Set exact (recount)"
-          active={mode === 'set'}
-          onPress={() => { setMode('set'); if (error) setError(''); }}
-        />
+        {/* Recount is a server-gated check-in; only offer it to roles that can
+            actually complete it, otherwise the save is silently rejected. */}
+        {canRecount && (
+          <FilterChip
+            label="Set exact (recount)"
+            active={mode === 'set'}
+            onPress={() => { setMode('set'); if (error) setError(''); }}
+          />
+        )}
       </View>
 
       {mode === 'set' && currentOnHand !== null && (
