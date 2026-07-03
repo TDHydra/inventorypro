@@ -32,7 +32,7 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [ ] Offline client-side QR generation
 - [x] **Label-design editor** *(visual drag-canvas designer + custom synced templates, 2026-07-02)*
 - [ ] Non-QR barcode label formats
-- [ ] QR payload **signing / encryption**
+- [x] QR payload **signing / encryption** *(HMAC-SHA256, admin-managed key + rotation, grace→strict, 2026-07-02)*
 - [ ] QR labels for **shelves / locations**
 - [x] **Auto-generated / "quick generate" asset tags** (today: `tag_prefix` hint, tags typed by hand) *(superseded by tag-prefix prefill)*
 
