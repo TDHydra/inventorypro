@@ -170,6 +170,7 @@ export default function HubScreen() {
       return;
     }
     const c = classifyScan(code);
+    if (c.kind === 'rejected') { Alert.alert('Unverified code', 'This code couldn’t be verified — it may be damaged, forged, or not an InventoryPro label.'); return; }
     if (c.kind === 'unknown') { promptAddNewItem(c.code); return; }       // Task 14 (c.code is the sanitized scan)
     if (c.kind === 'consumable') { setPendingItem(c.item); setMode('inout'); return; }
     // equipment-unit / equipment-model → batch checkout (Task 15)

@@ -28,6 +28,7 @@ import { getAllLocations, getShelvesForParent, resolveLocationShelf } from '../.
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { NotificationRoutingEditor } from '../../../src/components/NotificationRoutingEditor';
+import { QrSigningSection } from '../../../src/components/QrSigningSection';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
 
@@ -541,6 +542,7 @@ export default function SettingsScreen() {
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
             </View>
+            <QrSigningSection />
           </View>
         )}
 

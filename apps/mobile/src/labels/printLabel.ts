@@ -2,6 +2,7 @@ import * as Print from 'expo-print';
 import * as QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import { buildPositionedDoc, type LabelTemplateModel, type LabelData } from './positioned';
+import { signWithConfig } from '../scan/qrSignConfig';
 
 // `qrcode` ships no type declarations. Declare only the tiny (pure-JS) surface
 // we use — `toString` with `type:'svg'` returns an inline SVG string with no
@@ -261,7 +262,8 @@ export async function printLabels(
   const spec = LABEL_TEMPLATES[template];
   const blocks = await Promise.all(
     items.map(async (it) => {
-      const media = await mediaSvg(it.payload, spec, it.format ?? format);
+      // Sign the scan payload with the org key (no-op when signing is off).
+      const media = await mediaSvg(signWithConfig(it.payload), spec, it.format ?? format);
       return labelBlockHtml(it.title, it.code, media);
     }),
   );
@@ -276,7 +278,7 @@ export async function printLabels(
  */
 export async function printLabelsWithModel(items: LabelItem[], model: LabelTemplateModel): Promise<void> {
   if (items.length === 0) return;
-  const data: LabelData[] = items.map((it) => ({ name: it.title, code: it.code, payload: it.payload }));
+  const data: LabelData[] = items.map((it) => ({ name: it.title, code: it.code, payload: signWithConfig(it.payload) }));
   const html = await buildPositionedDoc(model, data);
   await Print.printAsync({ html });
 }

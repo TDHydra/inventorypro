@@ -1,5 +1,6 @@
 import { resolveScan } from './resolveScan';
 import { sanitizeScan } from './sanitize';
+import { verifyWithConfig } from './qrSignConfig';
 import {
   getItemById, getItemByBarcode, findItemByTagPrefix, type InventoryItem,
 } from '../db/queries/items';
@@ -9,6 +10,7 @@ export type ScanClass =
   | { kind: 'consumable'; item: InventoryItem }
   | { kind: 'equipment-unit'; unit: EquipmentUnit; item: InventoryItem }
   | { kind: 'equipment-model'; item: InventoryItem }
+  | { kind: 'rejected'; code: string }
   | { kind: 'unknown'; code: string };
 
 // Classify a raw scanned string into an actionable category. Resolution order:
@@ -32,7 +34,13 @@ export function classifyScan(raw: string): ScanClass {
   const cleaned = sanitizeScan(raw);
   if (cleaned == null) return { kind: 'unknown', code: '' };
 
-  const parsed = resolveScan(cleaned);
+  // Verify the QR signature (if the code is an INV:/INVS: payload). A tampered
+  // signature — or an unsigned INV: when signatures are required — returns null;
+  // surface that as 'rejected' rather than silently treating it as a raw code.
+  const canonical = verifyWithConfig(cleaned);
+  if (canonical === null) return { kind: 'rejected', code: cleaned };
+
+  const parsed = resolveScan(canonical);
 
   if (parsed?.kind === 'item') {
     const item = getItemById(parsed.id);

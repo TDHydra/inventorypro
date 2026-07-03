@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import QRCode from 'qrcode';
+import { signPayload, getQrSecret } from '../lib/qrSign';
 
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = { preHandler: [(fastify as any).authenticate] };
@@ -23,7 +24,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
     );
     if (!rows[0]) return reply.status(404).send({ error: 'Not found' });
 
-    const buf = await QRCode.toBuffer(`INV:item:${request.params.id}`, {
+    const payload = signPayload(`INV:item:${request.params.id}`, await getQrSecret(fastify.pg));
+    const buf = await QRCode.toBuffer(payload, {
       type: 'png',
       width: 512,
       margin: 1,
@@ -50,7 +52,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
     );
     if (!rows[0]) return reply.status(404).send({ error: 'Not found' });
 
-    const buf = await QRCode.toBuffer(`INV:unit:${request.params.assetTag}`, {
+    const payload = signPayload(`INV:unit:${request.params.assetTag}`, await getQrSecret(fastify.pg));
+    const buf = await QRCode.toBuffer(payload, {
       type: 'png',
       width: 512,
       margin: 1,
@@ -77,7 +80,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
     );
     if (!rows[0]) return reply.status(404).send({ error: 'Not found' });
 
-    const buf = await QRCode.toBuffer(`INV:location:${request.params.id}`, {
+    const payload = signPayload(`INV:location:${request.params.id}`, await getQrSecret(fastify.pg));
+    const buf = await QRCode.toBuffer(payload, {
       type: 'png',
       width: 512,
       margin: 1,
