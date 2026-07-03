@@ -23,7 +23,8 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
-import { printLabels, LabelItem } from '../../../src/labels/printLabel';
+import { LabelItem } from '../../../src/labels/printLabel';
+import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
 import { Alert } from '../../../src/lib/themedAlert';
 import { autoTypeColor } from '../../../src/constants/typeColors';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
@@ -39,6 +40,7 @@ export default function EquipmentScreen() {
   const dataVersion = useDataVersion();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+  const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
   const [query, setQuery] = useState('');
   const [models, setModels] = useState<EquipmentModel[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -111,19 +113,15 @@ export default function EquipmentScreen() {
   // titles/codes from memory — no DB round-trip. Equipment models are
   // inventory_items, so the scan payload is `INV:item:{id}` (same as the detail
   // screen's model label). Printing is read-only — exempt from the write block.
-  const handlePrintLabels = useCallback(async () => {
+  const handlePrintLabels = useCallback(() => {
     const byId = new Map(models.map(m => [m.id, m]));
     const labels: LabelItem[] = Array.from(ms.selected)
       .map(id => byId.get(id))
       .filter((m): m is EquipmentModel => !!m)
       .map(m => ({ title: m.name, code: m.barcode ?? m.id, payload: `INV:item:${m.id}` }));
     if (labels.length === 0) { ms.exit(); return; }
-    try {
-      await printLabels(labels, 'standard');
-    } catch (err) {
-      Alert.alert('Print failed', err instanceof Error ? err.message : 'An error occurred.');
-    }
-    ms.exit();
+    // Open the chooser (presets + custom designed templates); print happens there.
+    setBatchLabels(labels);
   }, [models, ms]);
 
   const bulkActions = useMemo<BulkAction[]>(() => [
@@ -322,6 +320,12 @@ export default function EquipmentScreen() {
             onCreate={(text) => applySupplier(text)}
           />
         </ModalSheet>
+
+        <BatchLabelPrintSheet
+          visible={batchLabels !== null}
+          items={batchLabels ?? []}
+          onClose={() => { setBatchLabels(null); ms.exit(); }}
+        />
 
       </View>
     </>

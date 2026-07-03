@@ -30,7 +30,7 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [ ] Per-printer / label-stock **templates** (DYMO/Zebra)
 - [ ] **Batch** label printing
 - [ ] Offline client-side QR generation
-- [ ] **Label-design editor**
+- [x] **Label-design editor** *(visual drag-canvas designer + custom synced templates, 2026-07-02)*
 - [ ] Non-QR barcode label formats
 - [ ] QR payload **signing / encryption**
 - [ ] QR labels for **shelves / locations**
