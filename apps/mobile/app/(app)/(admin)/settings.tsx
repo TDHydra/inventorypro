@@ -529,6 +529,17 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
+              <View style={s.divider} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/label-templates')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🏷️ Label Designer</Text>
+                  <Text style={s.rowSub}>Design custom label layouts (drag fields on a canvas), synced to all devices.</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
