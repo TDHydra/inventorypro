@@ -33,6 +33,8 @@ export function signPayload(canonical: string, secret: string | null): string {
 
 export interface QrVerifyConfig {
   secret: string | null;
+  /** Previous key kept during a rotation window — labels signed with it still verify. */
+  prevSecret?: string | null;
   requireSigned: boolean;
 }
 
@@ -48,8 +50,11 @@ export function verifyScanPayload(scanned: string, cfg: QrVerifyConfig): string 
     if (lastColon <= 0) return null;
     const sig = body.slice(lastColon + 1);
     const canonical = PLAIN + body.slice(0, lastColon);
-    if (!cfg.secret) return null; // a signed label but we hold no key → can't trust it
-    return tagFor(canonical, cfg.secret) === sig ? canonical : null;
+    // Accept the current key OR the previous key (rotation window), so labels
+    // printed with the old key keep verifying until the admin finishes rotation.
+    const keys = [cfg.secret, cfg.prevSecret].filter((k): k is string => !!k);
+    if (keys.length === 0) return null; // a signed label but we hold no key → can't trust it
+    return keys.some((k) => tagFor(canonical, k) === sig) ? canonical : null;
   }
   if (scanned.startsWith(PLAIN)) {
     // Unsigned / legacy label. Reject only when enforcement is on AND a key exists.

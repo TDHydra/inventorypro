@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, Switch, StyleSheet } from 'react-native';
 import { Alert } from '../lib/themedAlert';
 import { colors, spacing, fontSizes, radii } from '../theme';
 import {
-  getQrSignConfig, generateQrSecret, setQrSigningSecret, clearQrSigning, setRequireSignedQr,
+  getQrSignConfig, generateQrSecret, setQrSigningSecret, rotateQrSigningKey,
+  clearPrevQrKey, clearQrSigning, setRequireSignedQr,
 } from '../scan/qrSignConfig';
 
 /**
@@ -17,6 +18,7 @@ export function QrSigningSection() {
   const [version, setVersion] = useState(0);
   const cfg = getQrSignConfig(); // re-read each render; `version` forces refresh after writes
   const enabled = !!cfg.secret;
+  const rotating = !!cfg.prevSecret; // a previous key is still accepted
   const reload = () => setVersion(v => v + 1);
 
   function enable() {
@@ -25,9 +27,15 @@ export function QrSigningSection() {
     Alert.alert('Signing enabled', 'New labels will be signed. Existing labels still scan (grace mode) until you require signatures.');
   }
   function rotate() {
-    Alert.alert('Rotate signing key?', 'A new key is generated. Labels printed with the OLD key will no longer verify and must be reprinted (they still scan while signatures aren’t required).', [
+    Alert.alert('Rotate signing key?', 'A fresh key is generated for new labels. Labels printed with the current key KEEP verifying during the changeover — reprint them, then tap “Finish rotation”.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Rotate', style: 'destructive', onPress: () => { setQrSigningSecret(generateQrSecret()); reload(); } },
+      { text: 'Rotate', onPress: () => { rotateQrSigningKey(); reload(); } },
+    ]);
+  }
+  function finishRotation() {
+    Alert.alert('Finish rotation?', 'The previous key is dropped — any label still using the OLD key will no longer verify. Only do this once everything has been reprinted.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Finish', style: 'destructive', onPress: () => { clearPrevQrKey(); reload(); } },
     ]);
   }
   function turnOff() {
@@ -79,8 +87,19 @@ export function QrSigningSection() {
             </View>
             <View style={s.divider} />
             <TouchableOpacity style={s.row} onPress={rotate}>
-              <Text style={s.rowLabel}>🔄 Rotate signing key</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>🔄 Rotate signing key</Text>
+                {rotating && <Text style={s.rowSub}>Rotation in progress — old-key labels still verify.</Text>}
+              </View>
             </TouchableOpacity>
+            {rotating && (
+              <>
+                <View style={s.divider} />
+                <TouchableOpacity style={s.row} onPress={finishRotation}>
+                  <Text style={[s.rowLabel, s.danger]}>Finish rotation (drop old key)</Text>
+                </TouchableOpacity>
+              </>
+            )}
             <View style={s.divider} />
             <TouchableOpacity style={s.row} onPress={turnOff}>
               <Text style={[s.rowLabel, s.danger]}>Turn off signing</Text>

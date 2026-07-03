@@ -50,6 +50,19 @@ test('verify: non-INV strings pass through (barcode fallback)', () => {
   assert.equal(verifyScanPayload('9781234567890', { secret: SECRET, requireSigned: true }), '9781234567890');
 });
 
+test('rotation: a label signed with the PREVIOUS key verifies while prevSecret is kept', () => {
+  const oldKey = 'old-key-000000000000000000000000';
+  const newKey = 'new-key-111111111111111111111111';
+  const oldLabel = signPayload(CANON, oldKey);
+  const newLabel = signPayload(CANON, newKey);
+  // During rotation: current=newKey, prev=oldKey → both verify.
+  assert.equal(verifyScanPayload(oldLabel, { secret: newKey, prevSecret: oldKey, requireSigned: true }), CANON);
+  assert.equal(verifyScanPayload(newLabel, { secret: newKey, prevSecret: oldKey, requireSigned: true }), CANON);
+  // After finishing rotation (prev dropped): old-key label no longer verifies.
+  assert.equal(verifyScanPayload(oldLabel, { secret: newKey, prevSecret: null, requireSigned: false }), null);
+  assert.equal(verifyScanPayload(newLabel, { secret: newKey, prevSecret: null, requireSigned: false }), CANON);
+});
+
 test('unit tags (which may contain non-colon chars) round-trip through sign+verify', () => {
   const canon = 'INV:unit:AM-0007';
   const signed = signPayload(canon, SECRET);

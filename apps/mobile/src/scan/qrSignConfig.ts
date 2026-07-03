@@ -11,6 +11,7 @@ import { signPayload, verifyScanPayload, type QrVerifyConfig } from './qrSign';
 export function getQrSignConfig(): QrVerifyConfig {
   return {
     secret: getAppConfig('qr_signing_secret') || null,
+    prevSecret: getAppConfig('qr_signing_secret_prev') || null,
     requireSigned: getAppConfig('require_signed_qr') === '1',
   };
 }
@@ -40,11 +41,25 @@ export function generateQrSecret(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Admin: set/rotate the org QR signing key (syncs to all devices). */
+/** Admin: enable signing with a fresh key (first-time enable, no prior key). */
 export function setQrSigningSecret(secret: string): void { pushConfig('qr_signing_secret', secret); }
 
-/** Admin: turn signing off — labels print unsigned again (secret cleared). */
-export function clearQrSigning(): void { pushConfig('qr_signing_secret', ''); }
+/**
+ * Admin: ROTATE the key. Stashes the current key as `qr_signing_secret_prev` so
+ * already-printed labels keep verifying during the changeover, then sets a fresh
+ * current key. Finish the rotation (clearPrevQrKey) once everything's reprinted.
+ */
+export function rotateQrSigningKey(): void {
+  const current = getAppConfig('qr_signing_secret');
+  if (current) pushConfig('qr_signing_secret_prev', current);
+  pushConfig('qr_signing_secret', generateQrSecret());
+}
+
+/** Admin: finish a rotation — drop the previous key so old-key labels stop verifying. */
+export function clearPrevQrKey(): void { pushConfig('qr_signing_secret_prev', ''); }
+
+/** Admin: turn signing off entirely — new labels unsigned; both keys cleared. */
+export function clearQrSigning(): void { pushConfig('qr_signing_secret', ''); pushConfig('qr_signing_secret_prev', ''); }
 
 /** Admin: enforce signed labels on scan (strict) vs allow unsigned legacy (grace). */
 export function setRequireSignedQr(on: boolean): void { pushConfig('require_signed_qr', on ? '1' : '0'); }
