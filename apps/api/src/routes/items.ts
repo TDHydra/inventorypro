@@ -171,10 +171,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
       unit_tracked = false, tag_prefix,
     } = request.body;
     const { rows } = await fastify.pg.query(
+      // category_id dual-writes the taxonomy FK (#74), resolved from the label.
       `INSERT INTO inventory_items
          (name, barcode, description, sku, supplier, model, kind, category, returnable,
-          unit_category, unit, min_qty_alert, reorder_to, unit_tracked, tag_prefix)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          unit_category, unit, min_qty_alert, reorder_to, unit_tracked, tag_prefix, category_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          (SELECT id FROM taxonomy_types WHERE category = 'item_category' AND label = $8
+           ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1))
        RETURNING *`,
       [name, barcode ?? null, description ?? null, sku ?? null, supplier ?? null, model ?? null,
        kind, category ?? null, returnable, unit_category, unit, min_qty_alert,

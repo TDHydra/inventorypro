@@ -27,6 +27,24 @@ export type ProductClass = {
 
 const PRODUCT_CLASS_CATEGORY = 'product_class';
 export const ITEM_CATEGORY = 'item_category';
+export const JOB_CATEGORY = 'job';
+export const TEAM_CATEGORY = 'team';
+
+// Resolve a taxonomy row id from its (category, label) — the write-time bridge for
+// the label→FK cutover (#74). Deterministic when duplicate labels exist (active
+// first, then lowest sort_order, then id), matching migration 029's backfill.
+// Returns null when no match, so an entity keeps only its label (grace).
+export function resolveTypeId(category: string, label: string | null | undefined): string | null {
+  if (!label) return null;
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT id FROM taxonomy_types WHERE category = ? AND label = ?
+     ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1`,
+    [category, label],
+  );
+  const row = result.rows[0] as { id: string } | undefined;
+  return row?.id ?? null;
+}
 
 // item_category.meta shape (migration 018): the type's curated units + the
 // product_class it maps to (stored as the item's unit_category for formatting).

@@ -82,11 +82,12 @@ export default function TeamsScreen() {
 
     try {
       runInTransaction(() => {
-        upsertTeam(team);
+        const typeId = upsertTeam(team);
         appendOutbox('INSERT', 'teams', {
           id,
           name: trimmed,
           type,
+          type_id: typeId,
           updated_at: now,
         });
         appendLog({

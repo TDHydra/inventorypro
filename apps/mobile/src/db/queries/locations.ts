@@ -1,5 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
+import { resolveTypeId, LOCATION_TYPE } from './taxonomy';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../tx';
 import { appendLog } from './log';
@@ -25,6 +26,8 @@ export interface Location {
   // location_type taxonomy label (migration 017): Shop, Vehicle, Locker, … Optional
   // so existing literals stay valid; upsertLocation coalesces undefined → null.
   type?: string | null;
+  // Durable taxonomy FK (migration 029, #74) — `type` is the label cache.
+  type_id?: string | null;
   // When 1, add-stock offers a Shelf field (migration 020). INTEGER locally.
   has_shelves?: number;
 }
@@ -397,12 +400,15 @@ export function findOrCreateVehicleByName(name: string): string | null {
 
 export function upsertLocation(location: Location): void {
   const db = getDb();
+  // Dual-write the taxonomy FK (#74): prefer an explicit type_id (pulled rows),
+  // else resolve from the label so locally-created locations anchor to the id too.
+  const typeId = location.type_id ?? resolveTypeId(LOCATION_TYPE, location.type);
   db.executeSync(
-    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type, has_shelves)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type, has_shelves, type_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([location.id, location.name, location.parent_id, location.color,
      location.icon, location.owner_user_id, location.active, location.updated_at, location.synced_at,
      location.latitude ?? null, location.longitude ?? null, location.subareas_require_owner ?? 0,
-     location.type ?? null, location.has_shelves ?? 0])
+     location.type ?? null, location.has_shelves ?? 0, typeId])
   );
 }

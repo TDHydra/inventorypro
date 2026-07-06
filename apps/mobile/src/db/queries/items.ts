@@ -1,4 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { resolveTypeId, ITEM_CATEGORY } from './taxonomy';
 
 export interface InventoryItem {
   id: string;
@@ -10,6 +11,8 @@ export interface InventoryItem {
   model: string | null;
   kind: string; // 'product' | 'equipment'
   category: string | null;
+  // Durable taxonomy FK (migration 029, #74) — `category` is the label cache.
+  category_id?: string | null;
   returnable: number;
   unit_tracked: number;
   tag_prefix: string | null;
@@ -163,17 +166,20 @@ export function getStockByItem(itemId: string): StockByLocation[] {
 
 export function upsertItem(item: InventoryItem): void {
   const db = getDb();
+  // Dual-write the taxonomy FK (#74): prefer an explicit category_id (pulled rows),
+  // else resolve from the label so locally-created items anchor to the id too.
+  const categoryId = item.category_id ?? resolveTypeId(ITEM_CATEGORY, item.category);
   db.executeSync(
     `INSERT OR REPLACE INTO inventory_items
        (id, name, barcode, description, sku, supplier, model, kind,
         category, returnable, unit_tracked, tag_prefix,
-        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size, category_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
      item.sku, item.supplier, item.model, item.kind,
      item.category, item.returnable, item.unit_tracked, item.tag_prefix,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
-     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null])
+     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null, categoryId])
   );
 }
 
@@ -203,6 +209,11 @@ export function updateItemFields(
   const entries = Object.entries(fields).filter(([k]) => ALLOWED_ITEM_UPDATE_COLUMNS.has(k));
   // No valid columns to write → no-op safely (don't bump updated_at on nothing).
   if (entries.length === 0) return { id };
+  // Dual-write the taxonomy FK (#74): when the category label changes, resolve and
+  // write category_id alongside it (internal — not caller-injectable via the allowlist).
+  if (entries.some(([k]) => k === 'category')) {
+    entries.push(['category_id', resolveTypeId(ITEM_CATEGORY, (fields as { category?: string | null }).category)]);
+  }
   const allowedFields = Object.fromEntries(entries);
   const setClause = entries.map(([k]) => `${k} = ?`).join(', ');
   db.executeSync(

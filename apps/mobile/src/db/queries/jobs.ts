@@ -1,5 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
+import { resolveTypeId, JOB_CATEGORY } from './taxonomy';
 
 export interface Job {
   id: string;
@@ -16,8 +17,10 @@ export interface Job {
   site_address?: string | null;
   site_location_id?: string | null;
   description?: string | null;
-  // Taxonomy type (migration 011).
+  // Taxonomy type (migration 011). `type` is the label; `type_id` is the durable
+  // FK to taxonomy_types (migration 029, #74) so renames don't orphan the job.
   type?: string | null;
+  type_id?: string | null;
   // External reference # — insurance claim / customer PO (migration 013).
   // Distinct from the server-assigned internal job_number; user-supplied.
   reference_number?: string | null;
@@ -92,11 +95,15 @@ export function getLatestJobByCustomer(name: string): CustomerJobDetails | null 
 
 export function upsertJob(job: Job): void {
   const db = getDb();
+  // Dual-write the taxonomy FK (#74): prefer an explicit type_id (present on rows
+  // pulled from the server), else resolve it from the label so locally-created
+  // jobs anchor to the taxonomy id too.
+  const typeId = job.type_id ?? resolveTypeId(JOB_CATEGORY, job.type);
   db.executeSync(
     `INSERT OR REPLACE INTO jobs
        (id, name, status, created_by, created_at, updated_at, synced_at,
-        job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier, type_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([
       job.id, job.name, job.status, job.created_by, job.created_at, job.updated_at, job.synced_at,
       job.job_number ?? null,
@@ -107,6 +114,7 @@ export function upsertJob(job: Job): void {
       job.type ?? null,
       job.reference_number ?? null,
       job.insurance_carrier ?? null,
+      typeId,
     ])
   );
 }
@@ -177,7 +185,13 @@ export function updateJobFields(
   if (fields.site_address !== undefined) { sets.push('site_address = ?'); params.push(fields.site_address); }
   if (fields.site_location_id !== undefined) { sets.push('site_location_id = ?'); params.push(fields.site_location_id); }
   if (fields.description !== undefined) { sets.push('description = ?'); params.push(fields.description); }
-  if (fields.type !== undefined) { sets.push('type = ?'); params.push(fields.type); }
+  // Dual-write the taxonomy FK (#74) whenever the label changes so type_id tracks it.
+  let typeId: string | null | undefined;
+  if (fields.type !== undefined) {
+    typeId = resolveTypeId(JOB_CATEGORY, fields.type);
+    sets.push('type = ?'); params.push(fields.type);
+    sets.push('type_id = ?'); params.push(typeId);
+  }
   if (fields.reference_number !== undefined) { sets.push('reference_number = ?'); params.push(fields.reference_number); }
   if (fields.insurance_carrier !== undefined) { sets.push('insurance_carrier = ?'); params.push(fields.insurance_carrier); }
   if (sets.length === 0) return;
@@ -185,7 +199,7 @@ export function updateJobFields(
   params.push(updated_at);
   params.push(id);
   db.executeSync(`UPDATE jobs SET ${sets.join(', ')} WHERE id = ?`, params);
-  appendOutbox('UPDATE', 'jobs', { id, ...fields, updated_at });
+  appendOutbox('UPDATE', 'jobs', { id, ...fields, ...(fields.type !== undefined ? { type_id: typeId } : {}), updated_at });
 }
 
 /**

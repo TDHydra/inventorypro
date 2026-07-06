@@ -155,10 +155,10 @@ export default function TeamQuickAdd({ onSaved }: Props) {
 
     try {
       runInTransaction(() => {
-        upsertTeam(team);
+        const typeId = upsertTeam(team);
         // synced_at is local-only — strip from the outbox payload (server has no such column).
         const { synced_at: _s, ...teamRow } = team;
-        appendOutbox('INSERT', 'teams', { ...teamRow });
+        appendOutbox('INSERT', 'teams', { ...teamRow, type_id: typeId });
         appendLog({
           action: 'team_created',
           entity_type: 'team',

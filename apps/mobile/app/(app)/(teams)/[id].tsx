@@ -109,11 +109,12 @@ export default function TeamDetailScreen() {
     };
     try {
       runInTransaction(() => {
-        upsertTeam(updated);
+        const typeId = upsertTeam(updated);
         appendOutbox('UPDATE', 'teams', {
           id: team.id,
           name: trimmed,
           type: editType,
+          type_id: typeId,
           updated_at: now,
         });
         appendLog({

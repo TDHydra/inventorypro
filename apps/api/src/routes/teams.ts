@@ -81,8 +81,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { name, type } = request.body;
+      // Dual-write the taxonomy FK (#74): resolve type_id from the label so
+      // REST-created teams anchor to the taxonomy id like synced ones do.
       const { rows } = await fastify.pg.query(
-        `INSERT INTO teams (name, type) VALUES ($1, $2) RETURNING *`,
+        `INSERT INTO teams (name, type, type_id) VALUES ($1, $2,
+           (SELECT id FROM taxonomy_types WHERE category = 'team' AND label = $2
+            ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1))
+         RETURNING *`,
         [name, type]
       );
       return rows[0];
