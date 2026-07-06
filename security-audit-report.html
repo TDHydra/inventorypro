@@ -1,0 +1,348 @@
+<style>
+:root {
+  --bg:#f5f7f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#161b24; --ink-2:#414b5a; --ink-mut:#6b7686;
+  --hair:#e1e6ed; --accent:#3a4fb8; --accent-soft:#eaedfb;
+  --high:#cf2740;  --med:#c9781b; --med-bg:#fbf1e3; --low:#2f7bab; --low-bg:#e8f2f9;
+  --high-bg:#fdecef; --med-bg:#fbf2e4; --low-bg:#e9f2f9;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#0d1015; --surface:#151a22; --surface-2:#1b222d; --ink:#e7ebf1; --ink-2:#b7c0cd; --ink-mut:#8b95a4;
+    --hair:#242c38; --accent:#8593f2; --accent-soft:#1e2540;
+    --high:#f2617a; --med:#e0973f; --low:#5aa6d6; --high-bg:#2a171c; --med-bg:#271d10; --low-bg:#132531; }
+}
+:root[data-theme="light"]{ --bg:#f5f7f9; --surface:#ffffff; --surface-2:#eef1f6; --ink:#161b24; --ink-2:#414b5a; --ink-mut:#6b7686; --hair:#e1e6ed; --accent:#3a4fb8; --accent-soft:#eaedfb; --high:#cf2740; --med:#c9781b; --low:#2f7bab; --high-bg:#fdecef; --med-bg:#fbf2e4; --low-bg:#e9f2f9; }
+:root[data-theme="dark"]{ --bg:#0d1015; --surface:#151a22; --surface-2:#1b222d; --ink:#e7ebf1; --ink-2:#b7c0cd; --ink-mut:#8b95a4; --hair:#242c38; --accent:#8593f2; --accent-soft:#1e2540; --high:#f2617a; --med:#e0973f; --low:#5aa6d6; --high-bg:#2a171c; --med-bg:#271d10; --low-bg:#132531; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
+  -webkit-font-smoothing:antialiased;font-size:16px}
+.wrap{max-width:920px;margin:0 auto;padding:48px 24px 96px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-size:clamp(28px,4.5vw,42px);line-height:1.08;letter-spacing:-.02em;margin:.3em 0 .2em;text-wrap:balance;font-weight:700}
+.lede{color:var(--ink-2);font-size:17px;max-width:64ch;margin:.4em 0 0}
+.meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-mut);margin-top:18px;display:flex;flex-wrap:wrap;gap:6px 18px}
+.meta b{color:var(--ink-2);font-weight:600}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:36px 0 8px}
+@media(max-width:620px){.summary{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--surface);border:1px solid var(--hair);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}
+.tile .n{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}
+.tile .l{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-mut);margin-top:8px}
+.tile.t-high .n{color:var(--high)} .tile.t-med .n{color:var(--med)} .tile.t-low .n{color:var(--low)}
+.tile.t-tot .n{color:var(--ink)}
+.tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+.tile.t-high::before{background:var(--high)} .tile.t-med::before{background:var(--med)} .tile.t-low::before{background:var(--low)} .tile.t-tot::before{background:var(--accent)}
+.posture{margin:22px 0 4px;padding:16px 18px;border:1px solid var(--hair);border-left:3px solid var(--accent);
+  border-radius:10px;background:var(--surface);color:var(--ink-2);font-size:15px}
+.posture b{color:var(--ink)}
+h2.sec{font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mut);
+  margin:48px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--hair);font-weight:600}
+.finding{display:flex;background:var(--surface);border:1px solid var(--hair);border-radius:13px;overflow:hidden;margin-bottom:14px}
+.finding .stripe{width:4px;flex:0 0 4px}
+.sev-high .stripe{background:var(--high)} .sev-medium .stripe{background:var(--med)} .sev-low .stripe{background:var(--low)}
+.fbody{padding:18px 20px;min-width:0;flex:1}
+.fhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.08em;padding:3px 8px;border-radius:5px}
+.chip-high{color:var(--high);background:var(--high-bg)} .chip-medium{color:var(--med);background:var(--med-bg)} .chip-low{color:var(--low);background:var(--low-bg)}
+.fnum{font-family:var(--mono);font-size:12px;color:var(--ink-mut);font-variant-numeric:tabular-nums}
+.cat{font-family:var(--mono);font-size:11px;color:var(--ink-mut);letter-spacing:.04em;margin-left:auto}
+.ftitle{font-size:18px;line-height:1.3;margin:11px 0 10px;letter-spacing:-.01em;text-wrap:balance;font-weight:650}
+.loc{font-family:var(--mono);font-size:12.5px;color:var(--accent);background:var(--surface-2);padding:4px 9px;
+  border-radius:6px;display:inline-block;word-break:break-all}
+.detail{margin-top:14px;display:grid;gap:12px}
+.block{background:var(--surface-2);border-radius:9px;padding:12px 14px}
+.block.fix{background:transparent;border:1px dashed var(--hair)}
+.blabel{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-mut);display:block;margin-bottom:5px}
+.block.fix .blabel{color:var(--accent)}
+.block p{margin:0;font-size:14.5px;color:var(--ink-2);line-height:1.58}
+.follow{background:var(--surface);border:1px solid var(--hair);border-radius:13px;padding:8px 22px 8px}
+.follow li{margin:14px 0;color:var(--ink-2);font-size:14.5px;line-height:1.55}
+.note{color:var(--ink-mut);font-size:13.5px;margin-top:10px;font-style:italic}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--hair);color:var(--ink-mut);font-size:13px;font-family:var(--mono)}
+a{color:var(--accent)}
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">Security Audit · Read-only</div>
+  <h1>InventoryPro security audit</h1>
+  <p class="lede">A full-codebase review by 9 parallel dimension auditors, with every candidate finding put through adversarial refutation before it was allowed to land. 3 high-severity issues warrant prompt attention.</p>
+  <div class="meta">
+    <span><b>16</b> confirmed &middot; <b>27</b> raw</span>
+    <span><b>92</b> agents &middot; <b>3&times;</b> refute per finding</span>
+    <span>API + mobile + web + infra</span>
+    <span>2026-07-06</span>
+  </div>
+
+  <div class="summary">
+    <div class="tile t-tot"><div class="n">16</div><div class="l">Confirmed</div></div>
+    <div class="tile t-high"><div class="n">3</div><div class="l">High</div></div>
+    <div class="tile t-med"><div class="n">8</div><div class="l">Medium</div></div>
+    <div class="tile t-low"><div class="n">5</div><div class="l">Low</div></div>
+  </div>
+  <div class="posture"><b>Overall posture: solid, with fixable gaps.</b> Auth is DB-resolved (never trusts the JWT role), the sync write path is default-deny with column allowlists, and no SQL/identifier injection survived verification. The high-severity findings are concentrated in <b>recently-added surfaces</b> — the enrollment-code reset endpoint and the new chat tables — where a guard used elsewhere was not carried over. No confirmed unauthenticated remote code execution or data-dump. Zero findings applied as fixes; this is assessment only.</div>
+
+  <h2 class="sec">Findings — most severe first</h2>
+  
+    <article class="finding sev-high">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-high">HIGH</span>
+          <span class="fnum">#01</span>
+          <span class="cat">privilege-escalation</span>
+        </header>
+        <h3 class="ftitle">reset-enrollment-code lacks tier guard → onboarding-hijack takeover of higher-privileged (admin) accounts</h3>
+        <code class="loc">apps/api/src/routes/users.ts:292</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>POST /users/:id/reset-enrollment-code is gated ONLY by can(&#x27;manage_users&#x27;) || can(&#x27;set_pins&#x27;) (line 292) with NO canActOnTarget tier check — unlike PATCH /users/:id (line 179) and create (canAssignRole). A tier-3 office_manager or hr_manager (both have manage_users AND set_pins in ROLE_DEFAULTS, permissions.ts tier3) can call this against ANY user whose pin_hash IS NULL. GET /auth/roster is public and returns each user&#x27;s id, role, and pin_set flag, so the attacker can pick a franchise_manager/full_admin (tier 4 / apex) who was just created or PIN-reset and hasn&#x27;t onboarded (pin_set=0). The handler passes the 409 pin_hash check, reissues a code, and RETURNS the plaintext { code } in the HTTP response (line 324). The attacker then calls POST /auth/set-pin with { user_id: &lt;adminId&gt;, pin: &lt;attacker-chosen&gt;, enrollment_code: &lt;returned code&gt; } (auth.ts) which succeeds because pin_set is false and the code matches — setting the admin&#x27;s PIN. The attacker signs in via /auth/token as that full_admin, gaining apex (tier-5) privileges: manage_roles_permissions, system_settings, everything. Full account takeover of a superior account by a subordinate.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Resolve the target&#x27;s role and enforce the same tier guard used by PATCH: fetch target role and require canActOnTarget(callerRole, targetRole) before reissuing/returning the enrollment code. Fail closed on unknown target role. (Optionally also require canActOnTarget in /auth/set-pin is not possible since it is unauthenticated — the fix belongs at code issuance.)</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-high">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-high">HIGH</span>
+          <span class="fnum">#02</span>
+          <span class="cat">broken-access-control</span>
+        </header>
+        <h3 class="ftitle">Any authenticated user can join any conversation via a crafted conversation_participants INSERT, then read private messages and post</h3>
+        <code class="loc">apps/api/src/routes/sync.ts:752</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>A low-privilege user (e.g. role &#x27;crew&#x27;) crafts a /sync/push outbox entry {operation:&#x27;INSERT&#x27;, table_name:&#x27;conversation_participants&#x27;, payload:{conversation_id:&#x27;&lt;victim DM/group id&gt;&#x27;, user_id:&#x27;&lt;attacker id&gt;&#x27;, notify_pref:&#x27;regular&#x27;}}. In the push loop conversation_participants is not in PRIVILEGED_TABLE_PERM, not DELETE_FORBIDDEN, and requiredOperationPerm returns null (syncPolicy.ts:228 maps INSERT/UPDATE/DELETE -&gt; null = allowed to any authed user). No membership/ownership guard exists for this table (only `messages` INSERT is gated on membership at sync.ts:752). applyWritePolicy keeps user_id verbatim (not in SENSITIVE_DENY or ATTRIBUTION_COLUMNS for conversation_participants), so the row inserts on ON CONFLICT (conversation_id,user_id). The attacker is now a participant. On the next /sync/pull, chatScopeSql (sync.ts:85-93) scopes messages/conversations to `conversation_id IN (SELECT ... WHERE user_id = caller)` — which now includes the victim conversation — so the attacker downloads every message/participant of a conversation between other users. Being a participant also passes the messages-INSERT membership check (sync.ts:754-765), letting the attacker post into that private conversation. The client&#x27;s addParticipant() (apps/mobile/src/db/queries/chat.ts:299) emits exactly this outbox shape, confirming the server is the only authorization point and it enforces nothing. Conversation ids are learnable (org-wide notifications/push payloads carry conversationId, and conversations pull is only scoped, not secret to enumeration via retries).</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>In the push handler, add an explicit authorization branch for conversation_participants writes (INSERT/UPDATE/DELETE): require that the caller is already a participant of payload.conversation_id (or the conversation&#x27;s created_by / a manage_teams holder) before allowing the write, mirroring the messages membership check. For self-join specifically, disallow adding a user_id other than an already-authorized member; do not let an arbitrary caller add themselves to a conversation they don&#x27;t belong to.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-high">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-high">HIGH</span>
+          <span class="fnum">#03</span>
+          <span class="cat">dos-memory-growth</span>
+        </header>
+        <h3 class="ftitle">Unauthenticated memory-exhaustion DoS via /auth/token: arbitrary user_id values create permanent, unbounded entries in the in-memory `attempts` map (no IP limit, no maxLength, no eviction)</h3>
+        <code class="loc">apps/api/src/routes/auth.ts:147</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>POST /auth/token is public and is explicitly skipped by the global `mut:` rate limiter (index.ts line 101: `if (request.url.startsWith(&#x27;/auth&#x27;)) return`). Its only guard is the per-user_id lockout `isLocked(&#x27;token:&#x27;+user_id)`. For an unknown user_id, `isLocked` is false, so the handler runs a DB SELECT and then hits `if (!user) { recordFail(lockKey); ... }` (auth.ts:146-147), which does `attempts.set(&#x27;token:&#x27;+user_id, ...)` for a brand-new key. That key is never evicted: recordSuccess only deletes on a *valid* login, and the window-expiry path (auth.ts:44-49) overwrites the value but keeps the key. The body schema for user_id is `{ type: &#x27;string&#x27; }` with NO maxLength (auth.ts:118), so each key can be up to the 1 MiB body limit. An unauthenticated attacker loops POST /auth/token with random/large user_id strings; every request permanently adds one (potentially ~1 MB) entry to the shared `attempts` Map (and one DB round-trip). Because the API runs as a single container (see rateLimit.ts comment) with no map sweeper, the process grows until OOM and the whole API dies for all users. The same unbounded-key/no-eviction defect applies to the `buckets` Map in lib/rateLimit.ts (rateLimit.ts:4) — nothing ever removes entries.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Add a per-IP rate limit on /auth/token (and /set-pin) before touching the map/DB; add `maxLength` (e.g. 64) to the user_id schema; and cap the size of `attempts`/`buckets` (LRU or periodic sweep of expired entries). Do not create an `attempts` entry for a non-existent user, or key the unknown-user failure counter by IP rather than by attacker-supplied user_id.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#04</span>
+          <span class="cat">session-management</span>
+        </header>
+        <h3 class="ftitle">Refresh token is accepted as an access token (no type/audience separation) → 7-day bearer that bypasses the 15m expiry and active/expiry recheck</h3>
+        <code class="loc">apps/api/src/index.ts:89</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The refresh token is a plain JWT signed with the SAME secret and carries { sub, type:&#x27;refresh&#x27; } with expiresIn 7d (auth.ts lines 179-180, 272). The authenticate decorator (index.ts line 88-90) only calls request.jwtVerify() — it never checks a token type/audience — and every protected route authorizes off request.user.sub with role/permissions re-resolved from the DB (sync.ts resolveCaller, permissions.requirePermission), which do NOT need the role claim. Consequently a refresh token presented as `Authorization: Bearer &lt;refresh&gt;` verifies successfully and is treated as a fully-authenticated session for 7 days, defeating the intentional 15-minute access-token lifetime. Worse: /auth/refresh (auth.ts line 300+) re-checks user.active and expires_at before minting a new JWT, but resolveCaller/requirePermission on the data routes do NOT — so a user who is deactivated (active=false) or whose expires_at has passed keeps full read/write access by directly using their still-valid refresh token as a bearer until it expires 7 days later, with no way to revoke it (stateless JWT, no rotation).</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Give refresh tokens a distinct audience/type and reject them in the authenticate decorator (verify the access token carries no type:&#x27;refresh&#x27;, or sign refresh tokens with a separate secret/aud and only accept that aud at /auth/refresh). Additionally, re-check users.active and expires_at in resolveCaller/requirePermission so a deactivated/expired user is cut off within the token window, not just at refresh time.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#05</span>
+          <span class="cat">privilege-escalation</span>
+        </header>
+        <h3 class="ftitle">Sync users-INSERT path skips the role-assignment/tier guard for new rows, letting a franchise_manager mint a full_admin (apex) account</h3>
+        <code class="loc">apps/api/src/routes/sync.ts:678</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The users write guards in /sync/push (target-role guard, canActOnTarget, and the canAssignRole role-assignment check at line 700) are all nested inside `if (target)` (line 678), where `target` is the pre-existing row fetched by `SELECT role,active FROM users WHERE id=$1`. For a brand-new UUID the row doesn&#x27;t exist, so `target` is undefined and the whole block is skipped. A tier-4 franchise_manager holds manage_users (passes PRIVILEGED_TABLE_PERM) and manage_roles_permissions, so applyWritePolicy uses deny=USERS_ALWAYS_DENY only and lets `role` and `permission_overrides` through. They push a users INSERT entry with a fresh id and role:&#x27;full_admin&#x27;. Because pin_hash was made nullable in migration 003, the row inserts successfully (active defaults TRUE, pin_set FALSE), creating an apex full_admin. This is precisely the action REST POST /users blocks via canAssignRole(creatorRole,role) (users.ts:103) and that the codified invariant canAssignRole(&#x27;franchise_manager&#x27;,&#x27;full_admin&#x27;)===false (permissions.test.ts:95) forbids. The equivalent UPDATE on an existing full_admin is correctly blocked (target defined -&gt; canActOnTarget(franchise_manager,full_admin)=false), so only the new-row INSERT is the hole. Impact is bounded: pin_hash and enrollment_code_hash cannot be set via sync (USERS_ALWAYS_DENY), so the minted admin is dormant/non-loginable via the sync path (auth set-pin at auth.ts:253 requires enrollment_code_hash), and the attacker can&#x27;t UPDATE it afterward (now guarded). Concrete impact is therefore the authorization-control/apex-invariant bypass, users-roster pollution with bogus admin rows, and inflation of the active-full_admin count (each defeats the &#x27;last active full_admin&#x27; deactivation check), rather than immediate apex login.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Move the role-assignment authorization out of the `if (target)` block so it runs for new-user INSERTs too: unconditionally validate `entry.payload.role` with canAssignRole(caller.role, role) (and, mirroring REST users.ts:109, require manage_roles_permissions when creating a PRIVILEGED_ROLES role or any permission_overrides) whenever a users INSERT/UPDATE carries a role — regardless of whether the target row currently exists. Keep the existing target-row guards for the update case.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#06</span>
+          <span class="cat">broken-access-control</span>
+        </header>
+        <h3 class="ftitle">Missing write authorization on conversation_participants lets any user join/read/kick arbitrary conversations</h3>
+        <code class="loc">apps/api/src/routes/sync.ts:752</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>conversation_participants is in ALLOWED_TABLES and its op-perms are all null (syncPolicy.ts:228 -&gt; requiredOperationPerm returns null = &#x27;any authed user&#x27;). It is NOT in ATTRIBUTION_COLUMNS or SENSITIVE_DENY, so applyWritePolicy (syncPolicy.ts:146) keeps the client-supplied user_id verbatim; keepRealColumns only strips non-columns. The push loop guards messages INSERT against membership (sync.ts:752-766) but has NO equivalent guard for conversation_participants. Exploit A (silent kick / integrity): any authenticated user (e.g. lowest &#x27;crew&#x27; role) who is a member of a group conversation posts an outbox entry {operation:&#x27;DELETE&#x27;, table_name:&#x27;conversation_participants&#x27;, payload:{conversation_id:&lt;known conv id&gt;, user_id:&lt;victim id&gt;}}. keyColumns = &#x27;conversation_id, user_id&#x27; (CONFLICT_TARGETS), so applyEntry runs DELETE FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2 (sync.ts:207-210) -&gt; victim (including the conversation creator) is silently removed. Victim user_ids are broadly known because the entire users table is fully synced to every device. Exploit B (unauthorized read): {operation:&#x27;INSERT&#x27;, conversation_participants, {conversation_id:&lt;target&gt;, user_id:&lt;self&gt;}} upserts the attacker in as a participant (ON CONFLICT DO UPDATE); the subsequent /sync/pull chatScopeSql then returns that conversation&#x27;s messages+participants and the messages membership guard now passes, letting the attacker read and post. (Read is bounded by needing the target conversation UUID -- reliable for a previously-removed member who retains the id, or any leaked id -- but the kick/add in Exploit A works with certainty among co-members.)</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Authorize conversation_participants writes like messages: for INSERT/UPDATE/DELETE require the caller to already be a participant (or creator) of the target conversation_id, and for self-join force user_id to the caller. Add conversation_participants membership checks in the sync.ts push loop mirroring the messages block, and consider adding conversations.created_by ownership checks on conversations UPDATE (also op-perm null today).</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#07</span>
+          <span class="cat">broken-access-control</span>
+        </header>
+        <h3 class="ftitle">messages UPDATE is not gated on membership or sender ownership — any user can edit another user&#x27;s message body</h3>
+        <code class="loc">apps/api/src/routes/sync.ts:752</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The membership guard at sync.ts:752 only runs for `messages` with operation===&#x27;INSERT&#x27;. requiredOperationPerm(&#x27;messages&#x27;,&#x27;UPDATE&#x27;) is null (syncPolicy.ts:229), so a messages UPDATE reaches applyEntry with no membership or ownership check. applyWritePolicy for UPDATE deletes sender_id (attribution) but keeps `body`/`urgency`, and the generated UPDATE is keyed on id alone with no `sender_id = caller` or conversation-membership constraint. A user who knows a message id (e.g. any participant of a group chat, or the attacker from the join exploit above) can push {operation:&#x27;UPDATE&#x27;, table_name:&#x27;messages&#x27;, payload:{id:&#x27;&lt;other user&#x27;s message id&gt;&#x27;, body:&#x27;forged text&#x27;}} and silently rewrite another user&#x27;s message content, which then propagates to all participants on pull. No audit trail distinguishes the tamper since sender_id is unchanged.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Gate messages UPDATE the same way as INSERT: verify the caller participates in the message&#x27;s conversation AND owns the row (messages.sender_id = caller) before allowing the write; otherwise reject. Consider disallowing message edits entirely via sync if not a product requirement.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#08</span>
+          <span class="cat">dos-unbounded-payload</span>
+        </header>
+        <h3 class="ftitle">/sync/push `entries` array has no maxItems bound (telemetry caps at 100) — a single authenticated request drives thousands of sequential privileged DB writes</h3>
+        <code class="loc">apps/api/src/routes/sync.ts:546</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The push body schema is `entries: { type: &#x27;array&#x27;, items: { type: &#x27;object&#x27; } }` (sync.ts:546) with no maxItems — contrast telemetry.ts:19 which deliberately sets `maxItems: 100`. The handler then iterates every entry (sync.ts `for (const entry of entries)`), doing per-entry permission resolution and INSERT/UPDATE/DELETE/ADJUST DB work, plus fire-and-forget push notifications for message rows. No custom Fastify `bodyLimit` is configured, so only the 1 MiB default caps the payload — roughly 15–20k minimal entry objects per request. The endpoint is gated only by the generous `mut:` bucket (overRateLimit = 120 requests/min/user, index.ts:108), so one authenticated crew device can submit ~120 × ~20k = millions of serialized DB writes per minute on the single-container API/DB, monopolizing the connection and starving all other users. The explicit maxItems on the far-cheaper telemetry path shows a bound was intended here too.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Add `maxItems` (e.g. 500–1000) to the entries array schema to match the telemetry pattern, and reject oversized batches with 413/400 before the loop.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#09</span>
+          <span class="cat">client-hardening/threat-model-gap</span>
+        </header>
+        <h3 class="ftitle">At-rest snapshot encryption provides no protection against the XSS threat its own comments claim to defend against (key lives in XSS-readable sessionStorage)</h3>
+        <code class="loc">apps/mobile/src/db/webCrypto.ts:126</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>webPersistence.ts:4-8 and webCrypto.ts:5-14 explicitly assert that AES-GCM encrypting the sql.js snapshot means &#x27;a shared/compromised browser or an XSS read of IndexedDB yields ciphertext, not the full dataset.&#x27; But the AES-256 key is exported raw and written to sessionStorage under &#x27;ip-web-dbkey&#x27; (webCrypto.ts:126) and the modules are already loaded in the page. Any XSS executing on invenpro.app can do: JSON key = atob(sessionStorage[&#x27;ip-web-dbkey&#x27;]) -&gt; importKey -&gt; read the IndexedDB &#x27;sqlite-snapshot&#x27; blob (strip 4-byte MAGIC) -&gt; decryptBytes, recovering the entire local inventory/user dataset in plaintext. Even simpler, XSS can call the exported getSnapshotKey()/loadDbSnapshot() directly. sessionStorage is same-origin JS-readable, exactly like IndexedDB, so moving the key there buys nothing against a script-execution attacker. The encryption only helps against offline filesystem access to the LevelDB files by a process with NO JS context on the origin; the prominent &#x27;XSS&#x27; claim in the comments is false and gives false assurance.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Correct the comments to scope the control to offline/at-rest disk access only, and stop advertising XSS resistance. Real XSS mitigation must come from the CSP/script-src lockdown, not from co-locating key+ciphertext in the same origin&#x27;s JS-reachable storage. If protection against a live-page attacker is a goal, the key cannot be derivable by page script (e.g. non-extractable key held only in a worker with no message API to export it), which the current design does not achieve.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#10</span>
+          <span class="cat">client-hardening/ineffective-control</span>
+        </header>
+        <h3 class="ftitle">Web idle auto-wipe leaves the live in-memory DB and React session intact, and the persistence flush regenerates the key — a walked-away browser is not actually protected</h3>
+        <code class="loc">apps/mobile/src/auth/session.web.ts:176</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The stated goal (useWebIdleWipe.ts:1-8, session.web.ts:161-176) is that after ~15 min idle &#x27;a walked-away session on a shared machine can&#x27;t be resumed.&#x27; The idle callback runs wipeWebSecureState(), which deletes tokens + the IndexedDB snapshot + the AES key. But the TODO at session.web.ts:169-175 concedes it does NOT flip the React SessionContext to logged-out and does NOT clear the in-memory sql.js Database (schema.web.ts &#x27;raw&#x27; is never closed/nulled on wipe). So a person who walks up to the idle, unlocked browser still sees every screen fully populated and can read/search all inventory, users, jobs, and locations locally with no re-auth (offline-first reads hit the in-memory DB, not the server); only the next token-requiring network action bounces them. Worse, because writes call scheduleSave()-&gt;flush()-&gt;saveDbSnapshot()-&gt;getOrCreateSnapshotKey() (schema.web.ts:24-29, webCrypto.ts:112-134), any post-wipe write or the visibilitychange/pagehide flush hook (schema.web.ts:83-89) mints a FRESH AES key back into sessionStorage and re-writes a fully decryptable snapshot to IndexedDB, undoing the wipe&#x27;s &#x27;nothing decryptable at rest&#x27; guarantee while the tab stays open.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Drive the actual logout from the idle callback (call the SessionContext logout() as the TODO notes), and on wipe also close()/null the sql.js database and set persistenceDisabled or a wiped flag so flush()/getOrCreateSnapshotKey() cannot silently re-persist and re-key after a wipe. Navigating/reloading to the login route on idle would clear the JS heap copy of the DB as well.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-medium">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-medium">MEDIUM</span>
+          <span class="fnum">#11</span>
+          <span class="cat">idor-mass-assignment</span>
+        </header>
+        <h3 class="ftitle">Media sync-write path bypasses the entity_type allowlist and URL validation the POST /media route enforces</h3>
+        <code class="loc">apps/api/src/lib/syncPolicy.ts:207</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The real client creates media rows through the generic sync outbox, not routes/media.ts (media.ts:280-283 states this explicitly). For table &#x27;media&#x27; the sync path applies only applyWritePolicy (syncPolicy.ts:146-188), which forces uploaded_by=caller but keeps entity_type, entity_id, url and thumbnail_url exactly as the client sent them (they are real columns, not in SENSITIVE_DENY, and there is no MEDIA_ENTITY_TYPES/KEY_RE check anywhere in sync.ts). The POST /media route guards both of these: media.ts:10 restricts entity_type to an operational allowlist because attaching media to users/teams/role_settings/app_config &#x27;was an IDOR sink&#x27; (media.ts:8-9), and media.ts:147-166 binds url/thumbnail_url to a server-generated key to stop an &#x27;SSRF/DB-pollution sink&#x27; where a client &#x27;could point url anywhere and we&#x27;d store + serve it as this entity&#x27;s media&#x27;. A user holding upload_media (a broad, team-grantable permission per TEAM_OVERRIDABLE_PERMISSIONS) pushes a media outbox INSERT with entity_type=&#x27;users&#x27;/&#x27;app_config&#x27;/&#x27;teams&#x27;, an arbitrary entity_id, and url=&#x27;https://attacker.example/x.jpg&#x27;. The row is accepted (OPERATION_PERM.media INSERT=&#x27;upload_media&#x27; at syncPolicy.ts:207) and, because media is in FULL_TABLES but not SCOPED_TABLES (sync.ts:75,105), is then pulled to every device and rendered by MediaGallery as that entity&#x27;s media — re-opening exactly the IDOR (media on admin entities) and stored-arbitrary-content (client-controlled external URL shown in-app) sinks the POST route closes.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Enforce the same MEDIA_ENTITY_TYPES membership check and the KEY_RE + entity-prefix binding on url/thumbnail_url in the sync write path for table &#x27;media&#x27; (reject the outbox entry otherwise), so the generic path has parity with routes/media.ts. Reuse the constants from media.ts rather than duplicating them.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-low">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-low">LOW</span>
+          <span class="fnum">#12</span>
+          <span class="cat">credential-lifetime</span>
+        </header>
+        <h3 class="ftitle">Enrollment codes never expire — indefinitely valid until a PIN is set</h3>
+        <code class="loc">apps/api/src/routes/users.ts:38</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>issueEnrollmentCode (line 38) stores only a bcrypt hash of the 6-digit code with no issued-at/expiry column, and /auth/set-pin (auth.ts) validates the code with no time check. A code emailed at account creation (sendEnrollmentCodeEmail) or reissued via reset-enrollment-code stays valid forever until the user completes first-login. An intercepted email, a shoulder-surfed/forwarded code, or a code left in an inbox for months can still be replayed to set the victim&#x27;s first PIN and seize the un-onboarded account. The set-pin per-user lockout throttles brute force but does nothing to bound the validity window of a known/leaked code. The reset-enrollment-code comment even refers to codes that were &#x27;lost/expired,&#x27; but no expiry is actually implemented.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Add an enrollment_code_expires_at (e.g. NOW() + 24-72h) set at issuance/reissue and reject expired codes in /auth/set-pin; force admins to reissue after expiry. This also shrinks the exposure window of the reset-enrollment-code takeover above.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-low">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-low">LOW</span>
+          <span class="fnum">#13</span>
+          <span class="cat">mass-assignment</span>
+        </header>
+        <h3 class="ftitle">media rows written via the sync outbox bypass the url/entity_type validation enforced by routes/media.ts</h3>
+        <code class="loc">apps/api/src/routes/media.ts:150</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>The dedicated POST /media route strictly validates entity_type against MEDIA_ENTITY_TYPES and the object key against KEY_RE anchored to entity_type/entity_id (media.ts:144-166), to prevent forged/foreign object URLs and attaching media to admin entities. But &#x27;media&#x27; is also in ALLOWED_TABLES with op-perm upload_media (syncPolicy.ts:207) and no SENSITIVE_DENY entry, so a caller with upload_media can INSERT a media row through /sync/push with an arbitrary url, thumbnail_url, entity_type and entity_id (only uploaded_by is attribution-forced). The media table is a fully-synced, unscoped table, so the forged url is pulled to every device. This is explicitly acknowledged in media.ts:280-290 (&#x27;The real client creates media rows via the sync outbox (not this route), which does not validate url/thumbnail_url&#x27;), so it appears to be a deliberately accepted tradeoff for the delete-safety logic -- but it means the KEY_RE/entity allowlist hardening in the REST path is advisory-only, and a client can store arbitrary url strings (cross-entity object references or external URLs) that other clients render.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>If the REST-path url/key/entity validation is meant to be a security boundary, mirror it in the sync write path (validate media.url/thumbnail_url with KEY_RE anchored to the row&#x27;s entity, and reject entity_type not in MEDIA_ENTITY_TYPES) inside applyEntry or via a table-specific guard; otherwise document the accepted risk explicitly in syncPolicy for the media table.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-low">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-low">LOW</span>
+          <span class="fnum">#14</span>
+          <span class="cat">access-control</span>
+        </header>
+        <h3 class="ftitle">Prod MinIO bucket set to whole-bucket anonymous download — all media world-readable, protected only by unguessable object keys</h3>
+        <code class="loc">infra/docker-compose.prod.yml:65</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>minio-init runs `mc anonymous set download local/${MINIO_BUCKET}` on the ENTIRE bucket (dev compose scopes this to just /thumbnails). Every uploaded object — full-resolution photos/videos attached to items, jobs, repairs, locations, and activity_log — is anonymously downloadable with no auth via s3.&lt;domain&gt;/&lt;bucket&gt;/&lt;key&gt;. Confidentiality rests entirely on the object key being unguessable (entity_type/&lt;entity_id&gt;/&lt;uuid&gt;.&lt;ext&gt;, two UUIDs, so effectively an unguessable capability URL). Impact is bounded because keys are not enumerable, but any leak of a media URL (via logs, push-notification payloads, shared screenshots, or a browser referer) grants permanent unauthenticated access to that object, and there is no way to revoke it short of deleting the object. This appears to be a deliberate capability-URL design (PUBLIC_MEDIA_URL serves media directly, no signed GET), but the widening from thumbnails-only (dev) to the whole bucket (prod) is worth an explicit decision.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>If media is meant to be private, drop the anonymous policy and serve GETs via short-lived presigned URLs (the code already has an S3 signer). If public-by-capability-URL is intended, document the tradeoff and ensure media URLs are never emitted to lower-trust sinks (logs/notifications) than the media itself warrants.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-low">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-low">LOW</span>
+          <span class="fnum">#15</span>
+          <span class="cat">client-hardening/inconsistent-threat-model</span>
+        </header>
+        <h3 class="ftitle">JWT and user_id persisted as plaintext in IndexedDB undermine the at-rest DB encryption against the same local-disk attacker</h3>
+        <code class="loc">apps/mobile/src/auth/session.web.ts:68</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>session.web.ts:12-18 documents that the refresh token is deliberately kept only in memory because &#x27;anything written [to IndexedDB] sits on disk in plaintext and readable by anyone with local file access.&#x27; Yet saveSession() writes the JWT (idbSet(JWT_KEY,jwt)) and user_id (idbSet(USER_ID_KEY)) to that very IndexedDB in plaintext (session.web.ts:68-77). The entire point of AES-GCM-encrypting the sql.js snapshot is to deny a local-file-access attacker the dataset — but the same attacker who cannot decrypt the snapshot can lift the plaintext JWT from IndexedDB and, if it is still within its 15-minute validity, call the authoritative API (e.g. /sync/full, which per the hardening notes now requires auth but accepts a valid JWT) as that user and re-download the full dataset, plus learn the user_id. The co-located plaintext token partially defeats the snapshot encryption for the threat it targets.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Treat the JWT as sensitive at rest too: hold it in memory like the refresh token, or encrypt it with the same session key, accepting that a reload forces re-auth (consistent with the D4 refresh-token decision). At minimum, narrow the comment&#x27;s claim so it does not imply on-disk state is protected when a live JWT sits beside it.</p></div>
+        </div>
+      </div>
+    </article>
+    <article class="finding sev-low">
+      <div class="stripe"></div>
+      <div class="fbody">
+        <header class="fhead">
+          <span class="chip chip-low">LOW</span>
+          <span class="fnum">#16</span>
+          <span class="cat">notification-abuse</span>
+        </header>
+        <h3 class="ftitle">Assignment notification lets any edit_inventory user push notifications to arbitrary users with no dedup or rate limit</h3>
+        <code class="loc">apps/api/src/routes/sync.ts:311</code>
+        <div class="detail">
+          <div class="block"><span class="blabel">Exploit</span><p>On a repairs UPDATE where assignee_id changed, sync.ts:311-321 calls deliver() to resolveRecipients(&#x27;assignment&#x27;, {userId: assignee}); the &#x27;assignment&#x27; intrinsic recipient is simply [ctx.userId] (notifications.ts:95), i.e. whatever user id the caller put in assignee_id — with no requirement that the assignee is on the caller&#x27;s team. There is deliberately no dedup key (sync.ts:309-310) and this path has no rate limit. A user with edit_inventory (repairs UPDATE perm, syncPolicy.ts:203) repeatedly toggles a single repair&#x27;s assignee_id between arbitrary target user ids, generating an unbounded stream of inbox rows + Expo push sends to those users. Content is the fixed string &#x27;You have been assigned a repair.&#x27;, so this is annoyance / push-quota abuse rather than content injection, but it does let one low-privileged user notify any arbitrary user id on demand.</p></div>
+          <div class="block fix"><span class="blabel">Fix</span><p>Rate-limit the assignment notification per caller (as /push/test and /broadcast already are via overRateLimit), and/or restrict assignment notifications to assignees who share a team with the caller so the path can&#x27;t be used to ping arbitrary user ids.</p></div>
+        </div>
+      </div>
+    </article>
+
+  <h2 class="sec">Follow-up gaps (completeness critic)</h2>
+  <div class="follow"><ul><li>QR anti-forgery secret is world-readable to every enrolled device. apps/api/src/lib/qrSign.ts:getQrSecret reads the org HMAC key from app_config (key=&#x27;qr_signing_secret&#x27;), and apps/api/src/lib/syncPolicy.ts:selectColumnsFor(&#x27;app_config&#x27;) returns &#x27;key, value, updated_at&#x27; for ALL rows with no row filter, while app_config PULL is available to any authenticated device (routes/sync.ts pull table list). So any authenticated user (even a read-only tier) or anyone who decompiles/steals an APK+local DB extracts the org signing secret and can mint valid INVS:&lt;type&gt;:&lt;value&gt;:&lt;sig&gt; tags for any item/value, defeating the QR signing control entirely. The audit&#x27;s secrets dimension only covered MinIO. Note the selectColumnsFor comment (&#x27;no secret columns exist today&#x27;) is factually wrong. FOLLOW-UP: apps/api/src/lib/syncPolicy.ts (selectColumnsFor app_config), apps/api/src/lib/qrSign.ts, routes/sync.ts pull scoping.</li><li>activity_log write path allows audit forgery and silent log-suppression. routes/sync.ts (~lines 137-166) forces user_id=caller but accepts client-supplied id, created_at, team_id, entity_id, note, metadata, job_id, latitude/longitude/location_accuracy. Two concrete abuses: (a) a user fabricates their own immutable audit entries with false GPS &#x27;proof of presence&#x27;, backdated created_at, and bogus metadata; (b) because the insert is `WHERE NOT EXISTS (SELECT 1 FROM activity_log WHERE id=$1)`, a malicious client can pre-insert a row with a chosen id so a future legitimate event carrying that id is silently dropped — audit suppression of a compliance-grade, Postgres-immutable (no-update/no-delete) log. Audit covered activity_log UUID/enum traps but not content integrity. FOLLOW-UP: routes/sync.ts activity_log branch, lib/syncPolicy.ts isAllowedActivity (validates only action/entity_type, not id/timestamp/geo).</li><li>Media REST read endpoint has no per-entity authorization. routes/media.ts:187 GET /media/:entityType/:entityId requires only authenticate and returns every media row (URLs) for ANY entityId to ANY authenticated user — no ownership/team/job scoping (contrast DELETE at :217 which enforces uploader-or-admin). Combined with the already-found world-readable MinIO bucket, a low-tier user enumerating entity ids harvests every photo/video in the org. The audit&#x27;s push-media dimension covered the sync-write validation bypass and the bucket ACL but not this REST read authz gap. FOLLOW-UP: routes/media.ts GET handler (187), MEDIA_ENTITY_TYPES.</li><li>Media upload is unmetered and size-unbounded → storage-exhaustion DoS. routes/media.ts:70 POST /media/upload-url has NO per-user rate limit (unlike push.ts, logs.ts, notifications broadcast which all call overRateLimit), and content_length is an OPTIONAL field — the code comment admits &#x27;Omitted (e.g. current mobile client) -&gt; unbounded PUT, as before,&#x27; so no ContentLength is bound and the presigned PUT accepts arbitrarily large objects. Any upload_media holder can spam presign generation and push huge objects to MinIO until the volume fills. The ratelimit-dos dimension focused on /auth/token map growth and /sync/push entries[] but missed this write-amplification/storage path. FOLLOW-UP: routes/media.ts upload-url handler, MAX_UPLOAD_BYTES enforcement, rate-limit parity with other POST routes.</li><li>Full user directory (PII + permission matrix) is pulled by every authenticated device including the lowest tier. lib/syncPolicy.ts USERS_COLS (used by selectColumnsFor(&#x27;users&#x27;)) returns id,name,role,permission_overrides,active,expires_at,email,... and the users table is in the sync PULL set (routes/sync.ts) with no per-caller scoping. A read-only/base user therefore obtains every employee&#x27;s email, per-user permission_overrides (an authz map useful for targeting the weakest-guarded admin), and account expiry. Contrast the deliberately-minimal public /auth/roster projection in auth.ts — the post-login pull is far broader. Audit covered users-INSERT escalation but not this read-side disclosure. FOLLOW-UP: lib/syncPolicy.ts USERS_COLS, routes/sync.ts users pull (should email/permission_overrides be gated behind manage_users?).</li><li>The auth brute-force `attempts` map DoS (found for /auth/token) has additional unbounded writers not called out: apps/api/src/routes/auth.ts also inserts keys `setpin:&lt;user_id&gt;` (POST /auth/set-pin, low-cost, target-controlled) and `roster:&lt;ip&gt;` (GET /auth/roster, fully UNAUTHENTICATED) into the same never-evicted Map with no maxLength. Any fix must bound/evict all three writers, not just /auth/token. Separately, the roster IP-rate-limit relies on request.ip; index.ts sets trustProxy from env (default 127.0.0.1 = safe), but if TRUST_PROXY is set permissively in prod behind NPM, a client-supplied X-Forwarded-For spoofs the key and defeats the only guard on the unauthenticated enumeration endpoint. FOLLOW-UP: routes/auth.ts (attempts Map, rosterRateLimited), index.ts trustProxy config vs NPM header stripping.</li></ul></div>
+  <p class="note">These are areas the audit under-covered and worth a second pass — not yet confirmed findings.</p>
+
+  <footer>InventoryPro &mdash; multi-agent security audit &middot; adversarially verified &middot; no code changed</footer>
+</div>
