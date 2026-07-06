@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -38,6 +38,7 @@ import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
@@ -57,6 +58,7 @@ export default function EquipmentModelDetailScreen() {
   const canViewFinancial = usePermission('view_financial_data');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const dataVersion = useDataVersion();
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -150,6 +152,11 @@ export default function EquipmentModelDetailScreen() {
     setUnitCounts(countUnitsByStatus(id));
     setMaintByUnit(buildMaintMap(nextUnits));
   }, [id]);
+
+  // A background sync pull that brings new units/maintenance rows bumps
+  // dataVersion; re-run the existing loader so the maintenance list (and unit
+  // data) refreshes without waiting on a local write or a remount.
+  useEffect(() => { reload(); }, [dataVersion, reload]);
 
   if (!item) {
     return (

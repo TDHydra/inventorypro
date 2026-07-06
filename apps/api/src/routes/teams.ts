@@ -96,7 +96,24 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /teams/:id
   fastify.patch<{ Params: { id: string }; Body: Partial<TeamBody> }>(
-    '/:id', { preHandler: [...auth, requirePermission('manage_teams')] },
+    '/:id', {
+      preHandler: [...auth, requirePermission('manage_teams')],
+      schema: {
+        params: {
+          type: 'object', required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+            type: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { name, type } = request.body;
       const sets: string[] = [];
@@ -119,10 +136,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
     '/:id/members', {
       preHandler: [...auth, requirePermission('manage_teams')],
       schema: {
+        params: {
+          type: 'object', required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
         body: {
           type: 'object', required: ['user_id'],
           properties: {
-            user_id: { type: 'string' },
+            user_id: { type: 'string', minLength: 1, maxLength: 64 },
             team_permission_overrides: { type: 'object' },
           },
         },
@@ -173,6 +196,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
     '/:id/members/:uid', {
       preHandler: [...auth, requirePermission('manage_teams')],
       schema: {
+        params: {
+          type: 'object', required: ['id', 'uid'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+            uid: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
         body: {
           type: 'object',
           minProperties: 1,

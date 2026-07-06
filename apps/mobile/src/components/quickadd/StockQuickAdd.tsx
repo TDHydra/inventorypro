@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../db/queries/items';
-import { getAllLocations } from '../../db/queries/locations';
+import { getAllLocations, getShelvesForParent, findOrCreateShelf } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -39,6 +39,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
   const qtyRef = useRef<TextInput>(null);
 
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null); // sticky
+  const [shelfValue, setShelfValue] = useState<PickerOption | null>(null);
   const [selectedItemOpt, setSelectedItemOpt] = useState<PickerOption | null>(null);
   const [mode, setMode] = useState<Mode>('delta');
   const [qty, setQty] = useState('');
@@ -55,9 +56,19 @@ export default function StockQuickAdd({ onSaved }: Props) {
   );
 
   const allLocations = useMemo(() => getAllLocations(), []);
+  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
   const locationOptions: PickerOption[] = useMemo(
     () => allLocations.map(l => ({ id: l.id, label: l.name })),
     [allLocations],
+  );
+
+  // The selected location's has_shelves flag drives the Shelf field (migration 020).
+  const locationHasShelves = selectedLocation ? locationById.get(selectedLocation.id)?.has_shelves === 1 : false;
+  const shelfOptions = useMemo<PickerOption[]>(
+    () => (locationHasShelves && selectedLocation)
+      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
+      : [],
+    [locationHasShelves, selectedLocation],
   );
 
   // DB-backed search (not a capped pre-load) so the full catalog is reachable.
@@ -93,7 +104,16 @@ export default function StockQuickAdd({ onSaved }: Props) {
     setError('');
 
     const itemId = selectedItemOpt.id;
-    const locationId = selectedLocation.id;
+    // Resolve the target location: when the location bears shelves and a shelf is
+    // chosen, stock is tracked against the shelf (creating it if it's new — which
+    // can fail and return null, so guard it). Otherwise the bare location.
+    const locationId = (locationHasShelves && shelfValue?.label)
+      ? (shelfValue.id === '__new__' ? findOrCreateShelf(selectedLocation.id, shelfValue.label) : shelfValue.id)
+      : selectedLocation.id;
+    if (!locationId) {
+      setError(`Couldn’t create the shelf “${shelfValue?.label}”. Pick an existing shelf or try again.`);
+      return;
+    }
     const now = new Date().toISOString();
     const fullItem = getItemById(itemId);
     const itemUnit = fullItem?.unit ?? 'each';
@@ -173,10 +193,24 @@ export default function StockQuickAdd({ onSaved }: Props) {
         options={locationOptions}
         value={selectedLocation}
         onSelect={opt => {
+          // Shelf is per-location — reset it whenever the location changes.
+          setShelfValue(null);
           setSelectedLocation(prev => prev?.id === opt.id ? null : opt);
           if (error) setError('');
         }}
       />
+      {locationHasShelves && (
+        <>
+          <FieldLabel>Shelf</FieldLabel>
+          <SearchablePicker
+            placeholder="Type or pick a shelf (e.g. A1)…"
+            options={shelfOptions}
+            value={shelfValue}
+            onSelect={opt => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
+            onCreate={text => setShelfValue({ id: '__new__', label: text })}
+          />
+        </>
+      )}
 
       <FieldLabel>Item</FieldLabel>
       <SearchablePicker

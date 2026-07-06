@@ -113,7 +113,31 @@ const routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // PATCH /users/:id — update user
-  fastify.patch<{ Params: { id: string }; Body: UpdateUserBody }>('/:id', auth, async (request, reply) => {
+  fastify.patch<{ Params: { id: string }; Body: UpdateUserBody }>('/:id', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          role: { type: 'string', minLength: 1, maxLength: 64 },
+          pin: { type: 'string', minLength: 4, maxLength: 8 },
+          reset_pin: { type: 'boolean' },
+          active: { type: 'boolean' },
+          // Nullable: clearing an expiry is a legitimate PATCH (expires_at → null).
+          expires_at: { type: ['string', 'null'], maxLength: 40 },
+          permission_overrides: { type: 'object' },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const targetId = request.params.id;
     const can = await callerCan(fastify, userId);
