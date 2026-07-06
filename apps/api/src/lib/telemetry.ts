@@ -63,14 +63,87 @@ export async function ingestEvents(
 }
 
 export interface NameCount { name: string; count: number }
+/** A single day's bucket in a time-series trend (day is a 'YYYY-MM-DD' key). */
+export interface DayCount { day: string; count: number }
+/** Per-user activity roll-up, resolved to a display name + role via users join. */
+export interface UserActivity { userId: string; name: string; role: string; count: number }
+
 export interface TelemetrySummary {
   windowDays: number;
   totals: { events: number; sessions: number; users: number; devices: number; errors: number };
+  // Distinct-actor signals seen in the window. telemetry_events has no push-token
+  // column, so "active actors" are the distinct identity keys it does carry:
+  // authenticated users (user_id), devices (device_id), and sessions — plus how
+  // many of those sessions were anonymous (pre-login funnel).
+  active: { users: number; devices: number; sessions: number; anonSessions: number };
   topScreens: NameCount[];
   topActions: NameCount[];
   topErrors: NameCount[];
+  errorTrend: DayCount[];         // error-event count bucketed by day, zero-filled
+  byUser: UserActivity[];         // top-N authenticated users by event count
+  byRole: NameCount[];            // event count grouped by users.role
+  byTeam: NameCount[];            // event count grouped by team (team_members join)
   byPlatform: { platform: string; count: number }[];
   byVersion: { version: string; count: number }[];
+}
+
+/**
+ * Pure zero-fill for the daily error trend. The DB only emits rows for days that
+ * actually had errors; a trend chart needs a continuous axis, so this produces
+ * exactly `days` consecutive UTC-day buckets ending on `now`'s UTC day, merging
+ * the DB counts in and defaulting the gaps to 0. UTC-anchored to match Postgres'
+ * default `date_trunc('day', …)` (prod runs UTC). Extracted so the shaping logic
+ * is testable without a DB. Guards empty/undefined input — no throw, no NaN.
+ */
+export function zeroFillDailyTrend(
+  rows: { day: string; count: number }[] | null | undefined,
+  days: number,
+  now: Date = new Date(),
+): DayCount[] {
+  const counts = new Map<string, number>();
+  for (const r of rows ?? []) {
+    if (r && typeof r.day === 'string') counts.set(r.day, (counts.get(r.day) ?? 0) + Number(r.count || 0));
+  }
+  const span = Math.max(1, Math.floor(days) || 1);
+  const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const out: DayCount[] = [];
+  for (let i = span - 1; i >= 0; i--) {
+    const key = new Date(base - i * 86_400_000).toISOString().slice(0, 10);
+    out.push({ day: key, count: counts.get(key) ?? 0 });
+  }
+  return out;
+}
+
+/**
+ * Pure shaping of the single summary row (see getTelemetrySummary's query) into
+ * the wire model. Every list defaults to [] when its CTE produced no rows
+ * (json_agg → NULL on an empty set) and every total defaults to 0, so an empty
+ * window renders gracefully with no divide-by-zero downstream. Testable without
+ * a DB.
+ */
+export function shapeTelemetrySummary(row: any, days: number, now: Date = new Date()): TelemetrySummary {
+  const t = row?.totals ?? {};
+  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  return {
+    windowDays: days,
+    totals: {
+      events: t.events ?? 0, sessions: t.sessions ?? 0, users: t.users ?? 0,
+      devices: t.devices ?? 0, errors: t.errors ?? 0,
+    },
+    active: {
+      users: t.users ?? 0, devices: t.devices ?? 0,
+      sessions: t.sessions ?? 0, anonSessions: t.anon_sessions ?? 0,
+    },
+    topScreens: arr<NameCount>(row?.screens),
+    topActions: arr<NameCount>(row?.actions),
+    topErrors: arr<NameCount>(row?.errors),
+    errorTrend: zeroFillDailyTrend(arr<DayCount>(row?.err_trend), days, now),
+    byUser: arr<UserActivity>(row?.by_user),
+    byRole: arr<NameCount>(row?.by_role),
+    byTeam: arr<NameCount>(row?.by_team),
+    byPlatform: arr<{ platform: string; count: number }>(row?.platforms),
+    byVersion: arr<{ version: string; count: number }>(row?.versions),
+  };
 }
 
 /**
@@ -80,46 +153,102 @@ export interface TelemetrySummary {
  * string-interpolated. Extracted from the route so it's unit-testable with a
  * mock pg. This is the ONLY read path into telemetry_events; it's gated on
  * system_settings at the route.
+ *
+ * ONE round-trip: a single CTE query slices the window once (`win`) and derives
+ * every tile/list off it (totals, top-N screens/actions/errors, error trend,
+ * per-user/role/team roll-ups, platform/version splits), each collapsed to a
+ * json_agg column so the whole report comes back as a single row. Pure shaping
+ * (defaults, zero-fill) is delegated to shapeTelemetrySummary.
  */
 export async function getTelemetrySummary(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> },
   days: number,
 ): Promise<TelemetrySummary> {
-  const win = `received_at > NOW() - make_interval(days => $1)`;
-  const top = (type: string) =>
-    `SELECT name, COUNT(*)::int AS count FROM telemetry_events
-       WHERE type = '${type}' AND ${win} GROUP BY name ORDER BY count DESC LIMIT 15`;
+  // $1 (days) is the only binding; every literal below is static SQL.
+  const sql = `
+    WITH win AS (
+      SELECT * FROM telemetry_events
+       WHERE received_at > NOW() - make_interval(days => $1)
+    ),
+    totals AS (
+      SELECT COUNT(*)::int AS events,
+             COUNT(DISTINCT session_id)::int AS sessions,
+             COUNT(DISTINCT user_id)::int AS users,
+             COUNT(DISTINCT device_id)::int AS devices,
+             COUNT(*) FILTER (WHERE type = 'error')::int AS errors,
+             COUNT(DISTINCT session_id) FILTER (WHERE user_id IS NULL)::int AS anon_sessions
+        FROM win
+    ),
+    screens AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT name, COUNT(*)::int AS count FROM win WHERE type = 'screen'
+         GROUP BY name ORDER BY count DESC, name LIMIT 15) x
+    ),
+    actions AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT name, COUNT(*)::int AS count FROM win WHERE type = 'action'
+         GROUP BY name ORDER BY count DESC, name LIMIT 15) x
+    ),
+    errors AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT name, COUNT(*)::int AS count FROM win WHERE type = 'error'
+         GROUP BY name ORDER BY count DESC, name LIMIT 15) x
+    ),
+    err_trend AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT to_char(date_trunc('day', received_at), 'YYYY-MM-DD') AS day,
+               COUNT(*)::int AS count
+          FROM win WHERE type = 'error'
+         GROUP BY 1) x
+    ),
+    by_user AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT w.user_id::text AS "userId",
+               COALESCE(u.name, 'Unknown') AS name,
+               COALESCE(u.role::text, '—') AS role,
+               COUNT(*)::int AS count
+          FROM win w JOIN users u ON u.id = w.user_id
+         WHERE w.user_id IS NOT NULL
+         GROUP BY w.user_id, u.name, u.role
+         ORDER BY count DESC, name LIMIT 10) x
+    ),
+    by_role AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT u.role::text AS name, COUNT(*)::int AS count
+          FROM win w JOIN users u ON u.id = w.user_id
+         GROUP BY u.role ORDER BY count DESC, name LIMIT 10) x
+    ),
+    by_team AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT t.name AS name, COUNT(*)::int AS count
+          FROM win w
+          JOIN team_members tm ON tm.user_id = w.user_id
+          JOIN teams t ON t.id = tm.team_id
+         GROUP BY t.name ORDER BY count DESC, name LIMIT 10) x
+    ),
+    plat AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT COALESCE(platform, 'unknown') AS platform, COUNT(*)::int AS count
+          FROM win GROUP BY platform ORDER BY count DESC LIMIT 10) x
+    ),
+    ver AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT COALESCE(app_version, 'unknown') AS version, COUNT(*)::int AS count
+          FROM win GROUP BY app_version ORDER BY count DESC LIMIT 10) x
+    )
+    SELECT (SELECT row_to_json(totals) FROM totals) AS totals,
+           (SELECT j FROM screens)   AS screens,
+           (SELECT j FROM actions)   AS actions,
+           (SELECT j FROM errors)    AS errors,
+           (SELECT j FROM err_trend) AS err_trend,
+           (SELECT j FROM by_user)   AS by_user,
+           (SELECT j FROM by_role)   AS by_role,
+           (SELECT j FROM by_team)   AS by_team,
+           (SELECT j FROM plat)      AS platforms,
+           (SELECT j FROM ver)       AS versions`;
 
-  const totalsQ = await pg.query(
-    `SELECT COUNT(*)::int AS events,
-            COUNT(DISTINCT session_id)::int AS sessions,
-            COUNT(DISTINCT user_id)::int AS users,
-            COUNT(DISTINCT device_id)::int AS devices,
-            COUNT(*) FILTER (WHERE type = 'error')::int AS errors
-       FROM telemetry_events WHERE ${win}`, [days]);
-  const screensQ = await pg.query(top('screen'), [days]);
-  const actionsQ = await pg.query(top('action'), [days]);
-  const errorsQ = await pg.query(top('error'), [days]);
-  const platQ = await pg.query(
-    `SELECT COALESCE(platform, 'unknown') AS platform, COUNT(*)::int AS count
-       FROM telemetry_events WHERE ${win} GROUP BY platform ORDER BY count DESC LIMIT 10`, [days]);
-  const verQ = await pg.query(
-    `SELECT COALESCE(app_version, 'unknown') AS version, COUNT(*)::int AS count
-       FROM telemetry_events WHERE ${win} GROUP BY app_version ORDER BY count DESC LIMIT 10`, [days]);
-
-  const t = totalsQ.rows[0] ?? {};
-  return {
-    windowDays: days,
-    totals: {
-      events: t.events ?? 0, sessions: t.sessions ?? 0, users: t.users ?? 0,
-      devices: t.devices ?? 0, errors: t.errors ?? 0,
-    },
-    topScreens: screensQ.rows,
-    topActions: actionsQ.rows,
-    topErrors: errorsQ.rows,
-    byPlatform: platQ.rows,
-    byVersion: verQ.rows,
-  };
+  const res = await pg.query(sql, [days]);
+  return shapeTelemetrySummary(res.rows[0] ?? {}, days);
 }
 
 export function sanitizeEvent(raw: any): CleanEvent | null {

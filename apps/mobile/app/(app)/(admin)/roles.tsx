@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, Switch, StyleSheet } from 're
 import { Stack } from 'expo-router';
 import {
   ROLE_DISPLAY_NAMES, ROLE_TIER, ROLE_DEFAULTS, PIN_LENGTH_BY_TIER,
-  UserRole, Permission, ROLE_COLOR_PALETTE, resolveRoleColor,
+  UserRole, Permission, ROLE_COLOR_PALETTE, resolveRoleColor, canActOnTarget,
 } from '../../../src/constants/roles';
 import {
   getRoleSettings, setRoleMinPin,
@@ -102,6 +102,9 @@ export default function RolesScreen() {
   function togglePerm(role: UserRole, perm: Permission) {
     if (!canManage) return;
     if (isLockedPerm(role, perm)) return; // self-lockout guard
+    // Only a full_admin may grant/revoke the destructive delete_inventory permission
+    // (mirrored + enforced server-side on the role_settings sync write).
+    if (perm === 'delete_inventory' && sessionUser?.role !== 'full_admin') return;
     if (isWriteBlocked()) return;
     const def = ROLE_DEFAULTS[role][perm];
     const { value: cur } = effectivePerm(role, perm);
@@ -222,6 +225,12 @@ export default function RolesScreen() {
         {ROLES_BY_TIER.map(role => {
           const isOpen = expanded === role;
           const minPin = effectiveMinPin(role);
+          // Client-side hierarchy gate (server enforces authoritatively): a manager
+          // can't edit the matrix of a role at/above their own effective tier — e.g.
+          // a tier-3 with manage_roles_permissions can't touch a tier-4 role. Fail
+          // closed if the session role is missing.
+          const callerRole = (sessionUser?.role ?? '') as UserRole;
+          const canActThisRole = canActOnTarget(callerRole, role);
           return (
             <View key={role} style={s.card}>
               <TouchableOpacity style={s.cardHead} onPress={() => setExpanded(isOpen ? null : role)}>
@@ -235,6 +244,12 @@ export default function RolesScreen() {
                 <Text style={s.chevron}>{isOpen ? '▾' : '▸'}</Text>
               </TouchableOpacity>
 
+              {canManage && !canActThisRole && (
+                <Text style={s.lockNote}>
+                  🔒 This role is at or above your access level — you can't change its permissions.
+                </Text>
+              )}
+
               {/* Min PIN length stepper */}
               <View style={s.pinRow}>
                 <View style={{ flex: 1 }}>
@@ -243,17 +258,17 @@ export default function RolesScreen() {
                 </View>
                 <View style={s.stepper}>
                   <TouchableOpacity
-                    style={[s.stepBtn, (!canManage || locked || minPin <= MIN_PIN) && s.stepBtnOff]}
+                    style={[s.stepBtn, (!canManage || locked || !canActThisRole || minPin <= MIN_PIN) && s.stepBtnOff]}
                     onPress={() => changeMinPin(role, -1)}
-                    disabled={!canManage || locked || minPin <= MIN_PIN}
+                    disabled={!canManage || locked || !canActThisRole || minPin <= MIN_PIN}
                   >
                     <Text style={s.stepText}>−</Text>
                   </TouchableOpacity>
                   <Text style={s.pinValue}>{minPin}</Text>
                   <TouchableOpacity
-                    style={[s.stepBtn, (!canManage || locked || minPin >= MAX_PIN) && s.stepBtnOff]}
+                    style={[s.stepBtn, (!canManage || locked || !canActThisRole || minPin >= MAX_PIN) && s.stepBtnOff]}
                     onPress={() => changeMinPin(role, +1)}
-                    disabled={!canManage || locked || minPin >= MAX_PIN}
+                    disabled={!canManage || locked || !canActThisRole || minPin >= MAX_PIN}
                   >
                     <Text style={s.stepText}>+</Text>
                   </TouchableOpacity>
@@ -271,9 +286,9 @@ export default function RolesScreen() {
                       {ROLE_COLOR_PALETTE.map(c => (
                         <TouchableOpacity
                           key={c}
-                          style={[s.colorCell, { backgroundColor: c }, effective === c && s.colorCellActive, (!canManage || locked) && s.colorCellDisabled]}
+                          style={[s.colorCell, { backgroundColor: c }, effective === c && s.colorCellActive, (!canManage || locked || !canActThisRole) && s.colorCellDisabled]}
                           onPress={() => changeRoleColor(role, c)}
-                          disabled={!canManage || locked}
+                          disabled={!canManage || locked || !canActThisRole}
                         >
                           {effective === c && <Text style={s.colorCheck}>✓</Text>}
                         </TouchableOpacity>
@@ -282,8 +297,8 @@ export default function RolesScreen() {
                     {!!roleColors[role] && (
                       <TouchableOpacity
                         onPress={() => changeRoleColor(role, null)}
-                        disabled={!canManage || locked}
-                        style={(!canManage || locked) && s.colorCellDisabled}
+                        disabled={!canManage || locked || !canActThisRole}
+                        style={(!canManage || locked || !canActThisRole) && s.colorCellDisabled}
                       >
                         <Text style={s.colorReset}>Reset to default</Text>
                       </TouchableOpacity>
@@ -297,9 +312,12 @@ export default function RolesScreen() {
                 <View style={s.matrix}>
                   {PERMISSION_ORDER.map(perm => {
                     const lockedPerm = isLockedPerm(role, perm);
+                    // delete_inventory is destructive → only a full_admin may grant it
+                    // (enforced server-side too on the role_settings write).
+                    const deleteGrantLocked = perm === 'delete_inventory' && sessionUser?.role !== 'full_admin';
                     const { value, modified } = effectivePerm(role, perm);
                     const shown = lockedPerm ? true : value;
-                    const disabled = !canManage || locked || lockedPerm;
+                    const disabled = !canManage || locked || lockedPerm || !canActThisRole || deleteGrantLocked;
                     return (
                       <View key={perm} style={s.permRow}>
                         <View style={{ flex: 1 }}>
@@ -311,6 +329,9 @@ export default function RolesScreen() {
                           )}
                           {lockedPerm && (
                             <Text style={s.lockedBadge}>required for full admin</Text>
+                          )}
+                          {deleteGrantLocked && !lockedPerm && (
+                            <Text style={s.lockedBadge}>only full admin can grant</Text>
                           )}
                         </View>
                         <Switch
@@ -370,6 +391,7 @@ const s = StyleSheet.create({
   lockedBadge: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
 
   readOnly: { fontSize: fontSizes.body2, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
+  lockNote: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 17, paddingHorizontal: spacing.base, paddingBottom: spacing.base },
 
   colorSection: { paddingHorizontal: spacing.base, paddingVertical: spacing.sm, gap: spacing.sm },
   colorPreview: { fontSize: fontSizes.base, fontWeight: '700' },

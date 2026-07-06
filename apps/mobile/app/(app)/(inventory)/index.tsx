@@ -6,7 +6,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
-import { searchItems, updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
+import { searchItems, updateItemFields, getDistinctValues, deleteItems } from '../../../src/db/queries/items';
 import { getItemTypes, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
@@ -51,6 +51,7 @@ export default function InventoryScreen() {
   const router = useRouter();
   const { user } = useSession();
   const canEdit = usePermission('edit_inventory');
+  const canDelete = usePermission('delete_inventory');
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<Item>();
   const refreshKey = useFocusRefresh();
@@ -229,12 +230,42 @@ export default function InventoryScreen() {
     setBatchLabels(labels);
   }, [items, ms]);
 
+  // Permanently delete the selected items (+ their stock & tracked units). Gated by
+  // delete_inventory (the action is hidden without it); the server re-checks the
+  // permission on the sync DELETE. Irreversible — hence the explicit confirm.
+  const handleBulkDelete = useCallback(() => {
+    if (isWriteBlocked()) return;
+    const ids = Array.from(ms.selected);
+    if (ids.length === 0) { ms.exit(); return; }
+    Alert.alert(
+      `Delete ${ids.length} item${ids.length === 1 ? '' : 's'}?`,
+      'This permanently removes the selected items along with their stock and any tracked units. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Delete ${ids.length}`,
+          style: 'destructive',
+          onPress: () => {
+            for (const id of ids) logItem(id, 'Item deleted');
+            deleteItems(ids);
+            reloadList();
+            ms.exit();
+            void syncNow().catch(() => { /* offline — deletes flush on next sync */ });
+          },
+        },
+      ],
+    );
+  }, [ms, reloadList, logItem]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
     { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set item type', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
     { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
-  ], [handlePrintLabels]);
+    ...(canDelete
+      ? [{ key: 'delete', label: 'Delete', destructive: true, onPress: () => { handleBulkDelete(); } } as BulkAction]
+      : []),
+  ], [handlePrintLabels, canDelete, handleBulkDelete]);
 
   return (
     <>

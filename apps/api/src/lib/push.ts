@@ -17,6 +17,29 @@ export interface ExpoMessage {
   data?: Record<string, unknown>;
 }
 
+export interface ChatParticipant { user_id: string; notify_pref: string }
+
+// Pure recipient filter for a new chat message: the OTHER participants (minus the
+// sender), each kept or dropped by their notify_pref vs the message urgency:
+//   urgency 'urgent'  → notify prefs 'all' AND 'urgent'
+//   urgency 'regular' → notify pref 'all' only
+//   pref 'muted'      → never notified
+// Exported + DB-free so it stays unit-testable (see push.test.ts).
+export function messageRecipients(
+  participants: ChatParticipant[],
+  senderId: string,
+  urgency: 'urgent' | 'regular',
+): string[] {
+  return participants
+    .filter(p => p.user_id !== senderId)
+    .filter(p => {
+      if (p.notify_pref === 'muted') return false;
+      if (p.notify_pref === 'urgent') return urgency === 'urgent';
+      return true; // 'all' (and any unknown/default) → notify for both urgencies
+    })
+    .map(p => p.user_id);
+}
+
 export function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));

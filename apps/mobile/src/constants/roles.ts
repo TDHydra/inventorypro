@@ -53,6 +53,27 @@ export const ROLE_TIER: Record<UserRole, 1 | 2 | 3 | 4> = {
   full_admin:               4,
 };
 
+// ── Hierarchy guards (client-side UX mirror of the server's authoritative rule) ──
+// Effective tier: full_admin is a true APEX (5) — above every other role, INCLUDING
+// its tier-4 peer franchise_manager — so only a full_admin can act on/assign a
+// full_admin. `missing` is the fail-closed fallback for unknown/legacy roles (a
+// weak 0 for the caller, a strong 4 for the target) so guards deny by default.
+function effectiveTier(role: UserRole, missing: number): number {
+  if (role === 'full_admin') return 5;
+  return ROLE_TIER[role] ?? missing;
+}
+
+// A caller may act on a target only at or below their OWN effective tier — never above.
+export function canActOnTarget(callerRole: UserRole, targetRole: UserRole): boolean {
+  return effectiveTier(callerRole, 0) >= effectiveTier(targetRole, 4);
+}
+
+// A caller may assign a role only at or below their own effective tier (can't grant a
+// role at/above their own authority — e.g. only a full_admin can assign full_admin).
+export function canAssignRole(callerRole: UserRole, newRole: UserRole): boolean {
+  return effectiveTier(newRole, 4) <= effectiveTier(callerRole, 0);
+}
+
 export const PIN_LENGTH_BY_TIER: Record<1 | 2 | 3 | 4, number> = {
   1: 4,
   2: 6,

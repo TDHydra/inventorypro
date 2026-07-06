@@ -27,7 +27,6 @@ import { getMainStorageLocationId, setMainStorageLocation } from '../../../src/d
 import { getAllLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
-import { NotificationRoutingEditor } from '../../../src/components/NotificationRoutingEditor';
 import { QrSigningSection } from '../../../src/components/QrSigningSection';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
@@ -623,15 +622,16 @@ export default function SettingsScreen() {
           <View>
             <Text style={s.sectionTitle}>Notification Routing</Text>
             <View style={s.card}>
-              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
-                <Text style={s.rowLabel}>Who gets notified</Text>
-                <Text style={s.rowSub}>
-                  Add extra roles, teams, or people to each notification channel. These are added on top of each channel's built-in recipients.
-                </Text>
-                <View style={{ marginTop: spacing.sm }}>
-                  <NotificationRoutingEditor onSave={setAppConfigSynced} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/notification-routing')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🔔 Notification Routing</Text>
+                  <Text style={s.rowSub}>Choose who gets notified for each event</Text>
                 </View>
-              </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
               <View style={s.divider} />
               <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
                 <Text style={s.rowLabel}>Require approval for movements ≥ (blank = off)</Text>

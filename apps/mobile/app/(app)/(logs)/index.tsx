@@ -7,12 +7,17 @@ import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import {
-  getLogForUser,
   getUnsyncedLogs,
+  getLogFiltered,
+  getLogNameMaps,
+  resolveEntityName,
   LogEntry,
+  LogNameMaps,
 } from '../../../src/db/queries/log';
 import { getAllActiveUsers, getAllUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
+import { getAllTeams } from '../../../src/db/queries/teams';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
+import { ActivityLogDetail } from '../../../src/components/ActivityLogDetail';
 import { MovePhotoThumb } from '../../../src/components/MovePhotoThumb';
 import { MapDisplay } from '../../../src/components/MapDisplay';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
@@ -48,6 +53,12 @@ interface ServerLogRow {
 
 type Filter = 'mine' | 'unsynced' | 'all' | 'my_teams';
 
+// entity_type values the app stamps onto activity_log rows — drives the
+// entity-type filter picker on the local tabs.
+const ENTITY_TYPES = [
+  'item', 'equipment_unit', 'job', 'location', 'repair', 'team', 'user', 'role_settings',
+];
+
 /** Data needed to render the map-detail modal, gathered from either the local
  * (LogEntry) or server (ServerLogRow) row shape. */
 interface MapModalData {
@@ -62,6 +73,34 @@ interface MapModalData {
   user_name?: string | null;
 }
 
+/** Adapt a server log row into the LogEntry shape ActivityLogDetail expects.
+ * Server rows only surface a subset of columns, so the rest are nulled — the
+ * detail view hides fields it can't resolve. */
+function serverRowToLog(r: ServerLogRow): LogEntry {
+  return {
+    id: r.id,
+    user_id: null,
+    team_id: null,
+    action: r.action,
+    entity_type: '',
+    entity_id: null,
+    from_location_id: null,
+    to_location_id: null,
+    quantity: r.quantity,
+    unit: r.unit,
+    job_id: null,
+    note: r.note,
+    metadata: null,
+    device_id: null,
+    created_at: r.created_at,
+    synced_at: null,
+    latitude: r.latitude ?? null,
+    longitude: r.longitude ?? null,
+    location_accuracy: r.location_accuracy ?? null,
+    user_name: r.user_name,
+  };
+}
+
 export default function LogsScreen() {
   const { user } = useSession();
   const canViewAll = usePermission('view_all_logs');
@@ -72,11 +111,28 @@ export default function LogsScreen() {
   // Both the All-Activity and My-Team tabs fetch from the server (/logs).
   const serverMode = filter === 'all' || filter === 'my_teams';
 
-  // All-Activity filter state
+  // Filter state (shared across tabs; some controls only render where meaningful)
   const [filterUser, setFilterUser] = useState<PickerOption | null>(null);
   const [filterAction, setFilterAction] = useState<PickerOption | null>(null);
+  const [filterEntity, setFilterEntity] = useState<PickerOption | null>(null);
+  const [filterTeam, setFilterTeam] = useState<PickerOption | null>(null);
   const [filterSince, setFilterSince] = useState('');
   const [filterUntil, setFilterUntil] = useState('');
+  const [search, setSearch] = useState('');
+
+  // Expanded row ids (tap a row to reveal the what-changed detail)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // id → name maps, loaded once per data version, for resolving row references
+  // (actor / team / job / from→to location / entity) without per-row DB queries.
+  const nameMaps = useMemo<LogNameMaps>(() => getLogNameMaps(), [dataVersion]);
 
   // Server-fetch state for the All-Activity tab
   const [serverLogs, setServerLogs] = useState<ServerLogRow[]>([]);
@@ -121,6 +177,18 @@ export default function LogsScreen() {
     [],
   );
 
+  // Entity-type options — the set of entity_type values the app writes to logs.
+  const entityOptions = useMemo<PickerOption[]>(
+    () => ENTITY_TYPES.map(e => ({ id: e, label: e.replace(/_/g, ' ') })),
+    [],
+  );
+
+  // Team options for the team filter (local tabs)
+  const teamOptions = useMemo<PickerOption[]>(
+    () => getAllTeams().map(t => ({ id: t.id, label: t.name })),
+    [dataVersion],
+  );
+
   // Computed date values — partial strings (<10 chars) are treated as unset
   const sinceVal = filterSince.trim().length >= 10 ? filterSince.trim() : undefined;
   // Append end-of-day time so the until date is inclusive
@@ -131,13 +199,51 @@ export default function LogsScreen() {
 
   // Local logs for My Activity and Pending Sync tabs (offline-first). dataVersion
   // is included so this list refreshes after a background sync pull applies
-  // changes, without a manual pull-to-refresh.
+  // changes, without a manual pull-to-refresh. The My-Activity tab is always
+  // scoped to the current user (view_own_logs gating) and applies the SQL-side
+  // filters; free-text search is layered in-memory below so it can also match
+  // resolved names (actor/team/job/location) — not just the note column.
   const logs = useMemo<LogEntry[]>(() => {
     if (!user) return [];
     if (filter === 'unsynced') return getUnsyncedLogs();
-    // Default: 'mine' — filter === 'all' is handled by the server fetch below
-    return getLogForUser(user.id, 50);
-  }, [user, filter, dataVersion]);
+    // Default: 'mine' — filter === 'all' / 'my_teams' handled by the server fetch
+    return getLogFiltered({
+      userId: user.id,
+      action: filterAction?.id,
+      entityType: filterEntity?.id,
+      teamId: filterTeam?.id,
+      sinceISO: sinceVal ? `${sinceVal}T00:00:00.000Z` : undefined,
+      untilISO: untilVal,
+    }, 100);
+  }, [user, filter, dataVersion, filterAction, filterEntity, filterTeam, sinceVal, untilVal]);
+
+  // In-memory text search for the local list — matches the note plus every
+  // resolved name so "smith" finds rows by actor/team/job/location too.
+  const localLogs = useMemo<LogEntry[]>(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return logs;
+    return logs.filter(l => {
+      const names = [
+        l.user_name,
+        l.team_id ? nameMaps.teams[l.team_id] : null,
+        l.job_id ? nameMaps.jobs[l.job_id] : null,
+        l.from_location_id ? nameMaps.locations[l.from_location_id] : null,
+        l.to_location_id ? nameMaps.locations[l.to_location_id] : null,
+        resolveEntityName(nameMaps, l.entity_type, l.entity_id),
+        l.note,
+      ];
+      return names.filter(Boolean).join(' ').toLowerCase().includes(q);
+    });
+  }, [logs, search, nameMaps]);
+
+  // In-memory text search for the server list (rows carry note + user_name only).
+  const filteredServerLogs = useMemo<ServerLogRow[]>(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return serverLogs;
+    return serverLogs.filter(l =>
+      [l.note, l.user_name].filter(Boolean).join(' ').toLowerCase().includes(q),
+    );
+  }, [serverLogs, search]);
 
   // Server fetch for the All-Activity / My-Team tabs — re-runs whenever tab,
   // filters, or refetchKey change
@@ -199,12 +305,18 @@ export default function LogsScreen() {
   function clearAllFilters() {
     setFilterUser(null);
     setFilterAction(null);
+    setFilterEntity(null);
+    setFilterTeam(null);
     setFilterSince('');
     setFilterUntil('');
+    setSearch('');
   }
 
   // Derive from computed date values so partial date strings don't show the button
-  const anyFilterSet = !!(filterUser || filterAction || sinceVal || untilVal);
+  const anyFilterSet = !!(
+    filterUser || filterAction || filterEntity || filterTeam ||
+    sinceVal || untilVal || search.trim()
+  );
 
   // Fall back to 'mine' if the backing permission is revoked mid-session
   useEffect(() => {
@@ -252,17 +364,32 @@ export default function LogsScreen() {
 
         <TooltipHint screenKey="logs" />
 
-        {/* ── Server-feed filter controls (All Activity / My Team) ──── */}
-        {serverMode && (
+        {/* ── Filter controls ───────────────────────────────────────── */}
+        {/* Shown on every tab except the tiny Pending-Sync list. The user
+            picker only makes sense on the server tabs (the My-Activity tab is
+            already scoped to you); entity/team filters only apply to the local
+            list (server rows don't carry those columns). */}
+        {filter !== 'unsynced' && (
           <View style={s.filterControls}>
-            <SearchablePicker
-              placeholder="Filter by user…"
-              options={userOptions}
-              value={filterUser}
-              onSelect={opt =>
-                setFilterUser(prev => (prev?.id === opt.id ? null : opt))
-              }
+            <TextInput
+              style={s.searchInput}
+              placeholder="Search note or name…"
+              placeholderTextColor={colors.textMuted}
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
+              returnKeyType="search"
             />
+            {serverMode && (
+              <SearchablePicker
+                placeholder="Filter by user…"
+                options={userOptions}
+                value={filterUser}
+                onSelect={opt =>
+                  setFilterUser(prev => (prev?.id === opt.id ? null : opt))
+                }
+              />
+            )}
             <SearchablePicker
               placeholder="Filter by action…"
               options={actionOptions}
@@ -271,6 +398,26 @@ export default function LogsScreen() {
                 setFilterAction(prev => (prev?.id === opt.id ? null : opt))
               }
             />
+            {!serverMode && (
+              <>
+                <SearchablePicker
+                  placeholder="Filter by entity type…"
+                  options={entityOptions}
+                  value={filterEntity}
+                  onSelect={opt =>
+                    setFilterEntity(prev => (prev?.id === opt.id ? null : opt))
+                  }
+                />
+                <SearchablePicker
+                  placeholder="Filter by team…"
+                  options={teamOptions}
+                  value={filterTeam}
+                  onSelect={opt =>
+                    setFilterTeam(prev => (prev?.id === opt.id ? null : opt))
+                  }
+                />
+              </>
+            )}
             <View style={s.dateRow}>
               <TextInput
                 style={[s.dateInput, s.flex1]}
@@ -311,7 +458,7 @@ export default function LogsScreen() {
             </View>
           ) : (
             <FlatList<ServerLogRow>
-              data={serverLogs}
+              data={filteredServerLogs}
               keyExtractor={l => l.id}
               contentContainerStyle={s.list}
               keyboardShouldPersistTaps="handled"
@@ -323,45 +470,53 @@ export default function LogsScreen() {
                   colors={[colors.primary]}
                 />
               }
-              renderItem={({ item: log }) => (
-                <View style={s.row}>
-                  <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
-                  <View style={s.middle}>
-                    <Text style={s.action}>{actionLabel(log.action)}</Text>
-                    {log.user_name ? <Text style={[s.user, { color: roleColor(userRoleByName[log.user_name] ?? '', roleColors) }]}>{log.user_name}</Text> : null}
-                    {log.quantity != null && log.unit && (
-                      <Text style={s.qty}>
-                        {log.quantity} {log.unit}
-                      </Text>
-                    )}
-                    {log.note ? <Text style={s.note}>{log.note}</Text> : null}
-                    {log.latitude != null && log.longitude != null && (
-                      <TouchableOpacity
-                        style={s.mapLink}
-                        onPress={() =>
-                          setMapLog({
-                            latitude: log.latitude!,
-                            longitude: log.longitude!,
-                            location_accuracy: log.location_accuracy ?? null,
-                            action: log.action,
-                            note: log.note,
-                            quantity: log.quantity,
-                            unit: log.unit,
-                            created_at: log.created_at,
-                            user_name: log.user_name,
-                          })
-                        }
-                      >
-                        <Text style={s.mapLinkText}>📍 View on map</Text>
-                      </TouchableOpacity>
+              renderItem={({ item: log }) => {
+                const isOpen = expanded.has(log.id);
+                const hasCoords = log.latitude != null && log.longitude != null;
+                return (
+                  <View style={s.card}>
+                    <TouchableOpacity
+                      style={s.row}
+                      onPress={() => toggleExpanded(log.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
+                      <View style={s.middle}>
+                        <Text style={s.action}>{actionLabel(log.action)}</Text>
+                        {log.user_name ? <Text style={[s.user, { color: roleColor(userRoleByName[log.user_name] ?? '', roleColors) }]}>{log.user_name}</Text> : null}
+                        {log.quantity != null && log.unit && (
+                          <Text style={s.qty}>
+                            {log.quantity} {log.unit}
+                          </Text>
+                        )}
+                        {log.note ? <Text style={s.note} numberOfLines={isOpen ? undefined : 1}>{log.note}</Text> : null}
+                      </View>
+                      <View style={s.right}>
+                        <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
+                        <Text style={s.chevron}>{isOpen ? '▲' : '▼'}</Text>
+                      </View>
+                      <MovePhotoThumb logId={log.id} />
+                    </TouchableOpacity>
+                    {isOpen && (
+                      <ActivityLogDetail
+                        log={serverRowToLog(log)}
+                        nameMaps={nameMaps}
+                        onViewMap={hasCoords ? () => setMapLog({
+                          latitude: log.latitude!,
+                          longitude: log.longitude!,
+                          location_accuracy: log.location_accuracy ?? null,
+                          action: log.action,
+                          note: log.note,
+                          quantity: log.quantity,
+                          unit: log.unit,
+                          created_at: log.created_at,
+                          user_name: log.user_name,
+                        }) : undefined}
+                      />
                     )}
                   </View>
-                  <View style={s.right}>
-                    <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
-                  </View>
-                  <MovePhotoThumb logId={log.id} />
-                </View>
-              )}
+                );
+              }}
               ListEmptyComponent={
                 <View style={s.empty}>
                   <Text style={s.emptyText}>No activity</Text>
@@ -371,49 +526,69 @@ export default function LogsScreen() {
           )
         ) : (
           <FlatList<LogEntry>
-            data={logs}
+            data={filter === 'unsynced' ? logs : localLogs}
             keyExtractor={l => l.id}
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
-            renderItem={({ item: log }) => (
-              <View style={s.row}>
-                <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
-                <View style={s.middle}>
-                  <Text style={s.action}>{actionLabel(log.action)}</Text>
-                  {log.quantity != null && log.unit && (
-                    <Text style={s.qty}>
-                      {log.quantity} {log.unit}
-                    </Text>
-                  )}
-                  {log.note ? <Text style={s.note}>{log.note}</Text> : null}
-                  {log.latitude != null && log.longitude != null && (
-                    <TouchableOpacity
-                      style={s.mapLink}
-                      onPress={() =>
-                        setMapLog({
-                          latitude: log.latitude!,
-                          longitude: log.longitude!,
-                          location_accuracy: log.location_accuracy,
-                          action: log.action,
-                          note: log.note,
-                          quantity: log.quantity,
-                          unit: log.unit,
-                          created_at: log.created_at,
-                          user_name: log.user_name,
-                        })
-                      }
-                    >
-                      <Text style={s.mapLinkText}>📍 View on map</Text>
-                    </TouchableOpacity>
+            renderItem={({ item: log }) => {
+              const isOpen = expanded.has(log.id);
+              const hasCoords = log.latitude != null && log.longitude != null;
+              // Compact context line on the collapsed row: the most specific
+              // resolved reference (entity → job → destination location).
+              const subtitle =
+                resolveEntityName(nameMaps, log.entity_type, log.entity_id) ??
+                (log.job_id ? nameMaps.jobs[log.job_id] : null) ??
+                (log.to_location_id ? nameMaps.locations[log.to_location_id] : null);
+              return (
+                <View style={s.card}>
+                  <TouchableOpacity
+                    style={s.row}
+                    onPress={() => toggleExpanded(log.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
+                    <View style={s.middle}>
+                      <Text style={s.action}>{actionLabel(log.action)}</Text>
+                      {log.user_name ? (
+                        <Text style={[s.user, { color: roleColor(userRoleByName[log.user_name] ?? '', roleColors) }]}>
+                          {log.user_name}
+                        </Text>
+                      ) : null}
+                      {subtitle ? <Text style={s.subtitle} numberOfLines={1}>{subtitle}</Text> : null}
+                      {log.quantity != null && log.unit && (
+                        <Text style={s.qty}>
+                          {log.quantity} {log.unit}
+                        </Text>
+                      )}
+                      {log.note ? <Text style={s.note} numberOfLines={isOpen ? undefined : 1}>{log.note}</Text> : null}
+                    </View>
+                    <View style={s.right}>
+                      <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
+                      {!log.synced_at && <Text style={s.pending}>↑ pending</Text>}
+                      <Text style={s.chevron}>{isOpen ? '▲' : '▼'}</Text>
+                    </View>
+                    <MovePhotoThumb logId={log.id} />
+                  </TouchableOpacity>
+                  {isOpen && (
+                    <ActivityLogDetail
+                      log={log}
+                      nameMaps={nameMaps}
+                      onViewMap={hasCoords ? () => setMapLog({
+                        latitude: log.latitude!,
+                        longitude: log.longitude!,
+                        location_accuracy: log.location_accuracy,
+                        action: log.action,
+                        note: log.note,
+                        quantity: log.quantity,
+                        unit: log.unit,
+                        created_at: log.created_at,
+                        user_name: log.user_name,
+                      }) : undefined}
+                    />
                   )}
                 </View>
-                <View style={s.right}>
-                  <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
-                  {!log.synced_at && <Text style={s.pending}>↑ pending</Text>}
-                </View>
-                <MovePhotoThumb logId={log.id} />
-              </View>
-            )}
+              );
+            }}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyText}>No log entries</Text>
@@ -488,6 +663,16 @@ const s = StyleSheet.create({
     paddingBottom: 8,
     gap: 8,
   },
+  searchInput: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    height: 44,
+    fontSize: 13,
+    color: colors.textPrimary,
+  },
   dateRow: { flexDirection: 'row', gap: 8 },
   dateInput: {
     backgroundColor: colors.surface,
@@ -505,15 +690,17 @@ const s = StyleSheet.create({
 
   // Log rows
   list: { padding: 12, gap: 8 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+  card: {
     backgroundColor: colors.surface,
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   icon: { fontSize: 20, width: 28, textAlign: 'center' },
   middle: { flex: 1 },
@@ -524,17 +711,15 @@ const s = StyleSheet.create({
     textTransform: 'capitalize',
   },
   user: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  subtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   qty: { fontSize: 12, color: colors.success, marginTop: 2 },
   note: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   right: { alignItems: 'flex-end', gap: 4 },
   date: { fontSize: 11, color: colors.textMuted },
   pending: { fontSize: 10, color: '#F59E0B', fontWeight: '600' },
+  chevron: { fontSize: 11, color: colors.textMuted },
   empty: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, color: colors.textMuted },
-
-  // Map affordance on rows with stamped coordinates
-  mapLink: { marginTop: 4, alignSelf: 'flex-start' },
-  mapLinkText: { fontSize: 12, color: colors.primaryText, fontWeight: '600' },
 
   // Log-detail map modal
   modalBackdrop: {

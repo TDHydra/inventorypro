@@ -1,6 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chunk, buildMessages, deadTokensFromReceipts, pollReceiptsAndDisable, scheduleReceiptRepoll, RECEIPT_REPOLL_MS } from './push';
+import { chunk, buildMessages, deadTokensFromReceipts, pollReceiptsAndDisable, scheduleReceiptRepoll, RECEIPT_REPOLL_MS, messageRecipients } from './push';
+
+test('messageRecipients: urgent notifies pref all + urgent, excludes sender + muted', () => {
+  const parts = [
+    { user_id: 'sender', notify_pref: 'all' },
+    { user_id: 'a', notify_pref: 'all' },
+    { user_id: 'b', notify_pref: 'urgent' },
+    { user_id: 'c', notify_pref: 'muted' },
+  ];
+  assert.deepEqual(messageRecipients(parts, 'sender', 'urgent'), ['a', 'b']);
+});
+
+test('messageRecipients: regular notifies pref all only (not urgent-only, not muted)', () => {
+  const parts = [
+    { user_id: 'sender', notify_pref: 'all' },
+    { user_id: 'a', notify_pref: 'all' },
+    { user_id: 'b', notify_pref: 'urgent' },
+    { user_id: 'c', notify_pref: 'muted' },
+  ];
+  assert.deepEqual(messageRecipients(parts, 'sender', 'regular'), ['a']);
+});
+
+test('messageRecipients: sender is always excluded even with pref all', () => {
+  const parts = [{ user_id: 'sender', notify_pref: 'all' }];
+  assert.deepEqual(messageRecipients(parts, 'sender', 'urgent'), []);
+});
 
 test('chunk splits into batches of size', () => {
   assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);

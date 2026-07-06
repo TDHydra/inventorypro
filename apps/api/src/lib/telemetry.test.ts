@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeEvent, sanitizeLabel, ingestEvents, getTelemetrySummary } from './telemetry';
+import {
+  sanitizeEvent, sanitizeLabel, ingestEvents, getTelemetrySummary,
+  zeroFillDailyTrend, shapeTelemetrySummary,
+} from './telemetry';
 
 const CTRL0 = String.fromCharCode(0);   // NUL
 const CTRL31 = String.fromCharCode(31);  // unit separator
@@ -62,24 +65,80 @@ test('ingestEvents never aborts the batch when one INSERT throws', async () => {
   assert.equal(accepted, 1);
 });
 
-test('getTelemetrySummary shapes the report + binds the day window', async () => {
-  const seenParams: unknown[][] = [];
+// The full aggregate now comes back as a SINGLE row (one CTE round-trip): each
+// list is a json_agg column and the mock stands in for what pg/json_agg returns.
+const SUMMARY_ROW = {
+  totals: { events: 100, sessions: 12, users: 8, devices: 9, errors: 3, anon_sessions: 4 },
+  screens: [{ name: 'inventory', count: 40 }, { name: 'hub', count: 25 }],
+  actions: [{ name: 'checkout_confirm', count: 15 }],
+  errors: [{ name: 'render_crash', count: 2 }],
+  err_trend: [{ day: '2026-07-04', count: 2 }, { day: '2026-07-06', count: 1 }],
+  by_user: [{ userId: 'u1', name: 'Alice', role: 'full_admin', count: 30 }],
+  by_role: [{ name: 'full_admin', count: 30 }, { name: 'contents_crew', count: 12 }],
+  by_team: [{ name: 'North Crew', count: 22 }],
+  platforms: [{ platform: 'android', count: 90 }],
+  versions: [{ version: '1.0.0', count: 100 }],
+};
+
+test('getTelemetrySummary runs ONE query, binds the day window, shapes the report', async () => {
+  const seen: { sql: string; params: unknown[] }[] = [];
   const pg = { query: async (sql: string, params: unknown[]) => {
-    seenParams.push(params);
-    if (sql.includes('FILTER (WHERE type')) return { rows: [{ events: 100, sessions: 12, users: 8, devices: 9, errors: 3 }] };
-    if (sql.includes("type = 'screen'")) return { rows: [{ name: 'inventory', count: 40 }, { name: 'hub', count: 25 }] };
-    if (sql.includes("type = 'action'")) return { rows: [{ name: 'checkout_confirm', count: 15 }] };
-    if (sql.includes("type = 'error'")) return { rows: [{ name: 'render_crash', count: 2 }] };
-    if (sql.includes('GROUP BY platform')) return { rows: [{ platform: 'android', count: 90 }] };
-    if (sql.includes('GROUP BY app_version')) return { rows: [{ version: '1.0.0', count: 100 }] };
-    return { rows: [] };
+    seen.push({ sql, params });
+    return { rows: [SUMMARY_ROW] };
   } };
   const s = await getTelemetrySummary(pg as any, 30);
+  assert.equal(seen.length, 1);                       // single round-trip
+  assert.equal(seen[0].params[0], 30);                // parameterized window ($1)
+  assert.ok(seen[0].sql.includes('make_interval'));   // never string-interpolated
   assert.equal(s.windowDays, 30);
   assert.deepEqual(s.totals, { events: 100, sessions: 12, users: 8, devices: 9, errors: 3 });
+  assert.deepEqual(s.active, { users: 8, devices: 9, sessions: 12, anonSessions: 4 });
   assert.equal(s.topScreens[0].name, 'inventory');
   assert.equal(s.topActions[0].name, 'checkout_confirm');
+  assert.equal(s.byUser[0].name, 'Alice');
+  assert.equal(s.byRole[0].name, 'full_admin');
+  assert.equal(s.byTeam[0].name, 'North Crew');
   assert.equal(s.byPlatform[0].platform, 'android');
-  // every query is parameterized on the day window (never string-interpolated)
-  assert.ok(seenParams.every(p => p[0] === 30));
+  assert.equal(s.errorTrend.length, 30);              // zero-filled to the window
+});
+
+test('shapeTelemetrySummary defaults everything on an empty window (no throws, no NaN)', () => {
+  // json_agg over an empty set is NULL; totals CTE still returns a row of zeros.
+  const empty = { totals: { events: 0, sessions: 0, users: 0, devices: 0, errors: 0, anon_sessions: 0 } };
+  const s = shapeTelemetrySummary(empty, 7, new Date('2026-07-06T12:00:00Z'));
+  assert.deepEqual(s.totals, { events: 0, sessions: 0, users: 0, devices: 0, errors: 0 });
+  assert.deepEqual(s.active, { users: 0, devices: 0, sessions: 0, anonSessions: 0 });
+  for (const list of [s.topScreens, s.topActions, s.topErrors, s.byUser, s.byRole, s.byTeam, s.byPlatform, s.byVersion]) {
+    assert.deepEqual(list, []);
+  }
+  assert.equal(s.errorTrend.length, 7);
+  assert.ok(s.errorTrend.every(d => d.count === 0));
+});
+
+test('shapeTelemetrySummary tolerates a totally empty/undefined row', () => {
+  const s = shapeTelemetrySummary({}, 1, new Date('2026-07-06T12:00:00Z'));
+  assert.equal(s.totals.events, 0);
+  assert.equal(s.errorTrend.length, 1);
+  assert.deepEqual(s.byUser, []);
+});
+
+test('zeroFillDailyTrend produces N consecutive UTC-day buckets ending today', () => {
+  const now = new Date('2026-07-06T09:30:00Z');
+  const out = zeroFillDailyTrend([{ day: '2026-07-04', count: 2 }, { day: '2026-07-06', count: 5 }], 3, now);
+  assert.deepEqual(out, [
+    { day: '2026-07-04', count: 2 },
+    { day: '2026-07-05', count: 0 },   // gap zero-filled
+    { day: '2026-07-06', count: 5 },
+  ]);
+});
+
+test('zeroFillDailyTrend guards empty/undefined input and merges duplicate days', () => {
+  const now = new Date('2026-07-06T00:00:00Z');
+  assert.deepEqual(zeroFillDailyTrend(undefined, 2, now), [
+    { day: '2026-07-05', count: 0 }, { day: '2026-07-06', count: 0 },
+  ]);
+  // duplicate day keys sum; days out of the window are ignored, not thrown on
+  const merged = zeroFillDailyTrend(
+    [{ day: '2026-07-06', count: 1 }, { day: '2026-07-06', count: 4 }, { day: '2026-01-01', count: 9 }], 1, now);
+  assert.deepEqual(merged, [{ day: '2026-07-06', count: 5 }]);
 });

@@ -15,7 +15,7 @@ import type { Permission } from '../constants/roles';
 export type WidgetType =
   | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog'
-  | 'jobs' | 'teams' | 'logs' | 'users' | 'roles' | 'settings'   // tiles
+  | 'jobs' | 'teams' | 'logs' | 'users' | 'roles' | 'settings' | 'chat'   // tiles
   | 'section' | 'search' | 'quick-add' | 'low-stock';            // non-tile blocks
 
 export type LayoutBlock = {
@@ -55,6 +55,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   jobs:          { label: 'Jobs',                    icon: '🏗', route: '/(app)/(jobs)',  requiredPermission: 'create_jobs',   kind: 'tile' },
   teams:         { label: 'Teams',                   icon: '👥', route: '/(app)/(teams)', requiredPermission: 'create_jobs',   kind: 'tile' },
   logs:          { label: 'Activity Logs',           icon: '📊', route: '/(app)/(logs)',  requiredPermission: 'view_all_logs', kind: 'tile' },
+  // Chat is available to every authenticated user — no requiredPermission gate.
+  chat:          { label: 'Messages',                icon: '💬', route: '/(app)/(chat)', kind: 'tile' },
 
   // Admin
   users:         { label: 'Users & Permissions',     icon: '👤', route: '/(app)/(admin)/users',    requiredPermission: 'manage_users',              kind: 'tile' },
@@ -88,6 +90,7 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'item-catalog', width: 'full' },
 
   { widget: 'section', width: 'full', config: { sectionTitle: 'Operations' } },
+  { widget: 'chat', width: 'full' },
   { widget: 'jobs', width: 'full' },
   { widget: 'teams', width: 'full' },
   { widget: 'logs', width: 'full' },
