@@ -541,6 +541,17 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
+              <View style={s.divider} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/dashboards')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🧩 Dashboards</Text>
+                  <Text style={s.rowSub}>Build role/user home-screen layouts, synced to all devices.</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
             </View>
             <QrSigningSection />
           </View>

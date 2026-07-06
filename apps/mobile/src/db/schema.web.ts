@@ -111,6 +111,10 @@ async function loadMigrations(): Promise<Migration[]> {
     import('./migrations/027_equipment_lifecycle'),
     import('./migrations/028_label_templates'),
     import('./migrations/029_taxonomy_fk'),
+    import('./migrations/030_location_subtypes'),
+    import('./migrations/031_repairs_status_fk'),
+    import('./migrations/032_user_email'),
+    import('./migrations/033_dashboards'),
   ]);
   return m.map(x => x.migration as Migration).sort((a, b) => a.version - b.version);
 }

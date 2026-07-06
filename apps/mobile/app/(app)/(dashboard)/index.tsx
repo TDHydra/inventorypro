@@ -7,10 +7,20 @@ import { DashboardSearch } from '../../../src/components/DashboardSearch';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
 import { roleColor } from '../../../src/db/queries/users';
-import { useMemo, useState } from 'react';
-import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/roles';
 import { track } from '../../../src/telemetry';
 import { colors } from '../../../src/theme';
+import { useDashboardLayout } from '../../../src/dashboard/store';
+import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
+
+// hub_* telemetry action per widget — preserves today's exact track() calls (only
+// these three tiles were instrumented). Non-listed tiles fire no telemetry, as now.
+const HUB_TRACK: Partial<Record<WidgetType, string>> = {
+  checkout: 'hub_checkout',
+  checkin: 'hub_checkin',
+  'my-checkouts': 'hub_active_checkouts',
+};
 
 export default function DashboardScreen() {
   const { user } = useSession();
@@ -19,132 +29,104 @@ export default function DashboardScreen() {
   const all = useMemo(() => getLowStockItems(), []);
   const shown = all.slice(0, 3);
 
+  // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
+  // which reproduces today's dashboard exactly (same tiles/order/gates below).
+  const layout = useDashboardLayout(user);
+
   if (!user) return null;
 
-  return (
-    <>
-      <Stack.Screen options={{ title: 'InventoryPro', headerShown: true }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Pinned search at the very top: tap to expand, type inline, 📷 opens the scanner. */}
-        <DashboardSearch />
-
-        {/* Greeting */}
-        <View style={styles.greeting}>
-          <View style={styles.greetingText}>
-            <Text style={[styles.hi, { color: roleColor(user.role) }]}>Hi, {user.name.split(' ')[0]}</Text>
-            <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
-          </View>
-          <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>
-            <Text style={styles.questionBtnText}>?</Text>
-          </TouchableOpacity>
+  // The greeting + tooltip are fixed chrome (not layout widgets). Today they sit
+  // directly after the pinned search, so we inject them right after the `search`
+  // block to keep the default order byte-for-byte. If a custom preset omits search,
+  // they render at the very top instead so the user is never greeting-less.
+  const greeting = (
+    <View key="__greeting">
+      <View style={styles.greeting}>
+        <View style={styles.greetingText}>
+          <Text style={[styles.hi, { color: roleColor(user.role) }]}>Hi, {user.name.split(' ')[0]}</Text>
+          <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
         </View>
+        <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>
+          <Text style={styles.questionBtnText}>?</Text>
+        </TouchableOpacity>
+      </View>
+      <TooltipHint screenKey="dashboard" onReady={fn => setReshow(() => fn)} />
+    </View>
+  );
 
-        <TooltipHint screenKey="dashboard" onReady={fn => setReshow(() => fn)} />
+  // A single tile block → the same TouchableOpacity styling/onPress as today, wrapped
+  // in its PermissionGate so a preset can NEVER surface an unauthorized tile.
+  const renderTile = (block: LayoutBlock, key: string): ReactNode => {
+    const def = WIDGET_REGISTRY[block.widget];
+    if (!def || def.kind !== 'tile') return null;
+    const label = block.config?.label ?? def.label;
+    const icon = block.config?.icon ?? def.icon;
+    const route = def.route;
+    const primary = block.widget === 'checkout';
+    const trackKey = HUB_TRACK[block.widget];
 
-        {/* Big dismissible Quick Add CTA (roles granted quick_add). */}
-        <QuickAddBanner />
+    const onPress = () => {
+      if (trackKey) track('action', trackKey, { screen: 'hub' });
+      if (route) router.push(route as never);
+    };
 
-        {/* Primary actions — gated so roles without checkout/checkin (e.g. office
-            managers, checkout_inventory:false) don't see dead-end tiles. */}
-        <PermissionGate permission="checkout_inventory">
-          <TouchableOpacity
-            style={[styles.tile, styles.tilePrimary]}
-            onPress={() => { track('action', 'hub_checkout', { screen: 'hub' }); router.push('/(app)/(checkout)'); }}
-          >
-            <Text style={styles.tileIcon}>📦</Text>
-            <Text style={styles.tileLabelPrimary}>Check Out Item</Text>
-            <Text style={styles.tileSubPrimary}>Scan or search for an item</Text>
-          </TouchableOpacity>
-        </PermissionGate>
+    const tile = (
+      <TouchableOpacity
+        style={[
+          styles.tile,
+          primary && styles.tilePrimary,
+          block.width === 'half' && styles.tileHalf,
+        ]}
+        onPress={onPress}
+      >
+        <Text style={styles.tileIcon}>{icon}</Text>
+        <Text style={primary ? styles.tileLabelPrimary : styles.tileLabel}>{label}</Text>
+        {primary && <Text style={styles.tileSubPrimary}>Scan or search for an item</Text>}
+      </TouchableOpacity>
+    );
 
-        <PermissionGate permission="checkin_inventory">
-          <TouchableOpacity style={styles.tile} onPress={() => { track('action', 'hub_checkin', { screen: 'hub' }); router.push('/(app)/(checkin)'); }}>
-            <Text style={styles.tileIcon}>↩</Text>
-            <Text style={styles.tileLabel}>Check In</Text>
-          </TouchableOpacity>
-        </PermissionGate>
+    // requiredPermission is always present for tile widgets; gate on it.
+    return def.requiredPermission ? (
+      <PermissionGate key={key} permission={def.requiredPermission}>{tile}</PermissionGate>
+    ) : (
+      <View key={key}>{tile}</View>
+    );
+  };
 
-        <PermissionGate permission="checkout_inventory">
-          <TouchableOpacity style={styles.tile} onPress={() => { track('action', 'hub_active_checkouts', { screen: 'hub' }); router.push('/(app)/(jobs)'); }}>
-            <Text style={styles.tileIcon}>📋</Text>
-            <Text style={styles.tileLabel}>My Active Checkouts</Text>
-          </TouchableOpacity>
-        </PermissionGate>
+  // The permission that gates a section header: the requiredPermission of the first
+  // TILE that follows the section (until the next section / end). This reproduces
+  // today's per-section PermissionGate exactly — Inventory→add_inventory (add-stock),
+  // Operations→create_jobs (jobs), Admin→manage_users (users) — so a user who can't
+  // see any tile in a section never sees a bare header, just like now.
+  const sectionGate = (sectionIndex: number): Permission | undefined => {
+    for (let j = sectionIndex + 1; j < layout.length; j++) {
+      const w = layout[j].widget;
+      if (w === 'section') break;
+      const d = WIDGET_REGISTRY[w];
+      if (d?.kind === 'tile') return d.requiredPermission;
+    }
+    return undefined;
+  };
 
-        {/* Manager sections */}
-        <PermissionGate permission="add_inventory">
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Inventory Management</Text>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(inventory)/add')}>
-              <Text style={styles.tileIcon}>+</Text>
-              <Text style={styles.tileLabel}>Add Stock to Location</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(equipment)')}>
-              <Text style={styles.tileIcon}>🛠️</Text>
-              <Text style={styles.tileLabel}>Manage Equipment Catalog</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(repairs)')}>
-              <Text style={styles.tileIcon}>🔧</Text>
-              <Text style={styles.tileLabel}>Repairs</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(locations)')}>
-              <Text style={styles.tileIcon}>⇄</Text>
-              <Text style={styles.tileLabel}>Manage Locations</Text>
-            </TouchableOpacity>
-            <PermissionGate permission="edit_inventory">
-              <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(inventory)')}>
-                <Text style={styles.tileIcon}>✎</Text>
-                <Text style={styles.tileLabel}>Manage Item Catalog</Text>
-              </TouchableOpacity>
-            </PermissionGate>
-          </View>
-        </PermissionGate>
-
-        <PermissionGate permission="create_jobs">
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Operations</Text>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(jobs)')}>
-              <Text style={styles.tileIcon}>🏗</Text>
-              <Text style={styles.tileLabel}>Jobs</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(teams)')}>
-              <Text style={styles.tileIcon}>👥</Text>
-              <Text style={styles.tileLabel}>Teams</Text>
-            </TouchableOpacity>
-            <PermissionGate permission="view_all_logs">
-              <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(logs)')}>
-                <Text style={styles.tileIcon}>📊</Text>
-                <Text style={styles.tileLabel}>Activity Logs</Text>
-              </TouchableOpacity>
-            </PermissionGate>
-          </View>
-        </PermissionGate>
-
-        <PermissionGate permission="manage_users">
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Admin</Text>
-            <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(admin)/users')}>
-              <Text style={styles.tileIcon}>👤</Text>
-              <Text style={styles.tileLabel}>Users & Permissions</Text>
-            </TouchableOpacity>
-            <PermissionGate permission="manage_roles_permissions">
-              <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(admin)/roles')}>
-                <Text style={styles.tileIcon}>🛡</Text>
-                <Text style={styles.tileLabel}>Roles & Permissions</Text>
-              </TouchableOpacity>
-            </PermissionGate>
-            <PermissionGate permission="manage_roles_permissions">
-              <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(admin)/settings')}>
-                <Text style={styles.tileIcon}>⚙</Text>
-                <Text style={styles.tileLabel}>Settings</Text>
-              </TouchableOpacity>
-            </PermissionGate>
-          </View>
-        </PermissionGate>
-
-        {/* Low stock alert */}
-        {shown.length > 0 && (
-          <View style={styles.alert}>
+  // A block widget (search / quick-add / low-stock / section header) → its existing
+  // component/list, reusing today's styles. `gatePerm` (section only) wraps the
+  // header so it hides when the user can't see any tile beneath it.
+  const renderBlock = (block: LayoutBlock, key: string, gatePerm?: Permission): ReactNode => {
+    switch (block.widget) {
+      case 'search':
+        return <DashboardSearch key={key} />;
+      case 'quick-add':
+        return <QuickAddBanner key={key} />;
+      case 'section': {
+        if (!block.config?.sectionTitle) return null;
+        const header = <Text style={styles.sectionTitle}>{block.config.sectionTitle}</Text>;
+        return gatePerm
+          ? <PermissionGate key={key} permission={gatePerm}>{header}</PermissionGate>
+          : <View key={key}>{header}</View>;
+      }
+      case 'low-stock':
+        return shown.length > 0 ? (
+          <View key={key} style={styles.alert}>
             <Text style={styles.alertTitle}>⚠️ Low Stock</Text>
             {shown.map(item => (
               <TouchableOpacity
@@ -158,11 +140,52 @@ export default function DashboardScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
-            {all.length > 3 && (
-              <Text style={styles.alertMore}>+{all.length - 3} more</Text>
-            )}
+            {all.length > 3 && <Text style={styles.alertMore}>+{all.length - 3} more</Text>}
           </View>
-        )}
+        ) : null;
+      default:
+        // A tile widget reached the block dispatcher (shouldn't happen).
+        return renderTile(block, key);
+    }
+  };
+
+  const isTile = (w: WidgetType) => WIDGET_REGISTRY[w]?.kind === 'tile';
+
+  // Walk the layout into a flat element list. Consecutive half-width tiles are
+  // paired into a responsive row; everything else is full-width and stacked. The
+  // greeting chrome is injected right after the search block (or at the top if the
+  // layout has no search block).
+  const hasSearch = layout.some(b => b.widget === 'search');
+  const elements: ReactNode[] = [];
+  if (!hasSearch) elements.push(greeting);
+
+  for (let i = 0; i < layout.length; i++) {
+    const block = layout[i];
+    const next = layout[i + 1];
+    // Pair two adjacent half tiles side by side.
+    if (block.width === 'half' && isTile(block.widget) && next?.width === 'half' && isTile(next.widget)) {
+      elements.push(
+        <View key={`row-${i}`} style={styles.row}>
+          {renderTile(block, `b-${i}`)}
+          {renderTile(next, `b-${i + 1}`)}
+        </View>,
+      );
+      i++;
+    } else if (isTile(block.widget)) {
+      elements.push(renderTile(block, `b-${i}`));
+    } else if (block.widget === 'section') {
+      elements.push(renderBlock(block, `b-${i}`, sectionGate(i)));
+    } else {
+      elements.push(renderBlock(block, `b-${i}`));
+    }
+    if (block.widget === 'search') elements.push(greeting);
+  }
+
+  return (
+    <>
+      <Stack.Screen options={{ title: 'InventoryPro', headerShown: true }} />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {elements}
       </ScrollView>
     </>
   );

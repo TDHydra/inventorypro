@@ -43,6 +43,8 @@ export interface User {
   permission_overrides: string; // JSON string
   active: number;
   expires_at: string | null;
+  email?: string | null;
+  dashboard_preset_id?: string | null;
   created_at: string;
   updated_at: string;
   synced_at: string | null;
@@ -99,12 +101,12 @@ export function upsertUser(user: User): void {
   db.executeSync(
     `INSERT OR REPLACE INTO users
        (id, name, role, pin_length_required, pin_set, permission_overrides,
-        active, expires_at, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        active, expires_at, created_at, updated_at, synced_at, dashboard_preset_id, email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([user.id, user.name, user.role,
      user.pin_length_required, user.pin_set, user.permission_overrides,
      user.active, user.expires_at, user.created_at,
-     user.updated_at, user.synced_at])
+     user.updated_at, user.synced_at, user.dashboard_preset_id ?? null, user.email ?? null])
   );
 }
 
@@ -160,7 +162,7 @@ export function setRoleColor(role: string, color: string | null): string {
 // Apply admin edits to the local users row. PIN/pin_set are NEVER written here —
 // PIN reset is server-only (see resetUserPinOnline in the screen). Returns the
 // updated_at stamp so the caller can mirror it into the sync outbox.
-type EditableUserFields = Partial<Pick<User, 'name' | 'role' | 'active' | 'expires_at' | 'pin_length_required'>>;
+type EditableUserFields = Partial<Pick<User, 'name' | 'role' | 'active' | 'expires_at' | 'pin_length_required' | 'email'>>;
 export function updateUserLocal(userId: string, fields: EditableUserFields): string {
   const db = getDb();
   const now = new Date().toISOString();

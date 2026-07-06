@@ -38,6 +38,16 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
+// System location types whose LABEL is matched by hardcoded structural filters in
+// queries/locations.ts (WHERE type='Shelf' / IN('Shop','Office') / 'Vehicle') that
+// drive shelf/vehicle/office logic. Renaming or archiving them would silently break
+// that logic (#74 Phase 3 — rename-safety), so those two actions are guarded here.
+// Reorder / icon / color stay editable (they don't affect the filters).
+const PROTECTED_LOCATION_LABELS = new Set(['Shelf', 'Vehicle', 'Shop', 'Office']);
+function isProtectedType(t: TaxonomyType | null): boolean {
+  return !!t && t.category === 'location_type' && PROTECTED_LOCATION_LABELS.has(t.label);
+}
+
 // ── Icon picker ──────────────────────────────────────────────────────────────
 
 function IconPicker({
@@ -297,6 +307,7 @@ const CATEGORY_NOUN: Record<string, string> = {
   product_class: 'Product Class',
   item_category: 'Item Type',
   location_type: 'Location Type',
+  location_subtype: 'Location Sub-Type',
   repair_status: 'Repair Status',
 };
 
@@ -319,6 +330,9 @@ export default function ManageTypesScreen() {
   );
   const [locTypes, setLocTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('location_type', { includeInactive: true }),
+  );
+  const [locSubtypes, setLocSubtypes] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('location_subtype', { includeInactive: true }),
   );
   const [repairStatuses, setRepairStatuses] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('repair_status', { includeInactive: true }),
@@ -357,6 +371,7 @@ export default function ManageTypesScreen() {
     setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
     setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
     setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
+    setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
     setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
   }
 
@@ -523,7 +538,9 @@ export default function ManageTypesScreen() {
       return;
     }
     try {
-      if (label !== editType.label) {
+      // System location types can't be renamed — their label drives structural
+      // filters in queries/locations.ts (guarded; the input is also disabled).
+      if (label !== editType.label && !isProtectedType(editType)) {
         renameTaxonomyType(editType.id, label);
       }
       if (editIcon !== editType.icon) {
@@ -557,6 +574,15 @@ export default function ManageTypesScreen() {
   function handleToggleActive() {
     if (!editType) return;
     if (isWriteBlocked()) return;
+    // Archiving a system location type would remove the label its structural
+    // filters depend on (#74 Phase 3) — block it (restoring stays allowed).
+    if (editType.active && isProtectedType(editType)) {
+      Alert.alert(
+        'System type',
+        `“${editType.label}” drives shelf/vehicle/office logic and can’t be archived.`,
+      );
+      return;
+    }
     const nextActive = !editType.active;
     const verb = nextActive ? 'Restore' : 'Archive';
     Alert.alert(
@@ -712,6 +738,7 @@ export default function ManageTypesScreen() {
           {renderSection('Product Classes', 'product_class', classTypes, '+ Add Product Class')}
           {renderSection('Item Types', 'item_category', itemCatTypes, '+ Add Item Type')}
           {renderSection('Location Types', 'location_type', locTypes, '+ Add Location Type')}
+          {renderSection('Location Sub-Types', 'location_subtype', locSubtypes, '+ Add Location Sub-Type')}
           {renderSection('Repair Statuses', 'repair_status', repairStatuses, '+ Add Repair Status')}
         </ScrollView>
       )}
@@ -767,7 +794,13 @@ export default function ManageTypesScreen() {
                 placeholder="Label"
                 value={editLabel}
                 onChangeText={setEditLabel}
+                editable={!isProtectedType(editType)}
               />
+              {isProtectedType(editType) && (
+                <Text style={s.systemTypeNote}>
+                  🔒 System type — can’t be renamed or archived (it drives shelf/vehicle/office logic). You can still reorder or change its icon.
+                </Text>
+              )}
               <Text style={s.fieldLabel}>Icon</Text>
               <IconPicker selected={editIcon} onSelect={icon => setEditIcon(icon)} />
 
@@ -934,10 +967,10 @@ export default function ManageTypesScreen() {
                 style={[
                   s.archiveBtn,
                   editType.active ? s.archiveBtnDanger : s.archiveBtnGood,
-                  locked && s.archiveBtnLocked,
+                  (locked || (editType.active === 1 && isProtectedType(editType))) && s.archiveBtnLocked,
                 ]}
                 onPress={handleToggleActive}
-                disabled={locked}
+                disabled={locked || (editType.active === 1 && isProtectedType(editType))}
               >
                 <Text style={s.archiveBtnIcon}>{editType.active ? '🗄️' : '✅'}</Text>
                 <View style={{ flex: 1 }}>
@@ -1174,6 +1207,7 @@ const s = StyleSheet.create({
   archiveBtnIcon: { fontSize: 20 },
   archiveBtnLabel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
   archiveBtnSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
+  systemTypeNote: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 6, lineHeight: 18 },
   dangerText: { color: colors.danger },
   goodText: { color: colors.success },
 

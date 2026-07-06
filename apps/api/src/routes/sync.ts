@@ -30,6 +30,7 @@ const ALLOWED_TABLES = new Set([
   'jobs', 'teams', 'team_members', 'media', 'activity_log', 'role_settings',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
+  'dashboard_presets',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -60,6 +61,7 @@ const CONFLICT_TARGETS: Record<string, string> = {
   role_settings: 'role',
   app_config: 'key',
   taxonomy_types: 'id',
+  dashboard_presets: 'id',
 };
 
 // Tables whose pull is scoped to the authenticated caller (private per-user data).
@@ -80,6 +82,7 @@ const FULL_TABLES = [
   'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
+  'dashboard_presets',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
@@ -90,6 +93,7 @@ const TAXONOMY_FK_COLUMNS: Record<string, { label: string; id: string; category:
   jobs: { label: 'type', id: 'type_id', category: 'job' },
   inventory_items: { label: 'category', id: 'category_id', category: 'item_category' },
   locations: { label: 'type', id: 'type_id', category: 'location_type' },
+  repairs: { label: 'status', id: 'status_id', category: 'repair_status' }, // #74 Phase 3b
 };
 
 async function applyEntry(

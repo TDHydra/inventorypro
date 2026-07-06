@@ -213,7 +213,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
         properties: {
           user_id: { type: 'string' },
           pin: { type: 'string', minLength: 4, maxLength: 8 },
-          enrollment_code: { type: 'string', minLength: 4, maxLength: 12 },
+          // One-time enrollment codes are issued as 6-digit numeric strings
+          // (see issueEnrollmentCode in routes/users.ts). Enforce that shape here.
+          enrollment_code: { type: 'string', pattern: '^[0-9]{6}$' },
         },
       },
     },

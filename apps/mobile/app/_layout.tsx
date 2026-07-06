@@ -8,6 +8,7 @@ import { clearSession } from '../src/auth/session';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
 import { loadClassConfigCache } from '../src/constants/units';
 import { loadRolePermissionCache } from '../src/auth/permissions';
+import { loadDashboardCache } from '../src/dashboard/store';
 import { getAppSetting } from '../src/db/appSettings';
 // Importing localAlerts also registers the foreground notification handler at
 // module load (setNotificationHandler).
@@ -34,6 +35,7 @@ export default function RootLayout() {
         setDbReady(true);
         loadClassConfigCache();
         loadRolePermissionCache();
+        loadDashboardCache();
         startSyncEngine();
         // Notifications: create the Android channel, then (unless the user has
         // turned the pref off) make sure we hold OS permission so post-sync

@@ -1,6 +1,7 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
+import { resolveTypeId, resolveLabels, REPAIR_STATUS } from './taxonomy';
 
 export interface Repair {
   id: string;
@@ -10,6 +11,8 @@ export interface Repair {
   notes: string | null;
   parts_needed: string | null;
   status: string; // a repair_status label
+  // Durable taxonomy FK (migration 031, #74 Phase 3b) — `status` is the label cache.
+  status_id?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -47,7 +50,8 @@ export function getRepairs(opts?: { done?: boolean; entityType?: string }): Repa
     `SELECT * FROM repairs ${where} ORDER BY (completed_at IS NULL) DESC, updated_at DESC`,
     params,
   );
-  return rowsAs<Repair>(result.rows);
+  // Resolve `status` from status_id so a repair_status rename shows immediately (#74 P3b).
+  return resolveLabels(rowsAs<Repair>(result.rows), 'status_id', 'status');
 }
 
 export function getRepairsForEntity(entityType: string, entityId: string): Repair[] {
@@ -56,13 +60,13 @@ export function getRepairsForEntity(entityType: string, entityId: string): Repai
     `SELECT * FROM repairs WHERE entity_type = ? AND entity_id = ? ORDER BY updated_at DESC`,
     [entityType, entityId],
   );
-  return rowsAs<Repair>(result.rows);
+  return resolveLabels(rowsAs<Repair>(result.rows), 'status_id', 'status');
 }
 
 export function getRepairById(id: string): Repair | null {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM repairs WHERE id = ?`, [id]);
-  return (result.rows[0] as unknown as Repair) ?? null;
+  return resolveLabels(rowsAs<Repair>(result.rows), 'status_id', 'status')[0] ?? null;
 }
 
 // Insert a new ticket locally + queue the outbox INSERT (synced_at stripped — the
@@ -81,6 +85,9 @@ export function createRepair(input: {
 }): Repair {
   const db = getDb();
   const now = new Date().toISOString();
+  // Durable taxonomy FK (#74 P3b): resolve the status label to its taxonomy id so a
+  // later repair_status rename resolves via the id, not the stale label cache.
+  const statusId = resolveTypeId(REPAIR_STATUS, input.status);
   const repair: Repair = {
     id: generateUUID(),
     entity_type: input.entity_type,
@@ -89,6 +96,7 @@ export function createRepair(input: {
     notes: input.notes,
     parts_needed: input.parts_needed,
     status: input.status,
+    status_id: statusId,
     created_by: input.created_by,
     created_at: now,
     updated_at: now,
@@ -99,17 +107,17 @@ export function createRepair(input: {
     synced_at: null,
   };
   db.executeSync(
-    `INSERT INTO repairs (id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, cost, due_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    `INSERT INTO repairs (id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, cost, due_at, status_id, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     bindParams([repair.id, repair.entity_type, repair.entity_id, repair.entity_label,
       repair.notes, repair.parts_needed, repair.status, repair.created_by,
       repair.created_at, repair.updated_at, repair.completed_at,
-      repair.assignee_id, repair.cost, repair.due_at]),
+      repair.assignee_id, repair.cost, repair.due_at, statusId]),
   );
   appendOutbox('INSERT', 'repairs', {
     id: repair.id, entity_type: repair.entity_type, entity_id: repair.entity_id,
     entity_label: repair.entity_label, notes: repair.notes, parts_needed: repair.parts_needed,
-    status: repair.status, created_by: repair.created_by,
+    status: repair.status, status_id: statusId, created_by: repair.created_by,
     created_at: repair.created_at, updated_at: repair.updated_at, completed_at: null,
     assignee_id: repair.assignee_id, cost: repair.cost, due_at: repair.due_at,
   });
@@ -146,11 +154,13 @@ export function updateRepairStatus(
   const db = getDb();
   const now = new Date().toISOString();
   const completedAt = terminal ? now : null;
+  // Keep the durable FK in step with the label (#74 P3b).
+  const statusId = resolveTypeId(REPAIR_STATUS, status);
   db.executeSync(
-    `UPDATE repairs SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
-    [status, completedAt, now, id],
+    `UPDATE repairs SET status = ?, status_id = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
+    [status, statusId, completedAt, now, id],
   );
-  appendOutbox('UPDATE', 'repairs', { id, status, completed_at: completedAt, updated_at: now });
+  appendOutbox('UPDATE', 'repairs', { id, status, status_id: statusId, completed_at: completedAt, updated_at: now });
   return { updated_at: now, completed: terminal };
 }
 
