@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import { requirePermission, userHasPermission } from '../lib/permissions';
+import { requirePermission, userHasPermission, canActOnTarget } from '../lib/permissions';
 import { sanitizeTeamOverrides } from '../lib/syncPolicy';
 
 interface TeamBody {
@@ -165,6 +165,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
       const caller = callerRows[0] as
         | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
         | undefined;
+      // Tier guard (security-critical): you may not seed team overrides / manager
+      // authority onto a member whose own role sits ABOVE your tier (apex full_admin
+      // only touchable by a full_admin). Fails closed on unknown caller/target.
+      const { rows: memberRows } = await fastify.pg.query(
+        `SELECT role FROM users WHERE id = $1`, [user_id]);
+      const memberRole = memberRows[0]?.role ?? null;
+      if (!canActOnTarget(caller?.role ?? null, memberRole)) {
+        return reply.status(403).send({ error: 'You cannot manage a team member at or above your own level.' });
+      }
       const can = (perm: string): boolean =>
         !!caller && userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
       const { clean, rejected } = sanitizeTeamOverrides(team_permission_overrides, can);
@@ -215,6 +224,25 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const { is_manager, team_permission_overrides } = request.body;
+
+      // Tier guard (security-critical): resolve BOTH the caller's and the target
+      // member's current role from the DB and require the caller be at or above
+      // the member's tier before ANY change (is_manager promotion or team override
+      // edits). Apex full_admin is only touchable by a full_admin. Fails closed on
+      // unknown caller/target.
+      const guardCallerId = (request.user as { sub: string }).sub;
+      const { rows: guardRows } = await fastify.pg.query(
+        `SELECT
+           (SELECT role FROM users WHERE id = $1) AS caller_role,
+           (SELECT role FROM users WHERE id = $2) AS member_role`,
+        [guardCallerId, request.params.uid],
+      );
+      const guardCallerRole = guardRows[0]?.caller_role ?? null;
+      const guardMemberRole = guardRows[0]?.member_role ?? null;
+      if (!canActOnTarget(guardCallerRole, guardMemberRole)) {
+        return reply.status(403).send({ error: 'You cannot manage a team member at or above your own level.' });
+      }
+
       const sets: string[] = [];
       const params: unknown[] = [];
       if (is_manager !== undefined) {

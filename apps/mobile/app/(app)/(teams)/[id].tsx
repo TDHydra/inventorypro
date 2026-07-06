@@ -17,7 +17,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { getAllActiveUsers, roleColor, getRoleColorMap, getRolePermissionOverrides } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, UserRole, Permission } from '../../../src/constants/roles';
+import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, UserRole, Permission, canActOnTarget } from '../../../src/constants/roles';
 import { parsePermissionOverrides } from '../../../src/auth/permissions';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
@@ -412,7 +412,14 @@ export default function TeamDetailScreen() {
               No members yet{canManage ? '. Tap "+ Add" to add someone.' : '.'}
             </Text>
           ) : (
-            members.map((m, i) => (
+            members.map((m, i) => {
+              // Client-side hierarchy gate (server enforces authoritatively): a
+              // manager can only toggle manager status / edit team permission
+              // overrides for members at or below their own effective tier. Fail
+              // closed if the session role is missing. (Remove stays available —
+              // it's a membership action, not a role/permission change.)
+              const canActMember = canActOnTarget((user?.role ?? '') as UserRole, (m.user_role ?? '') as UserRole);
+              return (
               <View
                 key={m.user_id}
                 style={[s.memberRow, i < members.length - 1 && s.divider]}
@@ -424,16 +431,21 @@ export default function TeamDetailScreen() {
                       {ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role}
                     </Text>
                   )}
+                  {canManage && !canActMember && (
+                    <Text style={s.lockNote}>
+                      🔒 At or above your access level — you can't change their role or permissions.
+                    </Text>
+                  )}
                 </View>
                 {canManage ? (
                   <TouchableOpacity
                     onPress={() => handleToggleManager(m)}
-                    disabled={locked}
+                    disabled={locked || !canActMember}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     style={[
                       s.mgrToggle,
                       m.is_manager === 1 && s.mgrToggleActive,
-                      locked && s.mgrToggleDisabled,
+                      (locked || !canActMember) && s.mgrToggleDisabled,
                     ]}
                   >
                     <Text
@@ -453,9 +465,9 @@ export default function TeamDetailScreen() {
                 {canManage && (
                   <TouchableOpacity
                     onPress={() => openPermEditor(m)}
-                    disabled={locked}
+                    disabled={locked || !canActMember}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={s.permsBtn}
+                    style={[s.permsBtn, (locked || !canActMember) && s.mgrToggleDisabled]}
                   >
                     <Text style={s.permsText}>Perms</Text>
                   </TouchableOpacity>
@@ -470,7 +482,8 @@ export default function TeamDetailScreen() {
                   </TouchableOpacity>
                 )}
               </View>
-            ))
+              );
+            })
           )}
         </Card>
 
@@ -581,25 +594,30 @@ export default function TeamDetailScreen() {
             Overrides apply only within {team.name}. Toggling a permission back to its
             default removes the override.
           </Text>
-          {permMember && TEAM_OVERRIDABLE_PERMISSIONS.map(perm => {
-            const base = baseTeamPermValue(permMember.user_role, perm);
-            const value = perm in permDraft ? permDraft[perm] : base;
-            const modified = perm in permDraft;
-            return (
-              <View key={perm} style={s.permRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.permLabel}>{TEAM_PERMISSION_LABELS[perm]}</Text>
-                  {modified && <Text style={s.modifiedBadge}>overridden</Text>}
+          {(() => {
+            // Mirror the row-level hierarchy gate inside the editor as a safety net
+            // (the Perms button is already disabled for out-of-tier members).
+            const permMemberLocked = !canActOnTarget((user?.role ?? '') as UserRole, (permMember?.user_role ?? '') as UserRole);
+            return permMember && TEAM_OVERRIDABLE_PERMISSIONS.map(perm => {
+              const base = baseTeamPermValue(permMember.user_role, perm);
+              const value = perm in permDraft ? permDraft[perm] : base;
+              const modified = perm in permDraft;
+              return (
+                <View key={perm} style={s.permRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.permLabel}>{TEAM_PERMISSION_LABELS[perm]}</Text>
+                    {modified && <Text style={s.modifiedBadge}>overridden</Text>}
+                  </View>
+                  <Switch
+                    value={value}
+                    disabled={locked || savingPerms || permMemberLocked}
+                    onValueChange={() => togglePermDraft(perm)}
+                    trackColor={{ true: colors.primary, false: colors.border }}
+                  />
                 </View>
-                <Switch
-                  value={value}
-                  disabled={locked || savingPerms}
-                  onValueChange={() => togglePermDraft(perm)}
-                  trackColor={{ true: colors.primary, false: colors.border }}
-                />
-              </View>
-            );
-          })}
+              );
+            });
+          })()}
 
           <PrimaryButton
             label={savingPerms ? 'Saving…' : 'Save Permissions'}
@@ -668,6 +686,7 @@ const s = StyleSheet.create({
   },
   memberName: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
   memberRole: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  lockNote: { fontSize: 12, color: colors.textMuted, lineHeight: 16, marginTop: 4, maxWidth: '90%' },
   removeBtn: { marginLeft: 12 },
   removeText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   permsBtn: {

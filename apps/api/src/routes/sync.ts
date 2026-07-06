@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import { userHasPermission } from '../lib/permissions';
+import { userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import {
   loadTableColumns,
   applyWritePolicy,
@@ -594,6 +594,23 @@ const routes: FastifyPluginAsync = async (fastify) => {
         continue;
       }
 
+      // Tier guard for role_settings (security-critical): editing a role's
+      // permission matrix is "acting on" that role. The edited role is the row's
+      // conflict key (payload.role). A caller may only edit permissions for a role
+      // at or below their own tier (apex full_admin's row only editable by a
+      // full_admin). Fails closed on unknown roles.
+      if (entry.table_name === 'role_settings') {
+        const editedRole = entry.payload.role;
+        if (!canActOnTarget(caller.role, editedRole == null ? null : String(editedRole))) {
+          request.log.warn(
+            { userId, role: caller.role, editedRole },
+            'sync push role_settings denied (tier guard)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: cannot edit permissions for a role at or above your level' });
+          continue;
+        }
+      }
+
       // Privileged rows are never DELETED via sync: users deactivate (active=false),
       // not delete; roles/config persist. Without this, a manage_users holder (e.g. a
       // tier-3 hr_manager) could remove a full_admin row via a crafted DELETE entry —
@@ -665,6 +682,27 @@ const routes: FastifyPluginAsync = async (fastify) => {
               'sync push users update denied (target-role guard)',
             );
             conflicts.push({ id: entry.id, error: 'Forbidden: target user has a privileged role; requires roles & permissions' });
+            continue;
+          }
+          // Tier guard (security-critical): the caller must be at or above the
+          // target's tier to touch their row at all (apex full_admin only touchable
+          // by a full_admin). Fails closed on unknown roles.
+          if (!canActOnTarget(caller.role, target.role)) {
+            request.log.warn(
+              { userId, role: caller.role, targetId, targetRole: target.role },
+              'sync push users write denied (tier guard)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: target user is at or above your level' });
+            continue;
+          }
+          // Assigning/changing the role: the NEW role must also be at or below the
+          // caller's tier — no promoting anyone up to (or past) your own level.
+          if (entry.payload.role != null && !canAssignRole(caller.role, String(entry.payload.role))) {
+            request.log.warn(
+              { userId, role: caller.role, targetId, newRole: entry.payload.role },
+              'sync push users role-assign denied (tier guard)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level' });
             continue;
           }
           // "Deactivating" = explicit active:false OR pushing expires_at into the

@@ -10,7 +10,7 @@ import {
 } from '../../../src/db/queries/users';
 import {
   ROLE_DISPLAY_NAMES, UserRole, ROLE_TIER, PIN_LENGTH_BY_TIER, Permission,
-  ROLE_DEFAULTS,
+  ROLE_DEFAULTS, canActOnTarget, canAssignRole,
 } from '../../../src/constants/roles';
 import { getAllTeams, addTeamMember } from '../../../src/db/queries/teams';
 import { getDashboardPresets } from '../../../src/db/queries/dashboards';
@@ -985,6 +985,12 @@ export default function AdminUsersScreen() {
             {editUser && (() => {
               const st = userStatus(editUser);
               const isTemp = editRole === 'temporary_employee';
+              // Client-side hierarchy gate (server enforces authoritatively): the
+              // caller can only change the role/permissions/lifecycle of a user at
+              // or below their own tier. Fail safe to locked if the session role
+              // is missing.
+              const callerRole = (sessionUser?.role ?? '') as UserRole;
+              const canActOnUser = canActOnTarget(callerRole, editUser.role as UserRole);
               return (
                 <>
                   <View style={s.sheetHead}>
@@ -1015,13 +1021,25 @@ export default function AdminUsersScreen() {
                   />
 
                   <FieldLabel>Role</FieldLabel>
-                  <TouchableOpacity style={s.selectRow} onPress={() => setShowRolePicker(v => !v)}>
+                  {!canActOnUser && (
+                    <Text style={s.lockNote}>
+                      🔒 This user is at or above your access level — you can't change their role or permissions.
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={[s.selectRow, !canActOnUser && s.rowDisabled]}
+                    onPress={() => { if (canActOnUser) setShowRolePicker(v => !v); }}
+                    disabled={!canActOnUser}
+                  >
                     <Text style={s.selectText}>{ROLE_DISPLAY_NAMES[editRole]}</Text>
                     <Text style={s.selectChevron}>{showRolePicker ? '▾' : '▸'}</Text>
                   </TouchableOpacity>
-                  {showRolePicker && (
+                  {canActOnUser && showRolePicker && (
                     <View style={s.rolePicker}>
-                      {ALL_ROLES.map(r => (
+                      {/* Only offer roles the caller may assign (at/below their own
+                          effective tier). The current role stays visible so the
+                          selection still shows even if it's above what they can grant. */}
+                      {ALL_ROLES.filter(r => canAssignRole(callerRole, r) || r === editRole).map(r => (
                         <TouchableOpacity
                           key={r}
                           style={[s.roleRow, editRole === r && s.roleRowActive]}
@@ -1068,15 +1086,20 @@ export default function AdminUsersScreen() {
                         <View style={s.expiryCurrent}>
                           <Text style={s.expiryText}>{editExpiry ? formatDate(editExpiry) : 'No expiry set'}</Text>
                         </View>
-                        {editExpiry && (
+                        {editExpiry && canActOnUser && (
                           <TouchableOpacity onPress={() => setEditExpiry(null)}>
                             <Text style={s.expiryClear}>Clear</Text>
                           </TouchableOpacity>
                         )}
                       </View>
-                      <View style={s.chipWrap}>
+                      <View style={[s.chipWrap, !canActOnUser && s.rowDisabled]}>
                         {[30, 60, 90].map(days => (
-                          <TouchableOpacity key={days} style={s.expiryChip} onPress={() => setEditExpiry(isoFromNowDays(days))}>
+                          <TouchableOpacity
+                            key={days}
+                            style={s.expiryChip}
+                            onPress={() => { if (canActOnUser) setEditExpiry(isoFromNowDays(days)); }}
+                            disabled={!canActOnUser}
+                          >
                             <Text style={s.expiryChipText}>+{days} days</Text>
                           </TouchableOpacity>
                         ))}
@@ -1111,7 +1134,11 @@ export default function AdminUsersScreen() {
                       </View>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity style={[s.actionBtn, editUser.active ? s.actionDanger : s.actionGood]} onPress={toggleActive}>
+                  <TouchableOpacity
+                    style={[s.actionBtn, editUser.active ? s.actionDanger : s.actionGood, !canActOnUser && s.btnDisabled]}
+                    onPress={toggleActive}
+                    disabled={!canActOnUser}
+                  >
                     <Text style={s.actionIcon}>{editUser.active ? '🚫' : '✅'}</Text>
                     <View style={{ flex: 1 }}>
                       <Text style={[s.actionTitle, editUser.active ? s.dangerText : s.goodText]}>
@@ -1176,6 +1203,7 @@ export default function AdminUsersScreen() {
                               </View>
                               <Switch
                                 value={effective}
+                                disabled={!canActOnUser}
                                 onValueChange={() => handleTogglePermission(editUser.id, perm, !effective, roleEffective)}
                                 trackColor={{ true: colors.primary, false: colors.border }}
                                 accessibilityLabel={
@@ -1321,6 +1349,8 @@ const s = StyleSheet.create({
   expiryChip: { backgroundColor: colors.primaryBg, borderRadius: 16, paddingHorizontal: spacing.base, paddingVertical: 8 },
   expiryChipText: { color: colors.primaryText, fontSize: fontSizes.body2, fontWeight: '600' },
   btnDisabled: { opacity: 0.45 },
+  rowDisabled: { opacity: 0.45 },
+  lockNote: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 17, marginBottom: 6 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
   actionIcon: { fontSize: 20 },
   actionTitle: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },

@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
 import { randomInt } from 'node:crypto';
-import { requirePermission, userHasPermission } from '../lib/permissions';
+import { requirePermission, userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import { sendEnrollmentCodeEmail } from '../lib/mail';
 
 // Resolve the caller's effective permissions (role default + role/user overrides),
@@ -14,6 +14,14 @@ async function callerCan(fastify: any, userId: string) {
   const u = rows[0];
   if (!u) return null;
   return (perm: string) => userHasPermission(u.role, u.permission_overrides, perm, u.role_overrides);
+}
+
+// Resolve the caller's CURRENT role from the DB (never the JWT claim). Returns
+// null when the caller is unknown — callers must fail closed on null (the tier
+// helpers treat a missing role as tier 0 anyway, but null lets us 403 early).
+async function callerRole(fastify: any, userId: string): Promise<string | null> {
+  const { rows } = await fastify.pg.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+  return rows[0]?.role ?? null;
 }
 
 // Roles that confer broad authority — creating or assigning these (or any explicit
@@ -88,6 +96,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { name, role, pin, expires_at, permission_overrides = {} } = request.body;
 
+    // Tier guard (security-critical): you may NOT create a user whose role sits at
+    // a tier ABOVE your own (apex: only a full_admin can mint another full_admin).
+    // Caller role resolved from the DB; fails closed on unknown caller/role.
+    const creatorRole = await callerRole(fastify, (request.user as { sub: string }).sub);
+    if (!canAssignRole(creatorRole, role)) {
+      return reply.status(403).send({ error: 'Cannot create a user with a role at or above your own level.' });
+    }
+
     // Creating a privileged role or any explicit permission override is itself a
     // privilege grant → require manage_roles_permissions, not just manage_users.
     if (PRIVILEGED_ROLES.has(role) || Object.keys(permission_overrides).length > 0) {
@@ -147,6 +163,27 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { name, role, pin, reset_pin, active, expires_at, permission_overrides } = request.body;
+
+    // Tier guard (security-critical). This PATCH previously never fetched the
+    // target's role, so a manage_users holder could modify a user ABOVE their own
+    // tier. Resolve BOTH the caller's and the target's current role from the DB
+    // and enforce that the caller may act on the target (>= tier; apex full_admin
+    // only touchable by a full_admin). Applies to EVERY change — role, active,
+    // expires_at, permission_overrides, name, dashboard_preset_id. Fails closed:
+    // unknown caller role or a missing target row → denied.
+    const patcherRole = await callerRole(fastify, userId);
+    const { rows: targetRoleRows } = await fastify.pg.query(
+      `SELECT role FROM users WHERE id = $1`, [targetId]);
+    const targetRole = targetRoleRows[0]?.role ?? null;
+    if (targetRole == null) return reply.status(404).send({ error: 'User not found' });
+    if (!canActOnTarget(patcherRole, targetRole)) {
+      return reply.status(403).send({ error: 'You cannot modify a user at or above your own level.' });
+    }
+    // When the role itself is being changed, the NEW role must also be at or below
+    // the caller's tier (can't promote anyone — including up to your own apex).
+    if (role !== undefined && !canAssignRole(patcherRole, role)) {
+      return reply.status(403).send({ error: 'Cannot assign a role at or above your own level.' });
+    }
 
     // Changing role or permission_overrides is a privilege operation: it requires
     // manage_roles_permissions (tier-4), and you may NOT change your OWN role/perms

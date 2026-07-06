@@ -10,6 +10,60 @@ type PermissionMap = Record<string, boolean>;
 // everyone out of permission management. KEEP IN SYNC with mobile.
 const FULL_ADMIN_FLOOR = new Set(['manage_roles_permissions', 'system_settings']);
 
+// Authority tier per role (1 = crew … 4 = admin). KEEP IN SYNC with
+// apps/mobile/src/constants/roles.ts (ROLE_TIER). Security-critical: nobody may
+// modify or assign a role/permission at a tier strictly ABOVE their own. These
+// two helpers are the single source of truth for that rule across every write
+// path — they FAIL CLOSED (unknown/missing caller → tier 0 → can act on nobody;
+// unknown target/new role → treated as the top tier → denied).
+export const ROLE_TIER: Record<string, 1 | 2 | 3 | 4> = {
+  temporary_employee:       1,
+  carpet_cleaning_crew:     1,
+  mitigation_technician:    1,
+  contents_crew:            1,
+  construction_crew:        1,
+  carpet_cleaning_manager:  2,
+  production_manager:       2,
+  head_of_contents:         2,
+  head_of_construction:     2,
+  office_manager:           3,
+  hr_manager:               3,
+  franchise_manager:        4,
+  full_admin:               4,
+};
+
+// Effective authority tier used for ALL comparisons. full_admin is a true APEX
+// (tier 5) — strictly above every other role, INCLUDING its tier-4 peer
+// franchise_manager — so only a full_admin may ever modify or assign a
+// full_admin. Every other role compares by its normal 1..4 ROLE_TIER. Returns
+// undefined for unknown roles so callers can fail closed. KEEP IN SYNC with mobile.
+export function effectiveTier(role: string | null | undefined): number | undefined {
+  if (role === 'full_admin') return 5;
+  return role != null ? ROLE_TIER[role] : undefined;
+}
+
+// May `callerRole` act on a target holding `targetRole`? True only when the
+// caller's effective tier is >= the target's (act on peers or below, NEVER
+// above). Unknown/missing caller → tier 0 (acts on nobody). Unknown target →
+// tier 4 (deny — fail closed). full_admin is apex: only a full_admin can act on
+// a full_admin; a franchise_manager (tier 4) cannot.
+export function canActOnTarget(callerRole: string | null | undefined, targetRole: string | null | undefined): boolean {
+  const callerTier = effectiveTier(callerRole) ?? 0;
+  const targetTier = effectiveTier(targetRole) ?? 4;
+  return callerTier >= targetTier;
+}
+
+// May `callerRole` create/assign `newRole`? True only when the new role's
+// effective tier is <= the caller's (can't mint a role above your own). Unknown
+// newRole → deny (fail closed). Unknown/missing caller → tier 0 (can assign
+// nothing). full_admin is apex: only a full_admin can assign the full_admin role.
+export function canAssignRole(callerRole: string | null | undefined, newRole: string | null | undefined): boolean {
+  const newTier = effectiveTier(newRole);
+  if (newTier === undefined) return false; // unknown role → deny
+  const callerTier = effectiveTier(callerRole) ?? 0;
+  return newTier <= callerTier;
+}
+
 const tier4: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
