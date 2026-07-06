@@ -15,4 +15,15 @@ module.exports = ({ config }) => ({
     googleServicesFile:
       process.env.GOOGLE_SERVICES_JSON ?? config.android?.googleServicesFile ?? './google-services.json',
   },
+  // Local config plugins (in ./plugins) are appended to the plugins declared in
+  // app.json so their prebuild mods survive `expo prebuild --clean`:
+  //  - withReleaseSigning: re-injects the release keystore signingConfig into
+  //    android/app/build.gradle (sourced from gitignored android/keystore.properties,
+  //    debug fallback when absent).
+  //  - withReleaseFlagSecure: sets app-wide Android FLAG_SECURE on release builds.
+  plugins: [
+    ...(config.plugins ?? []),
+    './plugins/withReleaseSigning',
+    './plugins/withReleaseFlagSecure',
+  ],
 });

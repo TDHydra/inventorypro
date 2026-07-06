@@ -27,6 +27,13 @@ RUN cd apps/mobile && npx expo export -p web
 RUN cp -f apps/mobile/node_modules/sql.js/dist/sql-wasm-browser.wasm \
         apps/mobile/dist/sql-wasm-browser.wasm
 
+# Do NOT ship JS source maps to production (they leak client logic/schema).
+# `expo export` can emit *.map files alongside the bundles; strip them from the
+# served dist before the runner stage copies it. Deleting is authoritative and
+# independent of any export flag. Verify: `curl -sI https://<host>/_expo/...js.map`
+# returns 404 and `find dist -name '*.map'` is empty in the image.
+RUN find apps/mobile/dist -name '*.map' -type f -delete
+
 # --- Serve ---
 FROM nginx:alpine AS runner
 COPY infra/nginx-web.conf /etc/nginx/conf.d/default.conf
