@@ -259,7 +259,7 @@ const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_ca
 const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
-const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
+const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
 const REPAIRS_SENSITIVE = ', cost';
 // equipment_units: purchase_price + salvage_value are financial (gated behind
 // view_financial_data — mirrors repairs.cost). Base is every other real column.

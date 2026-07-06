@@ -114,7 +114,8 @@ async function loadMigrations(): Promise<Migration[]> {
   const { migration: m028 } = await import('./migrations/028_label_templates');
   const { migration: m029 } = await import('./migrations/029_taxonomy_fk');
   const { migration: m030 } = await import('./migrations/030_location_subtypes');
-  return [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030].sort((a, b) => a.version - b.version);
+  const { migration: m031 } = await import('./migrations/031_repairs_status_fk');
+  return [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031].sort((a, b) => a.version - b.version);
 }
 
 // Type-safe cast helper — accepts any array (raw op-sqlite rows or pre-typed query results)

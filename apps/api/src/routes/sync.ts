@@ -90,6 +90,7 @@ const TAXONOMY_FK_COLUMNS: Record<string, { label: string; id: string; category:
   jobs: { label: 'type', id: 'type_id', category: 'job' },
   inventory_items: { label: 'category', id: 'category_id', category: 'item_category' },
   locations: { label: 'type', id: 'type_id', category: 'location_type' },
+  repairs: { label: 'status', id: 'status_id', category: 'repair_status' }, // #74 Phase 3b
 };
 
 async function applyEntry(
