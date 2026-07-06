@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { BarcodeScanner } from './BarcodeScanner';
 import { colors } from '../theme';
+import { sanitizeScan } from '../scan/sanitize';
 
 interface Props {
   label?: string;
@@ -17,6 +18,16 @@ interface Props {
 export function BarcodeInput({ label, value, onChange, placeholder, note, noteTone = 'info' }: Props) {
   const [scanning, setScanning] = useState(false);
 
+  // Bound/clean every value before it flows out — a wedge HID scanner types
+  // straight into this field, so typed input is just as attacker-influenceable
+  // as a camera scan. Allow an explicit clear (empty) through; drop over-length
+  // / control-char junk rather than emitting it downstream.
+  const handleChange = (text: string) => {
+    if (text === '') { onChange(''); return; }
+    const cleaned = sanitizeScan(text);
+    if (cleaned !== null) onChange(cleaned);
+  };
+
   return (
     <View style={s.wrap}>
       {!!label && <Text style={s.label}>{label}</Text>}
@@ -24,7 +35,7 @@ export function BarcodeInput({ label, value, onChange, placeholder, note, noteTo
         <TextInput
           style={s.input}
           value={value}
-          onChangeText={onChange}
+          onChangeText={handleChange}
           placeholder={placeholder ?? 'Barcode'}
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
@@ -42,7 +53,14 @@ export function BarcodeInput({ label, value, onChange, placeholder, note, noteTo
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>
         <BarcodeScanner
           active={scanning}
-          onScanned={(code) => { onChange(code); setScanning(false); }}
+          onScanned={(code) => {
+            // BarcodeScanner already sanitizes, but re-check defensively before
+            // emitting; ignore an unusable scan (keep the scanner open).
+            const clean = sanitizeScan(code);
+            if (!clean) return;
+            onChange(clean);
+            setScanning(false);
+          }}
           onClose={() => setScanning(false)}
         />
       </Modal>

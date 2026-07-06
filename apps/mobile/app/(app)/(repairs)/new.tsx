@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform,
+  ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Alert } from '../../../src/lib/themedAlert';
+import { runInTransaction } from '../../../src/db/tx';
 import { createRepair, Repair } from '../../../src/db/queries/repairs';
 import { getRepairStatuses, isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { setUnitStatus } from '../../../src/db/queries/equipmentUnits';
@@ -78,35 +80,53 @@ export default function NewRepairScreen() {
     if (!canEdit) return;
     if (!entityType || !entityId) return;
 
-    const repair = createRepair({
-      entity_type: entityType,
-      entity_id: entityId,
-      entity_label: entityLabel,
-      notes: notes.trim() || null,
-      parts_needed: parts.trim() || null,
-      status,
-      created_by: user?.id ?? null,
-    });
+    let repair: Repair;
+    try {
+      // Atomic: create the ticket, auto-drive the unit, and log it all together
+      // so a mid-flow failure can't leave a repair without its unit/status side
+      // effects (or vice-versa).
+      repair = runInTransaction(() => {
+        const created = createRepair({
+          entity_type: entityType,
+          entity_id: entityId,
+          entity_label: entityLabel,
+          notes: notes.trim() || null,
+          parts_needed: parts.trim() || null,
+          status,
+          created_by: user?.id ?? null,
+        });
 
-    // Auto-drive: opening a ticket on an equipment unit sends it to repair.
-    if (entityType === 'equipment_unit') {
-      const updated = setUnitStatus(entityId, { status: 'in_repair' });
-      appendOutbox('UPDATE', 'equipment_units', {
-        id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
-        serial_number: updated.serial_number, status: updated.status,
-        current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
-        notes: updated.notes, created_at: updated.created_at, updated_at: updated.updated_at,
-        // synced_at intentionally omitted
+        // Auto-drive: opening a ticket on an equipment unit sends it to repair.
+        if (entityType === 'equipment_unit') {
+          const updated = setUnitStatus(entityId, { status: 'in_repair' });
+          appendOutbox('UPDATE', 'equipment_units', {
+            id: updated.id, item_id: updated.item_id, asset_tag: updated.asset_tag,
+            serial_number: updated.serial_number, status: updated.status,
+            current_location_id: updated.current_location_id, current_job_id: updated.current_job_id,
+            notes: updated.notes, created_at: updated.created_at, updated_at: updated.updated_at,
+            // synced_at intentionally omitted
+          });
+        }
+
+        appendLog({
+          user_id: user?.id ?? null, team_id: null, action: 'repair_opened',
+          entity_type: 'repair', entity_id: created.id,
+          from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+          note: entityLabel, metadata: null, device_id: null,
+        });
+
+        return created;
       });
+    } catch (err) {
+      // Nothing was committed — surface the failure and stay on the form.
+      Alert.alert(
+        'Could not report repair',
+        (err as Error)?.message ?? 'The repair could not be saved. Please try again.',
+      );
+      return;
     }
 
-    appendLog({
-      user_id: user?.id ?? null, team_id: null, action: 'repair_opened',
-      entity_type: 'repair', entity_id: repair.id,
-      from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
-      note: entityLabel, metadata: null, device_id: null,
-    });
-
+    // Writes committed — safe to navigate to the new ticket.
     router.replace({ pathname: '/(app)/(repairs)/[id]', params: { id: repair.id } });
   }
 

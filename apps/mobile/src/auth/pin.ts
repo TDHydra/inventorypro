@@ -11,8 +11,7 @@ export interface AuthResult {
  * The API does the bcrypt compare server-side and returns a JWT on success.
  * On success the JWT + user data are stored locally for future offline use.
  *
- * For offline login: the PIN hash is synced down during full download,
- * so we can compare locally too via verifyPinLocal().
+ * PIN is verified server-side only (see verifyPin below); no hash is ever stored on device.
  */
 export async function verifyPinOnline(userId: string, pin: string): Promise<AuthResult> {
   const res = await fetch(`${API_BASE}/auth/token`, {
@@ -32,14 +31,18 @@ export async function verifyPinOnline(userId: string, pin: string): Promise<Auth
  * First-login PIN setup. The device confirms the PIN (double-entry) before
  * calling this; the server stores the hash, flips pin_set, and returns a session
  * exactly like /auth/token. Fails with 409 if a PIN was already set.
+ *
+ * `enrollmentCode` is the one-time code issued out-of-band when the account
+ * was created; the server rejects the request with 401 if it doesn't match.
  */
-export async function setPinFirstTime(userId: string, pin: string): Promise<AuthResult> {
+export async function setPinFirstTime(userId: string, pin: string, enrollmentCode: string): Promise<AuthResult> {
   const res = await fetch(`${API_BASE}/auth/set-pin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, pin }),
+    body: JSON.stringify({ user_id: userId, pin, enrollment_code: enrollmentCode }),
   });
 
+  if (res.status === 401) throw new Error('Invalid enrollment code');
   if (res.status === 409) throw new Error('A PIN is already set for this account. Sign in with your PIN.');
   if (res.status === 403) throw new Error('Account inactive or expired');
   if (!res.ok) throw new Error(`Could not set PIN: ${res.status}`);

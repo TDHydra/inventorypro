@@ -1,17 +1,17 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform,
+  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/theme';
 import { PINPad } from '../../src/components/PINPad';
-import { getAllActiveUsers, markUserPinSet, User } from '../../src/db/queries/users';
+import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
 import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/auth/pin';
-import { saveSession, buildUserSession } from '../../src/auth/session';
-import { appendLog } from '../../src/db/queries/log';
-import { setMaintenanceRole } from '../../src/db/maintenance';
+import { saveSession } from '../../src/auth/session';
+import { finishLogin } from '../../src/auth/finishLogin';
+import { fetchRoster, RosterUser } from '../../src/auth/roster';
 
 type Screen = 'pick' | 'pin' | 'setpin';
 type SetStep = 'enter' | 'confirm';
@@ -22,7 +22,7 @@ export default function LoginScreen() {
 
   const [screen, setScreen] = useState<Screen>('pick');
   const [search, setSearch] = useState('');
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<RosterUser | null>(null);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,18 +30,49 @@ export default function LoginScreen() {
   // First-login PIN setup (enter → confirm)
   const [setStep, setSetStep] = useState<SetStep>('enter');
   const [firstPin, setFirstPin] = useState('');
+  const [enrollmentCode, setEnrollmentCode] = useState('');
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  // Sign-in roster. Returning devices read it from the local DB (offline-capable);
+  // a brand-new device (empty local DB) fetches the minimal public /auth/roster.
+  // `needsFullSync` is true only in the latter case — that device has no business
+  // data yet, so after PIN sign-in we route it through the post-login download.
+  const [users, setUsers] = useState<RosterUser[]>([]);
+  const [needsFullSync, setNeedsFullSync] = useState(false);
+  const [rosterLoading, setRosterLoading] = useState(true);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+
+  const loadRoster = useCallback(() => {
+    setRosterLoading(true);
+    setRosterError(null);
+    const local = getAllActiveUsers();
+    if (local.length > 0) {
+      setUsers(local);
+      setNeedsFullSync(false);
+      setRosterLoading(false);
+      return;
+    }
+    // Empty local DB → new device. Pull the public roster to populate the picker.
+    fetchRoster()
+      .then(r => { setUsers(r); setNeedsFullSync(true); })
+      .catch(e => setRosterError((e as Error).message || 'Could not reach the server. Connect to the internet to set up this device.'))
+      .finally(() => setRosterLoading(false));
+  }, []);
+
+  useEffect(() => { loadRoster(); }, [loadRoster]);
+
+  const roleColors = useMemo(() => getRoleColorMap(), []);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return allUsers;
+    if (!search.trim()) return users;
     const q = search.toLowerCase();
-    return allUsers.filter(u => u.name.toLowerCase().includes(q));
-  }, [search, allUsers]);
+    return users.filter(u => u.name.toLowerCase().includes(q));
+  }, [search, users]);
 
-  function selectUser(user: User) {
+  function selectUser(user: RosterUser) {
     setSelectedUser(user);
     setPin('');
     setFirstPin('');
+    setEnrollmentCode('');
     setPinError(null);
     if (user.pin_set === 0) {
       // Brand-new account — set & confirm a PIN before first sign-in.
@@ -52,43 +83,27 @@ export default function LoginScreen() {
     }
   }
 
-  // Build the session, write the login log, and navigate into the app.
+  // Finish a returning-user sign-in: build the session locally and enter the app.
+  // New devices (needsFullSync) take a different path — see proceedAfterAuth.
   function enterApp(userId: string) {
-    const session = buildUserSession(userId);
-    if (!session) { setPinError('User not found on this device'); setPin(''); return; }
-
-    // Wire the maintenance exemption for THIS user before any write, so a tier-4
-    // admin signing in during maintenance isn't treated as non-exempt (the
-    // (app)/_layout sets this too, but only after we navigate).
-    setMaintenanceRole(session.role);
-
-    // Authentication is not a data mutation — signing in must NEVER be blocked by
-    // maintenance mode. The login audit is best-effort: if the write-guard (or
-    // anything) throws, swallow it so the user still gets in. (This was the
-    // "connection required" bug — the login log was blocked during maintenance,
-    // aborting sign-in for everyone, admins included.)
-    try {
-      appendLog({
-        user_id: session.id,
-        team_id: null,
-        action: 'login',
-        entity_type: 'user',
-        entity_id: session.id,
-        from_location_id: null,
-        to_location_id: null,
-        quantity: null,
-        unit: null,
-        job_id: null,
-        note: null,
-        metadata: null,
-        device_id: null,
-      });
-    } catch {
-      /* maintenance lock or transient write error — sign-in proceeds regardless */
+    if (!finishLogin(userId, setUser)) {
+      setPinError('User not found on this device');
+      setPin('');
+      return;
     }
-
-    setUser(session);
     router.replace('/(app)/(dashboard)');
+  }
+
+  // Called once the server has verified the PIN and the session is saved. A
+  // brand-new device has no local data yet, so it goes to the first-launch
+  // screen to download the full DB (authenticated) before entering the app.
+  // Returning devices already have their data and enter directly.
+  function proceedAfterAuth(userId: string) {
+    if (needsFullSync) {
+      router.replace('/(auth)/first-launch');
+      return;
+    }
+    enterApp(userId);
   }
 
   async function submitPin(pinValue: string = pin) {
@@ -105,11 +120,12 @@ export default function LoginScreen() {
       // token, which the sync engine uses to keep pushing/pulling.
       const result = await verifyPinOnline(selectedUser.id, pinValue);
       await saveSession(result.jwt, result.refreshToken, result.userId);
-      enterApp(result.userId);
+      proceedAfterAuth(result.userId);
     } catch (err) {
       const msg = (err as Error).message;
-      if (msg.includes('Incorrect') || msg.includes('expired') || msg.includes('inactive')) {
-        // Definitive server rejection — wrong PIN or disabled account.
+      if (msg.includes('Incorrect') || msg.includes('Invalid credentials') || msg.includes('expired') || msg.includes('inactive') || msg.includes('Too many')) {
+        // Definitive server rejection — wrong PIN, disabled/expired account, or
+        // rate-limited (too many attempts). Show the server's message.
         setPinError(msg);
       } else {
         // First-time sign-in requires the server (PIN is never verified on-device).
@@ -132,16 +148,26 @@ export default function LoginScreen() {
     }
   };
 
-  // First-login: collect the PIN, then a confirmation entry, then set it server-side.
+  // First-login: collect the enrollment code, then the PIN + confirmation, then set it server-side.
   async function submitSetPin(pinValue: string) {
     if (!selectedUser) return;
+
+    const codeError = validatePinFormat(enrollmentCode, 6);
+    if (codeError) {
+      setPinError('Enter the 6-digit enrollment code your admin gave you.');
+      setFirstPin('');
+      setPin('');
+      setSetStep('enter');
+      return;
+    }
+
     setLoading(true);
     setPinError(null);
     try {
-      const result = await setPinFirstTime(selectedUser.id, pinValue);
+      const result = await setPinFirstTime(selectedUser.id, pinValue, enrollmentCode);
       await saveSession(result.jwt, result.refreshToken, result.userId);
       markUserPinSet(selectedUser.id, pinValue.length);
-      enterApp(result.userId);
+      proceedAfterAuth(result.userId);
     } catch (err) {
       // Network or server error — restart the setup so they re-enter cleanly.
       setPinError((err as Error).message || 'Could not set your PIN. Check your connection.');
@@ -189,7 +215,23 @@ export default function LoginScreen() {
         </View>
 
         <Text style={styles.greeting}>Welcome,</Text>
-        <Text style={styles.userName}>{selectedUser.name}</Text>
+        <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
+
+        {setStep === 'enter' && (
+          <View style={styles.enrollSection}>
+            <Text style={styles.pinLabel}>Enrollment code</Text>
+            <Text style={styles.pinSub}>Enter the 6-digit code your admin gave you.</Text>
+            <TextInput
+              style={styles.enrollInput}
+              placeholder="000000"
+              placeholderTextColor={colors.textMuted}
+              value={enrollmentCode}
+              onChangeText={v => setEnrollmentCode(v.replace(/\D/g, '').slice(0, 6))}
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+          </View>
+        )}
 
         <View style={styles.pinSection}>
           <Text style={styles.pinLabel}>
@@ -224,7 +266,7 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <Text style={styles.greeting}>Welcome,</Text>
-        <Text style={styles.userName}>{selectedUser.name}</Text>
+        <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
 
         <View style={styles.pinSection}>
           <Text style={styles.pinLabel}>Enter your PIN</Text>
@@ -268,7 +310,7 @@ export default function LoginScreen() {
               <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.userName2}>{item.name}</Text>
+              <Text style={[styles.userName2, { color: roleColor(item.role, roleColors) }]}>{item.name}</Text>
               <Text style={styles.userRole}>{item.role.replace(/_/g, ' ')}</Text>
             </View>
             <Text style={styles.chevron}>›</Text>
@@ -276,7 +318,21 @@ export default function LoginScreen() {
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
-          <Text style={styles.empty}>No users found. Contact your admin.</Text>
+          rosterLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.empty}>Loading sign-in list…</Text>
+            </View>
+          ) : rosterError ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.empty}>{rosterError}</Text>
+              <TouchableOpacity onPress={loadRoster} style={{ marginTop: 12 }}>
+                <Text style={styles.backText}>Tap to retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.empty}>No users found. Contact your admin.</Text>
+          )
         }
       />
     </View>
@@ -321,7 +377,8 @@ const styles = StyleSheet.create({
   userRole: { fontSize: 12, color: colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
   chevron: { fontSize: 20, color: colors.textDisabled },
   separator: { height: 1, backgroundColor: colors.borderDetail, marginLeft: 66 },
-  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 40, fontSize: 15 },
+  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 12, fontSize: 15 },
+  emptyState: { alignItems: 'center', marginTop: 40 },
   // PIN screen
   back: { marginBottom: 32 },
   backText: { fontSize: 16, color: colors.primaryText },
@@ -330,6 +387,19 @@ const styles = StyleSheet.create({
   pinSection: { alignItems: 'center', width: '100%' },
   pinLabel: { fontSize: 18, fontWeight: '600', color: colors.textPrimary, marginBottom: 6 },
   pinSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
+  enrollSection: { alignItems: 'center', width: '100%', marginBottom: 28 },
+  enrollInput: {
+    width: 160,
+    textAlign: 'center',
+    fontSize: 22,
+    letterSpacing: 6,
+    color: colors.textPrimary,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 10,
+  },
   loading: { marginTop: 20, color: colors.textSecondary },
   firstBanner: { backgroundColor: colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
   firstBannerText: { color: colors.primaryText, fontSize: 13, fontWeight: '700' },

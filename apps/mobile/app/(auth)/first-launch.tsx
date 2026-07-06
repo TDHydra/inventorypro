@@ -1,15 +1,14 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/theme';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-
-interface SyncProgress {
-  table: string;
-  step: number;
-  total: number;
-}
+import { useSession } from '../../src/hooks/useSession';
+import { getValidJwt, getSavedUserId, clearSession } from '../../src/auth/session';
+import { finishLogin } from '../../src/auth/finishLogin';
+import {
+  runFullDownload, SessionExpiredError, FULL_DOWNLOAD_TABLE_COUNT,
+  type DownloadProgress,
+} from '../../src/sync/fullDownload';
 
 const TABLE_LABELS: Record<string, string> = {
   role_settings: 'roles',
@@ -23,83 +22,50 @@ const TABLE_LABELS: Record<string, string> = {
   media: 'media',
 };
 
+// Post-login enrollment download. We arrive here ONLY after a successful PIN
+// sign-in on a brand-new device, so the session/JWT is already saved and
+// /sync/full can be called authenticated. When the download finishes we build
+// the session locally and enter the app.
 export default function FirstLaunchScreen() {
   const router = useRouter();
-  const [progress, setProgress] = useState<SyncProgress>({ table: 'Starting...', step: 0, total: 9 });
+  const { setUser } = useSession();
+  const [progress, setProgress] = useState<DownloadProgress>({
+    table: 'Starting...', step: 0, total: FULL_DOWNLOAD_TABLE_COUNT,
+  });
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    runFullDownload();
-  }, []);
-
-  async function runFullDownload() {
+  const runDownload = useCallback(async () => {
+    setError(null);
     try {
-      const tables = [
-        'role_settings', 'users', 'locations', 'inventory_items',
-        'stock_by_location', 'jobs', 'teams', 'team_members', 'media',
-      ];
-
-      for (let i = 0; i < tables.length; i++) {
-        const table = tables[i];
-        setProgress({ table, step: i + 1, total: tables.length });
-
-        let page = 0;
-        let hasMore = true;
-
-        while (hasMore) {
-          const res = await fetch(`${API_BASE}/sync/full?table=${table}&page=${page}&limit=500`);
-          if (!res.ok) throw new Error(`Failed to download ${table}: ${res.status}`);
-
-          const data = await res.json() as { rows: unknown[]; hasMore: boolean };
-          await applyRows(table, data.rows);
-          hasMore = data.hasMore;
-          page++;
-        }
+      const userId = await getSavedUserId();
+      const jwt = await getValidJwt();
+      if (!userId || !jwt) {
+        // No session — shouldn't happen via the login flow; recover gracefully.
+        await clearSession();
+        router.replace('/(auth)/login');
+        return;
       }
 
-      router.replace('/(auth)/login');
+      await runFullDownload(jwt, setProgress);
+
+      if (!finishLogin(userId, setUser)) {
+        setError('Setup finished, but your account was not found. Please sign in again.');
+        return;
+      }
+      router.replace('/(app)/(dashboard)');
     } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        await clearSession();
+        router.replace('/(auth)/login');
+        return;
+      }
       setError((err as Error).message);
     }
-  }
+  }, [router, setUser]);
 
-  async function applyRows(table: string, rows: unknown[]) {
-    // Import queries dynamically to avoid circular deps
-    const { upsertItem, upsertStock } = await import('../../src/db/queries/items');
-    const { upsertLocation } = await import('../../src/db/queries/locations');
-    const { upsertUser } = await import('../../src/db/queries/users');
-    const { upsertJob } = await import('../../src/db/queries/jobs');
+  useEffect(() => { runDownload(); }, [runDownload]);
 
-    const schema = await import('../../src/db/schema');
-    const db = schema.getDb();
-
-    for (const row of rows as Record<string, unknown>[]) {
-      switch (table) {
-        case 'inventory_items': upsertItem(row as any); break;
-        case 'stock_by_location': upsertStock(row as any, row.location_id as string, row.quantity as number); break;
-        case 'locations': upsertLocation(row as any); break;
-        case 'users': upsertUser(row as any); break;
-        case 'jobs': upsertJob(row as any); break;
-        case 'role_settings':
-        case 'teams':
-        case 'team_members':
-        case 'media': {
-          // Generic upsert — name columns explicitly from the row keys so we
-          // tolerate column-count/order differences (e.g. server omits synced_at)
-          // and sanitize values (JSONB objects / booleans) for op-sqlite.
-          const cols = Object.keys(row);
-          if (cols.length === 0) break;
-          db.executeSync(
-            `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
-            schema.bindParams(Object.values(row))
-          );
-          break;
-        }
-      }
-    }
-  }
-
-  const pct = Math.round((progress.step / progress.total) * 100);
+  const pct = progress.total ? Math.round((progress.step / progress.total) * 100) : 0;
 
   return (
     <View style={styles.container}>
@@ -109,7 +75,9 @@ export default function FirstLaunchScreen() {
         <>
           <Text style={styles.errorText}>Setup failed</Text>
           <Text style={styles.errorDetail}>{error}</Text>
-          <Text style={styles.retry} onPress={runFullDownload}>Tap to retry</Text>
+          <TouchableOpacity onPress={runDownload}>
+            <Text style={styles.retry}>Tap to retry</Text>
+          </TouchableOpacity>
         </>
       ) : (
         <>

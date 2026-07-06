@@ -6,9 +6,9 @@ no bundled web server — NPM is the front door.
 
 ```
                      ┌────────────────── Unraid ──────────────────┐
- Internet ─TLS─► NPM ─┤ api.plexcontrol.com   → :3000  (API)       │
-                     ┤ s3.plexcontrol.com    → :9000  (MinIO S3)   │
-                     ┤ minio.plexcontrol.com → :9001  (console)    │
+ Internet ─TLS─► NPM ─┤ api.invenpro.app   → :3000  (API)       │
+                     ┤ s3.invenpro.app    → :9000  (MinIO S3)   │
+                     ┤ minio.invenpro.app → :9001  (console)    │
                      └  postgres (internal network only) ──────────┘
 ```
 
@@ -67,13 +67,13 @@ For each domain, add a **Proxy Host** in NPM:
 
 | Domain                  | Forward Host  | Forward Port | Notes                                  |
 |-------------------------|---------------|--------------|----------------------------------------|
-| api.plexcontrol.com     | `<unraid-ip>` | `3000`       | Websockets off; request SSL cert       |
-| s3.plexcontrol.com      | `<unraid-ip>` | `9000`       | **Set client max body size** (below)   |
-| minio.plexcontrol.com   | `<unraid-ip>` | `9001`       | Optional admin console; enable WS      |
+| api.invenpro.app     | `<unraid-ip>` | `3000`       | Websockets off; request SSL cert       |
+| s3.invenpro.app      | `<unraid-ip>` | `9000`       | **Set client max body size** (below)   |
+| minio.invenpro.app   | `<unraid-ip>` | `9001`       | Optional admin console; enable WS      |
 
 For all three: **SSL tab → request a Let's Encrypt cert + Force SSL + HTTP/2.**
 
-**Important for `s3.plexcontrol.com`** (media uploads): in the proxy host’s
+**Important for `s3.invenpro.app`** (media uploads): in the proxy host’s
 **Advanced** tab add:
 ```
 client_max_body_size 100m;
@@ -87,9 +87,9 @@ signature. Raise `client_max_body_size` to whatever your largest video allows.
 ## 4. Fill in `.env` to match those domains
 
 ```ini
-MINIO_PUBLIC_ENDPOINT=https://s3.plexcontrol.com
-PUBLIC_MEDIA_URL=https://s3.plexcontrol.com/inventorypro-media
-MINIO_CONSOLE_URL=https://minio.plexcontrol.com
+MINIO_PUBLIC_ENDPOINT=https://s3.invenpro.app
+PUBLIC_MEDIA_URL=https://s3.invenpro.app/inventorypro-media
+MINIO_CONSOLE_URL=https://minio.invenpro.app
 ```
 `MINIO_PUBLIC_ENDPOINT` is what the API bakes into the signed upload URLs the
 phone uploads to — it must be the public `s3.` host, not `minio:9000`.
@@ -105,14 +105,14 @@ no longer needs the USB tunnel or Metro:
 
 ```bash
 # apps/mobile/.env.production
-EXPO_PUBLIC_API_URL=https://api.plexcontrol.com
+EXPO_PUBLIC_API_URL=https://api.invenpro.app
 ```
 Then build an installable APK (cloud build, works over cellular):
 ```bash
 cd apps/mobile
 eas build --platform android --profile preview
 ```
-Install the resulting APK on the Pixel. It talks to `api.plexcontrol.com` from
+Install the resulting APK on the Pixel. It talks to `api.invenpro.app` from
 anywhere — first sign-in online, biometrics after that. JS updates can be pushed
 over-the-air later with `eas update` instead of rebuilding.
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -7,9 +7,10 @@ import { generateUUID } from '../../../src/utils/uuid';
 import { getAllTeams, upsertTeam, Team } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { syncNow } from '../../../src/sync/engine';
@@ -20,6 +21,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 export default function TeamsScreen() {
   const router = useRouter();
@@ -29,6 +31,13 @@ export default function TeamsScreen() {
   const [teams, setTeams] = useState<Team[]>(() => getAllTeams());
   const [showCreate, setShowCreate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const dataVersion = useDataVersion();
+
+  // Re-read teams whenever a background sync pull applies changes, so an
+  // already-open list refreshes without a manual pull-to-refresh.
+  useEffect(() => {
+    setTeams(getAllTeams());
+  }, [dataVersion]);
 
   // Create form state
   const [name, setName] = useState('');
@@ -37,7 +46,7 @@ export default function TeamsScreen() {
     return ts[0]?.label ?? '';
   });
 
-  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
+  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
 
   function resetForm() {
     setName('');
@@ -61,41 +70,47 @@ export default function TeamsScreen() {
 
     const id = generateUUID();
     const now = new Date().toISOString();
-    // manager_id is legacy/deprecated — managers are flagged per-member (is_manager)
-    // on the team detail screen after creation. Leave it unset here.
+    // Managers are flagged per-member (is_manager) on the team detail screen
+    // after creation; the deprecated teams.manager_id column was dropped (migration 026).
     const team: Team = {
       id,
       name: trimmed,
       type,
-      manager_id: null,
       updated_at: now,
       synced_at: null,
     };
 
-    upsertTeam(team);
-    appendOutbox('INSERT', 'teams', {
-      id,
-      name: trimmed,
-      type,
-      manager_id: null,
-      updated_at: now,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: id,
-      action: 'team_created',
-      entity_type: 'team',
-      entity_id: id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: trimmed,
-      metadata: null,
-      device_id: null,
-    });
+    try {
+      runInTransaction(() => {
+        upsertTeam(team);
+        appendOutbox('INSERT', 'teams', {
+          id,
+          name: trimmed,
+          type,
+          updated_at: now,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: id,
+          action: 'team_created',
+          entity_type: 'team',
+          entity_id: id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: trimmed,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not create team', `"${trimmed}" was not created. Please try again.`);
+      return;
+    }
 
+    // Success side-effects only after the write committed.
     setTeams(getAllTeams());
     setShowCreate(false);
     resetForm(); // clear only after successful submit

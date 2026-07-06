@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 2,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     // Extra inventory item fields (additive — no data loss).
     db.executeSync(`ALTER TABLE inventory_items ADD COLUMN sku TEXT`);
     db.executeSync(`ALTER TABLE inventory_items ADD COLUMN supplier TEXT`);

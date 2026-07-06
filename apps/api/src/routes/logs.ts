@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission } from '../lib/permissions';
+import { overLimit } from '../lib/rateLimit';
 
 interface LogQuery {
   user_id?: string;
@@ -21,10 +22,30 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // GET /logs — filtered, paginated activity log (read-only; the log is append-only)
   fastify.get<{ Querystring: LogQuery }>(
-    '/', { preHandler: auth },
+    '/', {
+      preHandler: auth,
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            user_id: { type: 'string', maxLength: 64 },
+            entity_type: { type: 'string', maxLength: 64 },
+            entity_id: { type: 'string', maxLength: 64 },
+            action: { type: 'string', maxLength: 64 },
+            job_id: { type: 'string', maxLength: 64 },
+            // Coerced + bounded; the handler further caps at 500 via Math.min.
+            limit: { type: 'integer', minimum: 1, maximum: 500 },
+            before: { type: 'string', maxLength: 40 }, // ISO timestamp
+            after: { type: 'string', maxLength: 40 },  // ISO timestamp
+            scope: { type: 'string', maxLength: 32 },
+          },
+        },
+      },
+    },
     async (request, reply) => {
-      const q = request.query;
       const userId = (request.user as { sub: string }).sub;
+      if (overLimit('logs:' + userId, 60)) return reply.status(429).send({ error: 'rate' });
+      const q = request.query;
       const myTeams = q.scope === 'my_teams';
 
       // Resolve the requester's effective permissions once.

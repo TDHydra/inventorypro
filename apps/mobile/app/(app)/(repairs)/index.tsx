@@ -10,6 +10,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { syncNow } from '../../../src/sync/engine';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 type StatusFilter = 'open' | 'done' | 'all';
 
@@ -32,6 +33,7 @@ export default function RepairsScreen() {
   const [filter, setFilter] = useState<StatusFilter>('open');
   const [reloadKey, setReloadKey] = useState(0);
   const reloadLocalData = useCallback(() => setReloadKey(k => k + 1), []);
+  const dataVersion = useDataVersion();
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -42,10 +44,12 @@ export default function RepairsScreen() {
     setRefreshing(false);
   }, [refreshing, reloadLocalData]);
 
+  // Include dataVersion so an already-open list refreshes after a background
+  // sync pull applies changes, without a manual pull-to-refresh.
   const repairs = useMemo((): Repair[] => {
     const done = filter === 'all' ? undefined : filter === 'done';
     return getRepairs({ done });
-  }, [filter, reloadKey]);
+  }, [filter, reloadKey, dataVersion]);
 
   return (
     <>
@@ -78,6 +82,7 @@ export default function RepairsScreen() {
             const icon = getTypeIcon('repair_status', item.status);
             const completed = item.completed_at != null;
             const terminal = completed || isTerminalStatus(item.status);
+            const overdue = !!item.due_at && !terminal && new Date(item.due_at).getTime() < Date.now();
             return (
               <TouchableOpacity
                 onPress={() =>
@@ -98,6 +103,11 @@ export default function RepairsScreen() {
                         {icon ? `${icon} ` : ''}{item.status}
                       </Text>
                     </View>
+                    {overdue && (
+                      <View style={s.overdueBadge}>
+                        <Text style={s.overdueBadgeText}>Overdue</Text>
+                      </View>
+                    )}
                     <Text style={s.cardDate}>{ageLabel(item.created_at)}</Text>
                   </View>
                 </Card>
@@ -138,5 +148,10 @@ const s = StyleSheet.create({
   statusBadgeText: { fontSize: 12, fontWeight: '600' },
   statusBadgeTextOpen: { color: colors.primary },
   statusBadgeTextDone: { color: colors.success },
+  overdueBadge: {
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    borderWidth: 1, backgroundColor: colors.dangerBg, borderColor: colors.danger,
+  },
+  overdueBadgeText: { fontSize: 11, fontWeight: '700', color: colors.danger },
   cardDate: { fontSize: 12, color: colors.textMuted, marginLeft: 'auto' as any },
 });

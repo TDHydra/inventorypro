@@ -66,6 +66,26 @@ export async function runMigrations(): Promise<void> {
     if (pruned.rowCount) {
       console.log(`✓ Pruned ${pruned.rowCount} stale processed_outbox row(s).`);
     }
+
+    // Prune telemetry_events: lossy-by-design behavioral sink, retained 90 days
+    // (see migration 029). Runs on every boot alongside the other dedup prunes.
+    const prunedTel = await client.query(
+      `DELETE FROM telemetry_events WHERE received_at < NOW() - INTERVAL '90 days'`
+    );
+    if (prunedTel.rowCount) {
+      console.log(`✓ Pruned ${prunedTel.rowCount} stale telemetry_events row(s).`);
+    }
+
+    // Prune notification_dedup (migration 031): a backstop against unbounded
+    // growth. 30 days is well past when any key still matters — a still-relevant
+    // low-stock key just re-arms (a fresh alert on the next dip), and session
+    // keys are one-shot. Runs on every boot after 031 exists.
+    const prunedNotif = await client.query(
+      `DELETE FROM notification_dedup WHERE created_at < NOW() - INTERVAL '30 days'`
+    );
+    if (prunedNotif.rowCount) {
+      console.log(`✓ Pruned ${prunedNotif.rowCount} stale notification_dedup row(s).`);
+    }
   } finally {
     await client.end();
   }

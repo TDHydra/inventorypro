@@ -10,8 +10,9 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import {
   getAllJobs, getActiveCheckoutsForUser, updateJobFields, archiveJob, Job,
 } from '../../../src/db/queries/jobs';
-import { getTypeIcon, getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
+import { getTypeIcon, getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { rowsAs } from '../../../src/db/schema';
 import { colors } from '../../../src/theme';
@@ -75,7 +76,7 @@ export default function JobsScreen() {
   }, [search, statusFilter, showArchived, reloadKey]);
 
   // --- Bulk multi-select ---
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
   const typeOptions = useMemo<PickerOption[]>(
     () => jobTypes.map(t => ({ id: t.label, label: t.label })),
     [jobTypes],
@@ -97,9 +98,24 @@ export default function JobsScreen() {
   // like the single-row edits on the detail screen.
   const bulkSetStatus = useCallback((status: 'open' | 'closed') => {
     if (isWriteBlocked()) return;
-    for (const id of Array.from(ms.selected)) {
-      updateJobFields(id, { status });
-      logJob(id, 'job_updated', `Status → ${status}`);
+    const ids = Array.from(ms.selected);
+    // Whole batch in one transaction: if any job fails, roll back all of them
+    // so the selection is never left half-applied, then tell the user.
+    let failedId: string | null = null;
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          failedId = id;
+          updateJobFields(id, { status });
+          logJob(id, 'job_updated', `Status → ${status}`);
+        }
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not update jobs',
+        `Failed on job ${failedId ?? ''}: ${e instanceof Error ? e.message : 'unknown error'}. No jobs were changed.`,
+      );
+      return;
     }
     reloadLocalData();
     ms.exit();
@@ -121,9 +137,23 @@ export default function JobsScreen() {
           text: 'Archive', style: 'destructive',
           onPress: () => {
             if (isWriteBlocked()) return;
-            for (const id of ids) {
-              archiveJob(id);
-              logJob(id, 'job_archived', 'Bulk archive');
+            // Atomic batch: a mid-loop failure rolls back every archive so the
+            // list isn't left partially archived; report which job failed.
+            let failedId: string | null = null;
+            try {
+              runInTransaction(() => {
+                for (const id of ids) {
+                  failedId = id;
+                  archiveJob(id);
+                  logJob(id, 'job_archived', 'Bulk archive');
+                }
+              });
+            } catch (e) {
+              Alert.alert(
+                'Could not archive jobs',
+                `Failed on job ${failedId ?? ''}: ${e instanceof Error ? e.message : 'unknown error'}. No jobs were changed.`,
+              );
+              return;
             }
             reloadLocalData();
             ms.exit();
@@ -136,9 +166,24 @@ export default function JobsScreen() {
   const applyType = useCallback((type: string) => {
     setTypePickerOpen(false);
     if (isWriteBlocked()) return;
-    for (const id of Array.from(ms.selected)) {
-      updateJobFields(id, { type });
-      logJob(id, 'job_updated', `Type → ${type}`);
+    const ids = Array.from(ms.selected);
+    // One transaction for the whole selection so a failure can't leave only
+    // some jobs retyped; surface the offending job and that nothing changed.
+    let failedId: string | null = null;
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          failedId = id;
+          updateJobFields(id, { type });
+          logJob(id, 'job_updated', `Type → ${type}`);
+        }
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not set type',
+        `Failed on job ${failedId ?? ''}: ${e instanceof Error ? e.message : 'unknown error'}. No jobs were changed.`,
+      );
+      return;
     }
     reloadLocalData();
     ms.exit();

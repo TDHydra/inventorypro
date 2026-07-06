@@ -16,7 +16,7 @@ import {
 } from '../../../src/db/queries/items';
 import { getOpenJobs, upsertJob, type Job } from '../../../src/db/queries/jobs';
 import { getAllLocations, getLocationsByOwner, type Location } from '../../../src/db/queries/locations';
-import { getUsersByRole } from '../../../src/db/queries/users';
+import { getManagerTierUsers } from '../../../src/db/queries/users';
 import {
   getUnitsForItem, getAvailableUnitsAtLocation, getUnitByTag, setUnitStatus,
   type EquipmentUnit,
@@ -24,6 +24,7 @@ import {
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -40,6 +41,7 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { track } from '../../../src/telemetry';
 
 type Step = 'find' | 'qty' | 'dest' | 'confirm';
 type DestType = 'job' | 'location' | 'pm';
@@ -58,6 +60,7 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const refreshKey = useFocusRefresh();
   const params = useLocalSearchParams<{ itemId?: string }>();
 
   const [step, setStep] = useState<Step>('find');
@@ -82,6 +85,7 @@ export default function CheckoutScreen() {
   const { coords, request } = useCurrentPosition();
 
   // Permission gates
+  const canCheckout = usePermission('checkout_inventory');
   const canCreateJobs = usePermission('create_jobs');
   const canUploadMedia = usePermission('upload_media');
   // Stable UUID for the checkout event; refreshed each time we enter the confirm step
@@ -110,7 +114,7 @@ export default function CheckoutScreen() {
   const isUnitTracked = !!selectedItem?.unit_tracked;
 
   // All locations — used for destination picker AND to look up lat/lng for source ranking.
-  const allLocations = useMemo(() => getAllLocations(), []);
+  const allLocations = useMemo(() => getAllLocations(), [refreshKey]);
   const locNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const l of allLocations) m.set(l.id, l.name);
@@ -185,8 +189,9 @@ export default function CheckoutScreen() {
     ? { id: selectedJob.id, label: selectedJob.name }
     : null;
 
-  // Production managers.
-  const pms = useMemo(() => getUsersByRole('production_manager'), []);
+  // Manager-tier destinations (ROLE_TIER >= 2): heads, production/carpet
+  // managers, office/HR/franchise managers — all act as checkout destinations.
+  const pms = useMemo(() => getManagerTierUsers(), [refreshKey]);
   const pmOptions: PickerOption[] = useMemo(() => pms.map(u => ({ id: u.id, label: u.name })), [pms]);
 
   // Build source-location rows for a unit-tracked item from its available units
@@ -374,7 +379,12 @@ export default function CheckoutScreen() {
   }
 
   async function handleConfirm() {
+    track('action', 'checkout_confirm', { screen: 'checkout' });
     if (isWriteBlocked()) return;
+    if (!canCheckout) {
+      Alert.alert('Not allowed', "You don't have permission to check out inventory.");
+      return;
+    }
     if (!selectedItem || !selectedLocation || !user || !destType) return;
     const itemId = selectedItem.id;
     const source = selectedLocation.location_id;
@@ -746,13 +756,13 @@ export default function CheckoutScreen() {
                   </View>
                 )}
 
-                {pms.length === 0 && <Text style={s.empty}>No production managers found</Text>}
+                {pms.length === 0 && <Text style={s.empty}>No managers found</Text>}
 
                 {/* Force single-PM path for unit-tracked items regardless of pmMode state. */}
                 {(isUnitTracked || pmMode === 'single') ? (
                   <View style={{ marginTop: 8 }}>
                     <SearchablePicker
-                      placeholder="Pick a production manager..."
+                      placeholder="Pick a manager..."
                       options={pmOptions}
                       value={pmSelections[0] ? { id: pmSelections[0].pmId, label: pmSelections[0].pmName } : null}
                       onSelect={selectSinglePm}
@@ -880,7 +890,7 @@ export default function CheckoutScreen() {
         <PrimaryButton
           label="Confirm ✓"
           loading={submitting}
-          disabled={locked}
+          disabled={locked || !canCheckout}
           onPress={handleConfirm}
           style={{ marginTop: 20 }}
         />

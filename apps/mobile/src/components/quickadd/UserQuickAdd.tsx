@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
 import { useRouter } from 'expo-router';
-import { createUserOnline } from '../../db/queries/users';
+import { createUserOnline, searchUsers, roleColor, getRoleColorMap } from '../../db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -33,6 +33,18 @@ export default function UserQuickAdd({ onSaved }: Props) {
   const [role, setRole] = useState<UserRole>(DEFAULT_ROLE); // sticky
   const [nameError, setNameError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Role colors for tinting matched names (built once).
+  const roleColors = useMemo(() => getRoleColorMap(), []);
+
+  // Live "already in the system?" search: as you type a name, surface existing
+  // users so you can spot a duplicate before creating one. Names are tinted by
+  // their role color (same as everywhere else).
+  const nameMatches = useMemo(() => {
+    const q = name.trim();
+    if (q.length < 2) return [];
+    return searchUsers(q, 6);
+  }, [name]);
 
   async function handleSave() {
     const trimmedName = name.trim();
@@ -85,6 +97,18 @@ export default function UserQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
+      {nameMatches.length > 0 && (
+        <View style={s.matches}>
+          <Text style={s.matchesHint}>Already in the system?</Text>
+          {nameMatches.map(u => (
+            <View key={u.id} style={s.matchRow}>
+              <Text style={[s.matchName, { color: roleColor(u.role, roleColors) }]} numberOfLines={1}>{u.name}</Text>
+              <Text style={s.matchSub}>{ROLE_DISPLAY_NAMES[u.role]}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       <FieldLabel>Role</FieldLabel>
       <View style={s.chipWrap}>
         {ALL_ROLES.map(r => (
@@ -121,6 +145,11 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  matches: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: -2, overflow: 'hidden' },
+  matchesHint: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
+  matchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  matchName: { fontSize: fontSizes.body2, fontWeight: '600', flex: 1 },
+  matchSub: { fontSize: fontSizes.caption, color: colors.textMuted },
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
   pinNote: { fontSize: fontSizes.caption, color: colors.textMuted },

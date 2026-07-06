@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requirePermission } from '../lib/permissions';
+import { overLimit } from '../lib/rateLimit';
 
 interface CreateItemBody {
   name: string;
@@ -35,7 +36,21 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // GET /items — catalog list with optional search
   fastify.get<{ Querystring: { q?: string; limit?: string; offset?: string } }>(
-    '/', auth, async (request) => {
+    '/', {
+      ...auth,
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            q: { type: 'string', maxLength: 200 },
+            limit: { type: 'integer', minimum: 1, maximum: 200 },
+            offset: { type: 'integer', minimum: 0 },
+          },
+        },
+      },
+    }, async (request, reply) => {
+      const sub = (request.user as { sub: string }).sub;
+      if (overLimit('items:' + sub, 60)) return reply.status(429).send({ error: 'rate' });
       const { q = '', limit = '50', offset = '0' } = request.query;
       const lim = Math.min(parseInt(limit, 10), 200);
       const off = parseInt(offset, 10);
@@ -75,7 +90,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   );
 
   // GET /items/:id
-  fastify.get<{ Params: { id: string } }>('/:id', auth, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/:id', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { rows } = await fastify.pg.query(
       `SELECT i.*,
               json_agg(json_build_object('location_id', s.location_id, 'quantity', s.quantity, 'location_name', l.name)) as stock
@@ -91,7 +117,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /items/barcode/:code
-  fastify.get<{ Params: { code: string } }>('/barcode/:code', auth, async (request, reply) => {
+  fastify.get<{ Params: { code: string } }>('/barcode/:code', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['code'],
+        properties: {
+          code: { type: 'string', minLength: 1, maxLength: 128 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { rows } = await fastify.pg.query(
       `SELECT * FROM inventory_items WHERE barcode = $1 AND active = true`,
       [request.params.code]
@@ -103,6 +140,29 @@ const routes: FastifyPluginAsync = async (fastify) => {
   // POST /items — create catalog item
   fastify.post<{ Body: CreateItemBody }>('/', {
     preHandler: [(fastify as any).authenticate, requirePermission('add_inventory')],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'unit_category', 'unit'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          barcode: { type: 'string', maxLength: 128 },
+          description: { type: 'string', maxLength: 2000 },
+          sku: { type: 'string', maxLength: 128 },
+          supplier: { type: 'string', maxLength: 200 },
+          model: { type: 'string', maxLength: 200 },
+          kind: { type: 'string', enum: ['product', 'equipment'] },
+          category: { type: 'string', maxLength: 128 },
+          returnable: { type: 'boolean' },
+          unit_category: { type: 'string', minLength: 1, maxLength: 64 },
+          unit: { type: 'string', minLength: 1, maxLength: 32 },
+          min_qty_alert: { type: 'integer', minimum: 0 },
+          reorder_to: { type: 'integer', minimum: 0 },
+          unit_tracked: { type: 'boolean' },
+          tag_prefix: { type: 'string', maxLength: 32 },
+        },
+      },
+    },
   }, async (request, reply) => {
     const {
       name, barcode, description, sku, supplier, model,
@@ -125,7 +185,39 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // PATCH /items/:id
   fastify.patch<{ Params: { id: string }; Body: UpdateItemBody }>(
-    '/:id', { preHandler: [(fastify as any).authenticate, requirePermission('edit_inventory')] },
+    '/:id', {
+      preHandler: [(fastify as any).authenticate, requirePermission('edit_inventory')],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+            barcode: { type: 'string', maxLength: 128 },
+            description: { type: 'string', maxLength: 2000 },
+            sku: { type: 'string', maxLength: 128 },
+            supplier: { type: 'string', maxLength: 200 },
+            model: { type: 'string', maxLength: 200 },
+            kind: { type: 'string', enum: ['product', 'equipment'] },
+            category: { type: 'string', maxLength: 128 },
+            returnable: { type: 'boolean' },
+            unit_category: { type: 'string', minLength: 1, maxLength: 64 },
+            unit: { type: 'string', minLength: 1, maxLength: 32 },
+            min_qty_alert: { type: 'integer', minimum: 0 },
+            reorder_to: { type: 'integer', minimum: 0 },
+            unit_tracked: { type: 'boolean' },
+            tag_prefix: { type: 'string', maxLength: 32 },
+            active: { type: 'boolean' },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const fields = request.body;
       const allowed = ['name','barcode','description','sku','supplier','model','kind','category',
@@ -151,7 +243,28 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // POST /items/:id/stock — adjust stock at a location
   fastify.post<{ Params: { id: string }; Body: StockAdjustBody }>(
-    '/:id/stock', { preHandler: [(fastify as any).authenticate, requirePermission('add_inventory')] },
+    '/:id/stock', {
+      preHandler: [(fastify as any).authenticate, requirePermission('add_inventory')],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['location_id', 'quantity'],
+          properties: {
+            location_id: { type: 'string', minLength: 1, maxLength: 64 },
+            // Adjustment delta — may be negative to decrement stock.
+            quantity: { type: 'integer' },
+            note: { type: 'string', maxLength: 500 },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { location_id, quantity } = request.body;
       const { rows } = await fastify.pg.query(

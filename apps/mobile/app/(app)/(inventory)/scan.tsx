@@ -7,6 +7,7 @@ import { USBScanner } from '../../../src/components/USBScanner';
 import { getItemByBarcode, getItemById } from '../../../src/db/queries/items';
 import { getUnitByTag } from '../../../src/db/queries/equipmentUnits';
 import { resolveScan } from '../../../src/scan/resolveScan';
+import { verifyWithConfig } from '../../../src/scan/qrSignConfig';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { colors } from '../../../src/theme';
 
@@ -17,7 +18,14 @@ export default function ScanScreen() {
   const [mode, setMode] = useState<ScanMode>('camera');
 
   const handleScanned = (code: string) => {
-    const resolved = resolveScan(code);
+    // Verify the QR signature first — a tampered/forged INV code (or an unsigned
+    // one when signatures are enforced) is rejected outright rather than resolved.
+    const canonical = verifyWithConfig(code);
+    if (canonical === null) {
+      Alert.alert('Unverified code', 'This code couldn’t be verified — it may be damaged, forged, or not an InventoryPro label.');
+      return;
+    }
+    const resolved = resolveScan(canonical);
 
     if (resolved === null) {
       // Malformed INV: token — ignore silently (camera will re-activate)
@@ -51,6 +59,9 @@ export default function ScanScreen() {
           { text: 'OK' },
         ]);
       }
+    } else if (resolved.kind === 'location') {
+      // Scanned a shelf/location QR — jump to that location's detail screen.
+      router.replace({ pathname: '/(app)/(locations)/[id]', params: { id: resolved.id } });
     } else {
       // kind === 'barcode' — existing path, keeps "not found → add" prompt
       const item = getItemByBarcode(resolved.code);

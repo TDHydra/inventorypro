@@ -1,16 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes, getAppSetting, setAppSetting } from '../../../src/db/appSettings';
 import { ensureNotificationPermission } from '../../../src/notifications/localAlerts';
 import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
+import { getAppConfig, setAppConfigLocal } from '../../../src/db/appConfig';
+import { appendOutbox } from '../../../src/sync/outbox';
+import { AppInput } from '../../../src/components/ui/AppInput';
 import {
   FormMode,
   getFormMode,
@@ -19,6 +23,12 @@ import {
   getFormModeOverride,
   setFormModeOverride,
 } from '../../../src/db/formMode';
+import { getMainStorageLocationId, setMainStorageLocation } from '../../../src/db/mainStorage';
+import { getAllLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
+import { SearchablePicker } from '../../../src/components/SearchablePicker';
+import type { PickerOption } from '../../../src/components/SearchablePicker';
+import { NotificationRoutingEditor } from '../../../src/components/NotificationRoutingEditor';
+import { QrSigningSection } from '../../../src/components/QrSigningSection';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
 
@@ -42,7 +52,30 @@ const FORM_OVERRIDE_OPTIONS: { label: string; value: FormMode | null }[] = [
   { label: 'Use app default', value: null },
 ];
 
+// ── Notification trigger config keys (app_config, admin-editable) ──────────
+
+const NOTIFY_ENABLED_KEY = 'notify_enabled';
+const NOTIFY_POLL_MIN_KEY = 'notify_poll_interval_min';
+const NOTIFY_IDLE_MIN_KEY = 'notify_checkout_idle_min';
+// Approval workflow: movements whose |qty| >= this value auto-flag an approval
+// request server-side. Blank/0 disables the auto-flag.
+const APPROVAL_THRESHOLD_KEY = 'approval_threshold_qty';
+
 // ── DB helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Writes a synced `app_config` value: locally + through the outbox so it
+ * reaches the server (same write path as `setMaintenanceMode` — INSERT is the
+ * outbox's full-row upsert op; the server applies ON CONFLICT (key) DO UPDATE).
+ */
+function setAppConfigSynced(key: string, value: string): void {
+  setAppConfigLocal(key, value);
+  appendOutbox('INSERT', 'app_config', {
+    key,
+    value,
+    updated_at: new Date().toISOString(),
+  });
+}
 
 function readSyncStatus(): { lastSync: string; pending: number } {
   try {
@@ -68,8 +101,10 @@ function readSyncStatus(): { lastSync: string; pending: number } {
 export default function SettingsScreen() {
   const router = useRouter();
   const isAdmin = usePermission('system_settings');
+  const canBroadcast = usePermission('send_notifications');
   const { user, logout } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
+  const refreshKey = useFocusRefresh();
 
   const [lastSync, setLastSync] = useState('Never');
   const [pending, setPending] = useState(0);
@@ -79,9 +114,53 @@ export default function SettingsScreen() {
   // Default ON when the pref is unset.
   const [notifEnabled, setNotifEnabled] = useState<boolean>(() => getAppSetting('notifications_enabled') !== 'false');
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
+  // Notification trigger config (admin, synced) — defaults mirror getNotifyConfig() on the API.
+  const [notifyTriggersOn, setNotifyTriggersOn] = useState<boolean>(() => getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
+  const [pollMinInput, setPollMinInput] = useState<string>(() => getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
+  const [idleMinInput, setIdleMinInput] = useState<string>(() => getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
+  const [thresholdInput, setThresholdInput] = useState<string>(() => getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
+
+  // Main storage area (app-wide default stock location). Two-stage like Quick Add:
+  // a location, plus a shelf when that location has shelves. Stored as a single id
+  // (the shelf id when a shelf is chosen, else the location id).
+  const [storageLoc, setStorageLoc] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).location);
+  const [storageShelf, setStorageShelf] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).shelf);
+  const allLocations = useMemo(() => getAllLocations(), [refreshKey]);
+  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
+  const locationOptions = useMemo<PickerOption[]>(
+    () => allLocations.map(l => ({ id: l.id, label: l.name, sublabel: l.parent_id ? locationById.get(l.parent_id)?.name : undefined })),
+    [allLocations, locationById],
+  );
+  const storageLocHasShelves = (storageLoc ? locationById.get(storageLoc.id) : undefined)?.has_shelves === 1;
+  const storageShelfOptions = useMemo<PickerOption[]>(
+    () => (storageLocHasShelves && storageLoc) ? getShelvesForParent(storageLoc.id).map(s => ({ id: s.id, label: s.name })) : [],
+    [storageLocHasShelves, storageLoc],
+  );
+
+  // Pick a storage location: toggle off if re-tapped (clears the setting); else set
+  // it and reset the shelf. The location id is stored immediately (shelf optional).
+  function handleStorageLocationSelect(opt: PickerOption) {
+    if (storageLoc?.id === opt.id) {
+      setStorageLoc(null);
+      setStorageShelf(null);
+      try { setMainStorageLocation(null); } catch { /* blocked write — ignore */ }
+      return;
+    }
+    setStorageLoc(opt);
+    setStorageShelf(null);
+    try { setMainStorageLocation(opt.id); } catch { /* blocked write — ignore */ }
+  }
+
+  // Pick/clear a shelf within the storage location → store the shelf id (or fall
+  // back to the location id when the shelf is cleared).
+  function handleStorageShelfSelect(opt: PickerOption) {
+    const next = storageShelf?.id === opt.id ? null : opt;
+    setStorageShelf(next);
+    try { setMainStorageLocation(next ? next.id : (storageLoc?.id ?? null)); } catch { /* blocked write — ignore */ }
+  }
 
   const refreshStatus = useCallback(() => {
     const { lastSync: ls, pending: p } = readSyncStatus();
@@ -92,6 +171,9 @@ export default function SettingsScreen() {
     setFormDefaultState(getFormModeDefault());
     setFormOverrideState(getFormModeOverride());
     setFormResolvedState(getFormMode());
+    const st = resolveLocationShelf(getMainStorageLocationId());
+    setStorageLoc(st.location);
+    setStorageShelf(st.shelf);
   }, []);
 
   // Re-read DB values every time the screen gains focus
@@ -99,6 +181,10 @@ export default function SettingsScreen() {
     useCallback(() => {
       refreshStatus();
       setMaintOn(isMaintenanceActive());
+      setNotifyTriggersOn(getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
+      setPollMinInput(getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
+      setIdleMinInput(getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
+      setThresholdInput(getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
     }, [refreshStatus])
   );
 
@@ -163,6 +249,60 @@ export default function SettingsScreen() {
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to save form mode override:', err);
     }
+  };
+
+  const handleToggleNotifyTriggers = (enabled: boolean) => {
+    try {
+      setAppConfigSynced(NOTIFY_ENABLED_KEY, enabled ? '1' : '0');
+      setNotifyTriggersOn(enabled);
+    } catch (err) {
+      if (__DEV__) console.warn('[Settings] Failed to toggle notify_enabled:', err);
+    }
+  };
+
+  // Commits a numeric app_config field on blur: parses to an integer in
+  // [1, 1440] minutes, reverting the field to its last-known-good value on
+  // invalid input. The upper bound mirrors the server clamp (getNotifyConfig) —
+  // huge values would otherwise overflow the timer's interval or make the
+  // checkout-idle check unsatisfiable.
+  const commitNotifyIntConfig = (
+    key: string,
+    text: string,
+    fallback: string,
+    setInput: (v: string) => void
+  ) => {
+    const n = parseInt(text, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 1440) {
+      setInput(fallback);
+      return;
+    }
+    const value = String(n);
+    try {
+      setAppConfigSynced(key, value);
+    } catch (err) {
+      if (__DEV__) console.warn(`[Settings] Failed to save ${key}:`, err);
+    }
+    setInput(value);
+  };
+
+  // Commits the approval threshold on blur. Blank clears it (auto-flag off);
+  // otherwise it must be a positive integer. Reverts to last-known-good on
+  // invalid non-blank input.
+  const commitApprovalThreshold = () => {
+    const t = thresholdInput.trim();
+    if (t === '') {
+      try { setAppConfigSynced(APPROVAL_THRESHOLD_KEY, ''); } catch (err) { if (__DEV__) console.warn('[Settings] Failed to clear approval threshold:', err); }
+      setThresholdInput('');
+      return;
+    }
+    const n = parseInt(t, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 100000) {
+      setThresholdInput(getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
+      return;
+    }
+    const value = String(n);
+    try { setAppConfigSynced(APPROVAL_THRESHOLD_KEY, value); } catch (err) { if (__DEV__) console.warn('[Settings] Failed to save approval threshold:', err); }
+    setThresholdInput(value);
   };
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
@@ -346,6 +486,29 @@ export default function SettingsScreen() {
                 ))}
               </View>
               <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.base }}>
+                <Text style={s.rowLabel}>Main storage area</Text>
+                <Text style={s.rowSub}>New stock (e.g. Quick Add) defaults to this location. Pick a shelf if the area has them.</Text>
+                <View style={{ marginTop: spacing.sm }}>
+                  <SearchablePicker
+                    placeholder="Search locations…"
+                    options={locationOptions}
+                    value={storageLoc}
+                    onSelect={handleStorageLocationSelect}
+                  />
+                  {storageLocHasShelves && (
+                    <View style={{ marginTop: spacing.sm }}>
+                      <SearchablePicker
+                        placeholder="Pick a shelf (e.g. A1)…"
+                        options={storageShelfOptions}
+                        value={storageShelf}
+                        onSelect={handleStorageShelfSelect}
+                      />
+                    </View>
+                  )}
+                </View>
+              </View>
+              <View style={s.divider} />
               <TouchableOpacity
                 style={s.row}
                 onPress={() => router.push('/(app)/(admin)/manage-types')}
@@ -356,6 +519,121 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
+              <View style={s.divider} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/analytics')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>📊 Analytics</Text>
+                  <Text style={s.rowSub}>Usage insights — top screens, actions, errors & devices (live, admin only).</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
+              <View style={s.divider} />
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/label-templates')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🏷️ Label Designer</Text>
+                  <Text style={s.rowSub}>Design custom label layouts (drag fields on a canvas), synced to all devices.</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
+            </View>
+            <QrSigningSection />
+          </View>
+        )}
+
+        {/* ── Broadcast (send_notifications holders — may not be full admins) ── */}
+        {canBroadcast && (
+          <View style={s.card}>
+            <TouchableOpacity
+              style={s.row}
+              onPress={() => router.push('/(app)/(admin)/broadcast')}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>📣 Send Broadcast</Text>
+                <Text style={s.rowSub}>Compose a notification to roles, teams, or everyone.</Text>
+              </View>
+              <Text style={s.rowSub}>›</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Notification Triggers (admin only — server push config) ──── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Notification Triggers</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>Enable push triggers</Text>
+                  <Text style={s.rowSub}>
+                    Assignment, low-stock, and checkout-idle pushes. Turning this off stops all three server-side.
+                  </Text>
+                </View>
+                <Switch
+                  value={notifyTriggersOn}
+                  onValueChange={handleToggleNotifyTriggers}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Poll interval (minutes)</Text>
+                <Text style={s.rowSub}>How often the server checks for checkout-idle sessions.</Text>
+                <AppInput
+                  value={pollMinInput}
+                  onChangeText={setPollMinInput}
+                  onEndEditing={() => commitNotifyIntConfig(NOTIFY_POLL_MIN_KEY, pollMinInput, getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5', setPollMinInput)}
+                  keyboardType="number-pad"
+                  style={{ width: 100 }}
+                />
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Checkout idle timeout (minutes)</Text>
+                <Text style={s.rowSub}>How long after a user's last checkout before their manager is notified.</Text>
+                <AppInput
+                  value={idleMinInput}
+                  onChangeText={setIdleMinInput}
+                  onEndEditing={() => commitNotifyIntConfig(NOTIFY_IDLE_MIN_KEY, idleMinInput, getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15', setIdleMinInput)}
+                  keyboardType="number-pad"
+                  style={{ width: 100 }}
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Notification Routing (admin only — synced app_config) ────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Notification Routing</Text>
+            <View style={s.card}>
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Who gets notified</Text>
+                <Text style={s.rowSub}>
+                  Add extra roles, teams, or people to each notification channel. These are added on top of each channel's built-in recipients.
+                </Text>
+                <View style={{ marginTop: spacing.sm }}>
+                  <NotificationRoutingEditor onSave={setAppConfigSynced} />
+                </View>
+              </View>
+              <View style={s.divider} />
+              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+                <Text style={s.rowLabel}>Require approval for movements ≥ (blank = off)</Text>
+                <Text style={s.rowSub}>Checkouts or transfers of this quantity or more auto-create an approval request for review.</Text>
+                <AppInput
+                  value={thresholdInput}
+                  onChangeText={setThresholdInput}
+                  onEndEditing={commitApprovalThreshold}
+                  keyboardType="number-pad"
+                  placeholder="Off"
+                  style={{ width: 100 }}
+                />
+              </View>
             </View>
           </View>
         )}

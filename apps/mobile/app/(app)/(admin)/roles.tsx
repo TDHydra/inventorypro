@@ -3,14 +3,17 @@ import { View, Text, ScrollView, TouchableOpacity, Switch, StyleSheet } from 're
 import { Stack } from 'expo-router';
 import {
   ROLE_DISPLAY_NAMES, ROLE_TIER, ROLE_DEFAULTS, PIN_LENGTH_BY_TIER,
-  UserRole, Permission,
+  UserRole, Permission, ROLE_COLOR_PALETTE, resolveRoleColor,
 } from '../../../src/constants/roles';
 import {
   getRoleSettings, setRoleMinPin,
   getRolePermissionOverrides, setRolePermission,
+  getRoleColorMap, setRoleColor,
 } from '../../../src/db/queries/users';
 import { loadRolePermissionCache } from '../../../src/auth/permissions';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { runInTransaction } from '../../../src/db/tx';
+import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
@@ -46,6 +49,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   manage_roles_permissions: 'Manage roles & permissions',
   view_financial_data: 'View financial data',
   system_settings: 'Change system settings',
+  send_notifications: 'Send broadcast notifications',
 };
 
 const PERMISSION_ORDER = Object.keys(PERMISSION_LABELS) as Permission[];
@@ -70,6 +74,7 @@ export default function RolesScreen() {
     () => getRolePermissionOverrides()
   );
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [roleColors, setRoleColors] = useState<Record<string, string>>(() => getRoleColorMap());
 
   // Effective value of a role→permission cell: ROLE_DEFAULTS merged with the
   // role override (when a key exists). `modified` flags an active override.
@@ -101,22 +106,39 @@ export default function RolesScreen() {
     const def = ROLE_DEFAULTS[role][perm];
     const { value: cur } = effectivePerm(role, perm);
     const next = !cur;
-    // Toggling back to the default removes the override key (clean reset).
-    setRolePermission(role, perm, next === def ? null : next);
+    try {
+      // The override write + its activity log land together so a mid-flow failure
+      // can't leave the override saved without a log entry (or vice-versa).
+      runInTransaction(() => {
+        // Toggling back to the default removes the override key (clean reset).
+        // setRolePermission already mirrors the permission_overrides UPDATE to the
+        // sync outbox internally (see queries/users.ts), so the change syncs — we do
+        // NOT append another outbox row here or it would double-sync the same row.
+        setRolePermission(role, perm, next === def ? null : next);
+        appendLog({
+          action: 'role_permission_changed',
+          entity_type: 'role_settings',
+          // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
+          // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
+          // input syntax for type uuid"). Keep entity_id null; carry the role in the
+          // note + metadata. The permission change itself syncs via role_settings UPDATE.
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not update permission',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
+    // Commit succeeded — refresh the permission cache + local override map so the UI
+    // reflects the committed change.
     loadRolePermissionCache();
-    appendLog({
-      action: 'role_permission_changed',
-      entity_type: 'role_settings',
-      // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
-      // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
-      // input syntax for type uuid"). Keep entity_id null; carry the role in the
-      // note + metadata. The permission change itself syncs via role_settings UPDATE.
-      entity_id: null,
-      user_id: sessionUser?.id ?? null,
-      note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
-      team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
-    });
     setOverrides(getRolePermissionOverrides());
   }
 
@@ -124,24 +146,65 @@ export default function RolesScreen() {
     return minPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
   }
 
+  function changeRoleColor(role: UserRole, color: string | null) {
+    if (!canManage) return;
+    if (isWriteBlocked()) return;
+    try {
+      // Write + outbox + log land atomically so we never sync/log a color the DB
+      // didn't actually persist.
+      runInTransaction(() => {
+        const now = setRoleColor(role, color);
+        appendOutbox('UPDATE', 'role_settings', { role, color, updated_at: now });
+        appendLog({
+          action: 'role_color_changed',
+          entity_type: 'role_settings',
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} color → ${color ?? 'default'}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not change role color',
+        e instanceof Error ? e.message : 'The color change was not saved. Please try again.'
+      );
+      return;
+    }
+    setRoleColors(getRoleColorMap()); // refresh local map (after commit) → preview + swatches update
+  }
+
   function changeMinPin(role: UserRole, delta: number) {
     if (!canManage) return;
     if (isWriteBlocked()) return;
     const next = Math.min(MAX_PIN, Math.max(MIN_PIN, effectiveMinPin(role) + delta));
     if (next === effectiveMinPin(role)) return;
-    const now = setRoleMinPin(role, next);
-    appendOutbox('UPDATE', 'role_settings', { role, min_pin_length: next, updated_at: now });
-    appendLog({
-      action: 'role_min_pin_changed',
-      entity_type: 'role_settings',
-      // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
-      entity_id: null,
-      user_id: sessionUser?.id ?? null,
-      note: `${role} → ${next}`,
-      team_id: null, from_location_id: null, to_location_id: null,
-      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
-    });
-    setMinPins(prev => ({ ...prev, [role]: next }));
+    try {
+      // Write + outbox + log land atomically so a partial failure can't sync/log a
+      // PIN length the DB didn't persist.
+      runInTransaction(() => {
+        const now = setRoleMinPin(role, next);
+        appendOutbox('UPDATE', 'role_settings', { role, min_pin_length: next, updated_at: now });
+        appendLog({
+          action: 'role_min_pin_changed',
+          entity_type: 'role_settings',
+          // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} → ${next}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not change minimum PIN length',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
+    setMinPins(prev => ({ ...prev, [role]: next })); // refresh local state after commit
   }
 
   return (
@@ -196,6 +259,38 @@ export default function RolesScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
+
+              {/* Color swatch picker */}
+              {isOpen && (() => {
+                const effective = resolveRoleColor(role, roleColors[role]);
+                return (
+                  <View style={s.colorSection}>
+                    <Text style={s.pinLabel}>Name color</Text>
+                    <Text style={[s.colorPreview, { color: effective }]}>{ROLE_DISPLAY_NAMES[role]}</Text>
+                    <View style={s.colorRow}>
+                      {ROLE_COLOR_PALETTE.map(c => (
+                        <TouchableOpacity
+                          key={c}
+                          style={[s.colorCell, { backgroundColor: c }, effective === c && s.colorCellActive, (!canManage || locked) && s.colorCellDisabled]}
+                          onPress={() => changeRoleColor(role, c)}
+                          disabled={!canManage || locked}
+                        >
+                          {effective === c && <Text style={s.colorCheck}>✓</Text>}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    {!!roleColors[role] && (
+                      <TouchableOpacity
+                        onPress={() => changeRoleColor(role, null)}
+                        disabled={!canManage || locked}
+                        style={(!canManage || locked) && s.colorCellDisabled}
+                      >
+                        <Text style={s.colorReset}>Reset to default</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })()}
 
               {/* Editable permission matrix */}
               {isOpen && (
@@ -275,4 +370,13 @@ const s = StyleSheet.create({
   lockedBadge: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
 
   readOnly: { fontSize: fontSizes.body2, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
+
+  colorSection: { paddingHorizontal: spacing.base, paddingVertical: spacing.sm, gap: spacing.sm },
+  colorPreview: { fontSize: fontSizes.base, fontWeight: '700' },
+  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  colorCell: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  colorCellActive: { borderWidth: 3, borderColor: colors.textPrimary },
+  colorCellDisabled: { opacity: 0.4 },
+  colorCheck: { color: '#fff', fontSize: fontSizes.body, fontWeight: '800' },
+  colorReset: { fontSize: fontSizes.caption, color: colors.primaryText, fontWeight: '600' },
 });

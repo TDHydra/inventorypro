@@ -3,9 +3,10 @@
 # NPM (running separately) terminates TLS and routes your domains to the host
 # ports exposed below. There is NO bundled nginx here — NPM is the edge.
 #
-#   api.plexcontrol.com   ->  http://<unraid-ip>:${API_PORT}      (Fastify API)
-#   s3.plexcontrol.com    ->  http://<unraid-ip>:${MINIO_PORT}    (MinIO S3 — media up/download)
-#   minio.plexcontrol.com ->  http://<unraid-ip>:${MINIO_CONSOLE_PORT}  (MinIO admin UI, optional)
+#   api.invenpro.app      ->  http://<unraid-ip>:${API_PORT}      (Fastify API)
+#   invenpro.app ->  http://<unraid-ip>:${WEB_PORT}      (Expo Web app — static)
+#   s3.invenpro.app       ->  http://<unraid-ip>:${MINIO_PORT}    (MinIO S3 — media up/download)
+#   minio.invenpro.app    ->  http://<unraid-ip>:${MINIO_CONSOLE_PORT}  (MinIO admin UI, optional)
 #
 # Postgres is intentionally NOT exposed to the host — it stays on the internal
 # Docker network only.
@@ -89,10 +90,28 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-inventorypro-media}
       PUBLIC_MEDIA_URL: ${PUBLIC_MEDIA_URL}
+      # Browser CORS allowlist (comma-separated) — the web origin(s). Without this
+      # the API falls back to its built-in default and blocks the real web origin.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Trusted proxy subnet (NPM/Docker bridge) for correct request.ip behind the proxy.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       PORT: "3000"
       HOST: "0.0.0.0"
     ports:
       - "${API_PORT:-3000}:3000"             # NPM -> api.<domain>
+
+  web:
+    # Expo Web static build served by nginx. The API URL is baked at build time,
+    # so rebuild (--build) whenever it changes.
+    image: ${WEB_IMAGE:-inventorypro-web:latest}
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      args:
+        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-https://api.invenpro.app}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8088}:80"               # NPM -> invenpro.app
 
 volumes:
   pgdata:

@@ -19,15 +19,19 @@ interface Props {
   entityType: string;
   entityId: string;
   canUpload?: boolean;
+  // 'grid' (default) = full multi-photo grid; 'thumb' = a single compact 64×64
+  // thumbnail (used by Quick Add to stay small) that reuses the same upload flow.
+  variant?: 'grid' | 'thumb';
 }
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const { width } = Dimensions.get('window');
 const THUMB = (width - 48) / 3;
 
-export function MediaGallery({ entityType, entityId, canUpload = true }: Props) {
+export function MediaGallery({ entityType, entityId, canUpload = true, variant = 'grid' }: Props) {
   const { user } = useSession();
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
+  const primary = media.find(m => m.is_primary === 1) ?? media[0] ?? null;
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -144,6 +148,69 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
     setTimeout(fn, 250);
   }
 
+  if (variant === 'thumb') {
+    return (
+      <View>
+        <TouchableOpacity
+          style={styles.thumbBox}
+          activeOpacity={0.8}
+          disabled={uploading}
+          onPress={() => {
+            if (canUpload) setPickerOpen(true);
+            else if (primary) setLightbox(primary.url);
+          }}
+        >
+          {uploading ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : primary ? (
+            <Image source={{ uri: primary.thumbnail_url ?? primary.url }} style={styles.thumbBoxImg} />
+          ) : (
+            <>
+              <Text style={styles.thumbBoxIcon}>＋</Text>
+              <Text style={styles.thumbBoxText}>Photo</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        {/* Source picker — shared with the grid variant */}
+        <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
+          <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>Add photo or video</Text>
+              <View style={styles.sourceRow}>
+                <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handleCamera)} activeOpacity={0.85}>
+                  <View style={[styles.sourceIconWrap, { backgroundColor: colors.primaryBg }]}>
+                    <Text style={styles.sourceIcon}>📷</Text>
+                  </View>
+                  <Text style={styles.sourceLabel}>Take photo</Text>
+                  <Text style={styles.sourceSub}>Use the camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handlePickMedia)} activeOpacity={0.85}>
+                  <View style={[styles.sourceIconWrap, { backgroundColor: colors.accentBg }]}>
+                    <Text style={styles.sourceIcon}>🖼️</Text>
+                  </View>
+                  <Text style={styles.sourceLabel}>Choose</Text>
+                  <Text style={styles.sourceSub}>Photo or video</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.sheetCancel} onPress={() => setPickerOpen(false)}>
+                <Text style={styles.sheetCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal visible={!!lightbox} transparent animationType="fade">
+          <TouchableOpacity style={styles.lightbox} onPress={() => setLightbox(null)}>
+            {lightbox && <Image source={{ uri: lightbox }} style={styles.lightboxImg} resizeMode="contain" />}
+            <Text style={styles.lightboxClose}>✕ Tap to close</Text>
+          </TouchableOpacity>
+        </Modal>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.grid}>
@@ -223,6 +290,16 @@ export function MediaGallery({ entityType, entityId, canUpload = true }: Props) 
 
 const styles = StyleSheet.create({
   container: { marginVertical: 8 },
+  // Compact 64×64 thumbnail variant (Quick Add).
+  thumbBox: {
+    width: 64, height: 64, borderRadius: 10,
+    borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+    backgroundColor: colors.background,
+  },
+  thumbBoxImg: { width: '100%', height: '100%', borderRadius: 8 },
+  thumbBoxIcon: { fontSize: 22, color: colors.primary, fontWeight: '300', lineHeight: 24 },
+  thumbBoxText: { fontSize: 10, color: colors.textSecondary, fontWeight: '600' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: colors.border },
   thumbPrimary: { borderWidth: 2, borderColor: colors.primary },

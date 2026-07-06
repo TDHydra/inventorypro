@@ -15,7 +15,10 @@ interface Props {
 // key / billing). ONLINE-ONLY — tiles + Leaflet load from CDN. Drops a marker at
 // [lat,lng] and fits the view to a radiusMiles extent (optionally drawing the
 // circle). No tap handler, no postMessage.
-function buildHtml(lat: number, lng: number, radiusMeters: number, showRadius: boolean): string {
+function buildHtml(latitude: number, longitude: number, radiusMeters: number, showRadius: boolean): string {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '<html></html>';
   return `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -48,9 +51,10 @@ export function MapDisplay({ latitude, longitude, radiusMiles = 35, showRadius =
   return (
     <View style={[s.wrap, { height }]}>
       <WebView
-        originWhitelist={['*']}
+        originWhitelist={['https://*.openstreetmap.org', 'https://unpkg.com', 'about:blank']}
         javaScriptEnabled
         scrollEnabled={false}
+        setSupportMultipleWindows={false}
         source={{ html }}
         style={{ flex: 1 }}
       />

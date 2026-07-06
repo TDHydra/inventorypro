@@ -11,7 +11,7 @@ iOS builds require **EAS cloud build** (you have no Mac locally). EAS project: `
 - An **Apple Developer Program** membership ($99/yr) → an App Store Connect app record (bundle id e.g. `com.inventorypro.app`).
 - EAS handles signing: `eas credentials` (or it prompts on first build) provisions the distribution cert + provisioning profile from the Apple account.
 - Set the iOS bundle identifier in `app.json` (`expo.ios.bundleIdentifier`) — add it if absent.
-- Confirm `eas.json` has a `preview` (internal/ad-hoc) and `production` (App Store) profile; both should set `EXPO_PUBLIC_API_URL=https://api.plexcontrol.com` (mirror the Android profiles).
+- Confirm `eas.json` has a `preview` (internal/ad-hoc) and `production` (App Store) profile; both should set `EXPO_PUBLIC_API_URL=https://api.invenpro.app` (mirror the Android profiles).
 
 ## Native-module check
 The app uses expo-camera, expo-notifications (needs an APNs key in App Store Connect for push — local notifications work without it), expo-local-authentication (Face ID — ensure `NSFaceIDUsageDescription` is set; the expo-local-authentication plugin in app.json already adds it), expo-print, react-native-webview, expo-file-system. All have iOS support — no code changes needed, but the **APNs key** must be uploaded to EAS for push.

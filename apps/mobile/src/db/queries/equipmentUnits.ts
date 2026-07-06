@@ -11,6 +11,16 @@ export interface EquipmentUnit {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  // Lifecycle / depreciation (migration 027). purchase_price & salvage_value are
+  // financial — server only pulls them down for view_financial_data holders, so
+  // they arrive null on non-financial devices.
+  purchase_price: number | null;
+  acquired_at: string | null;
+  useful_life_months: number | null;
+  salvage_value: number | null;
+  depreciation_method: string | null;
+  next_service_at: string | null;
+  service_interval_months: number | null;
   synced_at: string | null;
 }
 
@@ -27,9 +37,36 @@ export function getAvailableUnitsAtLocation(itemId: string, locationId: string):
     [itemId, locationId]).rows);
 }
 
+// Point lookup by id — used by the Quick Add "edit just-added unit" sheet to seed
+// its form fields (getUnitByTag above is for tag-based dup/lookup checks).
+export function getUnitById(id: string): EquipmentUnit | null {
+  const db = getDb();
+  return (db.executeSync(`SELECT * FROM equipment_units WHERE id = ?`, [id]).rows[0] as unknown as EquipmentUnit) ?? null;
+}
+
 export function getUnitByTag(tag: string): EquipmentUnit | null {
   const db = getDb();
-  return (db.executeSync(`SELECT * FROM equipment_units WHERE asset_tag = ?`, [tag]).rows[0] as unknown as EquipmentUnit) ?? null;
+  // Case-insensitive: a tag differing only in case is the same physical asset,
+  // and dup-checks/scan lookups must not let "am-0007" slip past "AM-0007".
+  return (db.executeSync(`SELECT * FROM equipment_units WHERE LOWER(asset_tag) = LOWER(?)`, [tag]).rows[0] as unknown as EquipmentUnit) ?? null;
+}
+
+// Typeahead over asset tags (and serial numbers) for pickers. Ranks prefix matches
+// first, then shorter tags, then alphabetically — so the closest existing units
+// surface as you type. Empty query → no results.
+export function searchUnitsByTag(q: string, limit = 12): EquipmentUnit[] {
+  const trimmed = q.trim();
+  if (!trimmed) return [];
+  const db = getDb();
+  const like = `%${trimmed}%`;
+  const prefix = `${trimmed}%`;
+  return rowsAs<EquipmentUnit>(db.executeSync(
+    `SELECT * FROM equipment_units
+       WHERE asset_tag LIKE ? OR serial_number LIKE ?
+       ORDER BY (CASE WHEN asset_tag LIKE ? THEN 0 ELSE 1 END), LENGTH(asset_tag), asset_tag
+       LIMIT ?`,
+    [like, like, prefix, limit],
+  ).rows);
 }
 
 export function countUnitsByStatus(itemId: string): { available: number; deployed: number; in_repair: number; retired: number } {
@@ -67,9 +104,11 @@ export function upsertUnit(u: EquipmentUnit): void {
   const db = getDb();
   db.executeSync(
     `INSERT OR REPLACE INTO equipment_units
-       (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    bindParams([u.id, u.item_id, u.asset_tag, u.serial_number, u.status, u.current_location_id, u.current_job_id, u.notes, u.created_at, u.updated_at, u.synced_at]));
+       (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([u.id, u.item_id, u.asset_tag, u.serial_number, u.status, u.current_location_id, u.current_job_id, u.notes, u.created_at, u.updated_at,
+      u.purchase_price ?? null, u.acquired_at ?? null, u.useful_life_months ?? null, u.salvage_value ?? null, u.depreciation_method ?? null, u.next_service_at ?? null, u.service_interval_months ?? null,
+      u.synced_at]));
 }
 
 export function setUnitStatus(

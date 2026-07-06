@@ -5,7 +5,7 @@
 
 ## State of the world
 - **All six roadmap programs P1–P6 are done, merged to `main`, and deployed.**
-- **Prod** (`api.plexcontrol.com`, Unraid `192.168.1.239`, `inventorypro-postgres-1`): **API migrations 001–019 applied**, health = ok.
+- **Prod** (`api.invenpro.app`, Unraid `192.168.1.239`, `inventorypro-postgres-1`): **API migrations 001–019 applied**, health = ok.
 - **Mobile** SQLite migrations 001–017 (api is ahead because 017/018 were data-only seeds).
 - Latest **APK** = `~/inventorypro/inventorypro-preview.apk`, installed on the Pixel (`58060DLCQ001ZR`), points at prod.
 - `main` HEAD around `aa9b174` (locations UI + item# search). tsc clean (mobile + api) throughout.
@@ -38,7 +38,7 @@
   street-address field + a map pin on a ~35-mile-radius map (reuse P4a lat/lng + react-native-maps).
 
 ## How to resume / ship (reference)
-- **Mobile build**: `cd apps/mobile/android && EXPO_PUBLIC_API_URL=https://api.plexcontrol.com ./gradlew assembleRelease`
+- **Mobile build**: `cd apps/mobile/android && EXPO_PUBLIC_API_URL=https://api.invenpro.app ./gradlew assembleRelease`
   → `cp` to `inventorypro-preview.apk` → `adb install -r`. (Gradle pinned 8.13; re-pin after any `expo prebuild --clean`.)
 - **API deploy**: `cd infra && docker compose build api` → `docker tag infra-api:latest inventorypro-api:latest` →
   `docker save … | gzip > inventorypro-api.tar.gz` → `scp` to Unraid → `docker load` + `docker compose -f

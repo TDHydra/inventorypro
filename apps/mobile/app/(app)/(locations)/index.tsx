@@ -1,11 +1,11 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
-  getLocationTree, upsertLocation, getLocationById, getAllLocations, getLocationPath,
+  getLocationTree, upsertLocation, getLocationById, getBrowsableLocations, getLocationPath,
   LocationWithChildren,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -16,10 +16,11 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -31,6 +32,7 @@ import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner'
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { syncNow } from '../../../src/sync/engine';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 export default function LocationsScreen() {
   const canManage = usePermission('manage_locations');
@@ -41,15 +43,30 @@ export default function LocationsScreen() {
   const [tree, setTree] = useState<LocationWithChildren[]>(() => getLocationTree());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showCreate, setShowCreate] = useState(false);
+  const dataVersion = useDataVersion();
+
+  // Re-read the location tree whenever a background sync pull applies changes,
+  // so an already-open list refreshes without a manual pull-to-refresh.
+  useEffect(() => {
+    setTree(getLocationTree());
+  }, [dataVersion]);
 
   // Location-type taxonomy (Shop, Vehicle, Locker, …) for the create-form picker,
-  // the list section filter, and per-row type badges. Active types only.
-  const locationTypes = useMemo(() => getLocationTypes(), []);
+  // the list section filter, and per-row type badges. Active types only. 'Shelf'
+  // is filtered out defensively — it's a hardcoded sub-level type (see
+  // findOrCreateShelf), not a real admin-managed location type, so it must never
+  // appear as a browsable section or a choosable create-form type even if an
+  // admin manually adds a "Shelf" label under Manage Types.
+  const locationTypes = useMemo(() => getLocationTypes().filter(t => t.label !== 'Shelf'), []);
   // label → icon, used to render a row's type badge from its stored `type` label.
   const typeIconByLabel = useMemo(
     () => new Map(locationTypes.map(t => [t.label, t.icon])),
     [locationTypes],
   );
+  // Create-form Type picker options: never empty when rows exist (falls back to
+  // inactive types) so deactivating every type doesn't dead-end the picker. The
+  // active-only `locationTypes` still backs the section filter chips + icon badges.
+  const locationTypeOptions = useMemo(() => getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'), []);
   // Section filter: null = All (show full tree); a label = flat list of that type.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
@@ -74,11 +91,13 @@ export default function LocationsScreen() {
     setRefreshing(false);
   }, [refreshing]);
 
-  // All active locations as parent options, labelled by full path (e.g.
-  // "Site A › Floor 2"). Locations are a bounded set, so client-side filtering in
-  // the picker is fine (unlike the 1000+ item catalog).
+  // Browsable (non-shelf) locations as parent options, labelled by full path
+  // (e.g. "Site A › Floor 2"). Shelves are excluded — they're a sub-level, not a
+  // container, so a location/sub-area can never be nested "inside" a shelf.
+  // Locations are a bounded set, so client-side filtering in the picker is fine
+  // (unlike the 1000+ item catalog).
   const parentOptions = useMemo<PickerOption[]>(
-    () => getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
+    () => getBrowsableLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) })),
     [tree],
   );
 
@@ -98,7 +117,9 @@ export default function LocationsScreen() {
     const n = name.trim().toLowerCase();
     if (!n) return null;
     // Siblings = locations sharing the chosen parent (works at any depth).
-    const siblings = getAllLocations().filter(l => (l.parent_id ?? null) === parentId);
+    // Browsable-only so a same-named shelf under this parent doesn't false-flag
+    // a real sub-area as a duplicate.
+    const siblings = getBrowsableLocations().filter(l => (l.parent_id ?? null) === parentId);
     return siblings.find(l => l.name.trim().toLowerCase() === n) ?? null;
   }, [name, parentId, tree]);
 
@@ -149,23 +170,33 @@ export default function LocationsScreen() {
       longitude: longitude ?? null,
       has_shelves: hasShelves,
     };
-    upsertLocation({ ...payload, active: 1, has_shelves: hasShelves ? 1 : 0, synced_at: null });
-    appendOutbox('INSERT', 'locations', payload);
-    appendLog({
-      action: 'location_created',
-      entity_type: 'location',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: trimmed,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: null,
-      device_id: null,
-    });
+    // Atomic: local row insert + outbox + log either all land or none do.
+    try {
+      runInTransaction(() => {
+        upsertLocation({ ...payload, active: 1, has_shelves: hasShelves ? 1 : 0, synced_at: null });
+        appendOutbox('INSERT', 'locations', payload);
+        appendLog({
+          action: 'location_created',
+          entity_type: 'location',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          job_id: null,
+          note: trimmed,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Create failed', `Couldn't create this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    // Only refresh the tree, expand the parent, close the modal, and reset the
+    // form after the writes committed.
     setTree(getLocationTree());
     if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     setShowCreate(false);
@@ -206,7 +237,7 @@ export default function LocationsScreen() {
   // matching locations instead of the nested tree, giving Vehicles/Lockers/etc.
   // "sections".
   const filteredLocations = useMemo(
-    () => (typeFilter ? getAllLocations().filter(l => l.type === typeFilter) : []),
+    () => (typeFilter ? getBrowsableLocations().filter(l => l.type === typeFilter) : []),
     [typeFilter, tree],
   );
 
@@ -378,11 +409,11 @@ export default function LocationsScreen() {
                 <Text style={s.dupWarn}>⚠ "{dup.name}" already exists here</Text>
               )}
 
-              {locationTypes.length > 0 && (
+              {locationTypeOptions.length > 0 && (
                 <>
                   <FieldLabel>Type</FieldLabel>
                   <View style={s.chipRow}>
-                    {locationTypes.map(t => (
+                    {locationTypeOptions.map(t => (
                       <FilterChip
                         key={t.id}
                         label={t.icon ? `${t.icon} ${t.label}` : t.label}

@@ -1,8 +1,8 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 export const migration = {
   version: 4,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     // Distinguish durable equipment from consumable products. Existing rows are
     // consumables → 'product' is the correct default.
     db.executeSync(`ALTER TABLE inventory_items ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'`);

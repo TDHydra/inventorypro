@@ -1,4 +1,5 @@
-import { open, DB } from '@op-engineering/op-sqlite';
+import { open } from '@op-engineering/op-sqlite';
+import type { DB } from '@op-engineering/op-sqlite';
 
 let db: DB | null = null;
 
@@ -104,7 +105,14 @@ async function loadMigrations(): Promise<Migration[]> {
   const { migration: m019 } = await import('./migrations/019_repairs');
   const { migration: m020 } = await import('./migrations/020_location_has_shelves');
   const { migration: m021 } = await import('./migrations/021_taxonomy_dedup');
-  return [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021].sort((a, b) => a.version - b.version);
+  const { migration: m022 } = await import('./migrations/022_role_color');
+  const { migration: m023 } = await import('./migrations/023_repair_fields_parts');
+  const { migration: m024 } = await import('./migrations/024_telemetry_buffer');
+  const { migration: m025 } = await import('./migrations/025_notifications_and_approvals');
+  const { migration: m026 } = await import('./migrations/026_drop_teams_manager_id');
+  const { migration: m027 } = await import('./migrations/027_equipment_lifecycle');
+  const { migration: m028 } = await import('./migrations/028_label_templates');
+  return [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028].sort((a, b) => a.version - b.version);
 }
 
 // Type-safe cast helper — accepts any array (raw op-sqlite rows or pre-typed query results)

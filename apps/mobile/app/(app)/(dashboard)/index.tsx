@@ -3,10 +3,13 @@ import { useRouter, Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
+import { DashboardSearch } from '../../../src/components/DashboardSearch';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
+import { roleColor } from '../../../src/db/queries/users';
 import { useMemo, useState } from 'react';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { track } from '../../../src/telemetry';
 import { colors } from '../../../src/theme';
 
 export default function DashboardScreen() {
@@ -21,11 +24,14 @@ export default function DashboardScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'InventoryPro', headerShown: true }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {/* Pinned search at the very top: tap to expand, type inline, 📷 opens the scanner. */}
+        <DashboardSearch />
+
         {/* Greeting */}
         <View style={styles.greeting}>
           <View style={styles.greetingText}>
-            <Text style={styles.hi}>Hi, {user.name.split(' ')[0]}</Text>
+            <Text style={[styles.hi, { color: roleColor(user.role) }]}>Hi, {user.name.split(' ')[0]}</Text>
             <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
           </View>
           <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>
@@ -43,7 +49,7 @@ export default function DashboardScreen() {
         <PermissionGate permission="checkout_inventory">
           <TouchableOpacity
             style={[styles.tile, styles.tilePrimary]}
-            onPress={() => router.push('/(app)/(checkout)')}
+            onPress={() => { track('action', 'hub_checkout', { screen: 'hub' }); router.push('/(app)/(checkout)'); }}
           >
             <Text style={styles.tileIcon}>📦</Text>
             <Text style={styles.tileLabelPrimary}>Check Out Item</Text>
@@ -52,14 +58,14 @@ export default function DashboardScreen() {
         </PermissionGate>
 
         <PermissionGate permission="checkin_inventory">
-          <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(checkin)')}>
+          <TouchableOpacity style={styles.tile} onPress={() => { track('action', 'hub_checkin', { screen: 'hub' }); router.push('/(app)/(checkin)'); }}>
             <Text style={styles.tileIcon}>↩</Text>
             <Text style={styles.tileLabel}>Check In</Text>
           </TouchableOpacity>
         </PermissionGate>
 
         <PermissionGate permission="checkout_inventory">
-          <TouchableOpacity style={styles.tile} onPress={() => router.push('/(app)/(jobs)')}>
+          <TouchableOpacity style={styles.tile} onPress={() => { track('action', 'hub_active_checkouts', { screen: 'hub' }); router.push('/(app)/(jobs)'); }}>
             <Text style={styles.tileIcon}>📋</Text>
             <Text style={styles.tileLabel}>My Active Checkouts</Text>
           </TouchableOpacity>

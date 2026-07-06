@@ -1,26 +1,30 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getLocationById, getStockAtLocation, upsertLocation,
-  getAllLocations, getLocationPath, getDescendantIds,
+  getBrowsableLocations, getLocationPath, getDescendantIds,
+  getShelvesForParent, setShelfColor,
   StockAtLocation, Location,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { MediaGallery } from '../../../src/components/MediaGallery';
+import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { getDb } from '../../../src/db/schema';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -40,6 +44,8 @@ export default function LocationDetailScreen() {
   const canAddStock = usePermission('edit_inventory');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const refreshKey = useFocusRefresh();
+  const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));
   const [stock, setStock] = useState<StockAtLocation[]>(() => getStockAtLocation(id));
@@ -60,15 +66,20 @@ export default function LocationDetailScreen() {
   // ── Move stock modal state ──────────────────────────────────────────────────
   const [showMoveStock, setShowMoveStock] = useState(false);
 
+  // ── Print-QR sheet state ─────────────────────────────────────────────────────
+  const [showPrintLabel, setShowPrintLabel] = useState(false);
+
   // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
   // and a label→icon map (incl. archived) for rendering the header badge.
-  const locationTypes = useMemo(() => getLocationTypes(), []);
+  // 'Shelf' is filtered out defensively — it's a hardcoded sub-level type (see
+  // findOrCreateShelf), never a real admin-managed location type to re-assign to.
+  const locationTypes = useMemo(() => getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'), [refreshKey]);
   const typeIconByLabel = useMemo(
     () => new Map(getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon])),
-    [],
+    [refreshKey],
   );
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  const allUsers = useMemo(() => getAllActiveUsers(), [refreshKey]);
   const userMap = useMemo<Map<string, string>>(
     () => new Map(allUsers.map(u => [u.id, u.name])),
     [allUsers],
@@ -77,15 +88,36 @@ export default function LocationDetailScreen() {
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
   );
-  // Valid parent choices = all active locations EXCEPT this one and its
-  // descendants (re-parenting under a descendant would create a cycle), labelled
-  // by full path. Locations are bounded → client-side filtering is fine.
+  // Valid parent choices = all active, non-shelf locations EXCEPT this one and
+  // its descendants (re-parenting under a descendant would create a cycle),
+  // labelled by full path. Shelves are excluded — they're a sub-level, not a
+  // container, so nothing can be nested "inside" one. Locations are bounded →
+  // client-side filtering is fine.
   const parentOptions = useMemo<PickerOption[]>(() => {
     const blocked = getDescendantIds(id);
-    return getAllLocations()
+    return getBrowsableLocations()
       .filter(l => !blocked.has(l.id))
       .map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, [id]);
+  }, [id, refreshKey]);
+
+  // This location's shelves (only relevant when has_shelves is/was on). Reloaded
+  // after any color change or focus refresh.
+  const [shelves, setShelves] = useState<Location[]>(() => getShelvesForParent(id));
+  useEffect(() => { setShelves(getShelvesForParent(id)); }, [id, refreshKey]);
+  // Which shelf's color-picker row is expanded, if any.
+  const [coloringShelfId, setColoringShelfId] = useState<string | null>(null);
+
+  function handleSetShelfColor(shelfId: string, color: string | null) {
+    if (isWriteBlocked()) return;
+    try {
+      setShelfColor(shelfId, color, user?.id ?? null);
+    } catch (e) {
+      Alert.alert('Save failed', `Couldn't update the shelf color. Please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    setShelves(getShelvesForParent(id));
+    setColoringShelfId(null);
+  }
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
   // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false.
@@ -169,33 +201,42 @@ export default function LocationDetailScreen() {
       longitude: rules.gps ? (editLongitude ?? null) : null,
     };
     // subareas_require_owner: real boolean in the outbox, INTEGER locally (mirrors `active`).
-    upsertLocation({
-      ...location, ...changes,
-      subareas_require_owner: editRequireOwner ? 1 : 0,
-      has_shelves: editHasShelves ? 1 : 0,
-      active: 1, updated_at: now, synced_at: null,
-    });
-    appendOutbox('UPDATE', 'locations', {
-      id, ...changes,
-      subareas_require_owner: editRequireOwner,
-      has_shelves: editHasShelves,
-      active: true, updated_at: now,
-    });
-    appendLog({
-      action: 'location_updated',
-      entity_type: 'location',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: changes.name,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: null,
-      device_id: null,
-    });
+    // Atomic: local row upsert + outbox + log either all land or none do.
+    try {
+      runInTransaction(() => {
+        upsertLocation({
+          ...location, ...changes,
+          subareas_require_owner: editRequireOwner ? 1 : 0,
+          has_shelves: editHasShelves ? 1 : 0,
+          active: 1, updated_at: now, synced_at: null,
+        });
+        appendOutbox('UPDATE', 'locations', {
+          id, ...changes,
+          subareas_require_owner: editRequireOwner,
+          has_shelves: editHasShelves,
+          active: true, updated_at: now,
+        });
+        appendLog({
+          action: 'location_updated',
+          entity_type: 'location',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          job_id: null,
+          note: changes.name,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Save failed', `Couldn't save changes to this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    // Only reflect success in the UI after the writes committed.
     setLocation(getLocationById(id));
     setShowEdit(false);
   }
@@ -213,26 +254,33 @@ export default function LocationDetailScreen() {
           text: 'Restore',
           onPress: () => {
             const now = new Date().toISOString();
-            getDb().executeSync(
-              `UPDATE locations SET active=1, updated_at=? WHERE id=?`,
-              [now, id]
-            );
-            appendOutbox('UPDATE', 'locations', { id, active: true, updated_at: now });
-            appendLog({
-              action: 'location_restored',
-              entity_type: 'location',
-              entity_id: id,
-              user_id: user?.id ?? null,
-              team_id: null,
-              job_id: null,
-              note: location.name,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              metadata: null,
-              device_id: null,
-            });
+            try {
+              runInTransaction(() => {
+                getDb().executeSync(
+                  `UPDATE locations SET active=1, updated_at=? WHERE id=?`,
+                  [now, id]
+                );
+                appendOutbox('UPDATE', 'locations', { id, active: true, updated_at: now });
+                appendLog({
+                  action: 'location_restored',
+                  entity_type: 'location',
+                  entity_id: id,
+                  user_id: user?.id ?? null,
+                  team_id: null,
+                  job_id: null,
+                  note: location.name,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  metadata: null,
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Restore failed', `Couldn't restore this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+              return;
+            }
             setLocation(getLocationById(id));
           },
         },
@@ -254,26 +302,34 @@ export default function LocationDetailScreen() {
           style: 'destructive',
           onPress: () => {
             const now = new Date().toISOString();
-            getDb().executeSync(
-              `UPDATE locations SET active=0, updated_at=? WHERE id=?`,
-              [now, id]
-            );
-            appendOutbox('UPDATE', 'locations', { id, active: false, updated_at: now });
-            appendLog({
-              action: 'location_archived',
-              entity_type: 'location',
-              entity_id: id,
-              user_id: user?.id ?? null,
-              team_id: null,
-              job_id: null,
-              note: location.name,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              metadata: null,
-              device_id: null,
-            });
+            try {
+              runInTransaction(() => {
+                getDb().executeSync(
+                  `UPDATE locations SET active=0, updated_at=? WHERE id=?`,
+                  [now, id]
+                );
+                appendOutbox('UPDATE', 'locations', { id, active: false, updated_at: now });
+                appendLog({
+                  action: 'location_archived',
+                  entity_type: 'location',
+                  entity_id: id,
+                  user_id: user?.id ?? null,
+                  team_id: null,
+                  job_id: null,
+                  note: location.name,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  metadata: null,
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Archive failed', `Couldn't archive this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+              return;
+            }
+            // Navigate away only after the archive actually committed.
             router.back();
           },
         },
@@ -357,6 +413,65 @@ export default function LocationDetailScreen() {
           )}
         </View>
 
+        {/* ── Shelves ──────────────────────────────────────────────────────── */}
+        {/* Shelves are a sub-level of this location, not first-class locations, so
+            they're hidden from the Locations browser — this is their home screen.
+            Shown whenever the flag is on OR shelves already exist (e.g. the flag
+            was turned off after shelves were created). */}
+        {(location.has_shelves === 1 || shelves.length > 0) && (
+          <>
+            <Text style={s.sectionLabel}>Shelves</Text>
+            <View style={s.card}>
+              {shelves.length === 0 ? (
+                <Text style={s.muted}>
+                  No shelves yet. Typing a new shelf name while adding stock here creates one.
+                </Text>
+              ) : (
+                shelves.map((shelf, i) => (
+                  <View key={shelf.id}>
+                    <View style={[s.shelfRow, i < shelves.length - 1 && coloringShelfId !== shelf.id && s.divider]}>
+                      <View style={s.shelfRowMain}>
+                        <View style={[s.shelfColorDot, { backgroundColor: shelf.color ?? colors.border }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.shelfName}>{shelf.name}</Text>
+                          <Text style={s.shelfParent}>{location.name}</Text>
+                        </View>
+                      </View>
+                      {canManage && (
+                        <TouchableOpacity
+                          onPress={() => setColoringShelfId(prev => (prev === shelf.id ? null : shelf.id))}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={s.shelfColorBtn}>Color</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {coloringShelfId === shelf.id && (
+                      <View style={[s.colorRow, i < shelves.length - 1 && s.divider, { paddingBottom: 10 }]}>
+                        <TouchableOpacity
+                          style={[s.colorCell, s.colorCellNone, shelf.color === null && s.colorCellActive]}
+                          onPress={() => handleSetShelfColor(shelf.id, null)}
+                        >
+                          <Text style={s.colorCellNoneText}>✕</Text>
+                        </TouchableOpacity>
+                        {COLOR_OPTIONS.map(c => (
+                          <TouchableOpacity
+                            key={c}
+                            style={[s.colorCell, { backgroundColor: c }, shelf.color === c && s.colorCellActive]}
+                            onPress={() => handleSetShelfColor(shelf.id, c)}
+                          >
+                            {shelf.color === c && <Text style={s.colorCheck}>✓</Text>}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
+
         {/* ── Report repair (vehicles only) ───────────────────────────────── */}
         {canAddStock && location.type === 'Vehicle' && location.active === 1 && (
           <TouchableOpacity
@@ -370,6 +485,12 @@ export default function LocationDetailScreen() {
             <Text style={s.attrVal}>›</Text>
           </TouchableOpacity>
         )}
+
+        {/* ── Print QR label ──────────────────────────────────────────────── */}
+        <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setShowPrintLabel(true)}>
+          <Text style={s.attrKey}>🏷 Print QR Label</Text>
+          <Text style={s.attrVal}>›</Text>
+        </TouchableOpacity>
 
         {/* ── Photos ──────────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Photos</Text>
@@ -524,6 +645,15 @@ export default function LocationDetailScreen() {
           </ScrollView>
       </ModalSheet>
 
+      {/* ── Print QR Label (location) ────────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={showPrintLabel}
+        onClose={() => setShowPrintLabel(false)}
+        title={location.name}
+        code={`INV:location:${id}`}
+        qrUrl={`${API}/labels/location/${id}/qr.png`}
+      />
+
       {/* ── Move Stock Modal ─────────────────────────────────────────────────── */}
       <MoveStockModal
         visible={showMoveStock}
@@ -612,6 +742,19 @@ const s = StyleSheet.create({
   colorCell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
   colorCellActive: { borderColor: colors.textPrimary },
   colorCheck: { color: '#fff', fontWeight: '800', fontSize: fontSizes.base },
+  colorCellNone: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  colorCellNoneText: { color: colors.textMuted, fontWeight: '800', fontSize: fontSizes.body },
+
+  // ── Shelves section ────────────────────────────────────────────────────────
+  shelfRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, gap: spacing.sm,
+  },
+  shelfRowMain: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  shelfColorDot: { width: 14, height: 14, borderRadius: 7 },
+  shelfName: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
+  shelfParent: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 1 },
+  shelfColorBtn: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body2 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: spacing.sm },
   linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },

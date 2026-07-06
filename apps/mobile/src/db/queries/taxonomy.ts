@@ -30,18 +30,19 @@ export const ITEM_CATEGORY = 'item_category';
 
 // item_category.meta shape (migration 018): the type's curated units + the
 // product_class it maps to (stored as the item's unit_category for formatting).
-export type ItemTypeMeta = { units: string[]; classId: string | null };
+export type ItemTypeMeta = { units: string[]; classId: string | null; color: string | null };
 
 export function parseItemTypeMeta(meta: string | null | undefined): ItemTypeMeta {
-  if (!meta) return { units: [], classId: null };
+  if (!meta) return { units: [], classId: null, color: null };
   try {
-    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown };
+    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown; color?: unknown };
     return {
       units: Array.isArray(p.units) ? p.units.filter((u): u is string => typeof u === 'string') : [],
       classId: typeof p.classId === 'string' ? p.classId : null,
+      color: typeof p.color === 'string' ? p.color : null,
     };
   } catch {
-    return { units: [], classId: null };
+    return { units: [], classId: null, color: null };
   }
 }
 
@@ -258,6 +259,42 @@ export function setTaxonomyClassId(id: string, classId: string): void {
   });
 }
 
+// Admin override: pin an Item Type's color. Stored in meta.color (no schema
+// change; the existing upserts already round-trip meta). Pass null to clear back
+// to the auto color.
+export function setTaxonomyColor(id: string, color: string | null): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  if (color) meta.color = color; else delete meta.color;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  db.executeSync(
+    `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([existing.id, existing.category, existing.label, existing.icon, existing.sort_order, existing.active, updated_at, metaStr]),
+  );
+  appendOutbox('INSERT', 'taxonomy_types', {
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
+// Label → admin-override color for active Item Types (only those with one set).
+// Callers merge this with the auto color via resolveTypeColor().
+export function getItemTypeColorMap(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const t of getItemTypes()) {
+    const c = parseItemTypeMeta(t.meta).color;
+    if (c) map[t.label] = c;
+  }
+  return map;
+}
+
 export function getTaxonomyTypes(
   category: string,
   opts?: { includeInactive?: boolean },
@@ -275,6 +312,26 @@ export function getTaxonomyTypes(
   // duplicate-key warnings and double entries in every dropdown sourced from here.
   const seen = new Set<string>();
   return rows.filter(t => (seen.has(t.label) ? false : (seen.add(t.label), true)));
+}
+
+// Like getTaxonomyTypes but never returns an empty list when rows exist: if every
+// type in a category has been deactivated, fall back to showing the inactive ones
+// so pickers (team/job/location/repair-status) don't become silent dead-ends.
+export function getTaxonomyTypesWithFallback(
+  category: string,
+  opts?: { includeInactive?: boolean },
+): TaxonomyType[] {
+  const active = getTaxonomyTypes(category, opts);
+  if (active.length > 0) return active;
+  return getTaxonomyTypes(category, { includeInactive: true });
+}
+
+export function getLocationTypesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(LOCATION_TYPE);
+}
+
+export function getRepairStatusesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(REPAIR_STATUS);
 }
 
 export function getTypeIcon(category: string, label: string): string | null {

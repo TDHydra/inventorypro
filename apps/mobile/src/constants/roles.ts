@@ -34,7 +34,8 @@ export type Permission =
   | 'set_pins'
   | 'manage_roles_permissions'
   | 'view_financial_data'
-  | 'system_settings';
+  | 'system_settings'
+  | 'send_notifications';
 
 export const ROLE_TIER: Record<UserRole, 1 | 2 | 3 | 4> = {
   temporary_employee:       1,
@@ -75,6 +76,42 @@ export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
   temporary_employee:       'Temporary Employee',
 };
 
+// Curated colors readable as text on light surfaces (white / colors.surface).
+// Used both as the admin swatch palette and as the per-role defaults below.
+export const ROLE_COLOR_PALETTE: string[] = [
+  '#C62828', '#AD1457', '#6A1B9A', '#4527A0', '#283593',
+  '#1565C0', '#00838F', '#00695C', '#2E7D32', '#558B2F',
+  '#EF6C00', '#5D4037', '#37474F', '#455A64',
+];
+
+// Neutral readable fallback (matches colors.textPrimary) for unknown/legacy roles.
+export const ROLE_COLOR_FALLBACK = '#1E293B';
+
+// Per-role default name color. Distinct, drawn from ROLE_COLOR_PALETTE. Admins
+// can override per role (role_settings.color); NULL override → these defaults.
+export const ROLE_COLORS: Record<UserRole, string> = {
+  full_admin:               '#C62828',
+  franchise_manager:        '#6A1B9A',
+  hr_manager:               '#AD1457',
+  office_manager:           '#283593',
+  head_of_construction:     '#EF6C00',
+  head_of_contents:         '#5D4037',
+  production_manager:       '#1565C0',
+  carpet_cleaning_manager:  '#00695C',
+  construction_crew:        '#37474F',
+  contents_crew:            '#00838F',
+  mitigation_technician:    '#4527A0',
+  carpet_cleaning_crew:     '#558B2F',
+  temporary_employee:       '#455A64',
+};
+
+// Effective name color for a role: explicit override → role default → neutral.
+export function resolveRoleColor(role: string, override?: string | null): string {
+  const o = override?.trim();
+  if (o) return o;
+  return ROLE_COLORS[role as UserRole] ?? ROLE_COLOR_FALLBACK;
+}
+
 type PermissionMap = Record<Permission, boolean>;
 
 const tier4: PermissionMap = {
@@ -99,6 +136,7 @@ const tier4: PermissionMap = {
   manage_roles_permissions:  true,
   view_financial_data:       true,
   system_settings:           true,
+  send_notifications:        true,
 };
 
 const tier3: PermissionMap = {
@@ -123,6 +161,7 @@ const tier3: PermissionMap = {
   manage_roles_permissions:  false,
   view_financial_data:       true,
   system_settings:           false,
+  send_notifications:        true,
 };
 
 const tier2: PermissionMap = {
@@ -147,6 +186,7 @@ const tier2: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        false,
   system_settings:            false,
+  send_notifications:         false,
 };
 
 const tier1: PermissionMap = {
@@ -171,6 +211,7 @@ const tier1: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        false,
   system_settings:            false,
+  send_notifications:         false,
 };
 
 const tempEmployee: PermissionMap = {

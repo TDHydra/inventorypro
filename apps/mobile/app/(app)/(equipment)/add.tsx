@@ -7,10 +7,10 @@ import { generateUUID } from '../../../src/utils/uuid';
 import { upsertItem } from '../../../src/db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../../src/db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
-import { nextAssetTag } from '../../../src/db/queries/equipment';
 import { PRODUCT_CLASS_IDS } from '../../../src/constants/units';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useSession } from '../../../src/hooks/useSession';
@@ -21,6 +21,9 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
+
+// Cap the equipment name so a runaway paste can't bloat the catalog row.
+const MAX_NAME_LENGTH = 200;
 
 interface PendingUnit {
   id: string;
@@ -47,22 +50,6 @@ export default function AddEquipmentScreen() {
 
   const [pendingUnits, setPendingUnits] = useState<PendingUnit[]>([]);
 
-  // Generate the next asset tag for the given prefix, accounting for units that
-  // are already in the pending list but not yet in the DB.
-  const handleGenerate = useCallback(() => {
-    const prefix = tagPrefix.trim();
-    if (!prefix) return;
-    let tag = nextAssetTag(prefix);
-    // If the DB-suggested tag already appears in pendingUnits, keep bumping.
-    const existingTags = new Set(pendingUnits.map(u => u.assetTag));
-    while (existingTags.has(tag)) {
-      const n = parseInt(tag.slice(prefix.length), 10) + 1;
-      tag = prefix + String(n).padStart(3, '0');
-    }
-    setAssetTag(tag);
-    if (tagError) setTagError('');
-  }, [tagPrefix, pendingUnits, tagError]);
-
   function handleAddUnit() {
     const tag = assetTag.trim();
     if (!tag) {
@@ -70,7 +57,14 @@ export default function AddEquipmentScreen() {
       return;
     }
     // Reject tags already registered in the DB
-    if (getUnitByTag(tag) !== null) {
+    let existing: EquipmentUnit | null;
+    try {
+      existing = getUnitByTag(tag);
+    } catch (e) {
+      Alert.alert('Error', 'Could not verify tag uniqueness. Try again.');
+      return;
+    }
+    if (existing !== null) {
       setTagError('Tag already in use.');
       return;
     }
@@ -93,13 +87,27 @@ export default function AddEquipmentScreen() {
   }
 
   function handleSave() {
-    if (!name.trim()) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       Alert.alert('Required', 'Equipment name is required.');
+      return;
+    }
+    if (trimmedName.length > MAX_NAME_LENGTH) {
+      Alert.alert(
+        'Name too long',
+        `Equipment name must be ${MAX_NAME_LENGTH} characters or fewer.`,
+      );
       return;
     }
     // Preserve the write-guard: appendOutbox calls assertWritable internally,
     // but we check here first so we can return cleanly before any DB writes.
-    if (isWriteBlocked()) return;
+    if (isWriteBlocked()) {
+      Alert.alert(
+        'Read-only mode',
+        'The app is in maintenance mode right now, so equipment cannot be saved. Try again shortly.',
+      );
+      return;
+    }
 
     const now = new Date().toISOString();
     const prefix = tagPrefix.trim() || null;
@@ -107,7 +115,7 @@ export default function AddEquipmentScreen() {
     // ── Create the equipment model (catalog row in inventory_items) ──────────
     const payload = {
       id: modelId,
-      name: name.trim(),
+      name: trimmedName,
       barcode: null as string | null,
       description: null as string | null,
       sku: null as string | null,
@@ -124,62 +132,89 @@ export default function AddEquipmentScreen() {
       reorder_to: null as number | null,
     };
 
-    upsertItem({
-      ...payload,
-      unit_tracked: 1,
-      tag_prefix: prefix,
-      active: 1,
-      updated_at: now,
-      synced_at: null,
-    });
+    // Persist the model and every queued unit atomically: if any write fails
+    // mid-loop the whole flow rolls back, so we never leave an orphaned model
+    // or half-saved units. Only on success do we show confirmation + navigate.
+    try {
+      runInTransaction(() => {
+        upsertItem({
+          ...payload,
+          unit_tracked: 1,
+          tag_prefix: prefix,
+          active: 1,
+          updated_at: now,
+          synced_at: null,
+        });
 
-    // Outbox: real booleans for Postgres BOOLEAN columns; synced_at stripped
-    appendOutbox('INSERT', 'inventory_items', {
-      ...payload,
-      active: true,
-      updated_at: now,
-      returnable: true,
-      unit_tracked: true,
-      tag_prefix: prefix,
-    });
+        // Outbox: real booleans for Postgres BOOLEAN columns; synced_at stripped
+        appendOutbox('INSERT', 'inventory_items', {
+          ...payload,
+          active: true,
+          updated_at: now,
+          returnable: true,
+          unit_tracked: true,
+          tag_prefix: prefix,
+        });
 
-    // ── Persist each queued unit ──────────────────────────────────────────────
-    for (const pu of pendingUnits) {
-      const u: EquipmentUnit = {
-        id: pu.id,
-        item_id: modelId,
-        asset_tag: pu.assetTag,
-        serial_number: pu.serial || null,
-        status: 'available',
-        current_location_id: null,
-        current_job_id: null,
-        notes: null,
-        created_at: now,
-        updated_at: now,
-        synced_at: null,
-      };
-      upsertUnit(u);
-      // synced_at is local-only — server has no such column; strip from outbox payload
-      const { synced_at: _s, ...unitRow } = u;
-      appendOutbox('INSERT', 'equipment_units', { ...unitRow });
-      appendLog({
-        action: 'add_units',
-        entity_type: 'equipment_unit',
-        entity_id: pu.id,
-        user_id: user?.id ?? null,
-        team_id: null,
-        note: pu.assetTag,
-        from_location_id: null,
-        to_location_id: null,
-        quantity: null,
-        unit: null,
-        job_id: null,
-        metadata: null,
-        device_id: null,
+        // ── Persist each queued unit ──────────────────────────────────────────────
+        for (const pu of pendingUnits) {
+          const u: EquipmentUnit = {
+            id: pu.id,
+            item_id: modelId,
+            asset_tag: pu.assetTag,
+            serial_number: pu.serial || null,
+            status: 'available',
+            current_location_id: null,
+            current_job_id: null,
+            notes: null,
+            purchase_price: null,
+            acquired_at: null,
+            useful_life_months: null,
+            salvage_value: null,
+            depreciation_method: null,
+            next_service_at: null,
+            service_interval_months: null,
+            created_at: now,
+            updated_at: now,
+            synced_at: null,
+          };
+          upsertUnit(u);
+          // synced_at is local-only — server has no such column; strip from outbox payload
+          const { synced_at: _s, ...unitRow } = u;
+          appendOutbox('INSERT', 'equipment_units', { ...unitRow });
+          appendLog({
+            action: 'add_units',
+            entity_type: 'equipment_unit',
+            entity_id: pu.id,
+            user_id: user?.id ?? null,
+            team_id: null,
+            note: pu.assetTag,
+            from_location_id: null,
+            to_location_id: null,
+            quantity: null,
+            unit: null,
+            job_id: null,
+            metadata: null,
+            device_id: null,
+          });
+        }
       });
+    } catch (e) {
+      Alert.alert(
+        'Save failed',
+        'Could not save this equipment model. No changes were made — please try again.',
+      );
+      return;
     }
 
-    router.back();
+    const unitCount = pendingUnits.length;
+    Alert.alert(
+      'Equipment saved',
+      unitCount > 0
+        ? `"${trimmedName}" was created with ${unitCount} unit${unitCount !== 1 ? 's' : ''}.`
+        : `"${trimmedName}" was created.`,
+      [{ text: 'OK', onPress: () => router.back() }],
+    );
   }
 
   const prefixTrimmed = tagPrefix.trim();
@@ -233,11 +268,6 @@ export default function AddEquipmentScreen() {
             placeholder={prefixTrimmed ? `${prefixTrimmed}001` : 'AM-001'}
           />
 
-          {!!prefixTrimmed && assetTag === '' && (
-            <TouchableOpacity style={s.generateBtn} onPress={handleGenerate}>
-              <Text style={s.generateText}>Generate {prefixTrimmed}</Text>
-            </TouchableOpacity>
-          )}
           {!!tagError && <Text style={s.errorText}>{tagError}</Text>}
 
           <AppInput
@@ -314,19 +344,6 @@ const s = StyleSheet.create({
     fontSize: fontSizes.body,
     fontWeight: '700',
     color: colors.textSecondary,
-  },
-  generateBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginTop: -spacing.xs,
-  },
-  generateText: {
-    color: colors.primaryText,
-    fontSize: fontSizes.caption,
-    fontWeight: '600',
   },
   errorText: {
     fontSize: fontSizes.caption,

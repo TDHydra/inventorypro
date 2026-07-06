@@ -14,8 +14,9 @@ import {
 } from '../../../src/db/queries/jobs';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations } from '../../../src/db/queries/locations';
-import { getTaxonomyTypes } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { SuggestInput } from '../../../src/components/SuggestInput';
@@ -42,7 +43,7 @@ export default function CreateJobScreen() {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [insuranceCarrier, setInsuranceCarrier] = useState('');
 
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
   const [type, setType] = useState<string | null>(() => {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;
@@ -119,40 +120,50 @@ export default function CreateJobScreen() {
       insurance_carrier: insuranceCarrier.trim() || null,
     };
 
-    upsertJob(newJob);
-    appendOutbox('INSERT', 'jobs', {
-      id: newJob.id,
-      name: newJob.name,
-      status: newJob.status,
-      created_by: newJob.created_by,
-      created_at: newJob.created_at,
-      updated_at: newJob.updated_at,
-      // Omit job_number entirely: the server's BEFORE INSERT trigger assigns it.
-      // Including it (even as null) would let an at-least-once redelivery's
-      // ON CONFLICT upsert overwrite the already-assigned number (churn).
-      customer_name: newJob.customer_name,
-      site_address: newJob.site_address,
-      site_location_id: newJob.site_location_id,
-      description: newJob.description,
-      type: newJob.type,
-      reference_number: newJob.reference_number,
-      insurance_carrier: newJob.insurance_carrier,
-    });
-    appendLog({
-      action: 'job_created',
-      entity_type: 'job',
-      entity_id: id,
-      user_id: user.id,
-      note: trimmedName,
-      team_id: null,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: id,
-      metadata: null,
-      device_id: null,
-    });
+    // All three writes (row + outbox + audit log) must land together; on any
+    // failure roll back and keep the user on the form rather than navigating to
+    // a job that didn't actually save.
+    try {
+      runInTransaction(() => {
+        upsertJob(newJob);
+        appendOutbox('INSERT', 'jobs', {
+          id: newJob.id,
+          name: newJob.name,
+          status: newJob.status,
+          created_by: newJob.created_by,
+          created_at: newJob.created_at,
+          updated_at: newJob.updated_at,
+          // Omit job_number entirely: the server's BEFORE INSERT trigger assigns it.
+          // Including it (even as null) would let an at-least-once redelivery's
+          // ON CONFLICT upsert overwrite the already-assigned number (churn).
+          customer_name: newJob.customer_name,
+          site_address: newJob.site_address,
+          site_location_id: newJob.site_location_id,
+          description: newJob.description,
+          type: newJob.type,
+          reference_number: newJob.reference_number,
+          insurance_carrier: newJob.insurance_carrier,
+        });
+        appendLog({
+          action: 'job_created',
+          entity_type: 'job',
+          entity_id: id,
+          user_id: user.id,
+          note: trimmedName,
+          team_id: null,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: id,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not create job', e instanceof Error ? e.message : 'The job could not be saved. Please try again.');
+      return;
+    }
 
     router.replace({ pathname: '/(app)/(jobs)/[id]', params: { id } });
   }

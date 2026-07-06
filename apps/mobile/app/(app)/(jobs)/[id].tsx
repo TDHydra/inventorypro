@@ -8,11 +8,13 @@ import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, Job,
 } from '../../../src/db/queries/jobs';
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations } from '../../../src/db/queries/locations';
-import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
@@ -22,6 +24,7 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
 type LogWithUser = LogEntry & { user_name?: string };
 
@@ -32,11 +35,13 @@ export default function JobDetailScreen() {
   const canEdit = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
   const canUpload = usePermission('upload_media');
+  const refreshKey = useFocusRefresh();
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
   const [editing, setEditing] = useState(false);
   const [siteCoords, setSiteCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geocodeFailed, setGeocodeFailed] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   // Geocode the free-text site address (online, no API key) so we can show a
   // view-only map. Failures/empties are swallowed — the map just doesn't appear.
@@ -73,13 +78,13 @@ export default function JobDetailScreen() {
   const [editReferenceNumber, setEditReferenceNumber] = useState('');
   const [editInsuranceCarrier, setEditInsuranceCarrier] = useState('');
 
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
-  const deployments = useMemo(() => getJobDeployments(id), [id]);
-  const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id]);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), [refreshKey]);
+  const deployments = useMemo(() => getJobDeployments(id), [id, refreshKey]);
+  const log = useMemo<LogWithUser[]>(() => getLogForJob(id) as LogWithUser[], [id, refreshKey]);
 
   const locationOptions = useMemo((): PickerOption[] => {
     return getAllLocations().map(l => ({ id: l.id, label: l.name }));
-  }, []);
+  }, [refreshKey]);
 
   function reload() {
     setJob(getJobById(id));
@@ -130,22 +135,31 @@ export default function JobDetailScreen() {
       insurance_carrier: editInsuranceCarrier.trim() || null,
     };
 
-    updateJobFields(id, fields);
-    appendLog({
-      action: 'job_updated',
-      entity_type: 'job',
-      entity_id: id,
-      user_id: user.id,
-      note: trimmed,
-      team_id: null,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: id,
-      metadata: null,
-      device_id: null,
-    });
+    // Field update + audit log must commit together; on failure keep the edit
+    // form open (don't close/reload) so the user can retry without losing input.
+    try {
+      runInTransaction(() => {
+        updateJobFields(id, fields);
+        appendLog({
+          action: 'job_updated',
+          entity_type: 'job',
+          entity_id: id,
+          user_id: user.id,
+          note: trimmed,
+          team_id: null,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: id,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not save changes', e instanceof Error ? e.message : 'Your changes could not be saved. Please try again.');
+      return;
+    }
 
     setEditing(false);
     reload();
@@ -161,22 +175,31 @@ export default function JobDetailScreen() {
         {
           text: 'Archive', style: 'destructive',
           onPress: () => {
-            archiveJob(id);
-            appendLog({
-              action: 'job_archived',
-              entity_type: 'job',
-              entity_id: id,
-              user_id: user.id,
-              note: job!.name,
-              team_id: null,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              job_id: id,
-              metadata: null,
-              device_id: null,
-            });
+            // Archive + audit log atomically; only navigate away once committed
+            // so a failed archive doesn't leave the user thinking it worked.
+            try {
+              runInTransaction(() => {
+                archiveJob(id);
+                appendLog({
+                  action: 'job_archived',
+                  entity_type: 'job',
+                  entity_id: id,
+                  user_id: user.id,
+                  note: job!.name,
+                  team_id: null,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  job_id: id,
+                  metadata: null,
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Could not archive job', e instanceof Error ? e.message : 'The job could not be archived. Please try again.');
+              return;
+            }
             router.back();
           },
         },
@@ -459,6 +482,7 @@ export default function JobDetailScreen() {
               <MediaGallery entityType="job" entityId={id} canUpload={canUpload} />
 
               {/* Actions */}
+              <PrimaryButton label="Request Approval" onPress={() => setApprovalOpen(true)} />
               {(canEdit || canClose) && (
                 <PrimaryButton label="Edit Job" onPress={startEdit} />
               )}
@@ -469,6 +493,15 @@ export default function JobDetailScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── Request Approval (job) ─────────────────────────────────────── */}
+      <RequestApprovalSheet
+        visible={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        entityType="job"
+        entityId={id}
+        entityLabel={job.name}
+      />
     </>
   );
 }

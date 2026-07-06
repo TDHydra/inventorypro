@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Alert } from '../lib/themedAlert';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FilterChip } from './ui/FilterChip';
 import { colors, spacing, fontSizes } from '../theme';
-import { printLabel, LabelTemplate } from '../labels/printLabel';
+import {
+  printLabel,
+  printLabelsWithModel,
+  LabelTemplate,
+  LABEL_TEMPLATES,
+  BarcodeFormat,
+  payloadFromQrUrl,
+} from '../labels/printLabel';
+import { getLabelTemplates } from '../db/queries/labelTemplates';
+import type { LabelTemplateModel } from '../labels/positioned';
 
 interface Props {
   visible: boolean;
@@ -13,22 +22,48 @@ interface Props {
   title: string;
   code: string;
   qrUrl: string;
+  /** Optional explicit scan payload; otherwise derived from `qrUrl`. Additive. */
+  payload?: string;
 }
 
-const TEMPLATES: { key: LabelTemplate; label: string }[] = [
-  { key: 'small', label: 'Small (2.25×1.25″)' },
-  { key: 'standard', label: 'Standard (4×2″)' },
-  { key: 'large', label: 'Large (4×3″)' },
+// Built-in preset chips derived from the shared presets (DYMO / Zebra / Avery /
+// generic) so the printer list stays in sync with printLabel.ts.
+const TEMPLATE_CHIPS: { key: LabelTemplate; label: string }[] = (
+  Object.keys(LABEL_TEMPLATES) as LabelTemplate[]
+).map((key) => ({ key, label: LABEL_TEMPLATES[key].name }));
+
+const FORMAT_CHIPS: { key: BarcodeFormat; label: string }[] = [
+  { key: 'qr', label: 'QR code' },
+  { key: 'code128', label: 'Barcode (Code 128)' },
 ];
 
-export function LabelPrintSheet({ visible, onClose, title, code, qrUrl }: Props) {
-  const [template, setTemplate] = useState<LabelTemplate>('standard');
+// A preset selection (key + format) or a custom designed template (by id).
+type Selection =
+  | { kind: 'preset'; key: LabelTemplate }
+  | { kind: 'custom'; id: string };
+
+export function LabelPrintSheet({ visible, onClose, title, code, qrUrl, payload }: Props) {
+  // Custom templates are org-synced; re-read whenever the sheet opens so a newly
+  // designed template shows up without remounting.
+  const customTemplates = useMemo<LabelTemplateModel[]>(
+    () => (visible ? getLabelTemplates() : []),
+    [visible],
+  );
+  const [sel, setSel] = useState<Selection>({ kind: 'preset', key: 'standard' });
+  const [format, setFormat] = useState<BarcodeFormat>('qr');
   const [printing, setPrinting] = useState(false);
 
   async function handlePrint() {
     setPrinting(true);
     try {
-      await printLabel({ title, code, qrUrl, template });
+      if (sel.kind === 'custom') {
+        const model = customTemplates.find((t) => t.id === sel.id);
+        if (!model) throw new Error('Template not found.');
+        const item = { title, code, payload: payload ?? payloadFromQrUrl(qrUrl) };
+        await printLabelsWithModel([item], model);
+      } else {
+        await printLabel({ title, code, qrUrl, template: sel.key, format, payload });
+      }
     } catch (err) {
       Alert.alert('Print failed', err instanceof Error ? err.message : 'An error occurred.');
     } finally {
@@ -38,20 +73,53 @@ export function LabelPrintSheet({ visible, onClose, title, code, qrUrl }: Props)
 
   return (
     <ModalSheet visible={visible} onClose={onClose}>
-      <Text style={s.heading}>Print QR Label</Text>
+      <Text style={s.heading}>Print Label</Text>
       <Text style={s.subheading}>{title}</Text>
+
+      {customTemplates.length > 0 && (
+        <>
+          <Text style={s.sectionLabel}>Custom templates</Text>
+          <View style={s.chips}>
+            {customTemplates.map((t) => (
+              <FilterChip
+                key={t.id}
+                label={t.name}
+                active={sel.kind === 'custom' && sel.id === t.id}
+                onPress={() => setSel({ kind: 'custom', id: t.id })}
+              />
+            ))}
+          </View>
+        </>
+      )}
 
       <Text style={s.sectionLabel}>Label size</Text>
       <View style={s.chips}>
-        {TEMPLATES.map(({ key, label }) => (
+        {TEMPLATE_CHIPS.map(({ key, label }) => (
           <FilterChip
             key={key}
             label={label}
-            active={template === key}
-            onPress={() => setTemplate(key)}
+            active={sel.kind === 'preset' && sel.key === key}
+            onPress={() => setSel({ kind: 'preset', key })}
           />
         ))}
       </View>
+
+      {/* Symbol only applies to presets — custom templates carry their own fields. */}
+      {sel.kind === 'preset' && (
+        <>
+          <Text style={s.sectionLabel}>Symbol</Text>
+          <View style={s.chips}>
+            {FORMAT_CHIPS.map(({ key, label }) => (
+              <FilterChip
+                key={key}
+                label={label}
+                active={format === key}
+                onPress={() => setFormat(key)}
+              />
+            ))}
+          </View>
+        </>
+      )}
 
       <View style={s.footer}>
         <PrimaryButton

@@ -1,10 +1,10 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 // Migration 019: repair tickets. Attach to an equipment unit / item / vehicle
 // (location). entity_id has no FK. completed_at set at a terminal status.
 export const migration = {
   version: 19,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`CREATE TABLE IF NOT EXISTS repairs (
       id TEXT PRIMARY KEY,
       entity_type TEXT NOT NULL,

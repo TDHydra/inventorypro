@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   View, TextInput, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
   RefreshControl,
@@ -7,7 +7,7 @@ import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { searchItems, updateItemFields, getDistinctValues } from '../../../src/db/queries/items';
-import { getItemTypes } from '../../../src/db/queries/taxonomy';
+import { getItemTypes, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { PermissionGate } from '../../../src/components/PermissionGate';
@@ -18,6 +18,8 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -25,6 +27,9 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { syncNow } from '../../../src/sync/engine';
+import { LabelItem } from '../../../src/labels/printLabel';
+import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
+import { Alert } from '../../../src/lib/themedAlert';
 import { colors } from '../../../src/theme';
 
 interface Item {
@@ -48,9 +53,12 @@ export default function InventoryScreen() {
   const canEdit = usePermission('edit_inventory');
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<Item>();
+  const refreshKey = useFocusRefresh();
+  const dataVersion = useDataVersion();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [minQtyOpen, setMinQtyOpen] = useState(false);
+  const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
   const [minQtyValue, setMinQtyValue] = useState('');
   // Chips: "All" + one per Item Type (value = type label, matched against the
   // item's `category`). Falls back to just "All" until item types have synced.
@@ -59,8 +67,10 @@ export default function InventoryScreen() {
       { id: ALL_FILTER, label: 'All' },
       ...getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
     ],
-    [],
+    [refreshKey],
   );
+  // Item-type label → admin color override; re-read on focus so synced overrides show.
+  const typeColorMap = useMemo(() => getItemTypeColorMap(), [refreshKey]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<string>(ALL_FILTER);
   const [items, setItems] = useState<Item[]>([]);
@@ -85,6 +95,24 @@ export default function InventoryScreen() {
     setOffset(newOffset + rows.length);
     setLoading(false);
   }, []);
+
+  // Re-run the current search whenever a background sync pull applies changes
+  // (dataVersion bumps), so an already-open list refreshes without the user
+  // pulling to refresh. Deliberately keyed only on dataVersion — query/filter
+  // changes are already handled by handleSearch/handleFilter below.
+  useEffect(() => {
+    // Reload the CURRENTLY-loaded window (not just page 1) so a background sync
+    // — which bumps the global dataVersion for any table — doesn't truncate an
+    // infinite-scrolled list back to the first page. Re-query 0..current-extent
+    // in one shot; fall back to one page on first load.
+    const limit = Math.max(PAGE_SIZE, offset);
+    const typeFilter = filter === ALL_FILTER ? undefined : filter;
+    const rows = searchItems(query, limit, 0, undefined, 'product', undefined, typeFilter) as Item[];
+    setItems(rows);
+    setHasMore(rows.length === limit);
+    setOffset(rows.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion]);
 
   const handleSearch = (text: string) => {
     setQuery(text);
@@ -123,11 +151,11 @@ export default function InventoryScreen() {
   // get a real type and become filterable). Falls back to any free-typed value.
   const itemTypeOptions = useMemo<PickerOption[]>(
     () => getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
-    [],
+    [refreshKey],
   );
   const supplierOptions = useMemo<PickerOption[]>(
     () => getDistinctValues('supplier').map(v => ({ id: v, label: v })),
-    [],
+    [refreshKey],
   );
 
   // Mirror the per-item audit trail for batch catalog edits (the single-row edit
@@ -186,11 +214,27 @@ export default function InventoryScreen() {
     ms.exit();
   }, [ms, reloadList, logItem, minQtyValue]);
 
+  // Offline QR-label batch print. Selected ids are always within the currently
+  // loaded window (toggle/selectAll only source from `items`), so we resolve
+  // titles/codes from memory — no DB round-trip. Printing is read-only, so it's
+  // exempt from the maintenance write block.
+  const handlePrintLabels = useCallback(() => {
+    const byId = new Map(items.map(i => [i.id, i]));
+    const labels: LabelItem[] = Array.from(ms.selected)
+      .map(id => byId.get(id))
+      .filter((i): i is Item => !!i)
+      .map(i => ({ title: i.name, code: i.barcode ?? i.id, payload: `INV:item:${i.id}` }));
+    if (labels.length === 0) { ms.exit(); return; }
+    // Open the chooser (presets + custom designed templates); print happens there.
+    setBatchLabels(labels);
+  }, [items, ms]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set item type', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
     { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
-  ], []);
+  ], [handlePrintLabels]);
 
   return (
     <>
@@ -267,7 +311,7 @@ export default function InventoryScreen() {
                       selection mode is done via the explicit "Select" button (long-press
                       is a bonus that fires on the card's non-touchable regions). */}
                   <View style={styles.rowCard} pointerEvents={ms.active ? 'none' : 'auto'}>
-                    <ItemCard item={item} onCheckout={handleCheckout} />
+                    <ItemCard item={item} onCheckout={handleCheckout} typeColorMap={typeColorMap} />
                   </View>
                 </View>
               </TouchableOpacity>
@@ -366,6 +410,12 @@ export default function InventoryScreen() {
           />
           <PrimaryButton label="Apply" onPress={applyMinQty} style={{ marginTop: 12 }} />
         </ModalSheet>
+
+        <BatchLabelPrintSheet
+          visible={batchLabels !== null}
+          items={batchLabels ?? []}
+          onClose={() => { setBatchLabels(null); ms.exit(); }}
+        />
       </View>
     </>
   );

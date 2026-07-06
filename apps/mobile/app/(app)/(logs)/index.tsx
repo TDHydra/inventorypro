@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator,
-  RefreshControl,
+  RefreshControl, Modal,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -11,21 +11,28 @@ import {
   getUnsyncedLogs,
   LogEntry,
 } from '../../../src/db/queries/log';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { getAllActiveUsers, getAllUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
 import { MovePhotoThumb } from '../../../src/components/MovePhotoThumb';
+import { MapDisplay } from '../../../src/components/MapDisplay';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getValidJwt } from '../../../src/auth/session';
 import { syncNow } from '../../../src/sync/engine';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
-import { colors } from '../../../src/theme';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { colors, radii } from '../../../src/theme';
 
 // Local ACTION_ICONS removed — imported from ActivityFeed (single source of truth).
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-/** Shape of rows returned by GET /logs (server-side joins included). */
+/**
+ * Shape of rows returned by GET /logs (server-side joins included).
+ * The API selects `al.*`, so move-stamped coordinates ride along even though
+ * most columns aren't otherwise surfaced in this screen — declared here so
+ * the map affordance below can read them.
+ */
 interface ServerLogRow {
   id: string;
   action: string;
@@ -34,15 +41,33 @@ interface ServerLogRow {
   unit: string | null;
   note: string | null;
   created_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  location_accuracy?: number | null;
 }
 
 type Filter = 'mine' | 'unsynced' | 'all' | 'my_teams';
+
+/** Data needed to render the map-detail modal, gathered from either the local
+ * (LogEntry) or server (ServerLogRow) row shape. */
+interface MapModalData {
+  latitude: number;
+  longitude: number;
+  location_accuracy: number | null;
+  action: string;
+  note: string | null;
+  quantity: number | null;
+  unit: string | null;
+  created_at: string;
+  user_name?: string | null;
+}
 
 export default function LogsScreen() {
   const { user } = useSession();
   const canViewAll = usePermission('view_all_logs');
   const canViewTeam = usePermission('view_team_activity');
   const [filter, setFilter] = useState<Filter>('mine');
+  const dataVersion = useDataVersion();
 
   // Both the All-Activity and My-Team tabs fetch from the server (/logs).
   const serverMode = filter === 'all' || filter === 'my_teams';
@@ -62,6 +87,9 @@ export default function LogsScreen() {
   const [refetchKey, setRefetchKey] = useState(0);
   const refetch = useCallback(() => setRefetchKey(k => k + 1), []);
 
+  // Log-detail map modal — set when a row with stamped coordinates is tapped
+  const [mapLog, setMapLog] = useState<MapModalData | null>(null);
+
   // Pull-to-refresh state for the All-Activity list
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -78,6 +106,15 @@ export default function LogsScreen() {
     return getAllActiveUsers().map(u => ({ id: u.id, label: u.name }));
   }, [canViewAll]);
 
+  const roleColors = useMemo(() => getRoleColorMap(), []);
+  // Map user name → role for tinting actor names in server-fetched log rows
+  // (ServerLogRow carries user_name but not user_id; getAllUsers includes inactive
+  // users who may appear in historical log entries).
+  const userRoleByName = useMemo(
+    () => Object.fromEntries(getAllUsers().map(u => [u.name, u.role])),
+    [],
+  );
+
   // Action options derived from the shared ACTION_ICONS map
   const actionOptions = useMemo<PickerOption[]>(
     () => Object.keys(ACTION_ICONS).map(k => ({ id: k, label: actionLabel(k) })),
@@ -92,13 +129,15 @@ export default function LogsScreen() {
       ? filterUntil.trim() + 'T23:59:59.999Z'
       : undefined;
 
-  // Local logs for My Activity and Pending Sync tabs (offline-first, unchanged)
+  // Local logs for My Activity and Pending Sync tabs (offline-first). dataVersion
+  // is included so this list refreshes after a background sync pull applies
+  // changes, without a manual pull-to-refresh.
   const logs = useMemo<LogEntry[]>(() => {
     if (!user) return [];
     if (filter === 'unsynced') return getUnsyncedLogs();
     // Default: 'mine' — filter === 'all' is handled by the server fetch below
     return getLogForUser(user.id, 50);
-  }, [user, filter]);
+  }, [user, filter, dataVersion]);
 
   // Server fetch for the All-Activity / My-Team tabs — re-runs whenever tab,
   // filters, or refetchKey change
@@ -289,13 +328,33 @@ export default function LogsScreen() {
                   <Text style={s.icon}>{ACTION_ICONS[log.action] ?? '·'}</Text>
                   <View style={s.middle}>
                     <Text style={s.action}>{actionLabel(log.action)}</Text>
-                    {log.user_name ? <Text style={s.user}>{log.user_name}</Text> : null}
+                    {log.user_name ? <Text style={[s.user, { color: roleColor(userRoleByName[log.user_name] ?? '', roleColors) }]}>{log.user_name}</Text> : null}
                     {log.quantity != null && log.unit && (
                       <Text style={s.qty}>
                         {log.quantity} {log.unit}
                       </Text>
                     )}
                     {log.note ? <Text style={s.note}>{log.note}</Text> : null}
+                    {log.latitude != null && log.longitude != null && (
+                      <TouchableOpacity
+                        style={s.mapLink}
+                        onPress={() =>
+                          setMapLog({
+                            latitude: log.latitude!,
+                            longitude: log.longitude!,
+                            location_accuracy: log.location_accuracy ?? null,
+                            action: log.action,
+                            note: log.note,
+                            quantity: log.quantity,
+                            unit: log.unit,
+                            created_at: log.created_at,
+                            user_name: log.user_name,
+                          })
+                        }
+                      >
+                        <Text style={s.mapLinkText}>📍 View on map</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <View style={s.right}>
                     <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
@@ -327,6 +386,26 @@ export default function LogsScreen() {
                     </Text>
                   )}
                   {log.note ? <Text style={s.note}>{log.note}</Text> : null}
+                  {log.latitude != null && log.longitude != null && (
+                    <TouchableOpacity
+                      style={s.mapLink}
+                      onPress={() =>
+                        setMapLog({
+                          latitude: log.latitude!,
+                          longitude: log.longitude!,
+                          location_accuracy: log.location_accuracy,
+                          action: log.action,
+                          note: log.note,
+                          quantity: log.quantity,
+                          unit: log.unit,
+                          created_at: log.created_at,
+                          user_name: log.user_name,
+                        })
+                      }
+                    >
+                      <Text style={s.mapLinkText}>📍 View on map</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 <View style={s.right}>
                   <Text style={s.date}>{new Date(log.created_at).toLocaleDateString()}</Text>
@@ -343,6 +422,49 @@ export default function LogsScreen() {
           />
         )}
       </View>
+
+      {/* ── Log-detail map modal ──────────────────────────────────────── */}
+      <Modal
+        visible={mapLog !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setMapLog(null)}
+      >
+        <View style={s.modalBackdrop}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>{mapLog ? actionLabel(mapLog.action) : ''}</Text>
+              <TouchableOpacity onPress={() => setMapLog(null)} hitSlop={10}>
+                <Text style={s.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {mapLog && (
+              <>
+                <MapDisplay latitude={mapLog.latitude} longitude={mapLog.longitude} height={240} />
+                <View style={s.modalDetails}>
+                  {mapLog.user_name ? (
+                    <Text style={s.modalDetailText}>{mapLog.user_name}</Text>
+                  ) : null}
+                  {mapLog.quantity != null && mapLog.unit && (
+                    <Text style={s.modalDetailText}>
+                      {mapLog.quantity} {mapLog.unit}
+                    </Text>
+                  )}
+                  {mapLog.note ? <Text style={s.modalDetailText}>{mapLog.note}</Text> : null}
+                  <Text style={s.modalDetailText}>
+                    {new Date(mapLog.created_at).toLocaleString()}
+                  </Text>
+                  {mapLog.location_accuracy != null && (
+                    <Text style={s.modalAccuracy}>
+                      ±{Math.round(mapLog.location_accuracy)}m accuracy
+                    </Text>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -409,4 +531,37 @@ const s = StyleSheet.create({
   pending: { fontSize: 10, color: '#F59E0B', fontWeight: '600' },
   empty: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, color: colors.textMuted },
+
+  // Map affordance on rows with stamped coordinates
+  mapLink: { marginTop: 4, alignSelf: 'flex-start' },
+  mapLinkText: { fontSize: 12, color: colors.primaryText, fontWeight: '600' },
+
+  // Log-detail map modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: 16,
+    gap: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textTransform: 'capitalize',
+  },
+  modalClose: { fontSize: 18, color: colors.textMuted, padding: 4 },
+  modalDetails: { gap: 4 },
+  modalDetailText: { fontSize: 13, color: colors.textSecondary },
+  modalAccuracy: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });

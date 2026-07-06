@@ -24,6 +24,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { track } from '../../telemetry';
 
 interface Props {
   onSaved: (label: string, createdId?: string) => void;
@@ -91,6 +92,7 @@ export default function JobQuickAdd({ onSaved }: Props) {
   }
 
   function handleSave() {
+    track('action', 'quickadd_save_job', { screen: 'quick_add' });
     if (isWriteBlocked()) return;
     const trimmedName = name.trim();
     if (!trimmedName) {

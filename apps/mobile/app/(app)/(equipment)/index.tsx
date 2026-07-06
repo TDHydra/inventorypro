@@ -16,11 +16,17 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
+import { LabelItem } from '../../../src/labels/printLabel';
+import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
+import { Alert } from '../../../src/lib/themedAlert';
+import { autoTypeColor } from '../../../src/constants/typeColors';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
 
 export default function EquipmentScreen() {
@@ -30,8 +36,11 @@ export default function EquipmentScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<EquipmentModel>();
+  const refreshKey = useFocusRefresh();
+  const dataVersion = useDataVersion();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+  const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
   const [query, setQuery] = useState('');
   const [models, setModels] = useState<EquipmentModel[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,11 +60,11 @@ export default function EquipmentScreen() {
   // ── Bulk multi-select (gated on edit_inventory, matching the detail edit) ──
   const categoryOptions = useMemo<PickerOption[]>(
     () => getDistinctValues('category').map(v => ({ id: v, label: v })),
-    [],
+    [refreshKey],
   );
   const supplierOptions = useMemo<PickerOption[]>(
     () => getDistinctValues('supplier').map(v => ({ id: v, label: v })),
-    [],
+    [refreshKey],
   );
 
   // Equipment models are inventory_items (kind='equipment'); the detail screen logs
@@ -99,16 +108,36 @@ export default function EquipmentScreen() {
     ms.exit();
   }, [ms, reloadList, logItem]);
 
+  // Offline QR-label batch print. Selected ids are always within the loaded
+  // `models` list (toggle/selectAll only source from it), so we resolve
+  // titles/codes from memory — no DB round-trip. Equipment models are
+  // inventory_items, so the scan payload is `INV:item:{id}` (same as the detail
+  // screen's model label). Printing is read-only — exempt from the write block.
+  const handlePrintLabels = useCallback(() => {
+    const byId = new Map(models.map(m => [m.id, m]));
+    const labels: LabelItem[] = Array.from(ms.selected)
+      .map(id => byId.get(id))
+      .filter((m): m is EquipmentModel => !!m)
+      .map(m => ({ title: m.name, code: m.barcode ?? m.id, payload: `INV:item:${m.id}` }));
+    if (labels.length === 0) { ms.exit(); return; }
+    // Open the chooser (presets + custom designed templates); print happens there.
+    setBatchLabels(labels);
+  }, [models, ms]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set category', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
-  ], []);
+  ], [handlePrintLabels]);
 
-  // Load on mount and on screen focus (e.g. returning from add or detail)
+  // Load on mount, on screen focus (e.g. returning from add or detail), and
+  // whenever a background sync pull applies changes (dataVersion bumps) while
+  // this screen is focused — so an already-open list refreshes without the
+  // user pulling to refresh.
   useFocusEffect(
     useCallback(() => {
       load(queryRef.current.trim() || undefined);
-    }, [load]),
+    }, [load, dataVersion]),
   );
 
   const handleSearch = (text: string) => {
@@ -162,6 +191,7 @@ export default function EquipmentScreen() {
           keyExtractor={m => m.id}
           renderItem={({ item: m }) => {
             const selected = ms.isSelected(m.id);
+            const catColor = autoTypeColor(m.category);
             return (
             <TouchableOpacity
               activeOpacity={0.8}
@@ -174,6 +204,7 @@ export default function EquipmentScreen() {
             >
               <Card style={[s.card, ms.active && selected && s.cardSelected]}>
                 <View style={s.row}>
+                  <View style={[s.accent, { backgroundColor: catColor }]} />
                   {ms.active && (
                     <View style={[s.checkbox, selected && s.checkboxOn]}>
                       {selected && <Text style={s.checkMark}>✓</Text>}
@@ -182,6 +213,13 @@ export default function EquipmentScreen() {
                   <MediaThumbnail entityType="item" entityId={m.id} size={44} />
                   <View style={s.info}>
                     <Text style={s.name} numberOfLines={1}>{m.name}</Text>
+                    {!!m.category && (
+                      <View style={s.catRow}>
+                        <View style={[s.catBadge, { backgroundColor: catColor }]}>
+                          <Text style={s.catBadgeText} numberOfLines={1}>{m.category}</Text>
+                        </View>
+                      </View>
+                    )}
                     <View style={s.chips}>
                       {m.counts.available > 0 && (
                         <View style={[s.chip, s.chipAvail]}>
@@ -283,6 +321,12 @@ export default function EquipmentScreen() {
           />
         </ModalSheet>
 
+        <BatchLabelPrintSheet
+          visible={batchLabels !== null}
+          items={batchLabels ?? []}
+          onClose={() => { setBatchLabels(null); ms.exit(); }}
+        />
+
       </View>
     </>
   );
@@ -319,8 +363,12 @@ const s = StyleSheet.create({
   checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
   sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  accent: { width: 4, alignSelf: 'stretch', borderRadius: 2, marginRight: 2 },
   info: { flex: 1, gap: 4 },
   name: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },
+  catRow: { flexDirection: 'row' },
+  catBadge: { borderRadius: radii.sm, paddingHorizontal: 8, paddingVertical: 2, maxWidth: '100%' },
+  catBadgeText: { fontSize: fontSizes.caption, fontWeight: '700', color: '#fff' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { borderRadius: radii.sm, paddingHorizontal: 8, paddingVertical: 2 },
   chipAvail: { backgroundColor: '#D1FAE5' },

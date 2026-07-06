@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Alert } from '../lib/themedAlert';
@@ -8,11 +8,15 @@ import { PrimaryButton } from './ui/PrimaryButton';
 import { AppInput } from './ui/AppInput';
 import { FieldLabel } from './ui/FieldLabel';
 import { confirmDestructive } from '../lib/confirm';
+import { parseQuantity } from '../lib/validation';
+import { runInTransaction } from '../db/tx';
 import { getStockAtLocation, getAllLocations } from '../db/queries/locations';
 import { adjustStock, getStockQuantity, getItemById } from '../db/queries/items';
 import { appendLog } from '../db/queries/log';
 import { appendOutbox } from '../sync/outbox';
 import { useSession } from '../hooks/useSession';
+import { useCurrentPosition } from '../hooks/useCurrentPosition';
+import { sortByProximity } from '../location/proximity';
 import { SearchablePicker, PickerOption } from './SearchablePicker';
 
 interface Props {
@@ -30,7 +34,10 @@ interface Props {
  *
  * Picker options:
  *   - Item: from `getStockAtLocation(fromLocationId)` (only items with qty > 0)
- *   - Destination: from `getAllLocations()` excluding the source location
+ *   - Destination: from `getAllLocations()` excluding the source location,
+ *     proximity-sorted via `sortByProximity` using the device's current coords
+ *     (same `useCurrentPosition` pattern as the check-in return-location list) —
+ *     falls back to the existing (alphabetical-ish) order when coords aren't available
  *
  * On confirm:
  *   1. adjustStock(itemId, fromLocationId, -qty)  [deducts from source]
@@ -46,6 +53,12 @@ export default function MoveStockModal({
   onDone,
 }: Props) {
   const { user } = useSession();
+  // Position: request once whenever the modal opens (fire-and-forget; never blocks UI).
+  const { coords, request } = useCurrentPosition();
+  useEffect(() => {
+    if (visible) void request();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   // Load data once (these are sync queries, so useMemo is fine)
   const stock = useMemo(() => getStockAtLocation(fromLocationId), [fromLocationId]);
@@ -56,12 +69,28 @@ export default function MoveStockModal({
     [stock],
   );
 
+  // Proximity-sorted destination list; re-runs when coords arrive after the async
+  // request. Un-anchored locations (no lat/lng, or coords unavailable) sink to the
+  // bottom in their original order — never reordered ahead of anchored ones.
+  const sortedLocs = useMemo(
+    () =>
+      sortByProximity(
+        allLocs
+          .filter(l => l.id !== fromLocationId)
+          .map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+        coords,
+      ),
+    [allLocs, fromLocationId, coords],
+  );
+
   const locOptions = useMemo<PickerOption[]>(
     () =>
-      allLocs
-        .filter(l => l.id !== fromLocationId)
-        .map(l => ({ id: l.id, label: l.name })),
-    [allLocs, fromLocationId],
+      sortedLocs.map(l => ({
+        id: l.id,
+        label: l.name,
+        sublabel: l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined,
+      })),
+    [sortedLocs],
   );
 
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null);
@@ -88,11 +117,12 @@ export default function MoveStockModal({
       Alert.alert('Required', 'Select a destination location.');
       return;
     }
-    const qty = parseInt(qtyText, 10);
-    if (!qtyText || isNaN(qty) || qty <= 0) {
-      Alert.alert('Invalid quantity', 'Enter a whole number greater than 0.');
+    const qtyResult = parseQuantity(qtyText, 'Quantity');
+    if (!qtyResult.ok) {
+      Alert.alert('Invalid quantity', qtyResult.error);
       return;
     }
+    const qty = qtyResult.value;
 
     const itemId = selectedItem.id;
     // Read on-hand quantity live to avoid using a stale snapshot from mount time.
@@ -115,42 +145,56 @@ export default function MoveStockModal({
       onConfirm: () => {
         const now = new Date().toISOString();
 
-        // Adjust stock (adjustStock handles the INSERT OR REPLACE in SQLite)
-        adjustStock(itemId, fromLocationId, -qty);
-        adjustStock(itemId, destLoc.id, qty);
+        try {
+          // All writes go in ONE transaction so a mid-flow failure rolls back
+          // atomically — never deduct from source without crediting destination.
+          runInTransaction(() => {
+            // Adjust stock (adjustStock handles the INSERT OR REPLACE in SQLite)
+            adjustStock(itemId, fromLocationId, -qty);
+            adjustStock(itemId, destLoc.id, qty);
 
-        // Outbox SIGNED deltas for both rows; the server merges authoritatively
-        // (idempotent + clamped via ADJUST), creating the destination row if absent.
-        appendOutbox('ADJUST', 'stock_by_location', {
-          item_id: itemId,
-          location_id: fromLocationId,
-          delta: -qty,
-          updated_at: now,
-        });
-        appendOutbox('ADJUST', 'stock_by_location', {
-          item_id: itemId,
-          location_id: destLoc.id,
-          delta: qty,
-          updated_at: now,
-        });
+            // Outbox SIGNED deltas for both rows; the server merges authoritatively
+            // (idempotent + clamped via ADJUST), creating the destination row if absent.
+            appendOutbox('ADJUST', 'stock_by_location', {
+              item_id: itemId,
+              location_id: fromLocationId,
+              delta: -qty,
+              updated_at: now,
+            });
+            appendOutbox('ADJUST', 'stock_by_location', {
+              item_id: itemId,
+              location_id: destLoc.id,
+              delta: qty,
+              updated_at: now,
+            });
 
-        // Log the transfer; unit already read above for the confirm message.
-        appendLog({
-          action: 'transfer',
-          entity_type: 'item',
-          entity_id: itemId,
-          from_location_id: fromLocationId,
-          to_location_id: destLoc.id,
-          quantity: qty,
-          unit,
-          user_id: user?.id ?? null,
-          team_id: null,
-          job_id: null,
-          note: null,
-          metadata: null,
-          device_id: null,
-        });
+            // Log the transfer; unit already read above for the confirm message.
+            appendLog({
+              action: 'transfer',
+              entity_type: 'item',
+              entity_id: itemId,
+              from_location_id: fromLocationId,
+              to_location_id: destLoc.id,
+              quantity: qty,
+              unit,
+              user_id: user?.id ?? null,
+              team_id: null,
+              job_id: null,
+              note: null,
+              metadata: null,
+              device_id: null,
+            });
+          });
+        } catch (err) {
+          // Nothing was committed — keep the form intact so the user can retry.
+          Alert.alert(
+            'Move failed',
+            `Could not move stock: ${err instanceof Error ? err.message : String(err)}. Nothing was changed.`,
+          );
+          return;
+        }
 
+        // Only clear the form and notify the parent after the commit succeeded.
         reset();
         onDone();
       },

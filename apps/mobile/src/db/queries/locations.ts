@@ -1,6 +1,8 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
+import { runInTransaction } from '../tx';
+import { appendLog } from './log';
 
 export interface Location {
   id: string;
@@ -40,6 +42,47 @@ export function getAllLocations(): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+// "Real" browsable locations — everything EXCEPT shelves (type='Shelf'). Shelves
+// are a sub-level of a has_shelves location (created via findOrCreateShelf), not
+// first-class locations: they're excluded from the Locations browser tree/list
+// and from parent choices (a shelf can't itself contain sub-areas). The
+// item-assign two-stage pickers (ItemQuickAdd, inventory/add) intentionally keep
+// using getAllLocations() so shelves stay reachable there.
+export function getBrowsableLocations(): Location[] {
+  // Hide shelves that belong to a parent location (they're managed inside that
+  // location's detail). Keep TOP-LEVEL shelves (parent_id null) — e.g. ones a
+  // findOrCreateShelfByName home-location quick-create made — visible, or they'd
+  // become unreachable/unmanageable anywhere in the Locations UI.
+  return getAllLocations().filter(l => !(l.type === 'Shelf' && l.parent_id != null));
+}
+
+export interface LocationShelfPick {
+  location: { id: string; label: string } | null;
+  shelf: { id: string; label: string } | null;
+}
+
+/**
+ * Resolve a stored location id (which may be a shelf — a child of a shelf-bearing
+ * location) into a (location, shelf) pair for the two-stage picker. If the id is a
+ * shelf, returns its parent as the location and itself as the shelf; otherwise the
+ * location with no shelf. Unknown/null id → both null. Used to seed the main-storage
+ * default in Quick Add and the main-storage setting in admin.
+ */
+export function resolveLocationShelf(locationId: string | null): LocationShelfPick {
+  if (!locationId) return { location: null, shelf: null };
+  const byId = new Map(getAllLocations().map(l => [l.id, l]));
+  const loc = byId.get(locationId);
+  if (!loc) return { location: null, shelf: null };
+  const parent = loc.parent_id ? byId.get(loc.parent_id) : undefined;
+  if (parent && parent.has_shelves === 1) {
+    return {
+      location: { id: parent.id, label: parent.name },
+      shelf: { id: loc.id, label: loc.name },
+    };
+  }
+  return { location: { id: loc.id, label: loc.name }, shelf: null };
+}
+
 export function getTopLevelLocations(): Location[] {
   const db = getDb();
   const result = db.executeSync(
@@ -61,7 +104,12 @@ export function getSubAreas(parentId: string): Location[] {
 // for indentation. A visited set guards against any cyclic parent_id data so the
 // recursion can't loop forever.
 export function getLocationTree(): LocationWithChildren[] {
-  const all = getAllLocations();
+  // Shelves are excluded so the Locations browser tree only shows real
+  // locations — see getBrowsableLocations(). Since nothing in the UI lets a
+  // shelf be chosen as a parent (the "Inside" pickers use getBrowsableLocations
+  // too), no non-shelf location is ever parented under a shelf, so this filter
+  // can't orphan a real sub-area out of the tree.
+  const all = getBrowsableLocations();
   const byParent = new Map<string | null, Location[]>();
   for (const loc of all) {
     const key = loc.parent_id ?? null;
@@ -160,6 +208,26 @@ export function getShelfLocations(): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
+// Active locations whose name matches the query (case-insensitive), for global search.
+export function searchLocations(q: string, limit = 20): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND name LIKE ? ORDER BY name LIMIT ?`,
+    [`%${q}%`, limit],
+  );
+  return rowsAs<Location>(result.rows);
+}
+
+// "Office" destinations — locations tagged Shop or Office (the franchise base).
+// Backs the scan check-out flow's Office quick-destination.
+export function getOfficeLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type IN ('Shop', 'Office') ORDER BY name`,
+  );
+  return rowsAs<Location>(result.rows);
+}
+
 // Shelf child-locations of a given parent, for the add-stock Shelf typeahead.
 export function getShelvesForParent(parentId: string): Location[] {
   const db = getDb();
@@ -174,7 +242,13 @@ export function getShelvesForParent(parentId: string): Location[] {
 // returning its location id. Newly created shelves are written locally + queued
 // to the sync outbox (real boolean for active/has_shelves). Stock is then tracked
 // against the returned shelf location id.
-export function findOrCreateShelf(parentId: string, name: string): string {
+//
+// CONTRACT: returns null if the shelf could NOT be created (the upsert + outbox
+// writes are wrapped in one transaction and we swallow the error here rather than
+// throw). Callers MUST null-check and surface a "couldn't create shelf" message
+// instead of tracking stock against a missing location. (An empty name returns
+// the parent id unchanged, which is a valid location.)
+export function findOrCreateShelf(parentId: string, name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return parentId;
   const db = getDb();
@@ -192,19 +266,70 @@ export function findOrCreateShelf(parentId: string, name: string): string {
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
   };
-  upsertLocation(shelf);
-  appendOutbox('INSERT', 'locations', {
-    id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
-    owner_user_id: null, active: true, updated_at: now,
-    latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
-  });
+  try {
+    // upsertLocation + appendOutbox are two writes — keep them atomic so we never
+    // create a local shelf the server won't hear about (or vice-versa).
+    runInTransaction(() => {
+      upsertLocation(shelf);
+      appendOutbox('INSERT', 'locations', {
+        id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
+        owner_user_id: null, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
+      });
+    });
+  } catch (err) {
+    console.warn('findOrCreateShelf: failed to create shelf', err);
+    return null;
+  }
   return id;
+}
+
+// Set (or clear, with null) a shelf's optional display color — reuses the same
+// locations.color column a regular location's edit form writes, so a shelf can
+// carry a color without a schema change. Mirrors the location edit screen's
+// upsert + outbox + log pattern (kept as its own small setter rather than a full
+// upsertLocation call so callers touching just the color don't need every other
+// location field). No-ops on an unknown id or a non-Shelf location.
+export function setShelfColor(shelfId: string, color: string | null, userId: string | null): void {
+  const shelf = getLocationById(shelfId);
+  if (!shelf || shelf.type !== 'Shelf') return;
+  const now = new Date().toISOString();
+  try {
+    runInTransaction(() => {
+      getDb().executeSync(
+        `UPDATE locations SET color = ?, updated_at = ? WHERE id = ?`,
+        [color, now, shelfId],
+      );
+      appendOutbox('UPDATE', 'locations', { id: shelfId, color, updated_at: now });
+      appendLog({
+        action: 'location_updated',
+        entity_type: 'location',
+        entity_id: shelfId,
+        user_id: userId,
+        team_id: null,
+        job_id: null,
+        note: shelf.name,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('setShelfColor: failed to set shelf color', err);
+  }
 }
 
 // Find (case-insensitive, across any parent) or create a Shelf location by name,
 // returning its id. Used by the item "Home location" typeahead where there's no
 // pre-selected parent — shelves are identified by their prefixed name (WH-A1),
 // so a new one is created top-level (parent_id null) and can be re-parented later.
+//
+// CONTRACT: returns null for an empty name OR if the create failed (the upsert +
+// outbox writes are wrapped in one transaction and the error is swallowed here
+// rather than thrown). Callers MUST null-check before using the id.
 export function findOrCreateShelfByName(name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
@@ -222,12 +347,21 @@ export function findOrCreateShelfByName(name: string): string | null {
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
   };
-  upsertLocation(shelf);
-  appendOutbox('INSERT', 'locations', {
-    id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
-    owner_user_id: null, active: true, updated_at: now,
-    latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
-  });
+  try {
+    // Keep the local upsert and the outbox enqueue atomic — partial state here
+    // means a shelf that either never syncs or exists only in the outbox.
+    runInTransaction(() => {
+      upsertLocation(shelf);
+      appendOutbox('INSERT', 'locations', {
+        id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
+        owner_user_id: null, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Shelf', has_shelves: false,
+      });
+    });
+  } catch (err) {
+    console.warn('findOrCreateShelfByName: failed to create shelf', err);
+    return null;
+  }
   return id;
 }
 

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
+import { parseOptionalCount, parsePackSize } from '../../../src/lib/validation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
@@ -10,8 +11,10 @@ import {
 import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
-import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType } from '../../../src/db/queries/taxonomy';
+import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
+import { resolveTypeColor } from '../../../src/constants/typeColors';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
@@ -23,12 +26,14 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
+  const refreshKey = useFocusRefresh();
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -50,8 +55,11 @@ export default function ItemDetailScreen() {
 
   // Admin-managed Item Types (PPE, Filters, …) and product classes (unit class
   // override). Each item type carries its curated units + unit class in meta.
-  const itemTypes = useMemo(() => getItemTypes(), []);
-  const productClasses = useMemo(() => getProductClasses(), []);
+  const itemTypes = useMemo(() => getItemTypes(), [refreshKey]);
+  // Item Types are a managed taxonomy → an admin can override the auto color.
+  // Keyed on refreshKey so the map refreshes after a sync.
+  const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), [refreshKey]);
+  const productClasses = useMemo(() => getProductClasses(), [refreshKey]);
   // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
   // Falls back to the full breadcrumb list when no shelves exist yet so the field
   // stays usable.
@@ -60,14 +68,17 @@ export default function ItemDetailScreen() {
     return shelves.length
       ? shelves.map(s => ({ id: s.id, label: s.name }))
       : getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, []);
+  }, [refreshKey]);
 
-  const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
-  const modelOptions = useMemo(() => getDistinctValues('model'), []);
-  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
+  const supplierOptions = useMemo(() => getDistinctValues('supplier'), [refreshKey]);
+  const modelOptions = useMemo(() => getDistinctValues('model'), [refreshKey]);
+  const categoryOptions = useMemo(() => getDistinctValues('category'), [refreshKey]);
 
   // Label print sheet state
   const [printItemSheet, setPrintItemSheet] = useState(false);
+
+  // Request-approval sheet state
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   const total = useMemo(
     () => stock.reduce((sum, st) => sum + st.quantity, 0),
@@ -169,6 +180,30 @@ export default function ItemDetailScreen() {
   function saveEdit() {
     if (!item) return;
     if (!form.name?.trim()) { Alert.alert('Required', 'Item name is required.'); return; }
+
+    // Validate numeric fields up front with clear, fixable messages (mirrors the
+    // add/quick-add screens) instead of silently coercing bad input.
+    const minAlert = parseOptionalCount(form.min_qty_alert, 'Low-stock alert');
+    if (!minAlert.ok) { Alert.alert('Invalid low-stock alert', minAlert.error); return; }
+    const reorder = parseOptionalCount(form.reorder_to, 'Reorder up to');
+    if (!reorder.ok) { Alert.alert('Invalid reorder amount', reorder.error); return; }
+    const pack = parsePackSize(form.pack_size ?? '');
+    if (!pack.ok) { Alert.alert('Invalid pack size', pack.error); return; }
+
+    // Resolve the home location BEFORE building the update so a failed shelf
+    // create (findOrCreateShelfByName returns null on write failure) can't
+    // silently drop it. Abort with a message instead.
+    let homeLocationId: string | null;
+    if (editHomeLocation?.id === '__new__') {
+      homeLocationId = findOrCreateShelfByName(editHomeLocation.label);
+      if (!homeLocationId) {
+        Alert.alert('Couldn’t add that location', 'The shelf could not be created. Please try again.');
+        return;
+      }
+    } else {
+      homeLocationId = editHomeLocation?.id ?? null;
+    }
+
     const fields = {
       name: form.name.trim(),
       model: form.model.trim() || null,
@@ -176,21 +211,16 @@ export default function ItemDetailScreen() {
       barcode: form.barcode.trim() || null,
       sku: form.sku.trim() || null,
       supplier: form.supplier.trim() || null,
-      min_qty_alert: parseFloat(form.min_qty_alert) || 0,
-      reorder_to: form.reorder_to.trim() ? parseFloat(form.reorder_to) : null,
+      min_qty_alert: minAlert.value ?? 0,
+      reorder_to: reorder.value,
       category: editCategory.trim() || null,
       returnable: (editReturnable ? 1 : 0) as number,
       // Keep unit_category a real product_class id so formatQuantity decimals
       // stay correct; never write an empty unit (fall back to the existing one).
       unit_category: editUnitCat || PRODUCT_CLASS_IDS.piece,
       unit: editUnit.trim() || item.unit,
-      home_location_id: editHomeLocation?.id === '__new__'
-        ? findOrCreateShelfByName(editHomeLocation.label)
-        : (editHomeLocation?.id ?? null),
-      pack_size: (() => {
-        const n = parseInt(form.pack_size ?? '', 10);
-        return Number.isFinite(n) && n > 1 ? n : null;
-      })(),
+      home_location_id: homeLocationId,
+      pack_size: pack.value,
     };
     const synced = updateItemFields(item.id, fields);
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
@@ -242,12 +272,14 @@ export default function ItemDetailScreen() {
                   <FieldLabel>Item type</FieldLabel>
                   <View style={s.chipRow}>
                     {itemTypes.map(t => (
-                      <FilterChip
-                        key={t.id}
-                        label={t.icon ? `${t.icon} ${t.label}` : t.label}
-                        active={editItemType === t.label}
-                        onPress={() => selectItemType(t)}
-                      />
+                      <View key={t.id} style={s.chipWithDot}>
+                        <View style={[s.typeDot, { backgroundColor: resolveTypeColor(t.label, itemTypeColorMap[t.label]) }]} />
+                        <FilterChip
+                          label={t.icon ? `${t.icon} ${t.label}` : t.label}
+                          active={editItemType === t.label}
+                          onPress={() => selectItemType(t)}
+                        />
+                      </View>
                     ))}
                   </View>
                 </View>
@@ -388,6 +420,11 @@ export default function ItemDetailScreen() {
               <Text style={s.sectionLabel}>Photos</Text>
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
 
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setApprovalOpen(true)}>
+                <Text style={s.attrKey}>✅ Request Approval</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
+
               {canEdit && (
                 <PrimaryButton label="Edit Item" onPress={startEdit} />
               )}
@@ -403,6 +440,15 @@ export default function ItemDetailScreen() {
         title={item.name}
         code={item.barcode ?? item.id}
         qrUrl={`${API}/labels/item/${item.id}/qr.png`}
+      />
+
+      {/* ── Request Approval (item) ────────────────────────────────────── */}
+      <RequestApprovalSheet
+        visible={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        entityType="item"
+        entityId={item.id}
+        entityLabel={item.name}
       />
     </>
   );
@@ -463,6 +509,9 @@ const s = StyleSheet.create({
   stockZero: { color: colors.textDisabled },
   fieldWrap: { gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // Item-type chip + its colored type dot, grouped so they read as one unit.
+  chipWithDot: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  typeDot: { width: 9, height: 9, borderRadius: 5 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },

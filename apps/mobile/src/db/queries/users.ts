@@ -1,5 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { UserRole } from '../../constants/roles';
+import { UserRole, ROLE_TIER, resolveRoleColor } from '../../constants/roles';
 import { appendOutbox } from '../../sync/outbox';
 import { getValidJwt } from '../../auth/session';
 
@@ -127,6 +127,36 @@ export function getRoleSettings(): Record<string, number> {
   );
 }
 
+// Role → override color (only non-null overrides). Callers build this ONCE per
+// screen and pass it to roleColor() per row to avoid per-row DB reads.
+export function getRoleColorMap(): Record<string, string> {
+  const db = getDb();
+  const result = db.executeSync(`SELECT role, color FROM role_settings WHERE color IS NOT NULL`);
+  const map: Record<string, string> = {};
+  for (const row of result.rows as { role: string; color: string | null }[]) {
+    if (row.color) map[row.role] = row.color;
+  }
+  return map;
+}
+
+// Effective name color for a role. Pass a prebuilt map in hot lists.
+export function roleColor(role: string, map?: Record<string, string>): string {
+  const override = (map ?? getRoleColorMap())[role];
+  return resolveRoleColor(role, override);
+}
+
+// Set (or clear, with null) a role's override color. Returns new updated_at.
+export function setRoleColor(role: string, color: string | null): string {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.executeSync(
+    `INSERT INTO role_settings (role, color, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(role) DO UPDATE SET color = excluded.color, updated_at = excluded.updated_at`,
+    [role, color, now]
+  );
+  return now;
+}
+
 // Apply admin edits to the local users row. PIN/pin_set are NEVER written here —
 // PIN reset is server-only (see resetUserPinOnline in the screen). Returns the
 // updated_at stamp so the caller can mirror it into the sync outbox.
@@ -154,15 +184,63 @@ export function setUserActive(id: string, active: boolean): string {
   return now;
 }
 
+export interface RoleChangeResult {
+  id: string;
+  name: string;
+  role: string;
+  pin_length_required: number;
+  active: boolean;
+  expires_at: string | null;
+  // Present only when the role change also changed the required PIN length —
+  // the server cleared the old PIN and this is the ONE time the fresh
+  // enrollment code is ever returned, so the caller must surface it to the admin.
+  enrollment_code?: string;
+}
+
+// A role change whose new role requires a DIFFERENT PIN length must go through
+// the server: PATCH /users/:id is the only path that can clear pin_hash/pin_set
+// and reissue an enrollment_code (the sync outbox always denies writes to those
+// columns — see appendOutbox's always-denied list — so routing this through
+// appendOutbox would silently leave the user's old PIN active with no code to
+// set a new one). Mirrors resetUserPinOnline/createUserOnline: online-only,
+// throws a friendly error when offline/forbidden so the caller can refuse to
+// apply the change locally. A same-length role change should NOT call this —
+// it stays on the offline-capable setUserRole/outbox path below.
+export async function changeRoleOnline(userId: string, role: UserRole): Promise<RoleChangeResult> {
+  const jwt = await getValidJwt();
+  if (!jwt) throw new Error("Changing to this role resets the user's PIN and requires a connection.");
+  const res = await fetch(`${API_BASE}/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ role }),
+  });
+  if (!res.ok) {
+    throw new Error(res.status === 403 ? 'You do not have permission to change roles.' : `Could not change role (${res.status}).`);
+  }
+  return res.json() as Promise<RoleChangeResult>;
+}
+
 // A role change must also move pin_length_required to the new role's minimum —
 // exactly like the single-row edit in users.tsx saveEdits (a crew→manager
 // promotion must not keep the shorter PIN requirement). The caller passes the
 // resolved minimum (roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]])
 // so this query layer stays free of the role-settings cache.
+//
+// When that minimum DIFFERS from the user's current required length, the
+// user's existing PIN no longer satisfies the new role's policy — mirror the
+// API's PATCH /users/:id behavior by also clearing pin_set locally (via
+// markUserPinReset, the same helper the admin reset-PIN flow uses), so this
+// device stops accepting the old PIN even before the next sync pulls the
+// server's authoritative pin_hash=NULL/enrollment_code state. A same-length
+// role change must NOT touch pin_set.
 export function setUserRole(id: string, role: string, pinLengthRequired?: number): string {
+  const current = getUserById(id);
+  const lengthChanged = pinLengthRequired != null && current != null
+    && current.pin_length_required !== pinLengthRequired;
   const fields: EditableUserFields = { role: role as UserRole };
   if (pinLengthRequired != null) fields.pin_length_required = pinLengthRequired;
   const now = updateUserLocal(id, fields);
+  if (lengthChanged) markUserPinReset(id);
   appendOutbox('UPDATE', 'users', {
     id, role, updated_at: now,
     ...(pinLengthRequired != null ? { pin_length_required: pinLengthRequired } : {}),
@@ -183,6 +261,27 @@ export function getUsersByRole(role: string): User[] {
   const result = db.executeSync(
     `SELECT * FROM users WHERE active = 1 AND role = ? ORDER BY name`,
     [role]
+  );
+  return rowsAs<User>(result.rows);
+}
+
+// Active users at manager tier (ROLE_TIER >= 2) — the checkout "Manager"
+// destination. Managers are grouped in practice (heads of construction/contents,
+// office/franchise managers all act as destinations), so the picker must offer
+// all of them, not just production_manager. Ordered by tier desc (most senior
+// first) then name.
+export function getManagerTierUsers(): User[] {
+  return getAllActiveUsers()
+    .filter(u => (ROLE_TIER[u.role] ?? 0) >= 2)
+    .sort((a, b) => (ROLE_TIER[b.role] - ROLE_TIER[a.role]) || a.name.localeCompare(b.name));
+}
+
+// Active users whose name matches the query (case-insensitive), for global search.
+export function searchUsers(q: string, limit = 20): User[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM users WHERE active = 1 AND name LIKE ? ORDER BY name LIMIT ?`,
+    [`%${q}%`, limit],
   );
   return rowsAs<User>(result.rows);
 }

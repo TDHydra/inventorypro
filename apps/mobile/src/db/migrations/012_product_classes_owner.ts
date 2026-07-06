@@ -1,4 +1,4 @@
-import { DB } from '@op-engineering/op-sqlite';
+import type { SqlDb } from '../types';
 
 // Fixed seed UUIDs for the 4 legacy measurement categories — MUST be identical on api + mobile.
 const CLASS_LIQUID = '00000000-0000-4000-8000-000000000c01';
@@ -15,7 +15,7 @@ const META_WEIGHT = '{"units":["lb","oz","kg","g"],"allowDecimals":true}';
 
 export const migration = {
   version: 12,
-  up: (db: DB): void => {
+  up: (db: SqlDb): void => {
     db.executeSync(`ALTER TABLE taxonomy_types ADD COLUMN meta TEXT`);
     db.executeSync(`ALTER TABLE locations ADD COLUMN subareas_require_owner INTEGER NOT NULL DEFAULT 0`);
 

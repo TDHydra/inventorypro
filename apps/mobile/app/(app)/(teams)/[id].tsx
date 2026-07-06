@@ -1,23 +1,26 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
-  setMemberManager, Team, TeamMember,
+  setMemberManagerOnline, setMemberPermissionOverridesOnline,
+  TEAM_OVERRIDABLE_PERMISSIONS, TEAM_PERMISSION_LABELS, Team, TeamMember,
 } from '../../../src/db/queries/teams';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
+import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
+import { getAllActiveUsers, roleColor, getRoleColorMap, getRolePermissionOverrides } from '../../../src/db/queries/users';
+import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, UserRole, Permission } from '../../../src/constants/roles';
+import { parsePermissionOverrides } from '../../../src/auth/permissions';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { getTaxonomyTypes, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -50,8 +53,18 @@ export default function TeamDetailScreen() {
   const [showUserCreate, setShowUserCreate] = useState(false);
   const [userCreateInitial, setUserCreateInitial] = useState('');
 
+  // Per-member permission override editor
+  const [permMember, setPermMember] = useState<TeamMember | null>(null);
+  const [permDraft, setPermDraft] = useState<Record<string, boolean>>({});
+  const [savingPerms, setSavingPerms] = useState(false);
+
   const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
+  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
+  const roleColors = useMemo(() => getRoleColorMap(), []);
+  // Role-level permission deviations, used as the "base" a team override is
+  // relative to (mirrors the resolution order in auth/permissions.ts: role
+  // default → role override → [team override, edited here] → user override).
+  const roleOverrides = useMemo(() => getRolePermissionOverrides(), []);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
@@ -94,29 +107,36 @@ export default function TeamDetailScreen() {
       type: editType,
       updated_at: now,
     };
-    upsertTeam(updated);
-    appendOutbox('UPDATE', 'teams', {
-      id: team.id,
-      name: trimmed,
-      type: editType,
-      manager_id: team.manager_id ?? null,
-      updated_at: now,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: team.id,
-      action: 'team_updated',
-      entity_type: 'team',
-      entity_id: team.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: null,
-      metadata: null,
-      device_id: null,
-    });
+    try {
+      runInTransaction(() => {
+        upsertTeam(updated);
+        appendOutbox('UPDATE', 'teams', {
+          id: team.id,
+          name: trimmed,
+          type: editType,
+          updated_at: now,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: 'team_updated',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not save team', 'The changes were not saved. Please try again.');
+      return;
+    }
+    // Success side-effects only after the write committed.
     setTeam(updated);
     setShowEdit(false);
   }
@@ -126,37 +146,50 @@ export default function TeamDetailScreen() {
   function handleAddMember() {
     if (!newMemberOption || !team) return;
     if (isWriteBlocked()) return;
-    const result = addTeamMember(team.id, newMemberOption.id, {}, user?.id ?? null);
+    let result: ReturnType<typeof addTeamMember>;
+    try {
+      result = runInTransaction(() => {
+        const r = addTeamMember(team.id, newMemberOption.id, {}, user?.id ?? null);
+        if (r === null) {
+          // INSERT OR IGNORE skipped — composite key already exists; no outbox/log.
+          return null;
+        }
+        const { joined_at } = r;
+        appendOutbox('INSERT', 'team_members', {
+          team_id: team.id,
+          user_id: newMemberOption.id,
+          team_permission_overrides: '{}',
+          added_by: user?.id ?? null,
+          joined_at,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: 'team_member_added',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: newMemberOption.label,
+          metadata: JSON.stringify({ member_user_id: newMemberOption.id }),
+          device_id: null,
+        });
+        return r;
+      });
+    } catch (e) {
+      Alert.alert('Could not add member', `${newMemberOption.label} was not added. Please try again.`);
+      return;
+    }
     if (result === null) {
-      // INSERT OR IGNORE skipped — composite key already exists
       Alert.alert('Already a member', `${newMemberOption.label} is already on this team.`);
       setNewMemberOption(null);
       setShowAddMember(false);
       return;
     }
-    const { joined_at } = result;
-    appendOutbox('INSERT', 'team_members', {
-      team_id: team.id,
-      user_id: newMemberOption.id,
-      team_permission_overrides: '{}',
-      added_by: user?.id ?? null,
-      joined_at,
-    });
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: team.id,
-      action: 'team_member_added',
-      entity_type: 'team',
-      entity_id: team.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: newMemberOption.label,
-      metadata: JSON.stringify({ member_user_id: newMemberOption.id }),
-      device_id: null,
-    });
+    // Success side-effects only after the write committed.
     setMembers(getTeamMembers(team.id));
     setNewMemberOption(null); // clear only after successful submit
     setShowAddMember(false);
@@ -177,27 +210,35 @@ export default function TeamDetailScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            removeTeamMember(team.id, member.user_id);
-            // Composite-key DELETE: server matches by {team_id, user_id}
-            appendOutbox('DELETE', 'team_members', {
-              team_id: team.id,
-              user_id: member.user_id,
-            });
-            appendLog({
-              user_id: user?.id ?? null,
-              team_id: team.id,
-              action: 'team_member_removed',
-              entity_type: 'team',
-              entity_id: team.id,
-              from_location_id: null,
-              to_location_id: null,
-              quantity: null,
-              unit: null,
-              job_id: null,
-              note: memberName,
-              metadata: JSON.stringify({ member_user_id: member.user_id }),
-              device_id: null,
-            });
+            try {
+              runInTransaction(() => {
+                removeTeamMember(team.id, member.user_id);
+                // Composite-key DELETE: server matches by {team_id, user_id}
+                appendOutbox('DELETE', 'team_members', {
+                  team_id: team.id,
+                  user_id: member.user_id,
+                });
+                appendLog({
+                  user_id: user?.id ?? null,
+                  team_id: team.id,
+                  action: 'team_member_removed',
+                  entity_type: 'team',
+                  entity_id: team.id,
+                  from_location_id: null,
+                  to_location_id: null,
+                  quantity: null,
+                  unit: null,
+                  job_id: null,
+                  note: memberName,
+                  metadata: JSON.stringify({ member_user_id: member.user_id }),
+                  device_id: null,
+                });
+              });
+            } catch (e) {
+              Alert.alert('Could not remove member', `${memberName} was not removed. Please try again.`);
+              return;
+            }
+            // Refresh only after the write committed.
             setMembers(getTeamMembers(team.id));
           },
         },
@@ -207,29 +248,103 @@ export default function TeamDetailScreen() {
 
   // ── Promote / demote manager ────────────────────────────────────────────────
 
-  function handleToggleManager(member: TeamMember) {
+  // is_manager is server-controlled (sync ignores it — was a self-promotion hole),
+  // so promotion goes through the gated PATCH endpoint online, then reflects
+  // locally. Online-only, like creating a user.
+  async function handleToggleManager(member: TeamMember) {
     if (!team) return;
-    if (isWriteBlocked()) return;
     const willBeManager = member.is_manager !== 1;
     const memberName = member.user_name ?? member.user_id;
-    // setMemberManager bundles its own outbox row (real boolean, no synced_at).
-    setMemberManager(team.id, member.user_id, willBeManager);
-    appendLog({
-      user_id: user?.id ?? null,
-      team_id: team.id,
-      action: willBeManager ? 'team_manager_added' : 'team_manager_removed',
-      entity_type: 'team',
-      entity_id: team.id,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      job_id: null,
-      note: memberName,
-      metadata: JSON.stringify({ member_user_id: member.user_id }),
-      device_id: null,
-    });
+    try {
+      await setMemberManagerOnline(team.id, member.user_id, willBeManager);
+      // Activity log is best-effort (and never blocks the change).
+      try {
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: willBeManager ? 'team_manager_added' : 'team_manager_removed',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: memberName,
+          metadata: JSON.stringify({ member_user_id: member.user_id }),
+          device_id: null,
+        });
+      } catch { /* logging is non-critical */ }
+    } catch (e) {
+      Alert.alert('Could not update manager', (e as Error).message);
+      return;
+    }
+    // Refresh only after the server confirmed + local row updated.
     setMembers(getTeamMembers(team.id));
+  }
+
+  // ── Per-member permission overrides ─────────────────────────────────────────
+
+  // Effective value BEFORE any team override — role default merged with the
+  // role-level deviation (same as roles.tsx's effectivePerm, minus the team layer
+  // we're editing here). Used both as the Switch's "off" baseline and to decide
+  // whether a toggle should store an override key or clear it (clean reset).
+  function baseTeamPermValue(role: string | null | undefined, perm: Permission): boolean {
+    const r = (role ?? '') as UserRole;
+    const def = ROLE_DEFAULTS[r]?.[perm] ?? false;
+    const ov = roleOverrides[r];
+    return ov && perm in ov ? ov[perm] : def;
+  }
+
+  function openPermEditor(member: TeamMember) {
+    setPermMember(member);
+    setPermDraft(parsePermissionOverrides(member.team_permission_overrides));
+  }
+
+  function togglePermDraft(perm: Permission) {
+    if (!permMember) return;
+    const base = baseTeamPermValue(permMember.user_role, perm);
+    const cur = perm in permDraft ? permDraft[perm] : base;
+    const next = !cur;
+    setPermDraft(prev => {
+      const copy = { ...prev };
+      if (next === base) delete copy[perm]; else copy[perm] = next;
+      return copy;
+    });
+  }
+
+  async function handleSavePermDraft() {
+    if (!permMember || !team) return;
+    if (isWriteBlocked()) return;
+    setSavingPerms(true);
+    try {
+      await setMemberPermissionOverridesOnline(team.id, permMember.user_id, permDraft);
+    } catch (e) {
+      setSavingPerms(false);
+      Alert.alert('Could not update permissions', (e as Error).message);
+      return;
+    }
+    // Activity log is best-effort (and never blocks the change already committed above).
+    try {
+      appendLog({
+        user_id: user?.id ?? null,
+        team_id: team.id,
+        action: 'user_permission_changed',
+        entity_type: 'user',
+        entity_id: permMember.user_id,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        job_id: null,
+        note: `${permMember.user_name ?? permMember.user_id} · ${team.name} team permissions updated`,
+        metadata: JSON.stringify({ team_id: team.id, overrides: permDraft }),
+        device_id: null,
+      });
+    } catch { /* logging is non-critical */ }
+    setSavingPerms(false);
+    setMembers(getTeamMembers(team.id));
+    setPermMember(null);
   }
 
   // ── Not found ──────────────────────────────────────────────────────────────
@@ -302,7 +417,7 @@ export default function TeamDetailScreen() {
                 style={[s.memberRow, i < members.length - 1 && s.divider]}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={s.memberName}>{m.user_name ?? m.user_id}</Text>
+                  <Text style={[s.memberName, { color: roleColor(m.user_role ?? '', roleColors) }]}>{m.user_name ?? m.user_id}</Text>
                   {!!m.user_role && (
                     <Text style={s.memberRole}>
                       {ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role}
@@ -334,6 +449,16 @@ export default function TeamDetailScreen() {
                     <Text style={s.mgrBadgeText}>Manager</Text>
                   </View>
                 ) : null}
+                {canManage && (
+                  <TouchableOpacity
+                    onPress={() => openPermEditor(m)}
+                    disabled={locked}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={s.permsBtn}
+                  >
+                    <Text style={s.permsText}>Perms</Text>
+                  </TouchableOpacity>
+                )}
                 {canManage && (
                   <TouchableOpacity
                     onPress={() => handleRemoveMember(m)}
@@ -443,6 +568,53 @@ export default function TeamDetailScreen() {
           setShowUserCreate(false);
         }}
       />
+
+      {/* Per-member team permission override editor — onClose only hides;
+          unsaved toggles are discarded on outside-tap dismiss (draft-only until Save). */}
+      <ModalSheet visible={!!permMember} onClose={() => setPermMember(null)}>
+        <Text style={s.modalTitle}>
+          {permMember ? `${permMember.user_name ?? permMember.user_id} · Team Permissions` : 'Team Permissions'}
+        </Text>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
+          <Text style={s.permsIntro}>
+            Overrides apply only within {team.name}. Toggling a permission back to its
+            default removes the override.
+          </Text>
+          {permMember && TEAM_OVERRIDABLE_PERMISSIONS.map(perm => {
+            const base = baseTeamPermValue(permMember.user_role, perm);
+            const value = perm in permDraft ? permDraft[perm] : base;
+            const modified = perm in permDraft;
+            return (
+              <View key={perm} style={s.permRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.permLabel}>{TEAM_PERMISSION_LABELS[perm]}</Text>
+                  {modified && <Text style={s.modifiedBadge}>overridden</Text>}
+                </View>
+                <Switch
+                  value={value}
+                  disabled={locked || savingPerms}
+                  onValueChange={() => togglePermDraft(perm)}
+                  trackColor={{ true: colors.primary, false: colors.border }}
+                />
+              </View>
+            );
+          })}
+
+          <PrimaryButton
+            label={savingPerms ? 'Saving…' : 'Save Permissions'}
+            onPress={handleSavePermDraft}
+            disabled={locked || savingPerms}
+            style={{ marginTop: 8 }}
+          />
+          {locked && <MaintenanceBanner />}
+          <TouchableOpacity
+            style={s.cancelRow}
+            onPress={() => setPermMember(null)}
+          >
+            <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </ModalSheet>
     </>
   );
 }
@@ -497,6 +669,16 @@ const s = StyleSheet.create({
   memberRole: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   removeBtn: { marginLeft: 12 },
   removeText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+  permsBtn: {
+    marginLeft: 10, borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  permsText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
+
+  permsIntro: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: 8 },
+  permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
+  permLabel: { fontSize: 14, color: colors.textPrimary },
+  modifiedBadge: { fontSize: 11, color: colors.warning, fontWeight: '600', marginTop: 2 },
 
   mgrToggle: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 999,

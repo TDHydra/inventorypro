@@ -3,33 +3,56 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { searchItems, adjustStock, getItemById } from '../../db/queries/items';
+import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../db/queries/items';
 import { getAllLocations } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
+import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { track } from '../../telemetry';
+import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
-  onSaved: (label: string, createdId?: string) => void;
+  onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
 }
+
+type Mode = 'delta' | 'set';
 
 export default function StockQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  // Set/recount does an INSERT the server gates on `checkin_inventory`. The
+  // screen itself is only client-gated by `quick_add`, so a tier3 role
+  // (quick_add=true, checkin_inventory=false) would otherwise save a recount
+  // that the server silently rejects. Gate the Set toggle on the same perm the
+  // server enforces; Delta (ADJUST) stays available regardless.
+  const canRecount = usePermission('checkin_inventory');
   const qtyRef = useRef<TextInput>(null);
 
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null); // sticky
   const [selectedItemOpt, setSelectedItemOpt] = useState<PickerOption | null>(null);
+  const [mode, setMode] = useState<Mode>('delta');
   const [qty, setQty] = useState('');
   const [error, setError] = useState('');
+
+  // Current on-hand qty for the hint shown when recounting ("Set") — only looked
+  // up once both a location and item are picked.
+  const currentOnHand = useMemo(
+    () =>
+      mode === 'set' && selectedLocation && selectedItemOpt
+        ? getStockQuantity(selectedItemOpt.id, selectedLocation.id)
+        : null,
+    [mode, selectedLocation, selectedItemOpt],
+  );
 
   const allLocations = useMemo(() => getAllLocations(), []);
   const locationOptions: PickerOption[] = useMemo(
@@ -45,6 +68,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
   );
 
   function handleSave() {
+    track('action', 'quickadd_save_stock', { screen: 'quick_add' });
     if (!selectedLocation) {
       setError('Select a location.');
       return;
@@ -53,9 +77,17 @@ export default function StockQuickAdd({ onSaved }: Props) {
       setError('Select an item.');
       return;
     }
+    // Guard the recount path even if `mode` is somehow stale — the server rejects
+    // the INSERT without `checkin_inventory`, so never let it save silently.
+    if (mode === 'set' && !canRecount) {
+      setError('Recount requires check-in permission.');
+      return;
+    }
     const parsedQty = parseFloat(qty);
-    if (!qty.trim() || isNaN(parsedQty) || parsedQty <= 0) {
-      setError('Quantity must be greater than 0.');
+    // Delta must be a positive addition; Set is an absolute recount, so 0 is a
+    // valid "nothing here" reading — only reject NaN / negative.
+    if (!qty.trim() || isNaN(parsedQty) || (mode === 'delta' ? parsedQty <= 0 : parsedQty < 0)) {
+      setError(mode === 'delta' ? 'Quantity must be greater than 0.' : 'Quantity must be 0 or greater.');
       return;
     }
     setError('');
@@ -66,32 +98,67 @@ export default function StockQuickAdd({ onSaved }: Props) {
     const fullItem = getItemById(itemId);
     const itemUnit = fullItem?.unit ?? 'each';
 
-    adjustStock(itemId, locationId, parsedQty);
+    if (mode === 'set') {
+      // Absolute recount — INSERT so the server upserts via ON CONFLICT (item_id,
+      // location_id) DO UPDATE (a plain UPDATE would no-op when no stock row exists
+      // yet, silently losing the recount). Server clamps ≥0 and forces updated_at.
+      upsertStock({ item_id: itemId, location_id: locationId, quantity: parsedQty, updated_at: now });
 
-    appendOutbox('ADJUST', 'stock_by_location', {
-      item_id: itemId,
-      location_id: locationId,
-      delta: parsedQty,
-      updated_at: now,
-    });
-    appendLog({
-      action: 'add_stock',
-      entity_type: 'item',
-      entity_id: itemId,
-      to_location_id: locationId,
-      quantity: parsedQty,
-      unit: itemUnit,
-      user_id: user?.id ?? null,
-      team_id: null,
-      from_location_id: null,
-      job_id: null,
-      note: null,
-      metadata: null,
-      device_id: null,
-    });
+      appendOutbox('INSERT', 'stock_by_location', {
+        item_id: itemId,
+        location_id: locationId,
+        quantity: parsedQty,
+        updated_at: now,
+      });
+      appendLog({
+        action: 'recount',
+        entity_type: 'item',
+        entity_id: itemId,
+        to_location_id: locationId,
+        quantity: parsedQty,
+        unit: itemUnit,
+        user_id: user?.id ?? null,
+        team_id: null,
+        from_location_id: null,
+        job_id: null,
+        note: null,
+        metadata: null,
+        device_id: null,
+      });
+    } else {
+      adjustStock(itemId, locationId, parsedQty);
+
+      appendOutbox('ADJUST', 'stock_by_location', {
+        item_id: itemId,
+        location_id: locationId,
+        delta: parsedQty,
+        updated_at: now,
+      });
+      appendLog({
+        action: 'add_stock',
+        entity_type: 'item',
+        entity_id: itemId,
+        to_location_id: locationId,
+        quantity: parsedQty,
+        unit: itemUnit,
+        user_id: user?.id ?? null,
+        team_id: null,
+        from_location_id: null,
+        job_id: null,
+        note: null,
+        metadata: null,
+        device_id: null,
+      });
+    }
 
     const locName = selectedLocation.label;
-    onSaved(`${parsedQty} ${itemUnit} @ ${locName}`, itemId);
+    onSaved(
+      mode === 'set'
+        ? `Set to ${parsedQty} ${itemUnit} @ ${locName}`
+        : `${parsedQty} ${itemUnit} @ ${locName}`,
+      itemId,
+      { kind: 'stock', itemId, locationId, qty: parsedQty, mode, unit: itemUnit },
+    );
 
     // Clear item+qty; keep location sticky
     setSelectedItemOpt(null);
@@ -122,10 +189,32 @@ export default function StockQuickAdd({ onSaved }: Props) {
         }}
       />
 
+      <FieldLabel>Mode</FieldLabel>
+      <View style={s.chipRow}>
+        <FilterChip
+          label="Delta (add/remove)"
+          active={mode === 'delta'}
+          onPress={() => { setMode('delta'); if (error) setError(''); }}
+        />
+        {/* Recount is a server-gated check-in; only offer it to roles that can
+            actually complete it, otherwise the save is silently rejected. */}
+        {canRecount && (
+          <FilterChip
+            label="Set exact (recount)"
+            active={mode === 'set'}
+            onPress={() => { setMode('set'); if (error) setError(''); }}
+          />
+        )}
+      </View>
+
+      {mode === 'set' && currentOnHand !== null && (
+        <Text style={s.hint}>Currently {currentOnHand} on hand</Text>
+      )}
+
       <TextInput
         ref={qtyRef}
         style={[s.input, !!error && s.inputError]}
-        placeholder="Quantity *"
+        placeholder={mode === 'set' ? 'New quantity *' : 'Quantity *'}
         placeholderTextColor={colors.textMuted}
         value={qty}
         onChangeText={t => { setQty(t); if (error) setError(''); }}
@@ -157,6 +246,8 @@ const s = StyleSheet.create({
   },
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  hint: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: -4 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 });
