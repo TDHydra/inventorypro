@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import teamRoutes from './teams';
 import userRoutes from './users';
+import authRoutes from './auth';
 
 // Schema validation runs in the Fastify lifecycle BEFORE preHandler (auth), so a
 // malformed body/params is rejected with 400 without ever touching the DB. These
@@ -17,6 +18,7 @@ async function buildApp() {
   app.decorate('authenticate', async () => {});
   await app.register(teamRoutes, { prefix: '/teams' });
   await app.register(userRoutes, { prefix: '/users' });
+  await app.register(authRoutes, { prefix: '/auth' });
   await app.ready();
   return app;
 }
@@ -53,5 +55,35 @@ test('PATCH /teams/:id/members/:uid rejects a non-boolean is_manager (schema)', 
   const app = await buildApp();
   const res = await app.inject({ method: 'PATCH', url: '/teams/t1/members/u1', payload: { is_manager: 'yes-please' } });
   assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST /auth/set-pin rejects a non-6-digit enrollment_code (schema)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: 'u1', pin: '1234', enrollment_code: '1234' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST /auth/set-pin rejects a non-numeric enrollment_code (schema)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: 'u1', pin: '1234', enrollment_code: 'abcdef' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST /auth/set-pin accepts a well-formed 6-digit enrollment_code (schema passes → not 400)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: 'u1', pin: '1234', enrollment_code: '123456' },
+  });
+  assert.notEqual(res.statusCode, 400); // passes validation; fails later (no DB) with 5xx
   await app.close();
 });

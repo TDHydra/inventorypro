@@ -256,7 +256,7 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
 // columns on jobs are gated behind view_financial_data.
 const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
-const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at';
+const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';

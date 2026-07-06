@@ -113,6 +113,31 @@ async function resetUserPinOnline(userId: string): Promise<void> {
   markUserPinReset(userId);
 }
 
+// Reissue a one-time enrollment code for a not-yet-onboarded user and email it.
+// Online-only (mirrors resetUserPinOnline/createUserOnline): the server hashes the
+// new code and sends the mail; it returns the plaintext code so the admin can hand
+// it off in person if email delivery is down. `email` optionally overrides the
+// stored address for this send.
+async function resetEnrollmentCodeOnline(
+  userId: string,
+  email?: string,
+): Promise<{ emailed: boolean; code: string }> {
+  const jwt = await getValidJwt();
+  if (!jwt) throw new Error('Connect to the server to reset an access code.');
+  const res = await fetch(`${API_BASE}/users/${userId}/reset-enrollment-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify(email ? { email } : {}),
+  });
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('You do not have permission to reset access codes.');
+    if (res.status === 409) throw new Error('This user has already set a PIN. Use Reset PIN instead.');
+    if (res.status === 400) throw new Error('No email on file. Add an email to this user first.');
+    throw new Error(`Could not reset access code (${res.status}).`);
+  }
+  return res.json() as Promise<{ emailed: boolean; code: string }>;
+}
+
 type Status = 'active' | 'inactive' | 'expired';
 function userStatus(u: User): Status {
   if (!u.active) return 'inactive';
@@ -147,12 +172,14 @@ export default function AdminUsersScreen() {
   const [showBulkTeamPicker, setShowBulkTeamPicker] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('mitigation_technician');
   const [newPin, setNewPin] = useState('');
   const [creating, setCreating] = useState(false);
 
   // Edit form state (initialised when an edit sheet opens)
   const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('mitigation_technician');
   const [editExpiry, setEditExpiry] = useState<string | null>(null);
   const [showRolePicker, setShowRolePicker] = useState(false);
@@ -170,13 +197,19 @@ export default function AdminUsersScreen() {
   function openEdit(u: User) {
     setEditUser(u);
     setEditName(u.name);
+    setEditEmail(u.email ?? '');
     setEditRole(u.role);
     setEditExpiry(u.expires_at);
     setShowRolePicker(false);
   }
 
+  // Normalize email edits: trim, and treat "" as null so a cleared field diffs
+  // cleanly against a stored null.
+  const editEmailNorm = editEmail.trim() || null;
+
   const editDirty = !!editUser && (
     editName.trim() !== editUser.name ||
+    editEmailNorm !== (editUser.email ?? null) ||
     editRole !== editUser.role ||
     (editExpiry ?? null) !== (editUser.expires_at ?? null)
   );
@@ -200,6 +233,7 @@ export default function AdminUsersScreen() {
     // are deliberately excluded here — changeRoleOnline owns those below.
     const otherFields: Record<string, unknown> = {};
     if (editName.trim() !== editUser.name) otherFields.name = editName.trim();
+    if (editEmailNorm !== (editUser.email ?? null)) otherFields.email = editEmailNorm;
     if ((editExpiry ?? null) !== (editUser.expires_at ?? null)) otherFields.expires_at = editExpiry;
     if (roleChanged && !pinLengthChanged) {
       otherFields.role = editRole;
@@ -383,6 +417,54 @@ export default function AdminUsersScreen() {
           },
         },
       ],
+    );
+  }
+
+  // Reissue + email a one-time access code for a user who hasn't set a PIN yet.
+  // Only surfaced when pin_set is false (see the edit sheet). The returned code is
+  // shown so the admin can relay it directly if the email didn't go out.
+  function resetAccessCode() {
+    if (!editUser) return;
+    const onFile = editUser.email?.trim();
+    Alert.alert(
+      `Email ${editUser.name} an access code?`,
+      onFile
+        ? `A new one-time code will be sent to ${onFile} so they can set their PIN.`
+        : `${editUser.name} has no email on file. Add one in the Email field above and save first, then try again.`,
+      onFile
+        ? [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Send code',
+              onPress: async () => {
+                setBusy(true);
+                try {
+                  const { emailed, code } = await resetEnrollmentCodeOnline(editUser.id);
+                  appendLog({
+                    action: 'user_pin_reset',
+                    entity_type: 'user',
+                    entity_id: editUser.id,
+                    user_id: sessionUser?.id ?? null,
+                    note: `${editUser.name}: access code reissued${emailed ? ' + emailed' : ' (email not sent)'}`,
+                    team_id: null, from_location_id: null, to_location_id: null,
+                    quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+                  });
+                  Alert.alert(
+                    emailed ? 'Access code emailed' : 'Access code ready (email not sent)',
+                    (emailed
+                      ? `A one-time code was emailed to ${onFile}.`
+                      : `Email could not be sent — share this code with ${editUser.name} directly.`) +
+                      `\n\nOne-time code: ${code}\n\nThey enter it in the app to set their PIN.`,
+                  );
+                } catch (err) {
+                  Alert.alert('Could not send access code', (err as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              },
+            },
+          ]
+        : [{ text: 'OK', style: 'cancel' }],
     );
   }
 
@@ -661,14 +743,22 @@ export default function AdminUsersScreen() {
   }, [newName, users]);
 
   function resetCreateForm() {
-    setNewName(''); setNewRole('mitigation_technician'); setNewPin('');
+    setNewName(''); setNewEmail(''); setNewRole('mitigation_technician'); setNewPin('');
   }
 
   async function doCreate() {
     let createdId: string | null = null;
+    const email = newEmail.trim();
     setCreating(true);
     try {
       createdId = await createUserOnline(newName.trim(), newRole);
+      // The account is created online (PIN-less); the optional email travels the
+      // normal offline-capable user upsert/outbox path (mirrors name/expiry edits)
+      // rather than the create POST, so a manage_users sync push carries it.
+      if (createdId && email) {
+        const now = updateUserLocal(createdId, { email } as never);
+        appendOutbox('UPDATE', 'users', { id: createdId, email, updated_at: now });
+      }
       refresh();
       setShowCreate(false);
       resetCreateForm();
@@ -826,6 +916,15 @@ export default function AdminUsersScreen() {
           {!!dupUser && (
             <Text style={s.dupWarn}>⚠ "{dupUser.name}" already exists ({ROLE_DISPLAY_NAMES[dupUser.role as UserRole]})</Text>
           )}
+          <FieldLabel>Email (optional)</FieldLabel>
+          <AppInput
+            placeholder="name@company.com"
+            value={newEmail}
+            onChangeText={setNewEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            style={{ marginBottom: spacing.xs }}
+          />
           <FieldLabel>Role</FieldLabel>
           {/* keyboardShouldPersistTaps so a role tap registers immediately even when the
               name keyboard is open (else the first tap is eaten by keyboard-dismiss). */}
@@ -884,6 +983,15 @@ export default function AdminUsersScreen() {
 
                   <FieldLabel>Name</FieldLabel>
                   <AppInput value={editName} onChangeText={setEditName} placeholder="Full name" />
+
+                  <FieldLabel>Email</FieldLabel>
+                  <AppInput
+                    value={editEmail}
+                    onChangeText={setEditEmail}
+                    placeholder="name@company.com"
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                  />
 
                   <FieldLabel>Role</FieldLabel>
                   <TouchableOpacity style={s.selectRow} onPress={() => setShowRolePicker(v => !v)}>
@@ -946,6 +1054,17 @@ export default function AdminUsersScreen() {
                       <Text style={s.actionSub}>User sets a new PIN at next sign-in (online)</Text>
                     </View>
                   </TouchableOpacity>
+                  {/* Pre-onboarding only: a user who hasn't set a PIN can be
+                      re-sent a one-time access code (their original may be lost). */}
+                  {!editUser.pin_set && (
+                    <TouchableOpacity style={[s.actionBtn, busy && s.btnDisabled]} onPress={resetAccessCode} disabled={busy}>
+                      <Text style={s.actionIcon}>✉️</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.actionTitle}>Reset & email access code</Text>
+                        <Text style={s.actionSub}>Send a new one-time code so they can set their PIN (online)</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity style={[s.actionBtn, editUser.active ? s.actionDanger : s.actionGood]} onPress={toggleActive}>
                     <Text style={s.actionIcon}>{editUser.active ? '🚫' : '✅'}</Text>
                     <View style={{ flex: 1 }}>

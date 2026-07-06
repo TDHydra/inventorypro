@@ -43,6 +43,7 @@ export interface User {
   permission_overrides: string; // JSON string
   active: number;
   expires_at: string | null;
+  email?: string | null;
   created_at: string;
   updated_at: string;
   synced_at: string | null;
@@ -160,7 +161,7 @@ export function setRoleColor(role: string, color: string | null): string {
 // Apply admin edits to the local users row. PIN/pin_set are NEVER written here —
 // PIN reset is server-only (see resetUserPinOnline in the screen). Returns the
 // updated_at stamp so the caller can mirror it into the sync outbox.
-type EditableUserFields = Partial<Pick<User, 'name' | 'role' | 'active' | 'expires_at' | 'pin_length_required'>>;
+type EditableUserFields = Partial<Pick<User, 'name' | 'role' | 'active' | 'expires_at' | 'pin_length_required' | 'email'>>;
 export function updateUserLocal(userId: string, fields: EditableUserFields): string {
   const db = getDb();
   const now = new Date().toISOString();

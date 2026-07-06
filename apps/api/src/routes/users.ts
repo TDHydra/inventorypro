@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
 import { randomInt } from 'node:crypto';
 import { requirePermission, userHasPermission } from '../lib/permissions';
+import { sendEnrollmentCodeEmail } from '../lib/mail';
 
 // Resolve the caller's effective permissions (role default + role/user overrides),
 // same source requirePermission uses. Returns null when the caller is unknown.
@@ -61,7 +62,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { rows } = await fastify.pg.query(
-      `SELECT id, name, role, pin_length_required, permission_overrides, active, expires_at, created_at, updated_at
+      `SELECT id, name, role, pin_length_required, permission_overrides, active, expires_at, email, created_at, updated_at
        FROM users ORDER BY name ASC`
     );
     return { users: rows };
@@ -221,6 +222,69 @@ const routes: FastifyPluginAsync = async (fastify) => {
     );
     if (!rows[0]) return reply.status(404).send({ error: 'User not found' });
     return newEnrollmentCode ? { ...rows[0], enrollment_code: newEnrollmentCode } : rows[0];
+  });
+
+  // POST /users/:id/reset-enrollment-code — reissue a one-time enrollment code for
+  // a user who has NOT yet set a PIN, and email it to them. This is for the
+  // pre-onboarding case where the original code was lost/expired before first
+  // sign-in: it re-arms /auth/set-pin WITHOUT touching an existing PIN. A user who
+  // has ALREADY set a PIN must use the PIN-reset path (PATCH reset_pin) instead —
+  // that clears the PIN and issues its own code — so this endpoint 409s for them.
+  // Gated like other admin user actions (manage_users OR set_pins). The plaintext
+  // code is returned to the admin (endpoint is admin-gated) so onboarding still
+  // works if email delivery is down/unconfigured.
+  fastify.post<{ Params: { id: string }; Body: { email?: string } }>('/:id/reset-enrollment-code', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+      },
+      body: {
+        type: 'object',
+        properties: {
+          // Optional recipient override; falls back to the stored users.email.
+          email: { type: 'string', minLength: 3, maxLength: 320 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const callerId = (request.user as { sub: string }).sub;
+    const can = await callerCan(fastify, callerId);
+    if (!can || !(can('manage_users') || can('set_pins'))) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    const targetId = request.params.id;
+    const { rows } = await fastify.pg.query<{
+      id: string; name: string; email: string | null; pin_hash: string | null;
+    }>(
+      `SELECT id, name, email, pin_hash FROM users WHERE id = $1`,
+      [targetId],
+    );
+    const user = rows[0];
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+
+    // Only valid before the user has a PIN — otherwise this would be a silent
+    // parallel path to overwrite/undermine an active account's onboarding state.
+    if (user.pin_hash) {
+      return reply.status(409).send({ error: 'User has already set a PIN. Use PIN reset instead.' });
+    }
+
+    const recipient = (request.body?.email?.trim() || user.email?.trim()) ?? null;
+    if (!recipient) {
+      return reply.status(400).send({ error: 'No email on file for this user. Add an email or pass one in the request.' });
+    }
+
+    const { code, hash } = await issueEnrollmentCode();
+    await fastify.pg.query(
+      `UPDATE users SET enrollment_code_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [hash, targetId],
+    );
+
+    const mail = await sendEnrollmentCodeEmail(recipient, code, user.name);
+    return { emailed: mail.sent, code };
   });
 };
 

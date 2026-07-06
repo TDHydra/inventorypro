@@ -1,5 +1,8 @@
 import { UserSession, parsePermissionOverrides } from './permissions';
 import { getUserById } from '../db/queries/users';
+import { clearDbSnapshot } from '../db/webPersistence';
+import { clearSnapshotKey } from '../db/webCrypto';
+import { installWebIdleWipe } from '../hooks/useWebIdleWipe';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const JWT_KEY = 'inventorypro_jwt';
@@ -132,13 +135,45 @@ export async function getSavedUserId(): Promise<string | null> {
 }
 
 export async function clearSession(): Promise<void> {
+  await wipeWebSecureState();
+}
+
+/**
+ * Wipe ALL sensitive web state: the in-memory refresh token, the persisted JWT /
+ * user id, AND the encrypted DB snapshot together with its AES key (in memory +
+ * sessionStorage). After this, nothing on disk is decryptable and the user must
+ * re-authenticate. Called from the logout path (clearSession) and from the idle
+ * auto-wipe below.
+ */
+export async function wipeWebSecureState(): Promise<void> {
   inMemoryRefreshToken = null;
   await Promise.all([
     idbDel(JWT_KEY),
     idbDel(REFRESH_KEY),
     idbDel(USER_ID_KEY),
+    // Delete the encrypted snapshot and drop its key. clearDbSnapshot() already
+    // calls clearSnapshotKey(); the extra call is a defensive no-op belt-and-braces.
+    clearDbSnapshot().catch(() => { /* best-effort */ }),
   ]);
+  clearSnapshotKey();
 }
+
+// ── Web idle auto-wipe ────────────────────────────────────────────────────────
+// Native uses `useIdleLogout` (RN AppState + touch responder). The browser has
+// no equivalent, so we install a document-level idle listener at module load
+// (this module is imported early on web via the shared `../auth/session` path).
+// After ~15 min of no interaction it wipes tokens + the encrypted DB key, so a
+// walked-away session on a shared machine can't be resumed. Guarded to the
+// browser inside installWebIdleWipe(); a no-op during SSR / tests.
+//
+// NOTE: this wipes secure state but cannot flip the in-memory React session to
+// null on its own (that lives in the SessionContext provider in app/_layout.tsx,
+// outside these editable files). The next authed action / route guard will see
+// the missing token and bounce to login. TODO: for an *immediate* redirect on
+// idle, also drive the provider's `logout()` from the web mount — e.g. call
+// `installWebIdleWipe(logout)` (or add a subscriber) from app/_layout.tsx or a
+// web-only session hook, replacing the token-only wipe wired here.
+installWebIdleWipe(() => { void wipeWebSecureState(); });
 
 export async function hasActiveSession(): Promise<boolean> {
   const [jwt, userId] = await Promise.all([getJwt(), getSavedUserId()]);
