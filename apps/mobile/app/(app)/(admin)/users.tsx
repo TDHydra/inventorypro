@@ -13,6 +13,7 @@ import {
   ROLE_DEFAULTS,
 } from '../../../src/constants/roles';
 import { getAllTeams, addTeamMember } from '../../../src/db/queries/teams';
+import { getDashboardPresets } from '../../../src/db/queries/dashboards';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getDb } from '../../../src/db/schema';
 import { runInTransaction } from '../../../src/db/tx';
@@ -182,7 +183,9 @@ export default function AdminUsersScreen() {
   const [editEmail, setEditEmail] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('mitigation_technician');
   const [editExpiry, setEditExpiry] = useState<string | null>(null);
+  const [editDashboardPresetId, setEditDashboardPresetId] = useState<string | null>(null);
   const [showRolePicker, setShowRolePicker] = useState(false);
+  const [showDashboardPicker, setShowDashboardPicker] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const roleMinPins = useMemo(() => getRoleSettings(), [users]);
@@ -191,6 +194,15 @@ export default function AdminUsersScreen() {
   // as "modified" when it differs from the role's CURRENT effective value.
   const roleOverrides = useMemo(() => getRolePermissionOverrides(), [users]);
   const roleColors = useMemo(() => getRoleColorMap(), []);
+  // Dashboard assignment options: null = fall back to the user's role default,
+  // then every ACTIVE preset (inactive presets are hidden from assignment).
+  const dashboardOptions = useMemo<{ id: string | null; label: string }[]>(
+    () => [
+      { id: null, label: 'Role default' },
+      ...getDashboardPresets().filter(p => p.active).map(p => ({ id: p.id as string | null, label: p.name })),
+    ],
+    [users],
+  );
 
   function refresh() { setUsers(getAllUsers()); }
 
@@ -200,7 +212,9 @@ export default function AdminUsersScreen() {
     setEditEmail(u.email ?? '');
     setEditRole(u.role);
     setEditExpiry(u.expires_at);
+    setEditDashboardPresetId(u.dashboard_preset_id ?? null);
     setShowRolePicker(false);
+    setShowDashboardPicker(false);
   }
 
   // Normalize email edits: trim, and treat "" as null so a cleared field diffs
@@ -211,7 +225,8 @@ export default function AdminUsersScreen() {
     editName.trim() !== editUser.name ||
     editEmailNorm !== (editUser.email ?? null) ||
     editRole !== editUser.role ||
-    (editExpiry ?? null) !== (editUser.expires_at ?? null)
+    (editExpiry ?? null) !== (editUser.expires_at ?? null) ||
+    (editDashboardPresetId ?? null) !== (editUser.dashboard_preset_id ?? null)
   );
 
   async function saveEdits() {
@@ -235,6 +250,12 @@ export default function AdminUsersScreen() {
     if (editName.trim() !== editUser.name) otherFields.name = editName.trim();
     if (editEmailNorm !== (editUser.email ?? null)) otherFields.email = editEmailNorm;
     if ((editExpiry ?? null) !== (editUser.expires_at ?? null)) otherFields.expires_at = editExpiry;
+    // Dashboard assignment (null = role default) rides the same offline-capable
+    // outbox path as name/email — dashboard_preset_id syncs on the manage_users
+    // -gated users push.
+    if ((editDashboardPresetId ?? null) !== (editUser.dashboard_preset_id ?? null)) {
+      otherFields.dashboard_preset_id = editDashboardPresetId;
+    }
     if (roleChanged && !pinLengthChanged) {
       otherFields.role = editRole;
       otherFields.pin_length_required = newPinLength;
@@ -1008,6 +1029,31 @@ export default function AdminUsersScreen() {
                         >
                           <Text style={[s.roleText, editRole === r && s.roleTextActive]}>{ROLE_DISPLAY_NAMES[r]}</Text>
                           <Text style={s.roleTierHint}>T{ROLE_TIER[r]}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Per-user home-screen dashboard assignment (Wave C). null =
+                      fall back to the user's role dashboard. Same collapsible
+                      picker + offline outbox save path as Role above. */}
+                  <FieldLabel>Dashboard</FieldLabel>
+                  <Text style={s.hint}>Which home-screen layout this user sees; Role default falls back to their role's dashboard.</Text>
+                  <TouchableOpacity style={s.selectRow} onPress={() => setShowDashboardPicker(v => !v)}>
+                    <Text style={s.selectText}>
+                      {dashboardOptions.find(o => o.id === editDashboardPresetId)?.label ?? 'Role default'}
+                    </Text>
+                    <Text style={s.selectChevron}>{showDashboardPicker ? '▾' : '▸'}</Text>
+                  </TouchableOpacity>
+                  {showDashboardPicker && (
+                    <View style={s.rolePicker}>
+                      {dashboardOptions.map(o => (
+                        <TouchableOpacity
+                          key={o.id ?? '__role_default__'}
+                          style={[s.roleRow, editDashboardPresetId === o.id && s.roleRowActive]}
+                          onPress={() => { setEditDashboardPresetId(o.id); setShowDashboardPicker(false); }}
+                        >
+                          <Text style={[s.roleText, editDashboardPresetId === o.id && s.roleTextActive]}>{o.label}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
