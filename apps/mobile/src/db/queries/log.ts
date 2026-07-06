@@ -189,8 +189,12 @@ export function getRecentLog(limit = 100): LogEntry[] {
 export interface LogFilter {
   userId?: string;
   action?: string;
+  entityType?: string;
+  teamId?: string;
   sinceISO?: string;
   untilISO?: string;
+  /** Case-insensitive substring match over the row's note. */
+  search?: string;
 }
 
 export function getLogFiltered(f: LogFilter, limit = 200): LogEntry[] {
@@ -206,6 +210,14 @@ export function getLogFiltered(f: LogFilter, limit = 200): LogEntry[] {
     clauses.push('al.action = ?');
     params.push(f.action);
   }
+  if (f.entityType != null) {
+    clauses.push('al.entity_type = ?');
+    params.push(f.entityType);
+  }
+  if (f.teamId != null) {
+    clauses.push('al.team_id = ?');
+    params.push(f.teamId);
+  }
   if (f.sinceISO != null) {
     clauses.push('al.created_at >= ?');
     params.push(f.sinceISO);
@@ -213,6 +225,11 @@ export function getLogFiltered(f: LogFilter, limit = 200): LogEntry[] {
   if (f.untilISO != null) {
     clauses.push('al.created_at <= ?');
     params.push(f.untilISO);
+  }
+  const search = f.search?.trim();
+  if (search) {
+    clauses.push('al.note LIKE ?');
+    params.push(`%${search}%`);
   }
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -227,4 +244,63 @@ export function getLogFiltered(f: LogFilter, limit = 200): LogEntry[] {
     params,
   );
   return rowsAs<LogEntry>(result.rows);
+}
+
+// ── id → human-name resolution ────────────────────────────────────────────────
+// Activity-log rows reference users/teams/jobs/locations by id. Loading these
+// four tiny (id, name) maps ONCE per render lets the screen resolve every row's
+// actor/team/job/location by lookup instead of a per-row DB query. Locations are
+// pulled unfiltered (incl. archived) so ids on historical rows still resolve.
+
+export interface LogNameMaps {
+  users: Record<string, string>;
+  teams: Record<string, string>;
+  jobs: Record<string, string>;
+  locations: Record<string, string>;
+}
+
+function idNameMap(table: string): Record<string, string> {
+  const rows = getDb().executeSync(`SELECT id, name FROM ${table}`).rows as {
+    id: string;
+    name: string | null;
+  }[];
+  const map: Record<string, string> = {};
+  for (const r of rows) if (r.name) map[r.id] = r.name;
+  return map;
+}
+
+export function getLogNameMaps(): LogNameMaps {
+  return {
+    users: idNameMap('users'),
+    teams: idNameMap('teams'),
+    jobs: idNameMap('jobs'),
+    locations: idNameMap('locations'),
+  };
+}
+
+// Resolve a log row's entity_id to a display name when entity_type names a table
+// we hold an id→name map for (user/team/job/location + their plural forms). Falls
+// back to null so the caller can hide the field rather than show a raw uuid.
+export function resolveEntityName(
+  maps: LogNameMaps,
+  entityType: string | null | undefined,
+  entityId: string | null | undefined,
+): string | null {
+  if (!entityId) return null;
+  switch (entityType) {
+    case 'user':
+    case 'users':
+      return maps.users[entityId] ?? null;
+    case 'team':
+    case 'teams':
+      return maps.teams[entityId] ?? null;
+    case 'job':
+    case 'jobs':
+      return maps.jobs[entityId] ?? null;
+    case 'location':
+    case 'locations':
+      return maps.locations[entityId] ?? null;
+    default:
+      return null;
+  }
 }
