@@ -82,6 +82,16 @@ const FULL_TABLES = [
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
 ];
 
+// Entity tables whose taxonomy reference is being migrated from a label column to
+// a durable FK id (#74, migration 035). label = the human string column, id = the
+// soft-FK column resolved from it, category = the taxonomy_types.category to match.
+const TAXONOMY_FK_COLUMNS: Record<string, { label: string; id: string; category: string }> = {
+  teams: { label: 'type', id: 'type_id', category: 'team' },
+  jobs: { label: 'type', id: 'type_id', category: 'job' },
+  inventory_items: { label: 'category', id: 'category_id', category: 'item_category' },
+  locations: { label: 'type', id: 'type_id', category: 'location_type' },
+};
+
 async function applyEntry(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   entry: OutboxEntry,
@@ -170,6 +180,23 @@ async function applyEntry(
     const where = keys.map((k, i) => `${k} = $${i + 1}`).join(' AND ');
     await pg.query(`DELETE FROM ${table_name} WHERE ${where}`, keys.map(k => payload[k]));
     return;
+  }
+
+  // Taxonomy label→FK cutover (#74): for entity tables carrying a soft taxonomy
+  // reference, resolve the *_id from the label SERVER-SIDE so it is authoritative
+  // and gets set even when an older/other client didn't send it. Only fills when a
+  // label is present and the id is absent from the payload (never clobber an id the
+  // client already resolved). Deterministic when duplicate labels exist (matches
+  // migration 035's backfill: active first, then sort_order, then id). This runs
+  // for INSERT and UPDATE — ADJUST/DELETE already returned above.
+  const taxoFk = TAXONOMY_FK_COLUMNS[table_name];
+  if (taxoFk && payload[taxoFk.label] != null && payload[taxoFk.id] == null) {
+    const { rows: fkRows } = await pg.query(
+      `SELECT id FROM taxonomy_types WHERE category = $1 AND label = $2
+       ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1`,
+      [taxoFk.category, payload[taxoFk.label]]
+    );
+    if (fkRows[0]) payload[taxoFk.id] = (fkRows[0] as { id: string }).id;
   }
 
   // `synced_at` is a device-local-only column (it does not exist on any server

@@ -1,4 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { resolveTypeId, resolveLabels, ITEM_CATEGORY } from './taxonomy';
 
 export interface InventoryItem {
   id: string;
@@ -10,6 +11,8 @@ export interface InventoryItem {
   model: string | null;
   kind: string; // 'product' | 'equipment'
   category: string | null;
+  // Durable taxonomy FK (migration 029, #74) — `category` is the label cache.
+  category_id?: string | null;
   returnable: number;
   unit_tracked: number;
   tag_prefix: string | null;
@@ -46,7 +49,7 @@ export function searchItems(
   category?: string,
   kind?: string,
   unitTracked?: boolean,
-  itemCategory?: string
+  itemCategoryId?: string
 ): ItemWithTotalStock[] {
   const db = getDb();
   const pattern = `%${query}%`;
@@ -57,14 +60,15 @@ export function searchItems(
   // unit_tracked filter (in-SQL, same reason) — e.g. the equipment-unit picker
   // must show only unit-tracked items, not every kind='equipment' row.
   const unitTrackedClause = unitTracked !== undefined ? `AND i.unit_tracked = ?` : '';
-  // Item-type filter (the catalog `category` column = item_category label, e.g.
-  // PPE / Filters). In-SQL so pagination stays correct.
-  const itemCategoryClause = itemCategory ? `AND i.category = ?` : '';
+  // Item-type filter by the durable taxonomy FK (#74 P2) — not the `category`
+  // label cache, which goes stale on a type rename and would drop renamed items
+  // from the filter. Chips pass the type id. In-SQL so pagination stays correct.
+  const itemCategoryClause = itemCategoryId ? `AND i.category_id = ?` : '';
   const params: (string | number)[] = [pattern, pattern, pattern];
   if (category) params.push(category);
   if (kind) params.push(kind);
   if (unitTracked !== undefined) params.push(unitTracked ? 1 : 0);
-  if (itemCategory) params.push(itemCategory);
+  if (itemCategoryId) params.push(itemCategoryId);
   params.push(query, `${query}%`, limit, offset);
 
   const result = db.executeSync(
@@ -90,7 +94,8 @@ export function searchItems(
      LIMIT ? OFFSET ?`,
     params
   );
-  return rowsAs<ItemWithTotalStock>(result.rows);
+  // Resolve `category` from category_id so a rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<ItemWithTotalStock>(result.rows), 'category_id', 'category');
 }
 
 export function getItemByBarcode(barcode: string): InventoryItem | null {
@@ -99,7 +104,7 @@ export function getItemByBarcode(barcode: string): InventoryItem | null {
     `SELECT * FROM inventory_items WHERE LOWER(barcode) = LOWER(?) AND active = 1`,
     [barcode]
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 // Find an existing item by its item # / part # (sku), case-insensitively, for
@@ -113,7 +118,7 @@ export function getItemBySku(sku: string): InventoryItem | null {
        AND LOWER(sku) = LOWER(?) LIMIT 1`,
     [trimmed]
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 // Find the equipment item whose tag_prefix is a leading match for a scanned code
@@ -131,7 +136,7 @@ export function findItemByTagPrefix(code: string): InventoryItem | null {
      ORDER BY LENGTH(tag_prefix) DESC LIMIT 1`,
     [trimmed],
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 export function getItemById(id: string): InventoryItem | null {
@@ -140,7 +145,7 @@ export function getItemById(id: string): InventoryItem | null {
     `SELECT * FROM inventory_items WHERE id = ?`,
     [id]
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 export function getStockByItem(itemId: string): StockByLocation[] {
@@ -163,17 +168,20 @@ export function getStockByItem(itemId: string): StockByLocation[] {
 
 export function upsertItem(item: InventoryItem): void {
   const db = getDb();
+  // Dual-write the taxonomy FK (#74): prefer an explicit category_id (pulled rows),
+  // else resolve from the label so locally-created items anchor to the id too.
+  const categoryId = item.category_id ?? resolveTypeId(ITEM_CATEGORY, item.category);
   db.executeSync(
     `INSERT OR REPLACE INTO inventory_items
        (id, name, barcode, description, sku, supplier, model, kind,
         category, returnable, unit_tracked, tag_prefix,
-        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size, category_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
      item.sku, item.supplier, item.model, item.kind,
      item.category, item.returnable, item.unit_tracked, item.tag_prefix,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
-     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null])
+     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null, categoryId])
   );
 }
 
@@ -203,6 +211,11 @@ export function updateItemFields(
   const entries = Object.entries(fields).filter(([k]) => ALLOWED_ITEM_UPDATE_COLUMNS.has(k));
   // No valid columns to write → no-op safely (don't bump updated_at on nothing).
   if (entries.length === 0) return { id };
+  // Dual-write the taxonomy FK (#74): when the category label changes, resolve and
+  // write category_id alongside it (internal — not caller-injectable via the allowlist).
+  if (entries.some(([k]) => k === 'category')) {
+    entries.push(['category_id', resolveTypeId(ITEM_CATEGORY, (fields as { category?: string | null }).category)]);
+  }
   const allowedFields = Object.fromEntries(entries);
   const setClause = entries.map(([k]) => `${k} = ?`).join(', ');
   db.executeSync(
@@ -300,5 +313,5 @@ export function getLowStockItems(): ItemWithTotalStock[] {
      WHERE total_stock <= min_qty_alert
      ORDER BY total_stock ASC`
   );
-  return rowsAs<ItemWithTotalStock>(result.rows);
+  return resolveLabels(rowsAs<ItemWithTotalStock>(result.rows), 'category_id', 'category');
 }

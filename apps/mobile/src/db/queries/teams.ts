@@ -1,4 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { resolveTypeId, resolveLabels, TEAM_CATEGORY } from './taxonomy';
 import { getValidJwt } from '../../auth/session';
 import { syncNow } from '../../sync/engine';
 import { Permission } from '../../constants/roles';
@@ -47,6 +48,8 @@ export interface Team {
   id: string;
   name: string;
   type: string;
+  // Durable taxonomy FK (migration 029, #74) — `type` is the label cache.
+  type_id?: string | null;
   updated_at: string;
   synced_at: string | null;
 }
@@ -67,13 +70,14 @@ export interface TeamMember {
 export function getAllTeams(): Team[] {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM teams ORDER BY name ASC`);
-  return rowsAs<Team>(result.rows);
+  // Resolve `type` from type_id so a taxonomy rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<Team>(result.rows), 'type_id', 'type');
 }
 
 export function getTeamById(id: string): Team | null {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM teams WHERE id = ?`, [id]);
-  return rowsAs<Team>(result.rows)[0] ?? null;
+  return resolveLabels(rowsAs<Team>(result.rows), 'type_id', 'type')[0] ?? null;
 }
 
 export function getTeamMembers(teamId: string): TeamMember[] {
@@ -90,13 +94,18 @@ export function getTeamMembers(teamId: string): TeamMember[] {
 }
 
 // Pure local write — callers are responsible for appendOutbox + appendLog.
-export function upsertTeam(team: Team): void {
+// Returns the dual-written taxonomy FK (#74) so callers can include it in their
+// outbox payload (prefer an explicit team.type_id from a pulled row, else resolve
+// from the label).
+export function upsertTeam(team: Team): string | null {
   const db = getDb();
+  const typeId = team.type_id ?? resolveTypeId(TEAM_CATEGORY, team.type);
   db.executeSync(
-    `INSERT OR REPLACE INTO teams (id, name, type, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    bindParams([team.id, team.name, team.type, team.updated_at, team.synced_at]),
+    `INSERT OR REPLACE INTO teams (id, name, type, updated_at, synced_at, type_id)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    bindParams([team.id, team.name, team.type, team.updated_at, team.synced_at, typeId]),
   );
+  return typeId;
 }
 
 // Pure local write — returns { joined_at } on a real insert, or null if the
