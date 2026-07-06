@@ -101,11 +101,18 @@ export function getItemTypes(opts?: { includeInactive?: boolean }): TaxonomyType
 }
 
 export const LOCATION_TYPE = 'location_type';
+export const LOCATION_SUBTYPE = 'location_subtype';
 
 // Active location types (Shop, Vehicle, Locker, Maintenance, …) for the location
 // forms + section filters.
 export function getLocationTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
   return getTaxonomyTypes(LOCATION_TYPE, opts);
+}
+
+// Active sub-area types (Closet, Section, Storage, Shelf, Area, Bin, Rack) for a
+// child location's (parent_id != null) type picker.
+export function getLocationSubtypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(LOCATION_SUBTYPE, opts);
 }
 
 // Per-location-type form rules (migration 022). gps defaults TRUE (show the GPS
@@ -377,6 +384,10 @@ export function getTaxonomyTypesWithFallback(
 
 export function getLocationTypesWithFallback(): TaxonomyType[] {
   return getTaxonomyTypesWithFallback(LOCATION_TYPE);
+}
+
+export function getLocationSubtypesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(LOCATION_SUBTYPE);
 }
 
 export function getRepairStatusesWithFallback(): TaxonomyType[] {

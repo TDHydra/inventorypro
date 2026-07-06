@@ -24,7 +24,7 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes, getLocationTypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -69,13 +69,27 @@ export default function LocationDetailScreen() {
   // ── Print-QR sheet state ─────────────────────────────────────────────────────
   const [showPrintLabel, setShowPrintLabel] = useState(false);
 
-  // Location-type taxonomy (Shop, Vehicle, …): active types for the edit picker,
-  // and a label→icon map (incl. archived) for rendering the header badge.
-  // 'Shelf' is filtered out defensively — it's a hardcoded sub-level type (see
-  // findOrCreateShelf), never a real admin-managed location type to re-assign to.
-  const locationTypes = useMemo(() => getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'), [refreshKey]);
+  // Location-type taxonomy for the edit picker. A SUB-AREA (has a parent) offers
+  // the sub-area types (Closet, Section, Storage, Shelf, Area, Bin, Rack) — note
+  // 'Shelf' IS a valid sub-area type, so it's NOT filtered out here. A TOP-LEVEL
+  // location offers the location_type list (Shop, Vehicle, …) with 'Shelf'
+  // filtered out defensively (it's a hardcoded sub-level type, see
+  // findOrCreateShelf, never a real top-level type to re-assign to).
+  const isSubArea = editParentId != null;
+  const locationTypes = useMemo(
+    () =>
+      isSubArea
+        ? getLocationSubtypesWithFallback()
+        : getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'),
+    [refreshKey, isSubArea],
+  );
+  // label→icon map (incl. archived) for rendering the header badge, built from
+  // BOTH top-level and sub-area types so a sub-area's badge icon resolves too.
   const typeIconByLabel = useMemo(
-    () => new Map(getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon])),
+    () => new Map([
+      ...getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
+      ...getLocationSubtypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
+    ]),
     [refreshKey],
   );
 
@@ -120,15 +134,20 @@ export default function LocationDetailScreen() {
   }
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
-  // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false.
-  const rules = getLocationTypeRules(editLocType);
+  // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false. A
+  // SUB-AREA lives inside a parent, so it has no separate GPS anchor of its own —
+  // force gps=false (owner requirement still comes from the parent below).
+  const rules = isSubArea ? { gps: false, requiresOwner: false } : getLocationTypeRules(editLocType);
   // Owner becomes mandatory when the selected parent has subareas_require_owner=1
   // OR the chosen type requires it (e.g. Vehicle). Reactive to editParentId and
   // editLocType so re-parenting/retyping updates the gate.
   const ownerRequired = useMemo<boolean>(() => {
     const parentReq = editParentId ? getLocationById(editParentId)?.subareas_require_owner === 1 : false;
-    return parentReq || getLocationTypeRules(editLocType).requiresOwner;
-  }, [editParentId, editLocType]);
+    // Sub-area types carry no requiresOwner rule of their own; the parent's flag
+    // is the only owner gate for a sub-area.
+    const typeReq = isSubArea ? false : getLocationTypeRules(editLocType).requiresOwner;
+    return parentReq || typeReq;
+  }, [editParentId, editLocType, isSubArea]);
   const ownerMissing = ownerRequired && !editOwnerOption;
 
   const parentName = useMemo<string | null>(() => {

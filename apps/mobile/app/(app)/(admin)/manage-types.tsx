@@ -297,6 +297,7 @@ const CATEGORY_NOUN: Record<string, string> = {
   product_class: 'Product Class',
   item_category: 'Item Type',
   location_type: 'Location Type',
+  location_subtype: 'Location Sub-Type',
   repair_status: 'Repair Status',
 };
 
@@ -319,6 +320,9 @@ export default function ManageTypesScreen() {
   );
   const [locTypes, setLocTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('location_type', { includeInactive: true }),
+  );
+  const [locSubtypes, setLocSubtypes] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('location_subtype', { includeInactive: true }),
   );
   const [repairStatuses, setRepairStatuses] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('repair_status', { includeInactive: true }),
@@ -357,6 +361,7 @@ export default function ManageTypesScreen() {
     setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
     setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
     setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
+    setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
     setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
   }
 
@@ -712,6 +717,7 @@ export default function ManageTypesScreen() {
           {renderSection('Product Classes', 'product_class', classTypes, '+ Add Product Class')}
           {renderSection('Item Types', 'item_category', itemCatTypes, '+ Add Item Type')}
           {renderSection('Location Types', 'location_type', locTypes, '+ Add Location Type')}
+          {renderSection('Location Sub-Types', 'location_subtype', locSubtypes, '+ Add Location Sub-Type')}
           {renderSection('Repair Statuses', 'repair_status', repairStatuses, '+ Add Repair Status')}
         </ScrollView>
       )}

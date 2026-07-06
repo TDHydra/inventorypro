@@ -20,7 +20,7 @@ import { runInTransaction } from '../../../src/db/tx';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
-import { getLocationTypes, getLocationTypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
+import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -59,14 +59,14 @@ export default function LocationsScreen() {
   // admin manually adds a "Shelf" label under Manage Types.
   const locationTypes = useMemo(() => getLocationTypes().filter(t => t.label !== 'Shelf'), []);
   // label → icon, used to render a row's type badge from its stored `type` label.
+  // Includes BOTH top-level and sub-area types so a sub-area row's badge resolves.
   const typeIconByLabel = useMemo(
-    () => new Map(locationTypes.map(t => [t.label, t.icon])),
-    [locationTypes],
+    () => new Map([
+      ...getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
+      ...getLocationSubtypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
+    ]),
+    [],
   );
-  // Create-form Type picker options: never empty when rows exist (falls back to
-  // inactive types) so deactivating every type doesn't dead-end the picker. The
-  // active-only `locationTypes` still backs the section filter chips + icon badges.
-  const locationTypeOptions = useMemo(() => getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'), []);
   // Section filter: null = All (show full tree); a label = flat list of that type.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
@@ -130,10 +130,26 @@ export default function LocationsScreen() {
     [parentId],
   );
 
+  // A location being created UNDER a parent is a sub-area, so its Type picker
+  // offers the sub-area types (Closet, Section, Storage, Shelf, Area, Bin, Rack)
+  // instead of the top-level location_type list. 'Shelf' is a valid sub-area type
+  // so it's NOT filtered out here (unlike the top-level list). Falls back to
+  // inactive rows so deactivating every type doesn't dead-end the picker.
+  const isSubArea = parentId != null;
+  const locationTypeOptions = useMemo(
+    () =>
+      isSubArea
+        ? getLocationSubtypesWithFallback()
+        : getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'),
+    [isSubArea],
+  );
+
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
   // requiresOwner (force an owner). Defaults gps=true/requiresOwner=false for
-  // unflagged types, preserving existing behavior.
-  const rules = getLocationTypeRules(type);
+  // unflagged types, preserving existing behavior. A SUB-AREA lives inside a
+  // parent, so it has no GPS anchor of its own (gps=false) and carries no
+  // requiresOwner rule — the parent's flag is the only owner gate below.
+  const rules = isSubArea ? { gps: false, requiresOwner: false } : getLocationTypeRules(type);
   // Owner is mandatory when EITHER the parent demands it OR the type does (e.g. Vehicle).
   const ownerRequired = parentRequiresOwner || rules.requiresOwner;
 

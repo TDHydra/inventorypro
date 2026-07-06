@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { colors, spacing, radii, fontSizes } from '../theme';
+import { LEAFLET_JS, LEAFLET_CSS, MARKER_ICON, MARKER_ICON_2X, MARKER_SHADOW } from './leafletAssets';
 
 export interface PickedCoords {
   latitude: number;
@@ -16,8 +17,10 @@ interface Props {
 }
 
 // Leaflet + OpenStreetMap tap-to-set picker rendered in a WebView. Free (no API
-// key / billing). ONLINE-ONLY — tiles + Leaflet load from CDN; manual + current
-// modes cover offline. The page posts the chosen {latitude,longitude} back via
+// key / billing). Leaflet 1.9.4 JS/CSS + the default marker icons are VENDORED and
+// injected INLINE (see leafletAssets.ts) — nothing loads from a CDN; only the
+// OpenStreetMap tile layer is fetched online (manual + current modes cover offline).
+// The page posts the chosen {latitude,longitude} back via
 // window.ReactNativeWebView.postMessage; RN reads it in onMessage.
 function buildHtml(initial?: PickedCoords | null): string {
   // Coords are numbers (validated upstream); default to a neutral world view.
@@ -26,8 +29,7 @@ function buildHtml(initial?: PickedCoords | null): string {
   const zoom = initial ? 16 : 4;
   return `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>${LEAFLET_CSS}</style>
 <style>
   html,body,#map{height:100%;margin:0;padding:0}
   #use{position:absolute;left:12px;right:12px;bottom:16px;z-index:1000;background:#2563EB;color:#fff;
@@ -39,7 +41,13 @@ function buildHtml(initial?: PickedCoords | null): string {
 <div id="map"></div>
 <div id="hint">Tap the map or drag the pin, then "Use this location"</div>
 <button id="use">Use this location</button>
+<script>${LEAFLET_JS}</script>
 <script>
+  // Point the default marker icon at the inlined data-URI assets (no CDN / relative fetch).
+  delete L.Icon.Default.prototype._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconUrl: '${MARKER_ICON}', iconRetinaUrl: '${MARKER_ICON_2X}', shadowUrl: '${MARKER_SHADOW}'
+  });
   var sel = { latitude: ${lat}, longitude: ${lng} };
   var hasInitial = ${initial ? 'true' : 'false'};
   var useBtn = document.getElementById('use');
@@ -86,7 +94,7 @@ export function MapPickerModal({ visible, initial, onPick, onClose }: Props) {
       </View>
       {visible && (
         <WebView
-          originWhitelist={['https://*.openstreetmap.org', 'https://unpkg.com', 'about:blank']}
+          originWhitelist={['https://*.openstreetmap.org', 'about:blank']}
           javaScriptEnabled
           setSupportMultipleWindows={false}
           source={{ html }}
