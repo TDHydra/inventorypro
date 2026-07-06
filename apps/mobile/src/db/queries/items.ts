@@ -1,5 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { resolveTypeId, ITEM_CATEGORY } from './taxonomy';
+import { resolveTypeId, resolveLabels, ITEM_CATEGORY } from './taxonomy';
 
 export interface InventoryItem {
   id: string;
@@ -49,7 +49,7 @@ export function searchItems(
   category?: string,
   kind?: string,
   unitTracked?: boolean,
-  itemCategory?: string
+  itemCategoryId?: string
 ): ItemWithTotalStock[] {
   const db = getDb();
   const pattern = `%${query}%`;
@@ -60,14 +60,15 @@ export function searchItems(
   // unit_tracked filter (in-SQL, same reason) — e.g. the equipment-unit picker
   // must show only unit-tracked items, not every kind='equipment' row.
   const unitTrackedClause = unitTracked !== undefined ? `AND i.unit_tracked = ?` : '';
-  // Item-type filter (the catalog `category` column = item_category label, e.g.
-  // PPE / Filters). In-SQL so pagination stays correct.
-  const itemCategoryClause = itemCategory ? `AND i.category = ?` : '';
+  // Item-type filter by the durable taxonomy FK (#74 P2) — not the `category`
+  // label cache, which goes stale on a type rename and would drop renamed items
+  // from the filter. Chips pass the type id. In-SQL so pagination stays correct.
+  const itemCategoryClause = itemCategoryId ? `AND i.category_id = ?` : '';
   const params: (string | number)[] = [pattern, pattern, pattern];
   if (category) params.push(category);
   if (kind) params.push(kind);
   if (unitTracked !== undefined) params.push(unitTracked ? 1 : 0);
-  if (itemCategory) params.push(itemCategory);
+  if (itemCategoryId) params.push(itemCategoryId);
   params.push(query, `${query}%`, limit, offset);
 
   const result = db.executeSync(
@@ -93,7 +94,8 @@ export function searchItems(
      LIMIT ? OFFSET ?`,
     params
   );
-  return rowsAs<ItemWithTotalStock>(result.rows);
+  // Resolve `category` from category_id so a rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<ItemWithTotalStock>(result.rows), 'category_id', 'category');
 }
 
 export function getItemByBarcode(barcode: string): InventoryItem | null {
@@ -102,7 +104,7 @@ export function getItemByBarcode(barcode: string): InventoryItem | null {
     `SELECT * FROM inventory_items WHERE LOWER(barcode) = LOWER(?) AND active = 1`,
     [barcode]
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 // Find an existing item by its item # / part # (sku), case-insensitively, for
@@ -116,7 +118,7 @@ export function getItemBySku(sku: string): InventoryItem | null {
        AND LOWER(sku) = LOWER(?) LIMIT 1`,
     [trimmed]
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 // Find the equipment item whose tag_prefix is a leading match for a scanned code
@@ -134,7 +136,7 @@ export function findItemByTagPrefix(code: string): InventoryItem | null {
      ORDER BY LENGTH(tag_prefix) DESC LIMIT 1`,
     [trimmed],
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 export function getItemById(id: string): InventoryItem | null {
@@ -143,7 +145,7 @@ export function getItemById(id: string): InventoryItem | null {
     `SELECT * FROM inventory_items WHERE id = ?`,
     [id]
   );
-  return (result.rows[0] as unknown as InventoryItem) ?? null;
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category')[0] ?? null;
 }
 
 export function getStockByItem(itemId: string): StockByLocation[] {
@@ -311,5 +313,5 @@ export function getLowStockItems(): ItemWithTotalStock[] {
      WHERE total_stock <= min_qty_alert
      ORDER BY total_stock ASC`
   );
-  return rowsAs<ItemWithTotalStock>(result.rows);
+  return resolveLabels(rowsAs<ItemWithTotalStock>(result.rows), 'category_id', 'category');
 }

@@ -71,7 +71,10 @@ Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for histo
 - [x] **Pin `trustProxy` to the proxy subnet** (currently `true`) so `X-Forwarded-For` can't be
       spoofed to evade the roster IP rate-limit if the API is ever reachable outside NPM (LOW).
 - [x] **Reactive post-sync auto-refresh** of already-open lists (pull-to-refresh only today)
-- [ ] Taxonomy hardening: migrate entity `type` from **label → FK id** (rename-propagation safety)
+- [~] Taxonomy hardening: migrate entity `type` from **label → FK id** (rename-propagation safety) — **#74**
+  - [x] **Phase 1** (commit `18caffc`): additive soft-FK columns (`teams/jobs/locations.type_id`, `inventory_items.category_id`), deterministic backfill, dual-write (client `resolveTypeId` + server resolve-on-push). No hard FK (unordered outbox).
+  - [x] **Phase 2**: reads resolve the display label via the FK id (`resolveLabels` in `queries/taxonomy.ts` + `labelResolve.ts`, wrapped into the team/job/location/item read helpers) so a rename shows immediately everywhere; inventory item-type **filter** switched from label to `category_id`. Rename is now safe-by-construction.
+  - [ ] **Phase 3** (remaining): (a) **structural location-type rename safety** — `Shelf`/`Vehicle`/`Shop`/`Office` are still matched by hardcoded label literals in `queries/locations.ts` (`WHERE type = 'Shelf'`, `IN ('Shop','Office')`, `'Vehicle'`); renaming one in Manage Types breaks shelf/vehicle/office logic. Fix with a `slug`/`system_key` column on `taxonomy_types` (or guard renames of system types) and resolve those filters by it. (b) stop writing the label caches; extend FK resolution to `repairs.status` + `maintenance_events.type`. (c) `getDistinctValues('category')` autocomplete still returns raw cache labels (low priority).
 - [ ] Drag-and-drop **reorder** for taxonomy (up/down today)
 
 ## 🐞 Open bugs

@@ -1,6 +1,7 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
+import { applyLabelMap } from './labelResolve';
 
 export type TaxonomyType = {
   id: string;
@@ -44,6 +45,36 @@ export function resolveTypeId(category: string, label: string | null | undefined
   );
   const row = result.rows[0] as { id: string } | undefined;
   return row?.id ?? null;
+}
+
+// Phase 2 of the label→FK cutover (#74): resolve an entity's DISPLAY label from
+// its taxonomy FK id at read time, so a rename (which only rewrites the
+// taxonomy_types row) shows immediately everywhere without touching entities.
+// applyLabelMap lives in ./labelResolve (DB-free) so it stays unit-testable.
+
+// id → current label for every taxonomy row (tiny table; one scan per read call).
+export function getTypeLabelMap(): Map<string, string> {
+  const db = getDb();
+  const rows = db.executeSync(`SELECT id, label FROM taxonomy_types`).rows as {
+    id: string;
+    label: string;
+  }[];
+  const map = new Map<string, string>();
+  for (const r of rows) map.set(r.id, r.label);
+  return map;
+}
+
+// Overwrite each row's label cache field with the current taxonomy label resolved
+// via its FK id. The entity read helpers wrap their return in this so every
+// list/detail/icon/color consumer transparently gets the fresh label in the
+// existing type/category field.
+export function resolveLabels<T>(
+  rows: T[],
+  idField: string,
+  labelField: string,
+): T[] {
+  if (rows.length === 0) return rows;
+  return applyLabelMap(rows, idField, labelField, getTypeLabelMap());
 }
 
 // item_category.meta shape (migration 018): the type's curated units + the

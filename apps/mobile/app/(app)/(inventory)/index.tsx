@@ -43,8 +43,8 @@ interface Item {
 
 const PAGE_SIZE = 20;
 
-// Filter value 'all' = no filter; any other value is an Item Type label matched
-// against inventory_items.category (PPE / Filters / …).
+// Filter value 'all' = no filter; any other value is an Item Type id (#74 P2)
+// matched against inventory_items.category_id so renamed types still filter.
 const ALL_FILTER = 'all';
 
 export default function InventoryScreen() {
@@ -60,12 +60,12 @@ export default function InventoryScreen() {
   const [minQtyOpen, setMinQtyOpen] = useState(false);
   const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
   const [minQtyValue, setMinQtyValue] = useState('');
-  // Chips: "All" + one per Item Type (value = type label, matched against the
-  // item's `category`). Falls back to just "All" until item types have synced.
+  // Chips: "All" + one per Item Type (value = type id, matched against the item's
+  // `category_id`). Falls back to just "All" until item types have synced.
   const filterChips = useMemo(
     () => [
       { id: ALL_FILTER, label: 'All' },
-      ...getItemTypes().map(t => ({ id: t.label, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
+      ...getItemTypes().map(t => ({ id: t.id, label: t.icon ? `${t.icon} ${t.label}` : t.label })),
     ],
     [refreshKey],
   );
@@ -84,7 +84,7 @@ export default function InventoryScreen() {
     setLoading(true);
     const typeFilter = cat === ALL_FILTER ? undefined : cat;
     // kind='product' + item-type filtered IN-SQL so pagination (LIMIT/OFFSET +
-    // hasMore) is correct. itemCategory matches the catalog `category` column.
+    // hasMore) is correct. typeFilter is the item_category id → i.category_id.
     const rows = searchItems(q, PAGE_SIZE, newOffset, undefined, 'product', undefined, typeFilter) as Item[];
     if (append) {
       setItems(prev => [...prev, ...rows]);

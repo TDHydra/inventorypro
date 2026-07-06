@@ -1,6 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
-import { resolveTypeId, JOB_CATEGORY } from './taxonomy';
+import { resolveTypeId, resolveLabels, JOB_CATEGORY } from './taxonomy';
 
 export interface Job {
   id: string;
@@ -34,7 +34,8 @@ export function getOpenJobs(): Job[] {
   const result = db.executeSync(
     `SELECT * FROM jobs WHERE status = 'open' ORDER BY updated_at DESC`
   );
-  return rowsAs<Job>(result.rows);
+  // Resolve `type` from type_id so a taxonomy rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type');
 }
 
 export function searchJobs(query: string): Job[] {
@@ -46,13 +47,13 @@ export function searchJobs(query: string): Job[] {
      LIMIT 20`,
     [`%${query}%`]
   );
-  return rowsAs<Job>(result.rows);
+  return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type');
 }
 
 export function getJobById(id: string): Job | null {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM jobs WHERE id = ?`, [id]);
-  return (result.rows[0] as unknown as Job) ?? null;
+  return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type')[0] ?? null;
 }
 
 // Distinct prior values for the job typeahead fields (mirrors getDistinctValues in
@@ -144,7 +145,7 @@ export function getAllJobs(includeArchived = false): Job[] {
     ? `SELECT * FROM jobs ORDER BY created_at DESC`
     : `SELECT * FROM jobs WHERE status != 'archived' ORDER BY created_at DESC`;
   const result = db.executeSync(sql);
-  return rowsAs<Job>(result.rows);
+  return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type');
 }
 
 /** Soft-delete a job locally and queue an outbox UPDATE. */

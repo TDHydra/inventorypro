@@ -1,6 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
-import { resolveTypeId, LOCATION_TYPE } from './taxonomy';
+import { resolveTypeId, resolveLabels, LOCATION_TYPE } from './taxonomy';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../tx';
 import { appendLog } from './log';
@@ -42,7 +42,8 @@ export function getAllLocations(): Location[] {
   const result = db.executeSync(
     `SELECT * FROM locations WHERE active = 1 ORDER BY parent_id NULLS FIRST, name`
   );
-  return rowsAs<Location>(result.rows);
+  // Resolve `type` from type_id so a taxonomy rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
 // "Real" browsable locations — everything EXCEPT shelves (type='Shelf'). Shelves
@@ -91,7 +92,7 @@ export function getTopLevelLocations(): Location[] {
   const result = db.executeSync(
     `SELECT * FROM locations WHERE parent_id IS NULL AND active = 1 ORDER BY name`
   );
-  return rowsAs<Location>(result.rows);
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
 export function getSubAreas(parentId: string): Location[] {
@@ -100,7 +101,7 @@ export function getSubAreas(parentId: string): Location[] {
     `SELECT * FROM locations WHERE parent_id = ? AND active = 1 ORDER BY name`,
     [parentId]
   );
-  return rowsAs<Location>(result.rows);
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
 // Full recursive tree (arbitrary depth). `depth` is the 0-based nesting level,
@@ -167,7 +168,7 @@ export function getDescendantIds(id: string): Set<string> {
 export function getLocationById(id: string): Location | null {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM locations WHERE id = ?`, [id]);
-  return (result.rows[0] as unknown as Location) ?? null;
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type')[0] ?? null;
 }
 
 // Locations that belong to a user (a PM's locker/vehicle, etc.).
@@ -177,7 +178,7 @@ export function getLocationsByOwner(ownerUserId: string): Location[] {
     `SELECT * FROM locations WHERE owner_user_id = ? AND active = 1 ORDER BY name`,
     [ownerUserId]
   );
-  return rowsAs<Location>(result.rows);
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
 export interface StockAtLocation {
@@ -201,6 +202,12 @@ export function getStockAtLocation(locationId: string): StockAtLocation[] {
   return rowsAs<StockAtLocation>(result.rows);
 }
 
+// NOTE (#74 Phase 2/3): the helpers below key STRUCTURAL behavior off hardcoded
+// type LABEL literals ('Shelf'/'Shop'/'Office'/'Vehicle'), not the FK id. This is
+// deliberately left as-is — renaming one of those system types in Manage Types
+// would break shelf/vehicle/office logic. Phase 3 should add a slug/system_key to
+// taxonomy_types (or guard system-type renames) and resolve these by it.
+
 // Active "Shelf"-type locations, for the item Home-location typeahead. Shelves
 // are entered with prefixes (e.g. WH-A1, SHOP-B3), so name order is enough.
 export function getShelfLocations(): Location[] {
@@ -218,7 +225,7 @@ export function searchLocations(q: string, limit = 20): Location[] {
     `SELECT * FROM locations WHERE active = 1 AND name LIKE ? ORDER BY name LIMIT ?`,
     [`%${q}%`, limit],
   );
-  return rowsAs<Location>(result.rows);
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
 // "Office" destinations — locations tagged Shop or Office (the franchise base).

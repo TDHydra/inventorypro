@@ -1,5 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { resolveTypeId, TEAM_CATEGORY } from './taxonomy';
+import { resolveTypeId, resolveLabels, TEAM_CATEGORY } from './taxonomy';
 import { getValidJwt } from '../../auth/session';
 import { syncNow } from '../../sync/engine';
 import { Permission } from '../../constants/roles';
@@ -70,13 +70,14 @@ export interface TeamMember {
 export function getAllTeams(): Team[] {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM teams ORDER BY name ASC`);
-  return rowsAs<Team>(result.rows);
+  // Resolve `type` from type_id so a taxonomy rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<Team>(result.rows), 'type_id', 'type');
 }
 
 export function getTeamById(id: string): Team | null {
   const db = getDb();
   const result = db.executeSync(`SELECT * FROM teams WHERE id = ?`, [id]);
-  return rowsAs<Team>(result.rows)[0] ?? null;
+  return resolveLabels(rowsAs<Team>(result.rows), 'type_id', 'type')[0] ?? null;
 }
 
 export function getTeamMembers(teamId: string): TeamMember[] {
