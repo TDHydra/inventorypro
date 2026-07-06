@@ -609,6 +609,35 @@ const routes: FastifyPluginAsync = async (fastify) => {
           conflicts.push({ id: entry.id, error: 'Forbidden: cannot edit permissions for a role at or above your level' });
           continue;
         }
+
+        // Only a full_admin may grant/revoke the destructive delete_inventory
+        // permission (mirrors the client lock in roles.tsx). Compare the incoming
+        // delete_inventory bit against the stored row; deny a CHANGE by a non-apex
+        // caller. Other permission edits on the role are unaffected.
+        if (caller.role !== 'full_admin') {
+          const parseOv = (v: unknown): Record<string, unknown> => {
+            if (v == null) return {};
+            if (typeof v === 'string') { try { return JSON.parse(v) as Record<string, unknown>; } catch { return {}; } }
+            return typeof v === 'object' ? (v as Record<string, unknown>) : {};
+          };
+          const incoming = parseOv(entry.payload.permission_overrides);
+          const { rows: curRows } = await fastify.pg.query<{ permission_overrides: unknown }>(
+            `SELECT permission_overrides FROM role_settings WHERE role = $1`,
+            [String(editedRole)],
+          );
+          const current = parseOv(curRows[0]?.permission_overrides);
+          const incHas = 'delete_inventory' in incoming;
+          const curHas = 'delete_inventory' in current;
+          const changed = incHas !== curHas || (incHas && incoming.delete_inventory !== current.delete_inventory);
+          if (changed) {
+            request.log.warn(
+              { userId, role: caller.role, editedRole },
+              'sync push role_settings delete_inventory grant denied (not full_admin)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: only a full admin can grant or revoke the delete_inventory permission' });
+            continue;
+          }
+        }
       }
 
       // Privileged rows are never DELETED via sync: users deactivate (active=false),

@@ -1,5 +1,35 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { resolveTypeId, resolveLabels, ITEM_CATEGORY } from './taxonomy';
+import { appendOutbox } from '../../sync/outbox';
+import { runInTransaction } from '../tx';
+
+// Hard-delete inventory items (+ their local stock, tracked units, and those
+// units' maintenance history) and queue a DELETE for each to the sync outbox so
+// the server removes them too (server cascades stock + units via migration 041's
+// ON DELETE CASCADE; delete_inventory permission is enforced server-side). op-
+// sqlite does not enforce FKs locally, so we cascade the child rows by hand to
+// avoid orphans. Irreversible. Returns the number of items deleted.
+export function deleteItems(ids: string[]): number {
+  if (ids.length === 0) return 0;
+  const db = getDb();
+  return runInTransaction(() => {
+    let n = 0;
+    for (const id of ids) {
+      // maintenance_events hang off the item's equipment_units (unit_id), not the
+      // item — delete them via the units first.
+      db.executeSync(
+        `DELETE FROM maintenance_events WHERE unit_id IN (SELECT id FROM equipment_units WHERE item_id = ?)`,
+        [id],
+      );
+      db.executeSync(`DELETE FROM equipment_units WHERE item_id = ?`, [id]);
+      db.executeSync(`DELETE FROM stock_by_location WHERE item_id = ?`, [id]);
+      db.executeSync(`DELETE FROM inventory_items WHERE id = ?`, [id]);
+      appendOutbox('DELETE', 'inventory_items', { id });
+      n += 1;
+    }
+    return n;
+  });
+}
 
 export interface InventoryItem {
   id: string;
