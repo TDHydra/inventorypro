@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
+import { sendPush, messageRecipients } from '../lib/push';
 
 interface OutboxEntry {
   id: string;
@@ -31,6 +32,7 @@ const ALLOWED_TABLES = new Set([
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
   'dashboard_presets',
+  'conversations', 'conversation_participants', 'messages',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -62,12 +64,33 @@ const CONFLICT_TARGETS: Record<string, string> = {
   app_config: 'key',
   taxonomy_types: 'id',
   dashboard_presets: 'id',
+  conversations: 'id',
+  conversation_participants: 'conversation_id, user_id',
+  messages: 'id',
 };
 
 // Tables whose pull is scoped to the authenticated caller (private per-user data).
 // The listed column is matched against the caller's user id so a device only ever
 // downloads its own rows (e.g. the per-user notifications inbox).
 const SCOPED_TABLES: Record<string, string> = { notifications: 'user_id' };
+
+// Chat tables have a scoped pull the single-column SCOPED_TABLES map can't express:
+// a device may only pull conversations/participants/messages for conversations it
+// participates in. Returns the extra WHERE fragment (parameterized on the caller id
+// via `callerParam`, e.g. '$2') for a chat table, or null for any other table.
+//   conversations              → id IN (my conversation ids)
+//   conversation_participants  → conversation_id IN (my conversation ids)  (so a
+//                                device sees every member of its own conversations)
+//   messages                   → conversation_id IN (my conversation ids)
+function chatScopeSql(table: string, callerParam: string): string | null {
+  const mine = `SELECT conversation_id FROM conversation_participants WHERE user_id = ${callerParam}`;
+  switch (table) {
+    case 'conversations': return `id IN (${mine})`;
+    case 'conversation_participants': return `conversation_id IN (${mine})`;
+    case 'messages': return `conversation_id IN (${mine})`;
+    default: return null;
+  }
+}
 
 function conflictTarget(table: string): string {
   return CONFLICT_TARGETS[table] ?? 'id';
@@ -83,6 +106,7 @@ const FULL_TABLES = [
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
   'dashboard_presets',
+  'conversations', 'conversation_participants', 'messages',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
@@ -449,12 +473,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
     const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
 
-    // Scoped tables (e.g. notifications) only ever return the caller's own rows.
+    // Scoped tables (e.g. notifications) only ever return the caller's own rows;
+    // chat tables are scoped to the caller's own conversations (chatScopeSql).
     const scopeCol = SCOPED_TABLES[table];
-    const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3` : '';
+    const chatScope = chatScopeSql(table, '$3');
+    const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3` : chatScope ? ` WHERE ${chatScope}` : '';
+    const scoped = !!scopeCol || !!chatScope;
     const { rows } = await fastify.pg.query(
       `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
-      scopeCol ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
+      scoped ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
     );
 
     const hasMore = rows.length > limitNum;
@@ -492,12 +519,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     for (const table of FULL_TABLES) {
       const dateCol = table === 'media' ? 'created_at' : 'updated_at';
-      // Scoped tables (e.g. notifications) only ever return the caller's own rows.
+      // Scoped tables (e.g. notifications) only ever return the caller's own rows;
+      // chat tables are scoped to the caller's own conversations (chatScopeSql).
       const scopeCol = SCOPED_TABLES[table];
-      const scopeSql = scopeCol ? ` AND ${scopeCol} = $2` : '';
+      const chatScope = chatScopeSql(table, '$2');
+      const scopeSql = scopeCol ? ` AND ${scopeCol} = $2` : chatScope ? ` AND ${chatScope}` : '';
+      const scoped = !!scopeCol || !!chatScope;
       const { rows } = await fastify.pg.query(
         `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
-        scopeCol ? [since, userId] : [since]
+        scoped ? [since, userId] : [since]
       );
       results[table] = { rows };
     }
@@ -676,9 +706,61 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // messages: a user may only post to a conversation they PARTICIPATE in.
+      // sender_id is forced to the caller by ATTRIBUTION_COLUMNS, so we only need
+      // to authorize the target conversation. Verified server-side (the scoped
+      // pull already hides non-member conversations, but a crafted push must still
+      // be rejected). INSERT-only — edits/other ops fall through to op-perm (null).
+      if (entry.table_name === 'messages' && entry.operation === 'INSERT') {
+        const convId = entry.payload.conversation_id;
+        const { rows: partRows } = await fastify.pg.query(
+          `SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2`,
+          [convId, userId],
+        );
+        if (!partRows[0]) {
+          request.log.warn(
+            { userId, conversationId: convId },
+            'sync push message denied (not a participant)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation' });
+          continue;
+        }
+      }
+
       try {
         await applyEntry(fastify.pg, entry, userId, realColumns, can, touchedItems);
         ok.push(entry.id);
+        // New chat message → notify the OTHER participants, filtered by each one's
+        // notify_pref vs the message urgency (messageRecipients). Fire-and-forget:
+        // never blocks or fails the sync write. sender_id was forced to the caller.
+        if (entry.table_name === 'messages' && entry.operation === 'INSERT') {
+          const convId = entry.payload.conversation_id;
+          const urgency = entry.payload.urgency === 'regular' ? 'regular' : 'urgent';
+          const body = String(entry.payload.body ?? '');
+          void (async () => {
+            try {
+              const { rows: parts } = await fastify.pg.query(
+                `SELECT user_id, notify_pref FROM conversation_participants WHERE conversation_id = $1`,
+                [convId],
+              );
+              const recipients = messageRecipients(
+                parts as { user_id: string; notify_pref: string }[],
+                userId,
+                urgency,
+              );
+              if (!recipients.length) return;
+              // Best-effort title: group title, else the sender's name.
+              const { rows: cRows } = await fastify.pg.query(`SELECT kind, title FROM conversations WHERE id = $1`, [convId]);
+              const { rows: uRows } = await fastify.pg.query(`SELECT name FROM users WHERE id = $1`, [userId]);
+              const conv = cRows[0] as { kind: string; title: string | null } | undefined;
+              const senderName = uRows[0] ? String((uRows[0] as { name: string }).name) : 'New message';
+              const isGroup = conv?.kind === 'group';
+              const title = isGroup && conv?.title ? conv.title : senderName;
+              const pushBody = isGroup ? `${senderName}: ${body}` : body;
+              await sendPush(fastify.pg, recipients, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) } });
+            } catch { /* never disrupt sync */ }
+          })();
+        }
       } catch (err) {
         // Log the offending entry so a stuck/rejected outbox row is diagnosable
         // (the client only stores the reason locally; conflicts aren't otherwise

@@ -137,6 +137,10 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   // requester_id is forced to the caller on INSERT (can't file a request as
   // someone else) and can't be reassigned on UPDATE.
   approval_requests: ['requester_id'],
+  // Chat attribution: a client can't forge who created a conversation or who sent
+  // a message — both are stamped to the authenticated caller on INSERT.
+  conversations: ['created_by'],
+  messages: ['sender_id'],
 };
 
 export function applyWritePolicy(
@@ -213,6 +217,16 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   // dashboard_presets: org-shared dashboard layouts — only admins (system_settings)
   // may create/edit/delete; every synced device reads them to render its hub.
   dashboard_presets: { INSERT: 'system_settings', UPDATE: 'system_settings', DELETE: 'system_settings' },
+  // chat: available to every authenticated user (no special perm), so each op maps
+  // to null (allowed to any authed caller). Message writes are ADDITIONALLY gated on
+  // conversation membership in the push handler (a caller may only post to a
+  // conversation they participate in); pull is scoped so a device can only ever see
+  // conversations it belongs to. Participant DELETE = leave/remove; conversation
+  // DELETE is intentionally absent (fails closed — conversations aren't torn down
+  // via sync). messages carry no financial columns.
+  conversations:             { INSERT: null, UPDATE: null },
+  conversation_participants: { INSERT: null, UPDATE: null, DELETE: null },
+  messages:                  { INSERT: null, UPDATE: null },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -282,6 +296,11 @@ const ROLE_SETTINGS_COLS = 'role, min_pin_length, permission_overrides, color, d
 // dashboard_presets: org-shared dashboard layouts. No financial/secret columns —
 // every synced device reads the full row to render its hub.
 const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
+// chat: explicit synced column lists (never '*'). No financial/secret columns —
+// pull is scoped to the caller's own conversations in sync.ts.
+const CONVERSATIONS_COLS = 'id, kind, title, created_by, created_at, updated_at';
+const CONVERSATION_PARTICIPANTS_COLS = 'conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at';
+const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
@@ -294,5 +313,8 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;
   if (table === 'dashboard_presets') return DASHBOARD_PRESETS_COLS;
+  if (table === 'conversations') return CONVERSATIONS_COLS;
+  if (table === 'conversation_participants') return CONVERSATION_PARTICIPANTS_COLS;
+  if (table === 'messages') return MESSAGES_COLS;
   return '*';
 }

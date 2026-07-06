@@ -19,6 +19,9 @@ const SYNC_TABLES = [
   // approval_requests is unscoped but /sync/pull already returns all rows to
   // every user, so a full backfill is consistent (no new exposure).
   'notifications', 'approval_requests',
+  // chat: SCOPED server-side to the caller's own conversations (see sync.ts
+  // chatScopeSql) — a fresh device gets only the conversations it participates in.
+  'conversations', 'conversation_participants', 'messages',
 ] as const;
 
 export const FULL_DOWNLOAD_TABLE_COUNT = SYNC_TABLES.length;
@@ -104,7 +107,10 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'label_templates':
       case 'dashboard_presets':
       case 'notifications':
-      case 'approval_requests': {
+      case 'approval_requests':
+      case 'conversations':
+      case 'conversation_participants':
+      case 'messages': {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)
         // and sanitize values (JSONB objects / booleans) for op-sqlite.

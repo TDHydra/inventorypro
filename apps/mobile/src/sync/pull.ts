@@ -24,6 +24,9 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   maintenance_events: `INSERT OR REPLACE INTO maintenance_events (id, unit_id, event_date, type, notes, cost, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
   label_templates: `INSERT OR REPLACE INTO label_templates (id, name, width_in, height_in, dpi, fields, active, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   dashboard_presets: `INSERT OR REPLACE INTO dashboard_presets (id, name, layout, active, updated_at) VALUES (?,?,?,?,?)`,
+  conversations: `INSERT OR REPLACE INTO conversations (id, kind, title, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  conversation_participants: `INSERT OR REPLACE INTO conversation_participants (conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  messages: `INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -47,6 +50,9 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'maintenance_events': return [row.id, row.unit_id, row.event_date, row.type, row.notes ?? null, row.cost ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'label_templates': return [row.id, row.name, row.width_in, row.height_in, row.dpi, row.fields ?? '[]', row.active ? 1 : 0, row.created_by ?? null, row.created_at, row.updated_at];
     case 'dashboard_presets': return [row.id, row.name, row.layout ?? '[]', row.active ? 1 : 0, row.updated_at];
+    case 'conversations': return [row.id, row.kind ?? 'dm', row.title ?? null, row.created_by ?? null, row.created_at, row.updated_at];
+    case 'conversation_participants': return [row.conversation_id, row.user_id, row.notify_pref ?? 'all', row.last_read_at ?? null, row.added_at, row.updated_at];
+    case 'messages': return [row.id, row.conversation_id, row.sender_id ?? null, row.body, row.urgency ?? 'urgent', row.created_at, row.updated_at];
     default: return [];
   }
 }
