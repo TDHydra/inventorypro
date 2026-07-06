@@ -210,6 +210,9 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   // label_templates: org-shared label layouts — only admins (system_settings) may
   // create/edit/delete; every synced device reads them to print.
   label_templates: { INSERT: 'system_settings', UPDATE: 'system_settings', DELETE: 'system_settings' },
+  // dashboard_presets: org-shared dashboard layouts — only admins (system_settings)
+  // may create/edit/delete; every synced device reads them to render its hub.
+  dashboard_presets: { INSERT: 'system_settings', UPDATE: 'system_settings', DELETE: 'system_settings' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -256,7 +259,7 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
 // columns on jobs are gated behind view_financial_data.
 const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
-const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email';
+const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
@@ -273,6 +276,12 @@ const MAINTENANCE_EVENTS_SENSITIVE = ', cost';
 // synced column list explicitly (never '*') so the projection is server-owned.
 const NOTIFICATIONS_COLS = 'id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at';
 const APPROVAL_REQUESTS_COLS = 'id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at';
+// role_settings: full synced column set (explicit, never '*') — carries the new
+// dashboard_preset_id assignment (migration 039) alongside the pin/perm/color config.
+const ROLE_SETTINGS_COLS = 'role, min_pin_length, permission_overrides, color, dashboard_preset_id, updated_at';
+// dashboard_presets: org-shared dashboard layouts. No financial/secret columns —
+// every synced device reads the full row to render its hub.
+const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
@@ -283,5 +292,7 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
+  if (table === 'role_settings') return ROLE_SETTINGS_COLS;
+  if (table === 'dashboard_presets') return DASHBOARD_PRESETS_COLS;
   return '*';
 }

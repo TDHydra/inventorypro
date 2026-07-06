@@ -44,6 +44,7 @@ export interface User {
   active: number;
   expires_at: string | null;
   email?: string | null;
+  dashboard_preset_id?: string | null;
   created_at: string;
   updated_at: string;
   synced_at: string | null;
@@ -100,12 +101,12 @@ export function upsertUser(user: User): void {
   db.executeSync(
     `INSERT OR REPLACE INTO users
        (id, name, role, pin_length_required, pin_set, permission_overrides,
-        active, expires_at, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        active, expires_at, created_at, updated_at, synced_at, dashboard_preset_id, email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([user.id, user.name, user.role,
      user.pin_length_required, user.pin_set, user.permission_overrides,
      user.active, user.expires_at, user.created_at,
-     user.updated_at, user.synced_at])
+     user.updated_at, user.synced_at, user.dashboard_preset_id ?? null, user.email ?? null])
   );
 }
 

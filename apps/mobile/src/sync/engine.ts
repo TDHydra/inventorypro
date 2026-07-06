@@ -6,6 +6,7 @@ import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
 import { loadRolePermissionCache } from '../auth/permissions';
+import { loadDashboardCache } from '../dashboard/store';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
 import { track } from '../telemetry';
 import { flushTelemetry } from '../telemetry/flush';
@@ -146,6 +147,9 @@ async function runDrainAndPull(): Promise<void> {
     // A pull may also have changed role_settings.permission_overrides — refresh
     // the role-override cache that hasPermission() reads.
     loadRolePermissionCache();
+    // A pull may also have changed dashboard_presets or the per-user/role
+    // assignment — refresh the cache the hub's useDashboardLayout() reads.
+    loadDashboardCache();
     // Fire-and-forget local alert checks (low stock / temp-employee expiry).
     // It swallows its own errors and resolves void, so it can't disturb the
     // existing try/catch/return behaviour of this cycle.
