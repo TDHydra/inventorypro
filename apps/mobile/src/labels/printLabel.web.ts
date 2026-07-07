@@ -275,6 +275,11 @@ export async function printLabelsWithModel(items: LabelItem[], model: LabelTempl
  * Render the label HTML into a hidden iframe and trigger the browser print
  * dialog, then clean up. Resolves once printing has been invoked. No-op when
  * there is no DOM (e.g. SSR/test environments).
+ *
+ * Uses `srcdoc` (not document.write) so that `onload` fires exactly ONCE —
+ * after the label content is ready — rather than for the initial about:blank
+ * page, which would have called win.print() on an empty document and caused
+ * the browser to print the main app window (the label picker sheet) instead.
  */
 function printHtml(html: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -286,12 +291,10 @@ function printHtml(html: string): Promise<void> {
     try {
       const iframe = document.createElement('iframe');
       iframe.setAttribute('aria-hidden', 'true');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
+      // Position off-screen but keep non-zero dimensions so browsers include
+      // the iframe in layout; a 0×0 iframe may be skipped during printing.
+      iframe.style.cssText =
+        'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;';
 
       const cleanup = () => {
         // Remove on the next tick so the print dialog has captured the doc.
@@ -300,6 +303,8 @@ function printHtml(html: string): Promise<void> {
         }, 1000);
       };
 
+      // onload fires once — after srcdoc content is fully parsed — never for
+      // the initial blank navigation that document.write() would have triggered.
       iframe.onload = () => {
         try {
           const win = iframe.contentWindow;
@@ -318,16 +323,9 @@ function printHtml(html: string): Promise<void> {
         }
       };
 
+      // Set srcdoc BEFORE appending so the single load is the label content.
+      iframe.srcdoc = html;
       document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (!doc) {
-        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-        resolve();
-        return;
-      }
-      doc.open();
-      doc.write(html);
-      doc.close();
     } catch (err) {
       reject(err as Error);
     }

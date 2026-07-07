@@ -64,6 +64,7 @@ export function LabelPrintSheet({ visible, onClose, title, code, qrUrl, payload 
       } else {
         await printLabel({ title, code, qrUrl, template: sel.key, format, payload });
       }
+      onClose();
     } catch (err) {
       Alert.alert('Print failed', err instanceof Error ? err.message : 'An error occurred.');
     } finally {

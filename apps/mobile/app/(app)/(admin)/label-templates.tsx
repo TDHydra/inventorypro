@@ -44,39 +44,53 @@ function fieldPreview(f: LabelField): string {
 }
 
 // ── One draggable + resizable field box on the canvas ──────────────────────
-function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange }: {
+function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange, onDragStart, onDragEnd }: {
   field: LabelField; canvasW: number; canvasH: number; selected: boolean;
   onSelect: (id: string) => void;
   onChange: (id: string, patch: Partial<LabelField>) => void;
+  /** Called when a drag/resize gesture starts — used to freeze parent scroll. */
+  onDragStart: () => void;
+  /** Called when a drag/resize gesture ends or is cancelled. */
+  onDragEnd: () => void;
 }) {
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   // Ref mirror so the once-created PanResponders always read fresh props.
-  const cfg = useRef({ field, canvasW, canvasH, onChange, onSelect });
-  cfg.current = { field, canvasW, canvasH, onChange, onSelect };
+  const cfg = useRef({ field, canvasW, canvasH, onChange, onSelect, onDragStart, onDragEnd });
+  cfg.current = { field, canvasW, canvasH, onChange, onSelect, onDragStart, onDragEnd };
   const startSize = useRef({ w: 0, h: 0 });
 
   const drag = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2,
-    onPanResponderGrant: () => cfg.current.onSelect(cfg.current.field.id),
+    // Claim the responder on any move so the parent ScrollView cannot steal it.
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      cfg.current.onDragStart();
+      cfg.current.onSelect(cfg.current.field.id);
+    },
     onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
     onPanResponderRelease: (_e, g) => {
       const c = cfg.current;
+      c.onDragEnd();
       pan.setValue({ x: 0, y: 0 });
       c.onChange(c.field.id, {
         x: clamp(c.field.x + g.dx / c.canvasW, 0, 1 - c.field.w),
         y: clamp(c.field.y + g.dy / c.canvasH, 0, 1 - c.field.h),
       });
     },
-    onPanResponderTerminate: () => pan.setValue({ x: 0, y: 0 }),
+    onPanResponderTerminate: () => {
+      cfg.current.onDragEnd();
+      pan.setValue({ x: 0, y: 0 });
+    },
   }), [pan]);
 
   // Resize commits live (state) — anchor to the size captured on grant so the
   // cumulative gesture delta isn't double-counted as field.w/h grows.
   const resize = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: () => {
       const c = cfg.current;
+      c.onDragStart();
       c.onSelect(c.field.id);
       startSize.current = { w: c.field.w, h: c.field.h };
     },
@@ -87,6 +101,8 @@ function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange }: {
         h: clamp(startSize.current.h + g.dy / c.canvasH, 0.06, 1 - c.field.y),
       });
     },
+    onPanResponderRelease: () => cfg.current.onDragEnd(),
+    onPanResponderTerminate: () => cfg.current.onDragEnd(),
   }), []);
 
   return (
@@ -114,6 +130,9 @@ function Editor({ initial, userId, onDone }: {
   const { width } = useWindowDimensions();
   const [model, setModel] = useState<LabelTemplateModel>(initial);
   const [selectedId, setSelectedId] = useState<string | null>(initial.fields[0]?.id ?? null);
+  // Freeze scroll while a field is being dragged or resized so the parent
+  // ScrollView cannot steal the PanResponder mid-gesture.
+  const [dragging, setDragging] = useState(false);
 
   const canvasW = width - spacing.base * 2 - 2; // page padding + border
   const canvasH = canvasW * (model.heightIn / model.widthIn);
@@ -122,6 +141,9 @@ function Editor({ initial, userId, onDone }: {
   const patchField = useCallback((id: string, patch: Partial<LabelField>) => {
     setModel(m => ({ ...m, fields: m.fields.map(f => (f.id === id ? { ...f, ...patch } : f)) }));
   }, []);
+
+  const handleDragStart = useCallback(() => setDragging(true), []);
+  const handleDragEnd = useCallback(() => setDragging(false), []);
 
   function addField() {
     const f: LabelField = { id: generateUUID(), type: 'static_text', x: 0.3, y: 0.4, w: 0.4, h: 0.18, fontPt: 10, align: 'center', text: 'Text' };
@@ -143,7 +165,11 @@ function Editor({ initial, userId, onDone }: {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: spacing.base, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      scrollEnabled={!dragging}
+      contentContainerStyle={{ padding: spacing.base, paddingBottom: spacing.xxl }}
+      keyboardShouldPersistTaps="handled"
+    >
       <FieldLabel text="Template name" />
       <TextInput style={s.input} value={model.name} onChangeText={t => setModel(m => ({ ...m, name: t }))} placeholder="e.g. Warehouse 4×2" placeholderTextColor={colors.textMuted} />
 
@@ -160,7 +186,8 @@ function Editor({ initial, userId, onDone }: {
       <View style={[s.canvas, { width: canvasW, height: canvasH }]}>
         {model.fields.map(f => (
           <FieldBox key={f.id} field={f} canvasW={canvasW} canvasH={canvasH}
-            selected={f.id === selectedId} onSelect={setSelectedId} onChange={patchField} />
+            selected={f.id === selectedId} onSelect={setSelectedId} onChange={patchField}
+            onDragStart={handleDragStart} onDragEnd={handleDragEnd} />
         ))}
         {model.fields.length === 0 && <Text style={s.canvasHint}>Add a field below</Text>}
       </View>
