@@ -125,8 +125,15 @@ async function build() {
   await fastify.register(pushRoutes, { prefix: '/push' });
   await fastify.register(notificationsRoutes, { prefix: '/notifications' });
 
-  // Health check
-  fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
+  // Health check — includes uptime and version for ops dashboards.
+  // npm_package_version is set automatically when started via pnpm/npm run scripts.
+  const apiVersion = process.env.npm_package_version ?? '1.0.0';
+  fastify.get('/health', async () => ({
+    ok: true,
+    ts: new Date().toISOString(),
+    version: apiVersion,
+    uptime: Math.floor(process.uptime()),
+  }));
 
   // Global error handler — never leak internal error detail (stack traces,
   // SQL errors, etc.) on 5xx. Intentional 4xx messages (validation, auth) are

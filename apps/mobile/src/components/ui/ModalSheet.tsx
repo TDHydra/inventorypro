@@ -1,4 +1,4 @@
-import { Modal, Pressable, KeyboardAvoidingView, StyleSheet } from 'react-native';
+import { Modal, Pressable, KeyboardAvoidingView, View, StyleSheet } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 
 export function ModalSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
@@ -16,6 +16,8 @@ export function ModalSheet({ visible, onClose, children }: { visible: boolean; o
       >
         {/* Pressing the sheet itself does NOT close (this Pressable swallows the press). */}
         <Pressable style={s.sheet} onPress={() => {}}>
+          {/* Drag-handle pill — standard bottom-sheet affordance */}
+          <View style={s.handle} />
           {children}
         </Pressable>
       </KeyboardAvoidingView>
@@ -29,5 +31,11 @@ const s = StyleSheet.create({
   sheet: {
     backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
     padding: spacing.xl, maxHeight: '88%',
+  },
+  handle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginBottom: spacing.md,
   },
 });
