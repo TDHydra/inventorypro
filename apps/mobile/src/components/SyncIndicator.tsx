@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
   btnRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
   btn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: radii.md, minWidth: 110, alignItems: 'center' },
   btnPrimary: { backgroundColor: colors.primary },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
+  btnPrimaryText: { color: colors.surface, fontWeight: '700', fontSize: fontSizes.body },
   btnDanger: { backgroundColor: colors.dangerBg },
   btnDangerText: { color: colors.danger, fontWeight: '700', fontSize: fontSizes.body },
   btnDisabled: { opacity: 0.6 },
