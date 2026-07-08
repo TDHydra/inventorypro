@@ -14,6 +14,13 @@ import { colors } from '../../../src/theme';
 import { useDashboardLayout } from '../../../src/dashboard/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
 
+function timeGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 // hub_* telemetry action per widget — preserves today's exact track() calls (only
 // these three tiles were instrumented). Non-listed tiles fire no telemetry, as now.
 const HUB_TRACK: Partial<Record<WidgetType, string>> = {
@@ -43,7 +50,7 @@ export default function DashboardScreen() {
     <View key="__greeting">
       <View style={styles.greeting}>
         <View style={styles.greetingText}>
-          <Text style={[styles.hi, { color: roleColor(user.role) }]}>Hi, {user.name.split(' ')[0]}</Text>
+          <Text style={[styles.hi, { color: roleColor(user.role) }]}>{timeGreeting()}, {user.name.split(' ')[0]}</Text>
           <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
         </View>
         <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>

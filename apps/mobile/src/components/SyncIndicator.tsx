@@ -4,6 +4,7 @@ import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
 import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox } from '../sync/outbox';
 import { syncNow } from '../sync/engine';
+import { colors, radii, spacing, fontSizes } from '../theme';
 
 type SyncStatus = 'synced' | 'pending' | 'failed' | 'offline';
 
@@ -75,7 +76,13 @@ export function SyncIndicator() {
     );
   }
 
-  const color = { synced: '#22C55E', pending: '#F59E0B', failed: '#EF4444', offline: '#EF4444' }[status];
+  const SYNC_COLORS: Record<SyncStatus, string> = {
+    synced: colors.success,
+    pending: colors.warning,
+    failed: colors.danger,
+    offline: colors.danger,
+  };
+  const color = SYNC_COLORS[status];
   const label = {
     synced: 'Synced',
     pending: `${active} pending`,
@@ -145,24 +152,24 @@ const styles = StyleSheet.create({
   circle: { width: 10, height: 10, borderRadius: 5 },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' },
   sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 24,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: spacing.xxl,
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   sheetDot: { width: 16, height: 16, borderRadius: 8, marginBottom: 4 },
-  sheetStatus: { fontSize: 18, fontWeight: '700', color: '#1E293B' },
-  sheetSub: { fontSize: 14, color: '#64748B' },
-  sheetFailed: { fontSize: 14, color: '#DC2626', textAlign: 'center', marginTop: 4, fontWeight: '600' },
-  sheetErr: { fontSize: 12, color: '#94A3B8', textAlign: 'center', fontStyle: 'italic' },
-  sheetOffline: { fontSize: 13, color: '#DC2626', textAlign: 'center', marginTop: 4 },
-  btnRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
-  btn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, minWidth: 110, alignItems: 'center' },
-  btnPrimary: { backgroundColor: '#1E7E4E' },
-  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  btnDanger: { backgroundColor: '#FEE2E2' },
-  btnDangerText: { color: '#DC2626', fontWeight: '700', fontSize: 14 },
+  sheetStatus: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary },
+  sheetSub: { fontSize: fontSizes.body, color: colors.textSecondary },
+  sheetFailed: { fontSize: fontSizes.body, color: colors.danger, textAlign: 'center', marginTop: 4, fontWeight: '600' },
+  sheetErr: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', fontStyle: 'italic' },
+  sheetOffline: { fontSize: fontSizes.body2, color: colors.danger, textAlign: 'center', marginTop: 4 },
+  btnRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
+  btn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: radii.md, minWidth: 110, alignItems: 'center' },
+  btnPrimary: { backgroundColor: colors.primary },
+  btnPrimaryText: { color: colors.surface, fontWeight: '700', fontSize: fontSizes.body },
+  btnDanger: { backgroundColor: colors.dangerBg },
+  btnDangerText: { color: colors.danger, fontWeight: '700', fontSize: fontSizes.body },
   btnDisabled: { opacity: 0.6 },
 });
