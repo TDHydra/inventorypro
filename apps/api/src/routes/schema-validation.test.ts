@@ -18,7 +18,7 @@ async function buildApp() {
   app.decorate('authenticate', async () => {});
   // Stub pg so sync's registration-time column introspection resolves (empty
   // rows are fine — schema validation runs before any handler touches pg).
-  app.decorate('pg', { query: async () => ({ rows: [] }) });
+  app.decorate('pg', { query: async () => ({ rows: [] }) } as never);
   await app.register(teamRoutes, { prefix: '/teams' });
   await app.register(userRoutes, { prefix: '/users' });
   await app.register(authRoutes, { prefix: '/auth' });
