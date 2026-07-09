@@ -218,5 +218,29 @@ class TestFetchItems(unittest.TestCase):
         self.assertEqual(result, [{"id": "PVTI_x"}])
 
 
+class TestSetStatus(unittest.TestCase):
+    def test_uses_item_field_value_mutation_not_field_mutation(self):
+        """set_status must call updateProjectV2ItemFieldValue, never updateProjectV2Field
+        (which replaces the whole option list and would wipe every item's status)."""
+        seen = {}
+
+        def runner(cmd, **kwargs):
+            seen["cmd"] = cmd
+            return FakeCompleted(stdout='{"data":{"updateProjectV2ItemFieldValue":{"projectV2Item":{"id":"PVTI_x"}}}}')
+
+        cfg = {**CFG, "project_id": "PVT_proj", "status_field_id": "PVTSSF_field"}
+        _board.set_status(cfg, "PVTI_x", "98236657", runner=runner)
+        cmd = seen["cmd"]
+        joined = " ".join(cmd)
+        self.assertIn("updateProjectV2ItemFieldValue", joined)
+        self.assertNotIn("updateProjectV2Field(", joined)
+        self.assertNotIn("-F", cmd)
+        self.assertIn("-f", cmd)
+        self.assertIn("project=PVT_proj", cmd)
+        self.assertIn("item=PVTI_x", cmd)
+        self.assertIn("field=PVTSSF_field", cmd)
+        self.assertIn("opt=98236657", cmd)
+
+
 if __name__ == "__main__":
     unittest.main()
