@@ -203,22 +203,72 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // app_config (a fixed IDOR sink — see routes/media.ts, which imports this).
 export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log']);
 
-// Validate a media sync write's entity linkage. Pure (no DB) so it unit-tests;
-// the target-job EXISTENCE check lives in the push handler where pg is.
+// Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors any
+// media URL/delete to a key WE generated in /upload-url, never a client path.
+// Lives here (not lib/mediaCleanup.ts, which re-exports it) so this pure policy
+// module can validate url/thumbnail_url without importing the S3 stack — s3.ts
+// fails closed at import time when MinIO credentials are absent.
+export const KEY_RE = /^[a-z_]+\/[a-zA-Z0-9_-]{1,64}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+
+// A stored media URL must be exactly `${base}/${key}` — the same construction
+// POST /media performs (routes/media.ts) — where base is the server's own
+// PUBLIC_MEDIA_URL and key is a server-issued object key anchored under THIS
+// row's entity_type/entity_id. Anything else is the SSRF/DB-pollution sink the
+// REST path already closed: a client-chosen url is stored verbatim and later
+// served as this entity's media. Returns an error string or null when OK.
+function validateMediaUrlField(
+  field: 'url' | 'thumbnail_url',
+  value: unknown,
+  entityType: string,
+  entityId: string,
+): string | null {
+  if (typeof value !== 'string' || value === '') return `media ${field} must be a non-empty string`;
+  const base = process.env.PUBLIC_MEDIA_URL ?? 'https://localhost/media';
+  if (!value.startsWith(`${base}/`)) return `media ${field} must be under the server media URL`;
+  const key = value.slice(base.length + 1);
+  // KEY_RE is fully anchored, so query strings, fragments, extra path segments
+  // and `..` traversal in <rest> all fail the shape check.
+  if (!KEY_RE.test(key)) return `media ${field} key is not a server-issued object key`;
+  if (!key.startsWith(`${entityType}/${entityId}/`)) return `media ${field} does not match its entity`;
+  return null;
+}
+
+// Validate a media sync write's entity linkage AND url/thumbnail_url. Pure
+// (no DB) so it unit-tests; the target-job EXISTENCE check lives in the push
+// handler where pg is.
 //  - INSERT must land on an allowlisted entity type (previously only the REST
-//    upload path enforced this; the sync path let any entity_type through).
+//    upload path enforced this; the sync path let any entity_type through),
+//    and url (plus thumbnail_url when present) must be the server-constructed
+//    `${PUBLIC_MEDIA_URL}/${entity_type}/${entity_id}/${uuid}.${ext}` shape —
+//    exactly what MediaGallery sends (it stores the publicUrl the server
+//    returned from /upload-url).
 //  - UPDATE may re-link (the "move" feature) ONLY to a job: moving media onto
 //    users/teams/etc. via a crafted payload stays impossible, and moving
-//    between non-job entities has no UI or use case — fail closed.
+//    between non-job entities has no UI or use case — fail closed. url /
+//    thumbnail_url changes are rejected outright: the app never updates them
+//    (it only edits caption/location_note and relinks entity to job — see
+//    apps/mobile/src/db/queries/media.ts), and a moved row deliberately keeps
+//    its ORIGINAL upload-prefix url, so there is no legitimate url UPDATE.
 // Returns an error string (becomes the sync conflict message) or null when OK.
 export function validateMediaWrite(
   op: 'INSERT' | 'UPDATE',
   payload: Record<string, unknown>,
 ): string | null {
   if (op === 'INSERT') {
-    return MEDIA_ENTITY_TYPES.has(String(payload.entity_type))
-      ? null
-      : 'media entity_type not allowed';
+    const entityType = String(payload.entity_type);
+    if (!MEDIA_ENTITY_TYPES.has(entityType)) return 'media entity_type not allowed';
+    if (payload.entity_id == null) return 'media entity_id is required';
+    const entityId = String(payload.entity_id);
+    const urlErr = validateMediaUrlField('url', payload.url, entityType, entityId);
+    if (urlErr) return urlErr;
+    if (payload.thumbnail_url != null) {
+      const thumbErr = validateMediaUrlField('thumbnail_url', payload.thumbnail_url, entityType, entityId);
+      if (thumbErr) return thumbErr;
+    }
+    return null;
+  }
+  if ('url' in payload || 'thumbnail_url' in payload) {
+    return 'media url/thumbnail_url cannot be changed via sync';
   }
   const touchesLink = payload.entity_type !== undefined || payload.entity_id !== undefined;
   if (!touchesLink) return null;

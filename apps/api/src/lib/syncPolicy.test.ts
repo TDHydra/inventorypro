@@ -211,23 +211,125 @@ test('edit_media is team-overridable; delete_media deliberately is not', () => {
   assert.equal(TEAM_OVERRIDABLE_PERMISSIONS.has('delete_media'), false);
 });
 
+// --- validateMediaWrite -----------------------------------------------------
+// The url the app actually sends is the publicUrl the server returned from
+// /upload-url: `${PUBLIC_MEDIA_URL}/${entity_type}/${entity_id}/${uuid}.${ext}`
+// (apps/mobile/src/components/MediaGallery.tsx). PUBLIC_MEDIA_URL is read at
+// call time, so these tests pin it explicitly.
+const MEDIA_BASE = 'https://media.example.com/media';
+process.env.PUBLIC_MEDIA_URL = MEDIA_BASE;
+const MEDIA_UUID = '123e4567-e89b-42d3-a456-426614174000';
+const mediaUrlFor = (entityType: string, entityId: string) =>
+  `${MEDIA_BASE}/${entityType}/${entityId}/${MEDIA_UUID}.jpg`;
+
 test('validateMediaWrite: INSERT requires an allowlisted entity type', () => {
-  assert.equal(validateMediaWrite('INSERT', { entity_type: 'job', entity_id: 'j1' }), null);
-  assert.equal(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1' }), null);
+  assert.equal(validateMediaWrite('INSERT', { entity_type: 'job', entity_id: 'j1', url: mediaUrlFor('job', 'j1') }), null);
+  assert.equal(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1', url: mediaUrlFor('item', 'i1') }), null);
   // users/teams were the original IDOR sink the REST allowlist closed — the
   // sync path must reject them too now.
-  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'users', entity_id: 'u1' }), null);
-  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'role_settings', entity_id: 'r' }), null);
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'users', entity_id: 'u1', url: mediaUrlFor('users', 'u1') }), null);
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'role_settings', entity_id: 'r', url: mediaUrlFor('role_settings', 'r') }), null);
   assert.notEqual(validateMediaWrite('INSERT', {}), null);
+});
+
+test('validateMediaWrite: INSERT accepts the exact url shape MediaGallery sends', () => {
+  // entity_type 'item' with a UUID entity id — the app's real upload payload.
+  const entityId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+  assert.equal(validateMediaWrite('INSERT', {
+    id: 'm1', entity_type: 'item', entity_id: entityId, media_type: 'photo',
+    url: mediaUrlFor('item', entityId), location_note: 'garage', is_primary: true,
+  }), null);
+  // thumbnail_url, when present, passes under the same construction; absent/null is fine.
+  assert.equal(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: entityId,
+    url: mediaUrlFor('item', entityId), thumbnail_url: mediaUrlFor('item', entityId),
+  }), null);
+  assert.equal(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: entityId, url: mediaUrlFor('item', entityId), thumbnail_url: null,
+  }), null);
+});
+
+test('validateMediaWrite: INSERT honors the default base when PUBLIC_MEDIA_URL is unset', () => {
+  delete process.env.PUBLIC_MEDIA_URL;
+  try {
+    const url = `https://localhost/media/item/i1/${MEDIA_UUID}.jpg`;
+    assert.equal(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1', url }), null);
+    // the env-based url no longer matches once the env var is gone
+    assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1', url: mediaUrlFor('item', 'i1') }), null);
+  } finally {
+    process.env.PUBLIC_MEDIA_URL = MEDIA_BASE;
+  }
+});
+
+test('validateMediaWrite: INSERT rejects missing or forged urls (SSRF/DB-pollution sink)', () => {
+  // url is required — the sync path may not store a row without one it vetted.
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1' }), null);
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1', url: null }), null);
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1', url: '' }), null);
+  // external host
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `https://evil.example.com/item/i1/${MEDIA_UUID}.jpg`,
+  }), null);
+  // prefix-alias host (base must match exactly up to the '/', not just as a prefix string)
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `${MEDIA_BASE}.evil.com/item/i1/${MEDIA_UUID}.jpg`,
+  }), null);
+  // mismatched entity path — url claims another entity's prefix
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: mediaUrlFor('item', 'other-id'),
+  }), null);
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: mediaUrlFor('job', 'i1'),
+  }), null);
+  // path traversal
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `${MEDIA_BASE}/item/i1/../secrets/${MEDIA_UUID}.jpg`,
+  }), null);
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `${MEDIA_BASE}/../item/i1/${MEDIA_UUID}.jpg`,
+  }), null);
+  // bad key shape: no uuid.ext, extra segments, trailing query string
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `${MEDIA_BASE}/item/i1/evil.jpg`,
+  }), null);
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `${MEDIA_BASE}/item/i1/${MEDIA_UUID}.jpg/extra`,
+  }), null);
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: `${mediaUrlFor('item', 'i1')}?x=1`,
+  }), null);
+  // a valid url can't smuggle in a forged thumbnail_url
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: mediaUrlFor('item', 'i1'),
+    thumbnail_url: `https://evil.example.com/item/i1/${MEDIA_UUID}.jpg`,
+  }), null);
+  assert.notEqual(validateMediaWrite('INSERT', {
+    entity_type: 'item', entity_id: 'i1', url: mediaUrlFor('item', 'i1'),
+    thumbnail_url: mediaUrlFor('item', 'other-id'),
+  }), null);
 });
 
 test('validateMediaWrite: UPDATE may re-link only to a job; metadata-only edits pass', () => {
   // caption/location_note edit — no linkage touched
   assert.equal(validateMediaWrite('UPDATE', { id: 'm1', caption: 'x', location_note: 'master bedroom' }), null);
-  // the move feature
+  // the move feature (moveMediaToJob also clears is_primary)
   assert.equal(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'job', entity_id: 'j2' }), null);
+  assert.equal(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'job', entity_id: 'j2', is_primary: false }), null);
   // moving onto a non-job entity, or half a link, fails closed
   assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'item', entity_id: 'i1' }), null);
   assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'job' }), null);
   assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', entity_id: 'j2' }), null);
+});
+
+test('validateMediaWrite: UPDATE rejects any url/thumbnail_url change', () => {
+  // the app never updates urls (only caption/location_note edits and job
+  // relinks) — so url changes via sync are forged, even "valid-looking" ones.
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', url: mediaUrlFor('item', 'i1') }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', url: 'https://evil.example.com/x.jpg' }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', url: null }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', thumbnail_url: 'https://evil.example.com/x.jpg' }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', caption: 'x', thumbnail_url: null }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', {
+    id: 'm1', entity_type: 'job', entity_id: 'j2', url: mediaUrlFor('job', 'j2'),
+  }), null);
 });

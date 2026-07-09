@@ -1,6 +1,6 @@
 import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { s3, BUCKET } from './s3';
-import { MEDIA_ENTITY_TYPES } from './syncPolicy';
+import { KEY_RE, MEDIA_ENTITY_TYPES } from './syncPolicy';
 
 // MinIO object cleanup for deleted media rows — shared by the REST
 // DELETE /media/:id route and the sync-push DELETE branch (which previously
@@ -9,7 +9,9 @@ import { MEDIA_ENTITY_TYPES } from './syncPolicy';
 
 // Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors any
 // delete to a key WE generated in /upload-url, never a client-controlled path.
-export const KEY_RE = /^[a-z_]+\/[a-zA-Z0-9_-]{1,64}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+// Definition moved to lib/syncPolicy.ts (pure, no S3 import) so the sync write
+// policy can validate media urls too; re-exported here for existing importers.
+export { KEY_RE };
 
 // Derive the object key from a stored media URL. new URL().pathname strips
 // query/fragment, which is load-bearing for the forged-alias defense below.
