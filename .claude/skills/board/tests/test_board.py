@@ -49,13 +49,36 @@ class TestGql(unittest.TestCase):
             _board.gql("query{x}", {}, runner=runner)
         self.assertIn("boom", str(ctx.exception))
 
-    def test_nonzero_exit_raises_with_stderr(self):
+    def test_nonzero_exit_with_missing_scope_emits_remediation(self):
+        """Scope-detection branch: stderr mentions 'project' + 'scope' -> remediation hint."""
         def runner(cmd, **kwargs):
             return FakeCompleted(returncode=1, stdout="", stderr="missing scope: project")
 
         with self.assertRaises(_board.BoardError) as ctx:
             _board.gql("query{x}", {}, runner=runner)
-        self.assertIn("project", str(ctx.exception))
+        self.assertIn("gh auth refresh -s project,read:project", str(ctx.exception))
+
+    def test_nonzero_exit_generic_failure_has_no_remediation_hint(self):
+        """Generic (non-scope) failures should surface stderr but not the scope remediation text."""
+        def runner(cmd, **kwargs):
+            return FakeCompleted(returncode=1, stdout="", stderr="some other gh failure: rate limited")
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.gql("query{x}", {}, runner=runner)
+        message = str(ctx.exception)
+        self.assertIn("rate limited", message)
+        self.assertNotIn("gh auth refresh -s project,read:project", message)
+
+    def test_missing_gh_binary_raises_boarderror(self):
+        """A runner that can't find the gh binary must surface as BoardError, not a raw traceback."""
+        def runner(cmd, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", "gh")
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.gql("query{x}", {}, runner=runner)
+        message = str(ctx.exception).lower()
+        self.assertIn("gh", message)
+        self.assertTrue("not installed" in message or "not found" in message or "not on path" in message)
 
 
 if __name__ == "__main__":

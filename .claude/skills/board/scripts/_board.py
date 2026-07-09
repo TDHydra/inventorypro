@@ -37,7 +37,13 @@ def load_config(path: str | None = None) -> dict:
 def run_gh(args: list[str], runner=None) -> str:
     """Run a gh command, returning stdout. Raises BoardError on failure."""
     runner = runner or subprocess.run
-    proc = runner(["gh", *args], capture_output=True, text=True)
+    try:
+        proc = runner(["gh", *args], capture_output=True, text=True)
+    except FileNotFoundError as e:
+        raise BoardError(
+            "gh is not installed or not on PATH. "
+            "Install the GitHub CLI (https://cli.github.com) and try again."
+        ) from e
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
         if "project" in err and "scope" in err:
