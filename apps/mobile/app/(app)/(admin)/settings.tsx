@@ -678,7 +678,15 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>
-              <View style={s.divider} />
+            </View>
+          </View>
+        )}
+
+        {/* ── Approvals (admin only — synced app_config) ────────────────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Approvals</Text>
+            <View style={s.card}>
               <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
                 <Text style={s.rowLabel}>Require approval for movements ≥ (blank = off)</Text>
                 <Text style={s.rowSub}>Checkouts or transfers of this quantity or more auto-create an approval request for review.</Text>
