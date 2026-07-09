@@ -68,6 +68,52 @@ def gql(query: str, variables: dict, runner=None) -> dict:
     return payload["data"]
 
 
+def resolve_status(cfg: dict, name: str) -> tuple[str, str]:
+    """Map a user-typed column name to (canonical_name, option_id)."""
+    options = cfg["status_options"]
+    for canonical, option_id in options.items():
+        if canonical.lower() == name.strip().lower():
+            return canonical, option_id
+    valid = " | ".join(options)
+    raise BoardError(f"unknown column {name!r}. Valid columns: {valid}")
+
+
+def fetch_items(cfg: dict, runner=None) -> list[dict]:
+    """Every item on the board. gh's default limit is 30; ask for more."""
+    out = run_gh(
+        ["project", "item-list", str(cfg["project_number"]),
+         "--owner", cfg["owner"], "--format", "json", "--limit", "500"],
+        runner=runner,
+    )
+    return json.loads(out)["items"]
+
+
+def select_item(items: list[dict], selector: str) -> dict:
+    """Find one item by item id, issue number, or unique title substring."""
+    sel = selector.strip()
+
+    for item in items:
+        if item["id"] == sel:
+            return item
+
+    number = sel.lstrip("#")
+    if number.isdigit():
+        hits = [i for i in items if i.get("content", {}).get("number") == int(number)]
+        if len(hits) == 1:
+            return hits[0]
+        if not hits:
+            raise BoardError(f"no board item for issue #{number}")
+
+    needle = sel.lower()
+    hits = [i for i in items if needle in i.get("title", "").lower()]
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        raise BoardError(f"no board item matching {selector!r}")
+    listing = "\n".join(f"  - {i['title']} ({i['id']})" for i in hits)
+    raise BoardError(f"{selector!r} matches {len(hits)} items:\n{listing}")
+
+
 def cli(main_fn) -> "NoReturn":
     """Shared entry point for every verb script. Exits nonzero with a readable message."""
     import sys

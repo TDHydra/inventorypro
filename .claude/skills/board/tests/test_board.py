@@ -81,5 +81,65 @@ class TestGql(unittest.TestCase):
         self.assertTrue("not installed" in message or "not found" in message or "not on path" in message)
 
 
+CFG = {
+    "owner": "TDHydra",
+    "project_number": 2,
+    "status_options": {
+        "Backlog": "f75ad846",
+        "In progress": "47fc9ee4",
+        "Done": "98236657",
+        "Rejected": "5da22600",
+    },
+}
+
+ITEMS = [
+    {"id": "PVTI_aaa", "title": "Pin MinIO to the RUNNING version",
+     "status": "Ready", "content": {"type": "DraftIssue"}},
+    {"id": "PVTI_bbb", "title": "Componentization Wave 2",
+     "status": "Backlog", "content": {"type": "Issue", "number": 42}},
+    {"id": "PVTI_ccc", "title": "Componentize the app",
+     "status": "Backlog", "content": {"type": "DraftIssue"}},
+]
+
+
+class TestResolveStatus(unittest.TestCase):
+    def test_exact(self):
+        self.assertEqual(_board.resolve_status(CFG, "Done"), ("Done", "98236657"))
+
+    def test_case_insensitive(self):
+        self.assertEqual(_board.resolve_status(CFG, "in progress"),
+                         ("In progress", "47fc9ee4"))
+
+    def test_unknown_lists_valid_columns(self):
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.resolve_status(CFG, "Finished")
+        self.assertIn("Backlog", str(ctx.exception))
+        self.assertIn("Finished", str(ctx.exception))
+
+
+class TestSelectItem(unittest.TestCase):
+    def test_by_item_id(self):
+        self.assertEqual(_board.select_item(ITEMS, "PVTI_bbb")["title"],
+                         "Componentization Wave 2")
+
+    def test_by_issue_number(self):
+        self.assertEqual(_board.select_item(ITEMS, "#42")["id"], "PVTI_bbb")
+        self.assertEqual(_board.select_item(ITEMS, "42")["id"], "PVTI_bbb")
+
+    def test_by_unique_title_substring(self):
+        self.assertEqual(_board.select_item(ITEMS, "minio")["id"], "PVTI_aaa")
+
+    def test_ambiguous_substring_raises_and_lists_matches(self):
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.select_item(ITEMS, "componentiz")
+        msg = str(ctx.exception)
+        self.assertIn("Componentization Wave 2", msg)
+        self.assertIn("Componentize the app", msg)
+
+    def test_no_match_raises(self):
+        with self.assertRaises(_board.BoardError):
+            _board.select_item(ITEMS, "nonexistent thing")
+
+
 if __name__ == "__main__":
     unittest.main()
