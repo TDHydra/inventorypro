@@ -3,6 +3,9 @@ import { searchItems } from '../../db/queries/items';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { Field } from '../ui/Field';
 
+const itemSearchFn = (q: string): PickerOption[] =>
+  searchItems(q).map(i => ({ id: i.id, label: i.name }));
+
 // The item-catalog dropdown the checkout/stock screens hand-roll, extracted once.
 // The catalog has >1000 rows, so this MUST go through SearchablePicker's searchFn
 // (query-per-keystroke, DB-backed) — a preloaded/capped `options` array would hide
@@ -26,7 +29,7 @@ export function ItemPicker({
   const picker = (
     <SearchablePicker
       placeholder={placeholder}
-      searchFn={q => searchItems(q).map(i => ({ id: i.id, label: i.name }))}
+      searchFn={itemSearchFn}
       value={value}
       onSelect={opt => onChange(value && opt.id === value.id ? null : opt)}
       // A typed-in item isn't a row yet: report it as a synthetic option; the
