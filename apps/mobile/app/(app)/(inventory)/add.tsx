@@ -577,7 +577,7 @@ export default function AddStockScreen() {
                   <Switch value={returnable} onValueChange={setReturnable} />
                 </View>
                 <HidableField fieldId="inventory.min_qty_alert">
-                  <FieldLabel style={{ marginTop: 12 }}>Stock thresholds</FieldLabel>
+                  <FieldLabel style={{ marginTop: 12 }}>Low-stock alert</FieldLabel>
                   <AppInput
                     placeholder="Low-stock alert (0 = off)"
                     value={minAlert}
@@ -586,6 +586,7 @@ export default function AddStockScreen() {
                   />
                 </HidableField>
                 <HidableField fieldId="inventory.reorder_to">
+                  <FieldLabel style={{ marginTop: 12 }}>Reorder up to (optional)</FieldLabel>
                   <AppInput
                     placeholder="Reorder up to (optional)"
                     value={reorderTo}
