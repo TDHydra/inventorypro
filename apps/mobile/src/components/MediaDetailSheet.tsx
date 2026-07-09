@@ -1,0 +1,267 @@
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { View, Text, Image, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { Alert } from '../lib/themedAlert';
+import { colors, spacing, radii, fontSizes } from '../theme';
+import { ModalSheet } from './ui/ModalSheet';
+import { AppInput } from './ui/AppInput';
+import { FieldLabel } from './ui/FieldLabel';
+import { PrimaryButton } from './ui/PrimaryButton';
+import { SuggestInput } from './SuggestInput';
+import { usePermission } from '../hooks/usePermission';
+import { useSession } from '../hooks/useSession';
+import {
+  getMediaDetail, getLocationNoteSuggestions, updateMediaMeta, moveMediaToJob, deleteMedia,
+  MediaHubRow,
+} from '../db/queries/media';
+import { getAllJobs, Job } from '../db/queries/jobs';
+
+interface Props {
+  mediaId: string | null;
+  visible: boolean;
+  onClose: () => void;
+  /** Fired after any mutation (edit/move/delete) so the hub reloads its pages. */
+  onChanged: () => void;
+}
+
+export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props) {
+  const { user } = useSession();
+  const canEdit = usePermission('edit_media');
+  const canDelete = usePermission('delete_media');
+
+  const [detail, setDetail] = useState<MediaHubRow | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [locationNote, setLocationNote] = useState('');
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [jobSearch, setJobSearch] = useState('');
+
+  const reload = useCallback(() => {
+    setDetail(mediaId ? getMediaDetail(mediaId) : null);
+  }, [mediaId]);
+
+  // Load on open; drop edit state so a re-open never shows a stale draft.
+  useEffect(() => {
+    if (!visible) return;
+    reload();
+    setEditing(false);
+    setMoveOpen(false);
+    setJobSearch('');
+  }, [visible, reload]);
+
+  // Suggest location notes already used on the same job (fresh per edit session).
+  const noteSuggestions = useMemo(
+    () => (editing && detail?.entity_type === 'job' ? getLocationNoteSuggestions(detail.entity_id) : []),
+    [editing, detail],
+  );
+
+  // Open jobs first in the move picker; the current job is not a valid target.
+  const jobs = useMemo<Job[]>(() => {
+    if (!moveOpen) return [];
+    const all = getAllJobs(false).filter(j => j.id !== detail?.entity_id);
+    return [...all.filter(j => j.status === 'open'), ...all.filter(j => j.status !== 'open')];
+  }, [moveOpen, detail]);
+  const filteredJobs = useMemo(() => {
+    const q = jobSearch.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter(j => j.name.toLowerCase().includes(q));
+  }, [jobs, jobSearch]);
+
+  const beginEdit = () => {
+    if (!detail) return;
+    setCaption(detail.caption ?? '');
+    setLocationNote(detail.location_note ?? '');
+    setEditing(true);
+  };
+
+  const saveEdit = () => {
+    if (!detail) return;
+    updateMediaMeta(
+      detail.id,
+      { caption: caption.trim() || null, location_note: locationNote.trim() || null },
+      user?.id ?? null,
+    );
+    setEditing(false);
+    reload();
+    onChanged();
+  };
+
+  const confirmMove = (job: Job) => {
+    if (!detail) return;
+    Alert.alert('Move photo?', `Move this photo to ${job.name}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Move',
+        onPress: () => {
+          moveMediaToJob(detail.id, job.id, user?.id ?? null);
+          setMoveOpen(false);
+          reload();
+          onChanged();
+        },
+      },
+    ]);
+  };
+
+  const confirmDelete = () => {
+    if (!detail) return;
+    Alert.alert('Delete this photo?', 'This permanently removes it from every device. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          deleteMedia(detail.id, user?.id ?? null);
+          onClose();
+          onChanged();
+        },
+      },
+    ]);
+  };
+
+  const edited = detail?.updated_at && detail.updated_at !== detail.created_at;
+
+  return (
+    <>
+      <ModalSheet visible={visible} onClose={onClose} scroll>
+        {detail && (
+          <>
+            {detail.media_type === 'video' ? (
+              // No in-app player yet — a static placeholder, not tappable (v1).
+              <View style={s.videoBox}>
+                <Text style={s.videoPlay}>▶</Text>
+                <Text style={s.videoLabel}>Video</Text>
+              </View>
+            ) : (
+              <Image source={{ uri: detail.url }} style={s.image} resizeMode="contain" />
+            )}
+
+            <Field label="Uploaded by" value={detail.uploader_name ?? '—'} />
+            <Field label="When" value={new Date(detail.created_at).toLocaleString()} />
+            {edited ? <Field label="Last edited" value={new Date(detail.updated_at!).toLocaleString()} /> : null}
+            {detail.entity_type === 'job' ? (
+              <Field
+                label="Job"
+                value={detail.job_name ? `${detail.job_name} (${detail.job_status ?? '—'})` : '—'}
+              />
+            ) : (
+              <Field label="Attached to" value={detail.entity_type} />
+            )}
+            {!editing && (
+              <>
+                <Field label="Caption" value={detail.caption ?? '—'} />
+                <Field label="Location note" value={detail.location_note ?? '—'} />
+              </>
+            )}
+            <Field label="Type" value={detail.media_type === 'video' ? 'Video' : 'Image'} />
+            <Field label="Primary" value={detail.is_primary === 1 ? 'Yes' : 'No'} />
+
+            {canEdit && !editing && (
+              <PrimaryButton label="Edit details" onPress={beginEdit} style={s.actionBtn} />
+            )}
+
+            {canEdit && editing && (
+              <View style={s.editBox}>
+                <FieldLabel>Caption</FieldLabel>
+                <AppInput
+                  value={caption}
+                  onChangeText={setCaption}
+                  placeholder="Caption"
+                />
+                <SuggestInput
+                  label="Location note"
+                  value={locationNote}
+                  onChange={setLocationNote}
+                  placeholder="e.g. Master bedroom"
+                  suggestions={noteSuggestions}
+                />
+                <PrimaryButton label="Save" onPress={saveEdit} />
+                <TouchableOpacity onPress={() => setEditing(false)}>
+                  <Text style={s.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {canEdit && !editing && (
+              <TouchableOpacity style={s.moveBtn} onPress={() => { setJobSearch(''); setMoveOpen(true); }}>
+                <Text style={s.moveText}>Move to another job…</Text>
+              </TouchableOpacity>
+            )}
+
+            {canDelete && !editing && (
+              <PrimaryButton label="Delete" tone="danger" onPress={confirmDelete} style={s.actionBtn} />
+            )}
+          </>
+        )}
+      </ModalSheet>
+
+      {/* Nested move-to-job picker (sibling ModalSheet stacks above the detail). */}
+      <ModalSheet visible={moveOpen} onClose={() => setMoveOpen(false)} scroll>
+        <Text style={s.sheetTitle}>Move to another job</Text>
+        <TextInput
+          style={s.jobSearch}
+          placeholder="Search jobs…"
+          placeholderTextColor={colors.textMuted}
+          value={jobSearch}
+          onChangeText={setJobSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {filteredJobs.length === 0 ? (
+          <Text style={s.noJobs}>No jobs match.</Text>
+        ) : (
+          filteredJobs.map(job => (
+            <TouchableOpacity key={job.id} style={s.jobRow} onPress={() => confirmMove(job)}>
+              <Text style={s.jobName} numberOfLines={1}>{job.name}</Text>
+              <Text style={s.jobStatus}>{job.status}</Text>
+            </TouchableOpacity>
+          ))
+        )}
+      </ModalSheet>
+    </>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.field}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <Text style={s.fieldValue} selectable>{value}</Text>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  image: { width: '100%', height: 300, borderRadius: radii.md, backgroundColor: colors.border, marginBottom: spacing.md },
+  videoBox: {
+    width: '100%', height: 300, borderRadius: radii.md, backgroundColor: '#0F172A',
+    alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginBottom: spacing.md,
+  },
+  videoPlay: { color: '#fff', fontSize: 40 },
+  videoLabel: { color: colors.textMuted, fontSize: fontSizes.body2, fontWeight: '600' },
+
+  field: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5 },
+  fieldLabel: { fontSize: fontSizes.caption, color: colors.textMuted, flexShrink: 0 },
+  fieldValue: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1, textAlign: 'right' },
+
+  actionBtn: { marginTop: spacing.md },
+  editBox: { marginTop: spacing.md, gap: spacing.md },
+  cancelText: { textAlign: 'center', color: colors.textSecondary, fontWeight: '600', paddingVertical: spacing.xs },
+  moveBtn: {
+    marginTop: spacing.md, paddingVertical: 13, borderRadius: radii.lg, alignItems: 'center',
+    borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primaryBg,
+  },
+  moveText: { color: colors.primaryText, fontWeight: '700', fontSize: fontSizes.body },
+
+  sheetTitle: { fontSize: fontSizes.base, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
+  jobSearch: {
+    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  jobRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md,
+    paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderDetail,
+  },
+  jobName: { flex: 1, fontSize: fontSizes.body, color: colors.textPrimary },
+  jobStatus: { fontSize: fontSizes.caption, color: colors.textMuted },
+  noJobs: { fontSize: fontSizes.body2, color: colors.textMuted, paddingVertical: spacing.md, textAlign: 'center' },
+});

@@ -15,7 +15,7 @@ import type { Permission } from '../constants/roles';
 export type WidgetType =
   | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog'
-  | 'jobs' | 'teams' | 'logs' | 'users' | 'roles' | 'settings' | 'chat'   // tiles
+  | 'jobs' | 'teams' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'search' | 'quick-add' | 'low-stock';            // non-tile blocks
 
 export type LayoutBlock = {
@@ -57,6 +57,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   logs:          { label: 'Activity Logs',           icon: '📊', route: '/(app)/(logs)',  requiredPermission: 'view_all_logs', kind: 'tile' },
   // Chat is available to every authenticated user — no requiredPermission gate.
   chat:          { label: 'Messages',                icon: '💬', route: '/(app)/(chat)', kind: 'tile' },
+  // Media hub is open to everyone too; the screen itself gates 'Everything'.
+  media:         { label: 'Media',                   icon: '🖼️', route: '/(app)/(media)', kind: 'tile' },
 
   // Admin
   users:         { label: 'Users & Permissions',     icon: '👤', route: '/(app)/(admin)/users',    requiredPermission: 'manage_users',              kind: 'tile' },
@@ -93,6 +95,7 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'chat', width: 'full' },
   { widget: 'jobs', width: 'full' },
   { widget: 'teams', width: 'full' },
+  { widget: 'media', width: 'full' },
   { widget: 'logs', width: 'full' },
 
   { widget: 'section', width: 'full', config: { sectionTitle: 'Admin' } },

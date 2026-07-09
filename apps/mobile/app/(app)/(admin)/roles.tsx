@@ -39,6 +39,8 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   close_jobs: 'Close jobs',
   manage_locations: 'Manage locations',
   upload_media: 'Upload photos/video',
+  edit_media: 'Edit media details (caption/location, move)',
+  delete_media: 'Delete photos/video',
   view_all_logs: 'View all activity logs',
   view_own_logs: 'View own activity logs',
   view_team_activity: "View team's activity",
@@ -103,9 +105,9 @@ export default function RolesScreen() {
   function togglePerm(role: UserRole, perm: Permission) {
     if (!canManage) return;
     if (isLockedPerm(role, perm)) return; // self-lockout guard
-    // Only a full_admin may grant/revoke the destructive delete_inventory permission
+    // Only a full_admin may grant/revoke the destructive delete permissions
     // (mirrored + enforced server-side on the role_settings sync write).
-    if (perm === 'delete_inventory' && sessionUser?.role !== 'full_admin') return;
+    if ((perm === 'delete_inventory' || perm === 'delete_media') && sessionUser?.role !== 'full_admin') return;
     if (isWriteBlocked()) return;
     const def = ROLE_DEFAULTS[role][perm];
     const { value: cur } = effectivePerm(role, perm);
@@ -313,9 +315,9 @@ export default function RolesScreen() {
                 <View style={s.matrix}>
                   {PERMISSION_ORDER.map(perm => {
                     const lockedPerm = isLockedPerm(role, perm);
-                    // delete_inventory is destructive → only a full_admin may grant it
-                    // (enforced server-side too on the role_settings write).
-                    const deleteGrantLocked = perm === 'delete_inventory' && sessionUser?.role !== 'full_admin';
+                    // delete_inventory/delete_media are destructive → only a full_admin
+                    // may grant them (enforced server-side too on the role_settings write).
+                    const deleteGrantLocked = (perm === 'delete_inventory' || perm === 'delete_media') && sessionUser?.role !== 'full_admin';
                     const { value, modified } = effectivePerm(role, perm);
                     const shown = lockedPerm ? true : value;
                     const disabled = !canManage || locked || lockedPerm || !canActThisRole || deleteGrantLocked;

@@ -16,6 +16,10 @@ export const TEAM_OVERRIDABLE_PERMISSIONS: Permission[] = [
   'checkout_inventory', 'checkin_inventory', 'add_inventory', 'quick_add',
   'edit_inventory', 'delete_inventory', 'transfer_between_locations',
   'create_jobs', 'close_jobs', 'manage_locations', 'upload_media',
+  // edit_media yes, delete_media deliberately NO — its GRANT is full-admin-only
+  // (roles.tsx + the server role_settings guard), so a team manager must not be
+  // able to mint it per-team either. Must mirror apps/api/src/lib/syncPolicy.ts.
+  'edit_media',
   'view_team_activity', 'checkout_for_team', 'view_financial_data',
 ];
 
@@ -31,6 +35,9 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   close_jobs: 'Close jobs',
   manage_locations: 'Manage locations',
   upload_media: 'Upload photos/video',
+  edit_media: 'Edit media details (caption/location, move)',
+  // Exhaustiveness only — NOT team-overridable (destructive; full-admin grant).
+  delete_media: 'Delete photos/video',
   view_all_logs: 'View all activity logs',
   view_own_logs: 'View own activity logs',
   view_team_activity: "View team's activity",

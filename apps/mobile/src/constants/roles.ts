@@ -25,6 +25,8 @@ export type Permission =
   | 'close_jobs'
   | 'manage_locations'
   | 'upload_media'
+  | 'edit_media'
+  | 'delete_media'
   | 'view_all_logs'
   | 'view_own_logs'
   | 'view_team_activity'
@@ -148,6 +150,8 @@ const tier4: PermissionMap = {
   close_jobs:                true,
   manage_locations:          true,
   upload_media:              true,
+  edit_media:                true,
+  delete_media:              true,
   view_all_logs:             true,
   view_own_logs:             true,
   view_team_activity:        true,
@@ -174,6 +178,8 @@ const tier3: PermissionMap = {
   close_jobs:                true,
   manage_locations:          false,
   upload_media:              true,
+  edit_media:                false,
+  delete_media:              false,
   view_all_logs:             true,
   view_own_logs:             true,
   view_team_activity:        true,
@@ -200,6 +206,8 @@ const tier2: PermissionMap = {
   close_jobs:                 true,
   manage_locations:           true,
   upload_media:               true,
+  edit_media:                 true,
+  delete_media:               false,
   view_all_logs:              true,
   view_own_logs:              true,
   view_team_activity:         true,
@@ -226,6 +234,8 @@ const tier1: PermissionMap = {
   close_jobs:                 false,
   manage_locations:           false,
   upload_media:               true,
+  edit_media:                 false,
+  delete_media:               false,
   view_all_logs:              false,
   view_own_logs:              true,
   view_team_activity:         false,
@@ -244,6 +254,8 @@ const tempEmployee: PermissionMap = {
   ...tier1,
   checkin_inventory:  false,
   upload_media:       false,
+  edit_media:         false,
+  delete_media:       false,
   checkout_for_team:  false,
 };
 
