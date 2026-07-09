@@ -10,7 +10,6 @@ import {
 import type { Team } from '../../db/queries/teams';
 import { getAllActiveUsers, getRolePermissionOverrides } from '../../db/queries/users';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
-import { renderIcon } from '../../constants/locationStyles';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { runInTransaction } from '../../db/tx';
@@ -19,11 +18,11 @@ import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { Alert } from '../../lib/themedAlert';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { TaxonomyChips } from '../pickers';
 import { ROLE_DEFAULTS, UserRole, Permission } from '../../constants/roles';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
-import { FilterChip } from '../ui/FilterChip';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -227,21 +226,12 @@ export default function TeamQuickAdd({ onSaved }: Props) {
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
-      <FieldLabel>Type</FieldLabel>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.chipRow}
-      >
-        {teamTypes.map(t => (
-          <FilterChip
-            key={t.label}
-            label={`${renderIcon(t.icon)} ${t.label}`}
-            active={type === t.label}
-            onPress={() => setType(t.label)}
-          />
-        ))}
-      </ScrollView>
+      <TaxonomyChips
+        category="team"
+        label="Type"
+        valueLabel={type}
+        onChange={v => setType(v.label ?? '')}
+      />
 
       <FieldLabel>Members (optional)</FieldLabel>
       <SearchablePicker
@@ -324,7 +314,6 @@ const s = StyleSheet.create({
   container: { gap: 10 },
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  chipRow: { gap: 8, paddingRight: 8 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
 

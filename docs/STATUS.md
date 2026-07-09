@@ -6,8 +6,10 @@ the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Un
 
 `main` HEAD at reconciliation: `cc0f185` (perms-reactive fix).
 
-> **Open work lives in [`docs/BACKLOG.md`](./BACKLOG.md)** — the single living checklist of pending features,
-> deferred enhancements, and decided-against items (supersedes the scattered "Out of scope" notes in `specs/`).
+> **Open work lives on [GitHub Project 2](https://github.com/users/TDHydra/projects/2)** — the single
+> source of truth for pending features, deferred enhancements, and decided-against items.
+> [`docs/BACKLOG-archive-2026-07-09.md`](./BACKLOG-archive-2026-07-09.md) is the frozen predecessor,
+> kept for its per-item verification notes; do not edit it.
 
 ---
 

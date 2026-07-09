@@ -13,12 +13,11 @@ import { getAllLocations } from '../../../src/db/queries/locations';
 import { getAllTeams, getTeamById } from '../../../src/db/queries/teams';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { ROLE_TIER } from '../../../src/constants/roles';
-import { renderIcon } from '../../../src/constants/locationStyles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker } from '../../../src/components/pickers';
+import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
 import { colors } from '../../../src/theme';
@@ -328,21 +327,14 @@ export default function JobDetailScreen() {
 
               {jobTypes.length > 0 && (
                 <View style={s.fieldWrap}>
-                  <FieldLabel>Type</FieldLabel>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={s.chipRow}
-                  >
-                    {jobTypes.map(t => (
-                      <FilterChip
-                        key={t.label}
-                        label={`${renderIcon(t.icon)} ${t.label}`}
-                        active={editType === t.label}
-                        onPress={() => setEditType(prev => prev === t.label ? null : t.label)}
-                      />
-                    ))}
-                  </ScrollView>
+                  <TaxonomyChips
+                    category="job"
+                    label="Type"
+                    withFallback
+                    deselectable
+                    valueLabel={editType}
+                    onChange={v => setEditType(v.label)}
+                  />
                 </View>
               )}
 

@@ -19,13 +19,11 @@ import { getAllActiveUsers, roleColor, getRoleColorMap, getRolePermissionOverrid
 import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, ROLE_TIER, UserRole, Permission, canActOnTarget } from '../../../src/constants/roles';
 import { parsePermissionOverrides } from '../../../src/auth/permissions';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
-import { renderIcon } from '../../../src/constants/locationStyles';
+import { getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
-import { FieldLabel } from '../../../src/components/ui/FieldLabel';
-import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { TaxonomyChips } from '../../../src/components/pickers';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -92,7 +90,6 @@ export default function TeamDetailScreen() {
   const [savingPerms, setSavingPerms] = useState(false);
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
   const roleColors = useMemo(() => getRoleColorMap(), []);
   // Role-level permission deviations, used as the "base" a team override is
   // relative to (mirrors the resolution order in auth/permissions.ts: role
@@ -567,21 +564,13 @@ export default function TeamDetailScreen() {
               autoFocus
             />
 
-            <FieldLabel>Type</FieldLabel>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.chipRow}
-            >
-              {teamTypes.map(t => (
-                <FilterChip
-                  key={t.label}
-                  label={`${renderIcon(t.icon)} ${t.label}`}
-                  active={editType === t.label}
-                  onPress={() => setEditType(t.label)}
-                />
-              ))}
-            </ScrollView>
+            <TaxonomyChips
+              category="team"
+              label="Type"
+              withFallback
+              valueLabel={editType}
+              onChange={v => setEditType(v.label ?? '')}
+            />
 
             <PrimaryButton
               label="Save Changes"
@@ -786,7 +775,6 @@ const s = StyleSheet.create({
   mgrBadgeText: { color: colors.primaryText, fontSize: 12, fontWeight: '700' },
 
   modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
-  chipRow: { gap: 8, paddingRight: 8 },
   cancelRow: { paddingVertical: 10, alignItems: 'center', marginBottom: 4 },
   linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
   cancelText: { color: colors.textMuted },
