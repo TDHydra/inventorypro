@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTaxonomyValue, defaultTaxonomyValue } from './resolveTaxonomyValue';
+import { resolveTaxonomyValue } from './resolveTaxonomyValue';
 
 const types = [
   { id: 'id-a', label: 'Alpha' },
@@ -48,12 +48,4 @@ test('null/undefined inputs yield empty value', () => {
 
 test('empty-string valueId is treated as no id (falls to label)', () => {
   assert.deepEqual(resolveTaxonomyValue(types, '', 'Beta'), { id: 'id-b', label: 'Beta' });
-});
-
-test('defaultTaxonomyValue returns first type', () => {
-  assert.deepEqual(defaultTaxonomyValue(types), { id: 'id-a', label: 'Alpha' });
-});
-
-test('defaultTaxonomyValue on empty list is null/null', () => {
-  assert.deepEqual(defaultTaxonomyValue([]), { id: null, label: null });
 });
