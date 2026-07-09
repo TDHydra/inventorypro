@@ -114,11 +114,10 @@ async function resetUserPinOnline(userId: string): Promise<void> {
   markUserPinReset(userId);
 }
 
-// Reissue a one-time enrollment code for a not-yet-onboarded user and email it.
+// Reissue a one-time enrollment code for a not-yet-onboarded user.
 // Online-only (mirrors resetUserPinOnline/createUserOnline): the server hashes the
-// new code and sends the mail; it returns the plaintext code so the admin can hand
-// it off in person if email delivery is down. `email` optionally overrides the
-// stored address for this send.
+// new code and returns the plaintext so the admin can hand it off directly. If an
+// email is available (stored or overridden), the server also attempts delivery.
 async function resetEnrollmentCodeOnline(
   userId: string,
   email?: string,
@@ -133,7 +132,6 @@ async function resetEnrollmentCodeOnline(
   if (!res.ok) {
     if (res.status === 403) throw new Error('You do not have permission to reset access codes.');
     if (res.status === 409) throw new Error('This user has already set a PIN. Use Reset PIN instead.');
-    if (res.status === 400) throw new Error('No email on file. Add an email to this user first.');
     throw new Error(`Could not reset access code (${res.status}).`);
   }
   return res.json() as Promise<{ emailed: boolean; code: string }>;
@@ -441,51 +439,49 @@ export default function AdminUsersScreen() {
     );
   }
 
-  // Reissue + email a one-time access code for a user who hasn't set a PIN yet.
+  // Reissue a one-time access code for a user who hasn't set a PIN yet.
   // Only surfaced when pin_set is false (see the edit sheet). The returned code is
-  // shown so the admin can relay it directly if the email didn't go out.
+  // always shown so the admin can relay it directly; email is sent when available.
   function resetAccessCode() {
     if (!editUser) return;
     const onFile = editUser.email?.trim();
     Alert.alert(
-      `Email ${editUser.name} an access code?`,
+      `Reset access code for ${editUser.name}?`,
       onFile
         ? `A new one-time code will be sent to ${onFile} so they can set their PIN.`
-        : `${editUser.name} has no email on file. Add one in the Email field above and save first, then try again.`,
-      onFile
-        ? [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Send code',
-              onPress: async () => {
-                setBusy(true);
-                try {
-                  const { emailed, code } = await resetEnrollmentCodeOnline(editUser.id);
-                  appendLog({
-                    action: 'user_pin_reset',
-                    entity_type: 'user',
-                    entity_id: editUser.id,
-                    user_id: sessionUser?.id ?? null,
-                    note: `${editUser.name}: access code reissued${emailed ? ' + emailed' : ' (email not sent)'}`,
-                    team_id: null, from_location_id: null, to_location_id: null,
-                    quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-                  });
-                  Alert.alert(
-                    emailed ? 'Access code emailed' : 'Access code ready (email not sent)',
-                    (emailed
-                      ? `A one-time code was emailed to ${onFile}.`
-                      : `Email could not be sent — share this code with ${editUser.name} directly.`) +
-                      `\n\nOne-time code: ${code}\n\nThey enter it in the app to set their PIN.`,
-                  );
-                } catch (err) {
-                  Alert.alert('Could not send access code', (err as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              },
-            },
-          ]
-        : [{ text: 'OK', style: 'cancel' }],
+        : `A new one-time code will be generated for ${editUser.name}. Share it with them directly so they can set their PIN.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: onFile ? 'Reset + email code' : 'Reset code',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              const { emailed, code } = await resetEnrollmentCodeOnline(editUser.id);
+              appendLog({
+                action: 'user_pin_reset',
+                entity_type: 'user',
+                entity_id: editUser.id,
+                user_id: sessionUser?.id ?? null,
+                note: `${editUser.name}: access code reissued${emailed ? ' + emailed' : ' (email not sent)'}`,
+                team_id: null, from_location_id: null, to_location_id: null,
+                quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+              });
+              Alert.alert(
+                emailed ? 'Access code reset + emailed' : 'Access code reset',
+                (emailed
+                  ? `A one-time code was emailed to ${onFile}.`
+                  : `No email was sent. Share this code with ${editUser.name} directly.`) +
+                  `\n\nOne-time code: ${code}\n\nThey enter it in the app to set their PIN.`,
+              );
+            } catch (err) {
+              Alert.alert('Could not reset access code', (err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
     );
   }
 
@@ -1129,8 +1125,8 @@ export default function AdminUsersScreen() {
                     <TouchableOpacity style={[s.actionBtn, busy && s.btnDisabled]} onPress={resetAccessCode} disabled={busy}>
                       <Text style={s.actionIcon}>✉️</Text>
                       <View style={{ flex: 1 }}>
-                        <Text style={s.actionTitle}>Reset & email access code</Text>
-                        <Text style={s.actionSub}>Send a new one-time code so they can set their PIN (online)</Text>
+                        <Text style={s.actionTitle}>Reset access code</Text>
+                        <Text style={s.actionSub}>Issue a new one-time code — shown here and emailed if address is set (online)</Text>
                       </View>
                     </TouchableOpacity>
                   )}

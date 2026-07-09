@@ -310,9 +310,6 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
 
     const recipient = (request.body?.email?.trim() || user.email?.trim()) ?? null;
-    if (!recipient) {
-      return reply.status(400).send({ error: 'No email on file for this user. Add an email or pass one in the request.' });
-    }
 
     const { code, hash } = await issueEnrollmentCode();
     await fastify.pg.query(
@@ -320,7 +317,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       [hash, targetId],
     );
 
-    const mail = await sendEnrollmentCodeEmail(recipient, code, user.name);
+    const mail = recipient ? await sendEnrollmentCodeEmail(recipient, code, user.name) : { sent: false };
     return { emailed: mail.sent, code };
   });
 };
