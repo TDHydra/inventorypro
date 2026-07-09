@@ -72,7 +72,7 @@ test('POST /auth/set-pin rejects a non-6-digit enrollment_code (schema)', async 
   const app = await buildApp();
   const res = await app.inject({
     method: 'POST', url: '/auth/set-pin',
-    payload: { user_id: 'u1', pin: '1234', enrollment_code: '1234' },
+    payload: { user_id: '3f0e8a52-9c4d-4b6e-8f1a-2d7c5e9b0a41', pin: '1234', enrollment_code: '1234' },
   });
   assert.equal(res.statusCode, 400);
   await app.close();
@@ -82,7 +82,7 @@ test('POST /auth/set-pin rejects a non-numeric enrollment_code (schema)', async 
   const app = await buildApp();
   const res = await app.inject({
     method: 'POST', url: '/auth/set-pin',
-    payload: { user_id: 'u1', pin: '1234', enrollment_code: 'abcdef' },
+    payload: { user_id: '3f0e8a52-9c4d-4b6e-8f1a-2d7c5e9b0a41', pin: '1234', enrollment_code: 'abcdef' },
   });
   assert.equal(res.statusCode, 400);
   await app.close();
@@ -92,7 +92,7 @@ test('POST /auth/set-pin accepts a well-formed 6-digit enrollment_code (schema p
   const app = await buildApp();
   const res = await app.inject({
     method: 'POST', url: '/auth/set-pin',
-    payload: { user_id: 'u1', pin: '1234', enrollment_code: '123456' },
+    payload: { user_id: '3f0e8a52-9c4d-4b6e-8f1a-2d7c5e9b0a41', pin: '1234', enrollment_code: '123456' },
   });
   assert.notEqual(res.statusCode, 400); // passes validation; fails later (no DB) with 5xx
   await app.close();
