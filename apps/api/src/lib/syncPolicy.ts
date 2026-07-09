@@ -90,6 +90,10 @@ export const TEAM_OVERRIDABLE_PERMISSIONS: Set<string> = new Set([
   'checkout_inventory', 'checkin_inventory', 'add_inventory', 'quick_add',
   'edit_inventory', 'delete_inventory', 'transfer_between_locations',
   'create_jobs', 'close_jobs', 'manage_locations', 'upload_media',
+  // edit_media yes, delete_media deliberately NO: deletion is destructive and
+  // its GRANT is full-admin-only (the delete_inventory pattern in routes/sync.ts),
+  // so it must not be mintable per-team by a manager either.
+  'edit_media',
   'view_team_activity', 'checkout_for_team', 'view_financial_data',
 ]);
 
@@ -195,6 +199,35 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // activity_log / stock_by_location have their own handling and resolve to null.
 // A `null` value means the op is allowed to any authenticated user (no specific
 // permission required) — distinct from an ABSENT op, which fails closed to DENY.
+// Entities media may attach to. Deliberately excludes users/teams/role_settings/
+// app_config (a fixed IDOR sink — see routes/media.ts, which imports this).
+export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log']);
+
+// Validate a media sync write's entity linkage. Pure (no DB) so it unit-tests;
+// the target-job EXISTENCE check lives in the push handler where pg is.
+//  - INSERT must land on an allowlisted entity type (previously only the REST
+//    upload path enforced this; the sync path let any entity_type through).
+//  - UPDATE may re-link (the "move" feature) ONLY to a job: moving media onto
+//    users/teams/etc. via a crafted payload stays impossible, and moving
+//    between non-job entities has no UI or use case — fail closed.
+// Returns an error string (becomes the sync conflict message) or null when OK.
+export function validateMediaWrite(
+  op: 'INSERT' | 'UPDATE',
+  payload: Record<string, unknown>,
+): string | null {
+  if (op === 'INSERT') {
+    return MEDIA_ENTITY_TYPES.has(String(payload.entity_type))
+      ? null
+      : 'media entity_type not allowed';
+  }
+  const touchesLink = payload.entity_type !== undefined || payload.entity_id !== undefined;
+  if (!touchesLink) return null;
+  if (String(payload.entity_type) !== 'job' || payload.entity_id == null) {
+    return 'media can only be moved to a job';
+  }
+  return null;
+}
+
 const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   inventory_items: { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'delete_inventory' },
   equipment_units: { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'delete_inventory' },
@@ -204,7 +237,10 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   repair_parts:    { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   maintenance_events: { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   taxonomy_types:  { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
-  media:           { INSERT: 'upload_media', UPDATE: 'upload_media', DELETE: 'upload_media' },
+  // media is a real family: uploading, editing details (caption/location-note/
+  // move), and deleting are separately grantable. delete_media's GRANT is
+  // additionally restricted to full_admin in routes/sync.ts.
+  media:           { INSERT: 'upload_media', UPDATE: 'edit_media', DELETE: 'delete_media' },
   stock_by_location: { INSERT: 'checkin_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   // notifications: clients may only mark-read (UPDATE); INSERT/DELETE fail closed.
   notifications:   { UPDATE: null },
@@ -250,7 +286,7 @@ export const ACTIVITY_ACTIONS = new Set([
   'add_inventory', 'edit_inventory', 'delete_inventory', 'create_job', 'close_job',
   'create_location', 'edit_location', 'role_color_changed', 'role_permission_changed',
   'role_min_pin_changed', 'user_created', 'user_updated', 'team_created', 'team_updated',
-  'repair_created', 'repair_updated', 'media_uploaded',
+  'repair_created', 'repair_updated', 'media_uploaded', 'media_updated', 'media_deleted',
   // observed in apps/mobile call sites:
   'add_stock', 'add_units', 'checkout_to_job', 'consumed', 'item_created', 'item_updated',
   'job_archived', 'job_created', 'job_updated', 'location_archived', 'location_created',

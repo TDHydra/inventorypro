@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ROLE_TIER, effectiveTier, canActOnTarget, canAssignRole } from './permissions';
+import { ROLE_TIER, effectiveTier, canActOnTarget, canAssignRole, userHasPermission } from './permissions';
 
 // One representative role per tier (1..4). ROLE_TIER is the source of truth.
 // Tier 4 here uses franchise_manager (a NON-apex tier-4 role) so the generic
@@ -125,4 +125,18 @@ test('reset-enrollment-code: a set_pins holder cannot act on a higher-tier targe
   // Fail closed: an unresolved caller role acts on nobody.
   assert.equal(canActOnTarget(null, 'construction_crew'), false);
   assert.equal(canActOnTarget(undefined, 'temporary_employee'), false);
+});
+
+test('media permission family tier defaults mirror the inventory family', () => {
+  // add=upload_media (pre-existing), edit_media like edit_inventory,
+  // delete_media like delete_inventory (default-granted to tier 4 only).
+  assert.equal(userHasPermission('full_admin', null, 'edit_media', null), true);
+  assert.equal(userHasPermission('full_admin', null, 'delete_media', null), true);
+  assert.equal(userHasPermission('head_of_construction', null, 'edit_media', null), true);  // tier 2
+  assert.equal(userHasPermission('head_of_construction', null, 'delete_media', null), false);
+  assert.equal(userHasPermission('hr_manager', null, 'edit_media', null), false);           // tier 3
+  assert.equal(userHasPermission('construction_crew', null, 'edit_media', null), false);    // tier 1
+  assert.equal(userHasPermission('construction_crew', null, 'delete_media', null), false);
+  // overrides still apply per the normal resolution chain
+  assert.equal(userHasPermission('construction_crew', { edit_media: true }, 'edit_media', null), true);
 });

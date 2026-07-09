@@ -9,6 +9,7 @@ import {
   requiresRolesPermForTarget,
   sanitizeTeamOverrides,
   TEAM_OVERRIDABLE_PERMISSIONS,
+  validateMediaWrite,
 } from './syncPolicy';
 
 const real = new Map([['jobs', new Set(['id', 'name', 'status'])]]);
@@ -195,4 +196,38 @@ test('applyWritePolicy still rejects is_manager on team_members (unrelated SENSI
     'caller', realTeamMembers, () => true,
   );
   assert.deepEqual(rejected, ['is_manager']);
+});
+
+test('media op-perms are a real family: upload / edit / delete are separate grants', () => {
+  assert.equal(requiredOperationPerm('media', 'INSERT'), 'upload_media');
+  assert.equal(requiredOperationPerm('media', 'UPDATE'), 'edit_media');
+  assert.equal(requiredOperationPerm('media', 'DELETE'), 'delete_media');
+});
+
+test('edit_media is team-overridable; delete_media deliberately is not', () => {
+  // delete_media's GRANT is full-admin-only (routes/sync.ts role_settings guard),
+  // so a team manager must not be able to mint it per-team either.
+  assert.equal(TEAM_OVERRIDABLE_PERMISSIONS.has('edit_media'), true);
+  assert.equal(TEAM_OVERRIDABLE_PERMISSIONS.has('delete_media'), false);
+});
+
+test('validateMediaWrite: INSERT requires an allowlisted entity type', () => {
+  assert.equal(validateMediaWrite('INSERT', { entity_type: 'job', entity_id: 'j1' }), null);
+  assert.equal(validateMediaWrite('INSERT', { entity_type: 'item', entity_id: 'i1' }), null);
+  // users/teams were the original IDOR sink the REST allowlist closed — the
+  // sync path must reject them too now.
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'users', entity_id: 'u1' }), null);
+  assert.notEqual(validateMediaWrite('INSERT', { entity_type: 'role_settings', entity_id: 'r' }), null);
+  assert.notEqual(validateMediaWrite('INSERT', {}), null);
+});
+
+test('validateMediaWrite: UPDATE may re-link only to a job; metadata-only edits pass', () => {
+  // caption/location_note edit — no linkage touched
+  assert.equal(validateMediaWrite('UPDATE', { id: 'm1', caption: 'x', location_note: 'master bedroom' }), null);
+  // the move feature
+  assert.equal(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'job', entity_id: 'j2' }), null);
+  // moving onto a non-job entity, or half a link, fails closed
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'item', entity_id: 'i1' }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', entity_type: 'job' }), null);
+  assert.notEqual(validateMediaWrite('UPDATE', { id: 'm1', entity_id: 'j2' }), null);
 });

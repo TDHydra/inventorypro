@@ -1,49 +1,22 @@
 import { FastifyPluginAsync } from 'fastify';
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { requirePermission, userHasPermission } from '../lib/permissions';
+import { MEDIA_ENTITY_TYPES } from '../lib/syncPolicy';
+import { s3Public, BUCKET } from '../lib/s3';
+import { KEY_RE, cleanupMediaObjects } from '../lib/mediaCleanup';
 
-// Media may only attach to OPERATIONAL entities — never users / role_settings /
-// app_config / teams (those were an IDOR sink: anyone could attach/read media on
-// admin entities). Keep in sync with the entityType values MediaGallery passes.
-const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log']);
+// MEDIA_ENTITY_TYPES lives in lib/syncPolicy.ts now — media may only attach to
+// OPERATIONAL entities, never users / role_settings / app_config / teams (an
+// IDOR sink). The sync push path enforces the same allowlist via
+// validateMediaWrite. Keep in sync with the entityType values MediaGallery passes.
+
 // File extension: short alphanumeric only — blocks path traversal, NUL bytes, and
 // content-type injection (e.g. "jpg\0.txt", "../x", "jpg; charset=..").
 const EXT_RE = /^[a-z0-9]{2,5}$/;
-// Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors the
-// POST /media save to a key WE generated in /upload-url, never a client URL.
-const KEY_RE = /^[a-z_]+\/[a-zA-Z0-9_-]{1,64}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
 // Presigned PUT is otherwise unbounded — cap the declared upload size (25MB).
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-
-// Fail closed: never fall back to default/guessable MinIO credentials.
-const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY;
-const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY;
-if (!MINIO_ACCESS_KEY || !MINIO_SECRET_KEY) {
-  throw new Error('MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set (no default credentials)');
-}
-const credentials = { accessKeyId: MINIO_ACCESS_KEY, secretAccessKey: MINIO_SECRET_KEY };
-
-// Internal client — server↔MinIO operations (delete, etc.) over the private network.
-const s3 = new S3Client({
-  endpoint: process.env.MINIO_ENDPOINT ?? 'http://minio:9000',
-  region: 'us-east-1',
-  credentials,
-  forcePathStyle: true,
-});
-
-// Signing client — presigned URLs the device uses must point at the PUBLIC MinIO
-// host (e.g. https://s3.plexcontrol.com behind NPM), since the signature is bound
-// to that host. Falls back to the internal endpoint for local/dev.
-const s3Public = new S3Client({
-  endpoint: process.env.MINIO_PUBLIC_ENDPOINT ?? process.env.MINIO_ENDPOINT ?? 'http://minio:9000',
-  region: 'us-east-1',
-  credentials,
-  forcePathStyle: true,
-});
-
-const BUCKET = process.env.MINIO_BUCKET ?? 'inventorypro';
 
 interface UploadUrlBody {
   entity_type: string;
@@ -232,101 +205,30 @@ const routes: FastifyPluginAsync = async (fastify) => {
       `SELECT * FROM media WHERE id = $1`,
       [request.params.id]
     );
-    const media = rows[0] as { url: string; thumbnail_url: string | null; uploaded_by: string; entity_type: string; entity_id: string } | undefined;
+    const media = rows[0] as { id: string; url: string; thumbnail_url: string | null; uploaded_by: string; entity_type: string; entity_id: string } | undefined;
     if (!media) return reply.status(404).send({ error: 'Not found' });
 
-    // Only the uploader, or an admin (resolved through the permission system so
-    // role/user overrides apply — not a hardcoded role string), may delete.
+    // delete_media gates deletion — same permission the sync-push DELETE path
+    // requires (syncPolicy OPERATION_PERM), so REST and sync agree. Resolved
+    // through the permission system so role/user overrides apply. This replaced
+    // the old uploader-or-system_settings rule when media became a real
+    // permission family; no client calls this route today.
     const { rows: userRows } = await fastify.pg.query(
       `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
          FROM users u LEFT JOIN role_settings rs ON rs.role = u.role
         WHERE u.id = $1`, [userId]
     );
     const u = userRows[0] as { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null } | undefined;
-    const isAdmin = !!u && userHasPermission(u.role, u.permission_overrides, 'system_settings', u.role_overrides);
-    if (media.uploaded_by !== userId && !isAdmin) {
-      return reply.status(403).send({ error: 'Forbidden' });
+    if (!u || !userHasPermission(u.role, u.permission_overrides, 'delete_media', u.role_overrides)) {
+      return reply.status(403).send({ error: 'Forbidden: requires delete_media' });
     }
 
-    // Extract key from URL and delete from MinIO — but only if it actually
-    // belongs to this row's entity. Guards against any legacy/malformed row
-    // whose stored URL doesn't match its entity_type/entity_id from pointing
-    // a delete at an object outside that entity's prefix.
-    let urlObj: URL;
-    try {
-      urlObj = new URL(media.url);
-    } catch {
-      return reply.status(400).send({ error: 'Invalid media URL' });
-    }
-    const key = urlObj.pathname.replace(`/${BUCKET}/`, '');
-    if (!key.startsWith(`${media.entity_type}/${media.entity_id}/`)) {
-      return reply.status(400).send({ error: 'Media key does not match entity' });
-    }
-    // thumbnail_url is optional and best-effort: a malformed/foreign value can't
-    // be resolved to an object key or doesn't belong to this entity — skip its
-    // cleanup rather than fail the whole delete over a thumbnail.
-    let thumbKey: string | null = null;
-    if (media.thumbnail_url) {
-      try {
-        const derived = new URL(media.thumbnail_url).pathname.replace(`/${BUCKET}/`, '');
-        if (derived.startsWith(`${media.entity_type}/${media.entity_id}/`)) thumbKey = derived;
-      } catch {
-        // not a valid URL — leave thumbKey null, nothing to clean up
-      }
-    }
-
-    // Only delete an underlying object when NO other media row derives to the same
-    // OBJECT KEY via EITHER its url or its thumbnail_url. The real client creates
-    // media rows via the sync outbox (not this route), which does not validate
-    // `url`/`thumbnail_url` — so a client could forge a row whose stored value is
-    // another row's URL plus a benign suffix (e.g. "?x=1" or "#a"), or points a
-    // forged thumbnail_url at a real object. Since new URL().pathname strips
-    // query/fragment, that forged row's DERIVED KEY would collide with the
-    // victim's even though the raw string differs. Comparing on the raw string
-    // (old behavior, and the old behavior of never checking thumbnail_url at all)
-    // would miss that collision and let the forged row be "the last reference",
-    // allowing the delete to destroy the shared object out from under the
-    // legitimate row — or leave the thumbnail object orphaned forever. Deriving +
-    // comparing keys across both columns closes both gaps.
-    const { rows: candidateRows } = await fastify.pg.query(
-      `SELECT url, thumbnail_url FROM media WHERE entity_type = $1 AND entity_id = $2 AND id <> $3`,
-      [media.entity_type, media.entity_id, request.params.id]
-    );
-    const referencedKeys = new Set<string>();
-    for (const candidate of candidateRows as { url: string; thumbnail_url: string | null }[]) {
-      try {
-        referencedKeys.add(new URL(candidate.url).pathname.replace(`/${BUCKET}/`, ''));
-      } catch {
-        // Malformed candidate URL — can't derive a key, so it can't be shown to
-        // reference this object; skip it rather than let it block deletion.
-      }
-      if (candidate.thumbnail_url) {
-        try {
-          referencedKeys.add(new URL(candidate.thumbnail_url).pathname.replace(`/${BUCKET}/`, ''));
-        } catch {
-          // same — skip unresolvable thumbnail_url
-        }
-      }
-    }
-
-    if (!referencedKeys.has(key)) {
-      try {
-        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-      } catch {
-        // Best-effort — delete DB record regardless
-      }
-    }
-    // Clean up the thumbnail object too (this row's own gap: previously never
-    // considered), but only when it's a distinct key and nothing else refs it.
-    if (thumbKey && thumbKey !== key && !referencedKeys.has(thumbKey)) {
-      try {
-        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: thumbKey }));
-      } catch {
-        // Best-effort — delete DB record regardless
-      }
-    }
-
+    // Object cleanup is shared with the sync-path delete (lib/mediaCleanup.ts):
+    // move-tolerant key validation + table-wide refcount, best-effort. The DB
+    // row is deleted regardless — a junk/legacy row with an unresolvable URL
+    // must still be removable (the old inline version 400'd and stranded it).
     await fastify.pg.query(`DELETE FROM media WHERE id = $1`, [request.params.id]);
+    await cleanupMediaObjects(fastify.pg, { id: media.id, url: media.url, thumbnail_url: media.thumbnail_url });
     return { deleted: true };
   });
 };
