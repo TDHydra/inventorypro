@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import { isOrgAuthority } from '../lib/teamAuthority';
+import { participantWriteAllowed, ChatConversationFacts } from '../lib/chatPolicy';
 import {
   loadTableColumns,
   applyWritePolicy,
@@ -70,6 +71,21 @@ const CONFLICT_TARGETS: Record<string, string> = {
   messages: 'id',
 };
 
+// Tables whose INSERT must NOT upsert: the generic INSERT is ON CONFLICT DO
+// UPDATE, so an INSERT carrying an EXISTING key would rewrite the row straight
+// past every INSERT-time guard. approval_requests: decisions must flow through
+// the guarded UPDATE path (see applyEntry). conversations: attribution forces
+// created_by = caller, so an INSERT with an existing id would hand the caller
+// creator-ship of ANY conversation (defeating the participant guard keyed on
+// it) and let them rewrite kind/title. messages: a participant could rewrite
+// another sender's message (sender_id is likewise forced to the caller).
+// conversation_participants: a re-add of an existing member must not reset
+// their notify_pref / last_read_at. For all four, a resent create is an
+// idempotent no-op (DO NOTHING), which is what a retry wants anyway.
+const INSERT_NO_UPSERT = new Set([
+  'approval_requests', 'conversations', 'conversation_participants', 'messages',
+]);
+
 // Tables whose pull is scoped to the authenticated caller (private per-user data).
 // The listed column is matched against the caller's user id so a device only ever
 // downloads its own rows (e.g. the per-user notifications inbox).
@@ -90,6 +106,31 @@ function chatScopeSql(table: string, callerParam: string): string | null {
     case 'conversation_participants': return `conversation_id IN (${mine})`;
     case 'messages': return `conversation_id IN (${mine})`;
     default: return null;
+  }
+}
+
+// Resolve the caller's relationship to a conversation for the chat write guards
+// (lib/chatPolicy.ts decides; this only gathers facts). Fails closed: a missing
+// row, a null id, or a malformed uuid (the cast throws) all come back as
+// "doesn't exist", which the policy rejects with the transient wording.
+async function conversationFacts(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  conversationId: unknown,
+  callerId: string,
+): Promise<ChatConversationFacts> {
+  try {
+    const { rows } = await pg.query(
+      `SELECT (c.created_by = $2) AS is_creator,
+              EXISTS (SELECT 1 FROM conversation_participants cp
+                       WHERE cp.conversation_id = c.id AND cp.user_id = $2) AS is_participant
+         FROM conversations c WHERE c.id = $1`,
+      [conversationId, callerId],
+    );
+    const r = rows[0] as { is_creator: boolean | null; is_participant: boolean } | undefined;
+    if (!r) return { exists: false, isCreator: false, isParticipant: false };
+    return { exists: true, isCreator: r.is_creator === true, isParticipant: r.is_participant === true };
+  } catch {
+    return { exists: false, isCreator: false, isParticipant: false };
   }
 }
 
@@ -420,10 +461,11 @@ async function applyEntry(
   if (hasUpdatedAt) updateParts.push('updated_at = NOW()');
   const updates = updateParts.join(', ');
 
-  // approval_requests never upserts: a create is a create, and its decisions must
-  // flow through the guarded UPDATE path — so an INSERT with an existing id is a
-  // no-op, not a back-door update (see the force-open block above).
-  const sql = updates && table_name !== 'approval_requests'
+  // INSERT_NO_UPSERT tables never upsert: a create is a create, and an INSERT
+  // carrying an existing key is a no-op, not a back-door update (rationale per
+  // table on the set's definition; approval_requests also has the force-open
+  // block above).
+  const sql = updates && !INSERT_NO_UPSERT.has(table_name)
     ? `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO UPDATE SET ${updates}`
     : `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
@@ -828,7 +870,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       // sender_id is forced to the caller by ATTRIBUTION_COLUMNS, so we only need
       // to authorize the target conversation. Verified server-side (the scoped
       // pull already hides non-member conversations, but a crafted push must still
-      // be rejected). INSERT-only — edits/other ops fall through to op-perm (null).
+      // be rejected).
       if (entry.table_name === 'messages' && entry.operation === 'INSERT') {
         const convId = entry.payload.conversation_id;
         const { rows: partRows } = await fastify.pg.query(
@@ -839,6 +881,70 @@ const routes: FastifyPluginAsync = async (fastify) => {
           request.log.warn(
             { userId, conversationId: convId },
             'sync push message denied (not a participant)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation' });
+          continue;
+        }
+      }
+
+      // messages UPDATE: no client flow edits messages today, so fail closed to
+      // the sender — otherwise any participant could rewrite another member's
+      // message body via a crafted UPDATE (sender_id itself is attribution-
+      // protected, but body is not). The INSERT-with-existing-id variant of the
+      // same rewrite is closed by INSERT_NO_UPSERT.
+      if (entry.table_name === 'messages' && entry.operation === 'UPDATE') {
+        let senderId: string | undefined;
+        try {
+          const { rows: msgRows } = await fastify.pg.query(
+            `SELECT sender_id FROM messages WHERE id = $1`,
+            [entry.payload.id],
+          );
+          senderId = (msgRows[0] as { sender_id: string } | undefined)?.sender_id;
+        } catch { senderId = undefined; }
+        if (senderId == null || String(senderId) !== userId) {
+          request.log.warn(
+            { userId, messageId: entry.payload.id },
+            'sync push message update denied (not the sender)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: only the sender can edit a message' });
+          continue;
+        }
+      }
+
+      // conversation_participants: an INSERT is how a user BECOMES a member, so
+      // an unguarded one lets anyone add themselves to any conversation and pull
+      // its entire history. Rules live in lib/chatPolicy.ts; the facts are fresh
+      // per entry because a batch may create the conversation earlier in this
+      // same push (entries apply sequentially in outbox order, so the
+      // conversations row — created_by forced to the caller — is already visible
+      // when its participant rows arrive).
+      if (
+        entry.table_name === 'conversation_participants' &&
+        (entry.operation === 'INSERT' || entry.operation === 'UPDATE' || entry.operation === 'DELETE')
+      ) {
+        const facts = await conversationFacts(fastify.pg, entry.payload.conversation_id, userId);
+        const targetUser = entry.payload.user_id == null ? null : String(entry.payload.user_id);
+        const verdict = participantWriteAllowed(entry.operation, targetUser, userId, facts);
+        if (!verdict.allowed) {
+          request.log.warn(
+            { userId, conversationId: entry.payload.conversation_id, targetUser, operation: entry.operation },
+            'sync push participant write denied',
+          );
+          conflicts.push({ id: entry.id, error: verdict.error });
+          continue;
+        }
+      }
+
+      // conversations UPDATE: no client flow renames conversations today, so
+      // fail closed to members — a non-participant must not retitle or re-kind
+      // someone else's conversation. (created_by is attribution-protected, and
+      // the INSERT-with-existing-id takeover is closed by INSERT_NO_UPSERT.)
+      if (entry.table_name === 'conversations' && entry.operation === 'UPDATE') {
+        const facts = await conversationFacts(fastify.pg, entry.payload.id, userId);
+        if (!facts.isParticipant) {
+          request.log.warn(
+            { userId, conversationId: entry.payload.id },
+            'sync push conversation update denied (not a participant)',
           );
           conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation' });
           continue;
