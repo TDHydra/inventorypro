@@ -23,7 +23,7 @@ Prod builds from the working tree, so an uncommitted deploy corresponds to *no* 
 - **Lockfile in sync** (the Docker build uses `--frozen-lockfile`): `pnpm install --frozen-lockfile --filter api...` must say *"Lockfile is up to date"*. If you added a dep, `pnpm --filter api add <x>` first.
 - **`@fastify/helmet` must be v11** (Fastify is v4; helmet v13 targets Fastify v5 and breaks). Check `apps/api/package.json`.
 - **`media.ts` fails closed on MinIO creds** — the API throws at boot if `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` are unset. The prod compose maps them from `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`; confirm the compose on the box still has that mapping (`grep MINIO_ACCESS_KEY docker-compose.prod.yml`).
-- **`TRUST_PROXY`** should be set to the Docker bridge subnet (e.g. `172.18.0.0/16`) in prod `.env`, or the roster IP rate-limit collapses to one bucket behind NPM.
+- **`TRUST_PROXY`** is a comma-separated list and must name EVERY proxy hop or `request.ip`/audit-IP/rate-limit break: the bridge subnet AND the unraid host IP (NPM runs in host network mode, so it arrives as `192.168.1.239`) AND all Cloudflare ranges (`invenpro.app` is orange-clouded; ranges from cloudflare.com/ips — re-pin if CF publishes changes). Set 2026-07-09; do NOT "simplify" it back to just `172.18.0.0/16` — that regresses every audit row to the proxy IP.
 - Typecheck + tests green: `cd apps/api && npx tsc --noEmit && npm test`.
 
 ## A. Deploy the API
