@@ -56,9 +56,16 @@ const fastify = Fastify({
   // X-Forwarded-For so request.ip reflects the real client. Pinned to the
   // proxy's own address/subnet (not `true`, which would trust ANY caller's
   // X-Forwarded-For — trivially spoofable to bypass IP-keyed rate limiting).
-  // TRUST_PROXY should be set to the NPM/Docker bridge subnet (e.g.
-  // 172.18.0.0/16) in prod .env; the loopback default keeps local dev booting.
-  trustProxy: process.env.TRUST_PROXY ?? '127.0.0.1',
+  // TRUST_PROXY is a comma-separated list of IPs/CIDRs, split here because
+  // proxy-addr wants an array, not a comma string. It must include EVERY hop
+  // address NPM can arrive from: NPM runs in HOST network mode on unraid, so
+  // its requests reach this container from the host's LAN IP (192.168.1.239),
+  // NOT from inside the docker bridge subnet — trusting only 172.18.0.0/16
+  // silently ignored X-Forwarded-For and audited every request as the proxy.
+  // The loopback default keeps local dev booting.
+  trustProxy: process.env.TRUST_PROXY
+    ? process.env.TRUST_PROXY.split(',').map(s => s.trim())
+    : '127.0.0.1',
 });
 
 async function build() {
