@@ -295,13 +295,23 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     const targetId = request.params.id;
     const { rows } = await fastify.pg.query<{
-      id: string; name: string; email: string | null; pin_hash: string | null;
+      id: string; name: string; role: string; email: string | null; pin_hash: string | null;
     }>(
-      `SELECT id, name, email, pin_hash FROM users WHERE id = $1`,
+      `SELECT id, name, role, email, pin_hash FROM users WHERE id = $1`,
       [targetId],
     );
     const user = rows[0];
     if (!user) return reply.status(404).send({ error: 'User not found' });
+
+    // Tier guard. This endpoint re-arms /auth/set-pin AND returns the plaintext
+    // code to the caller, so without it a `set_pins` holder could mint an
+    // enrollment code for a full_admin who has never signed in and use it to take
+    // that account — escalating past their own tier. Nobody may act on a user
+    // above their level. Resolve both roles from the DB, never the JWT claim.
+    const actorRole = await callerRole(fastify, callerId);
+    if (!canActOnTarget(actorRole, user.role)) {
+      return reply.status(403).send({ error: 'Forbidden: target user is at or above your level' });
+    }
 
     // Only valid before the user has a PIN — otherwise this would be a silent
     // parallel path to overwrite/undermine an active account's onboarding state.
