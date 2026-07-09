@@ -116,6 +116,25 @@ def select_item(items: list[dict], selector: str) -> dict:
     raise BoardError(f"{selector!r} matches {len(hits)} items:\n{listing}")
 
 
+_SET_FIELD = """
+mutation($project:ID!,$item:ID!,$field:ID!,$opt:String!){
+  updateProjectV2ItemFieldValue(input:{
+    projectId:$project, itemId:$item, fieldId:$field,
+    value:{singleSelectOptionId:$opt}
+  }){ projectV2Item { id } }
+}"""
+
+
+def set_status(cfg: dict, item_id: str, option_id: str, runner=None) -> None:
+    """Move one item to one column. Note: -f only, never -F."""
+    gql(_SET_FIELD, {
+        "project": cfg["project_id"],
+        "item": item_id,
+        "field": cfg["status_field_id"],
+        "opt": option_id,
+    }, runner=runner)
+
+
 def cli(main_fn) -> "NoReturn":
     """Shared entry point for every verb script. Exits nonzero with a readable message."""
     import sys
