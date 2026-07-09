@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
 import { generateUUID } from '../../utils/uuid';
 import {
@@ -13,15 +13,13 @@ import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../db/maintenance';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
-import { renderIcon } from '../../constants/locationStyles';
 import { PickerOption } from '../SearchablePicker';
-import { LocationPicker } from '../pickers';
+import { LocationPicker, TaxonomyChips } from '../pickers';
 import { SuggestInput } from '../SuggestInput';
 import { colors, spacing, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
-import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { track } from '../../telemetry';
@@ -193,21 +191,13 @@ export default function JobQuickAdd({ onSaved }: Props) {
 
       {jobTypes.length > 0 && (
         <View style={s.fieldWrap}>
-          <FieldLabel>Type</FieldLabel>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.chipRow}
-          >
-            {jobTypes.map(t => (
-              <FilterChip
-                key={t.label}
-                label={`${renderIcon(t.icon)} ${t.label}`}
-                active={type === t.label}
-                onPress={() => setType(prev => prev === t.label ? null : t.label)}
-              />
-            ))}
-          </ScrollView>
+          <TaxonomyChips
+            category="job"
+            label="Type"
+            valueLabel={type}
+            onChange={v => setType(v.label)}
+            deselectable
+          />
         </View>
       )}
 
@@ -296,7 +286,6 @@ const s = StyleSheet.create({
   },
   hintText: { fontSize: 13, color: colors.primaryText },
   fieldWrap: { gap: 6 },
-  chipRow: { gap: 8, paddingRight: 8 },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
   inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger },

@@ -17,16 +17,14 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
 import { getAllTeams } from '../../../src/db/queries/teams';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
-import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker } from '../../../src/components/pickers';
+import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { generateUUID } from '../../../src/utils/uuid';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
-import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { HidableField } from '../../../src/components/ui/HidableField';
@@ -214,21 +212,14 @@ export default function CreateJobScreen() {
 
           {jobTypes.length > 0 && (
             <View style={s.fieldWrap}>
-              <FieldLabel>Type</FieldLabel>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={s.chipRow}
-              >
-                {jobTypes.map(t => (
-                  <FilterChip
-                    key={t.label}
-                    label={`${renderIcon(t.icon)} ${t.label}`}
-                    active={type === t.label}
-                    onPress={() => setType(prev => prev === t.label ? null : t.label)}
-                  />
-                ))}
-              </ScrollView>
+              <TaxonomyChips
+                category="job"
+                label="Type"
+                withFallback
+                deselectable
+                valueLabel={type}
+                onChange={v => setType(v.label)}
+              />
             </View>
           )}
 
@@ -358,7 +349,6 @@ const s = StyleSheet.create({
 
   fieldWrap: { gap: 6 },
   teamHint: { fontSize: 12, color: colors.textMuted },
-  chipRow: { gap: 8, paddingRight: 8 },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
 
   row: { flexDirection: 'row', gap: 12, marginTop: 8 },

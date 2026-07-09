@@ -13,13 +13,11 @@ import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
-import { renderIcon } from '../../../src/constants/locationStyles';
 import { colors } from '../../../src/theme';
 import { syncNow } from '../../../src/sync/engine';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
-import { FieldLabel } from '../../../src/components/ui/FieldLabel';
-import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { TaxonomyChips } from '../../../src/components/pickers';
 import { Card } from '../../../src/components/ui/Card';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { TooltipHint } from '../../../src/components/TooltipHint';
@@ -62,7 +60,10 @@ export default function TeamsScreen() {
       .filter((m): m is { team: Team; isManager: boolean } => m !== null);
   }, [teams, user]);
 
-  // Create form state
+  // Create form state. Seeded synchronously, not via TaxonomyChips' defaultToFirst:
+  // ModalSheet's <Modal> unmounts its children while hidden, so the chip row
+  // remounts on every open and a mount effect would paint one frame with nothing
+  // selected before highlighting the default.
   const [name, setName] = useState('');
   const [type, setType] = useState(() => {
     const ts = getTaxonomyTypes('team');
@@ -224,21 +225,13 @@ export default function TeamsScreen() {
                 autoFocus
               />
 
-              <FieldLabel>Type</FieldLabel>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={s.chipRow}
-              >
-                {teamTypes.map(t => (
-                  <FilterChip
-                    key={t.label}
-                    label={`${renderIcon(t.icon)} ${t.label}`}
-                    active={type === t.label}
-                    onPress={() => setType(t.label)}
-                  />
-                ))}
-              </ScrollView>
+              <TaxonomyChips
+                category="team"
+                label="Type"
+                withFallback
+                valueLabel={type}
+                onChange={v => setType(v.label ?? '')}
+              />
 
               <PrimaryButton label="Create Team" onPress={handleCreate} style={{ marginTop: 8 }} />
               <View style={s.secondaryRow}>
@@ -285,7 +278,6 @@ const s = StyleSheet.create({
   type: { fontSize: 12, color: colors.textSecondary, marginTop: 2, textTransform: 'capitalize' },
 
   modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
-  chipRow: { gap: 8, paddingRight: 8 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: 8 },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
