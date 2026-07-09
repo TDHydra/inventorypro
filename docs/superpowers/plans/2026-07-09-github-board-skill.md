@@ -201,6 +201,7 @@ git commit -m "feat(board): board reference file + config loader"
 **Interfaces:**
 - Consumes: `BoardError` from Task 1.
 - Produces: `run_gh(args: list[str], runner=None) -> str`; `gql(query: str, variables: dict, runner=None) -> dict`. `runner` is an injection point for tests; it defaults to `subprocess.run`.
+- Produces: `cli(main_fn) -> NoReturn` — the shared entry-point wrapper. Every verb script ends with `if __name__ == "__main__": cli(main)`. No script may inline its own try/except.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -284,6 +285,16 @@ def gql(query: str, variables: dict, runner=None) -> dict:
         msgs = "; ".join(e.get("message", str(e)) for e in payload["errors"])
         raise BoardError(f"graphql: {msgs}")
     return payload["data"]
+
+
+def cli(main_fn) -> "NoReturn":
+    """Shared entry point for every verb script. Exits nonzero with a readable message."""
+    import sys
+    try:
+        sys.exit(main_fn())
+    except BoardError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -476,7 +487,7 @@ import argparse
 import json
 import sys
 
-from _board import BoardError, fetch_items, load_config
+from _board import BoardError, cli, fetch_items, load_config
 
 
 def main() -> int:
@@ -511,11 +522,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BoardError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+    cli(main)
 ```
 
 - [ ] **Step 2: Verify against the live board**
@@ -589,7 +596,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import BoardError, fetch_items, load_config, resolve_status, select_item, set_status
+from _board import BoardError, cli, fetch_items, load_config, resolve_status, select_item, set_status
 
 GUARDED = {"Done": "gh_done.py", "Rejected": "gh_reject.py"}
 
@@ -617,11 +624,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BoardError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+    cli(main)
 ```
 
 `gh_move.py` refuses `Done`/`Rejected` because those transitions must also touch the linked
@@ -687,7 +690,7 @@ import argparse
 import json
 import sys
 
-from _board import BoardError, gql, load_config, resolve_status, run_gh, set_status
+from _board import BoardError, cli, gql, load_config, resolve_status, run_gh, set_status
 
 _ADD_DRAFT = """
 mutation($p:ID!,$t:String!,$b:String!){
@@ -734,11 +737,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BoardError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+    cli(main)
 ```
 
 - [ ] **Step 2: Verify the draft path**
@@ -803,7 +802,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import BoardError, fetch_items, load_config, resolve_status, run_gh, select_item, set_status
+from _board import BoardError, cli, fetch_items, load_config, resolve_status, run_gh, select_item, set_status
 
 
 def main() -> int:
@@ -831,11 +830,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BoardError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+    cli(main)
 ```
 
 - [ ] **Step 2: Write `gh_reject.py`**
@@ -848,7 +843,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import (BoardError, fetch_items, gql, load_config, resolve_status,
+from _board import (BoardError, cli, fetch_items, gql, load_config, resolve_status,
                     run_gh, select_item, set_status)
 
 _UPDATE_DRAFT = """
@@ -887,11 +882,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BoardError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+    cli(main)
 ```
 
 - [ ] **Step 3: Verify `gh_reject.py` on the draft scratch item**
@@ -970,7 +961,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import BoardError, fetch_items, gql, load_config, select_item
+from _board import BoardError, cli, fetch_items, gql, load_config, select_item
 
 _CONVERT = """
 mutation($item:ID!,$repo:ID!){
@@ -1007,11 +998,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except BoardError as e:
-        print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+    cli(main)
 ```
 
 - [ ] **Step 2: Verify the dry-run guard**
