@@ -28,6 +28,7 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
+import { HidableField } from '../../../src/components/ui/HidableField';
 
 export default function CreateJobScreen() {
   const { user } = useSession();
@@ -225,69 +226,81 @@ export default function CreateJobScreen() {
           )}
 
           <AdvancedFields>
-            <View style={s.fieldWrap}>
-              <FieldLabel>Customer Name</FieldLabel>
-              <SuggestInput
-                value={customerName}
-                onChange={setCustomerName}
-                onPick={offerCrossFill}
-                suggestions={customerOptions}
-                placeholder="Customer or company name"
-              />
-            </View>
+            <HidableField fieldId="jobs.customer_name">
+              <View style={s.fieldWrap}>
+                <FieldLabel>Customer Name</FieldLabel>
+                <SuggestInput
+                  value={customerName}
+                  onChange={setCustomerName}
+                  onPick={offerCrossFill}
+                  suggestions={customerOptions}
+                  placeholder="Customer or company name"
+                />
+              </View>
+            </HidableField>
 
-            <View style={s.fieldWrap}>
-              <FieldLabel>Site Address</FieldLabel>
-              <SuggestInput
-                value={siteAddress}
-                onChange={setSiteAddress}
-                suggestions={addressOptions}
-                placeholder="Street address or description"
-              />
-            </View>
+            <HidableField fieldId="jobs.site_address">
+              <View style={s.fieldWrap}>
+                <FieldLabel>Site Address</FieldLabel>
+                <SuggestInput
+                  value={siteAddress}
+                  onChange={setSiteAddress}
+                  suggestions={addressOptions}
+                  placeholder="Street address or description"
+                />
+              </View>
+            </HidableField>
 
-            <View style={s.fieldWrap}>
-              <FieldLabel>Site Location</FieldLabel>
-              <SearchablePicker
-                placeholder="Search locations..."
-                options={locationOptions}
-                value={siteLocation}
-                onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
-              />
-            </View>
+            <HidableField fieldId="jobs.site_location">
+              <View style={s.fieldWrap}>
+                <FieldLabel>Site Location</FieldLabel>
+                <SearchablePicker
+                  placeholder="Search locations..."
+                  options={locationOptions}
+                  value={siteLocation}
+                  onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
+                />
+              </View>
+            </HidableField>
 
-            <View style={s.fieldWrap}>
-              <FieldLabel>Reference # (external)</FieldLabel>
-              <AppInput
-                value={referenceNumber}
-                onChangeText={setReferenceNumber}
-                placeholder="Insurance claim / customer PO #"
-                autoCapitalize="characters"
-              />
-            </View>
+            <HidableField fieldId="jobs.reference_number">
+              <View style={s.fieldWrap}>
+                <FieldLabel>Reference # (external)</FieldLabel>
+                <AppInput
+                  value={referenceNumber}
+                  onChangeText={setReferenceNumber}
+                  placeholder="Insurance claim / customer PO #"
+                  autoCapitalize="characters"
+                />
+              </View>
+            </HidableField>
 
-            <View style={s.fieldWrap}>
-              <FieldLabel>Insurance carrier</FieldLabel>
-              <SuggestInput
-                value={insuranceCarrier}
-                onChange={setInsuranceCarrier}
-                suggestions={carrierOptions}
-                placeholder="Insurance company"
-              />
-            </View>
+            <HidableField fieldId="jobs.insurance_carrier">
+              <View style={s.fieldWrap}>
+                <FieldLabel>Insurance carrier</FieldLabel>
+                <SuggestInput
+                  value={insuranceCarrier}
+                  onChange={setInsuranceCarrier}
+                  suggestions={carrierOptions}
+                  placeholder="Insurance company"
+                />
+              </View>
+            </HidableField>
 
-            <View style={s.fieldWrap}>
-              <FieldLabel>Description</FieldLabel>
-              <AppInput
-                style={s.textArea}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="Job description or notes"
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </View>
+            <HidableField fieldId="jobs.description">
+              <View style={s.fieldWrap}>
+                <FieldLabel>Description</FieldLabel>
+                <AppInput
+                  style={s.textArea}
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="Job description or notes"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+            </HidableField>
           </AdvancedFields>
 
           <View style={s.row}>

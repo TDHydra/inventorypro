@@ -33,6 +33,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
+import { HidableField } from '../../../src/components/ui/HidableField';
 
 export default function AddStockScreen() {
   const router = useRouter();
@@ -452,13 +453,15 @@ export default function AddStockScreen() {
             onCreate={handleItemCreate}
           />
           <AdvancedFields>
-            <BarcodeInput
-              value={barcode}
-              onChange={setBarcode}
-              placeholder="Scan or enter barcode (optional)"
-              note={autofillItem ? `Auto-filled: ${autofillItem.name}` : undefined}
-              noteTone="info"
-            />
+            <HidableField fieldId="inventory.barcode">
+              <BarcodeInput
+                value={barcode}
+                onChange={setBarcode}
+                placeholder="Scan or enter barcode (optional)"
+                note={autofillItem ? `Auto-filled: ${autofillItem.name}` : undefined}
+                noteTone="info"
+              />
+            </HidableField>
           </AdvancedFields>
 
           {/* Read-only card shown when an existing item is selected/autofilled */}
@@ -520,62 +523,76 @@ export default function AddStockScreen() {
                 />
               )}
 
-              <FieldLabel style={{ marginTop: 12 }}>Pack size (optional)</FieldLabel>
-              <AppInput
-                placeholder={`Units per pack — e.g. 4 = a 4-${unit || 'unit'} pack`}
-                value={packSize}
-                onChangeText={setPackSize}
-                keyboardType="decimal-pad"
-              />
+              <HidableField fieldId="inventory.pack_size">
+                <FieldLabel style={{ marginTop: 12 }}>Pack size (optional)</FieldLabel>
+                <AppInput
+                  placeholder={`Units per pack — e.g. 4 = a 4-${unit || 'unit'} pack`}
+                  value={packSize}
+                  onChangeText={setPackSize}
+                  keyboardType="decimal-pad"
+                />
+              </HidableField>
 
-              <FieldLabel style={{ marginTop: 12 }}>Home location (where it belongs)</FieldLabel>
-              <SearchablePicker
-                placeholder="Search shelves… (type a new one to add it)"
-                options={homeLocationOptions}
-                value={homeLocation}
-                onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
-                onCreate={(text) => setHomeLocation({ id: '__new__', label: text })}
-              />
+              <HidableField fieldId="inventory.home_location">
+                <FieldLabel style={{ marginTop: 12 }}>Home location (where it belongs)</FieldLabel>
+                <SearchablePicker
+                  placeholder="Search shelves… (type a new one to add it)"
+                  options={homeLocationOptions}
+                  value={homeLocation}
+                  onSelect={(opt) => setHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
+                  onCreate={(text) => setHomeLocation({ id: '__new__', label: text })}
+                />
+              </HidableField>
 
               <AdvancedFields>
-                <AppInput
-                  style={s.multiline}
-                  placeholder="Description (optional)"
-                  value={description}
-                  onChangeText={setDescription}
-                  multiline
-                  numberOfLines={3}
-                />
-                <SuggestInput
-                  value={supplier}
-                  onChange={setSupplier}
-                  suggestions={supplierOptions}
-                  placeholder="Supplier / Vendor (optional)"
-                />
-                <SuggestInput
-                  label=""
-                  value={model}
-                  onChange={setModel}
-                  suggestions={modelOptions}
-                  placeholder="Color / Model (optional)"
-                />
+                <HidableField fieldId="inventory.description">
+                  <AppInput
+                    style={s.multiline}
+                    placeholder="Description (optional)"
+                    value={description}
+                    onChangeText={setDescription}
+                    multiline
+                    numberOfLines={3}
+                  />
+                </HidableField>
+                <HidableField fieldId="inventory.supplier">
+                  <SuggestInput
+                    value={supplier}
+                    onChange={setSupplier}
+                    suggestions={supplierOptions}
+                    placeholder="Supplier / Vendor (optional)"
+                  />
+                </HidableField>
+                <HidableField fieldId="inventory.model">
+                  <SuggestInput
+                    label=""
+                    value={model}
+                    onChange={setModel}
+                    suggestions={modelOptions}
+                    placeholder="Color / Model (optional)"
+                  />
+                </HidableField>
                 <View style={s.switchRow}>
                   <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
                   <Switch value={returnable} onValueChange={setReturnable} />
                 </View>
-                <FieldLabel style={{ marginTop: 12 }}>Stock thresholds</FieldLabel>
-                <AppInput
-                  placeholder="Low-stock alert (0 = off)"
-                  value={minAlert}
-                  onChangeText={setMinAlert}
-                  keyboardType="decimal-pad"
-                />
-                <AppInput
-                  placeholder="Reorder up to (optional)"
-                  value={reorderTo}
-                  onChangeText={setReorderTo}
-                  keyboardType="decimal-pad"
-                />
+                <HidableField fieldId="inventory.min_qty_alert">
+                  <FieldLabel style={{ marginTop: 12 }}>Stock thresholds</FieldLabel>
+                  <AppInput
+                    placeholder="Low-stock alert (0 = off)"
+                    value={minAlert}
+                    onChangeText={setMinAlert}
+                    keyboardType="decimal-pad"
+                  />
+                </HidableField>
+                <HidableField fieldId="inventory.reorder_to">
+                  <AppInput
+                    placeholder="Reorder up to (optional)"
+                    value={reorderTo}
+                    onChangeText={setReorderTo}
+                    keyboardType="decimal-pad"
+                  />
+                </HidableField>
               </AdvancedFields>
             </>
           )}

@@ -7,6 +7,7 @@ import { getValidJwt } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
 import { loadRolePermissionCache } from '../auth/permissions';
 import { loadDashboardCache } from '../dashboard/store';
+import { notifyHiddenFieldsChanged } from '../db/hiddenFields';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
 import { track } from '../telemetry';
 import { flushTelemetry } from '../telemetry/flush';
@@ -150,6 +151,9 @@ async function runDrainAndPull(): Promise<void> {
     // A pull may also have changed dashboard_presets or the per-user/role
     // assignment — refresh the cache the hub's useDashboardLayout() reads.
     loadDashboardCache();
+    // A pull may also have changed app_config hidden_fields — notify subscribers
+    // so HidableField components re-render without waiting for a focus event.
+    notifyHiddenFieldsChanged();
     // Fire-and-forget local alert checks (low stock / temp-employee expiry).
     // It swallows its own errors and resolves void, so it can't disturb the
     // existing try/catch/return behaviour of this cycle.
