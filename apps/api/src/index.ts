@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyPostgres from '@fastify/postgres';
@@ -27,6 +29,17 @@ import auditRoutes from './routes/audit';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
+
+// Resolved once at boot. 'unknown' (not a plausible-looking version) so a broken
+// read is visibly broken rather than silently reporting a stale number.
+const API_VERSION: string = (() => {
+  try {
+    const pkg = readFileSync(join(__dirname, '..', 'package.json'), 'utf8');
+    return (JSON.parse(pkg) as { version?: string }).version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 const fastify = Fastify({
   logger: {
@@ -154,12 +167,16 @@ async function build() {
   await fastify.register(auditRoutes, { prefix: '/audit' });
 
   // Health check — includes uptime and version for ops dashboards.
-  // npm_package_version is set automatically when started via pnpm/npm run scripts.
-  const apiVersion = process.env.npm_package_version ?? '1.0.0';
+  //
+  // Read the version from package.json rather than npm_package_version: npm only
+  // sets that variable when Node is launched THROUGH an npm/pnpm script, and the
+  // Dockerfile's CMD is `node apps/api/dist/index.js` directly. Relying on it meant
+  // /health always reported the hardcoded fallback, so a version bump looked like a
+  // failed deploy. `../package.json` resolves under both dist/ (prod) and src/ (dev).
   fastify.get('/health', async () => ({
     ok: true,
     ts: new Date().toISOString(),
-    version: apiVersion,
+    version: API_VERSION,
     uptime: Math.floor(process.uptime()),
   }));
 

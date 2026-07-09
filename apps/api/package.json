@@ -1,6 +1,6 @@
 {
   "name": "api",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc && cp -r src/db/migrations dist/db/",
