@@ -541,6 +541,77 @@ class TestGhReject(unittest.TestCase):
         self.assertIn("already closed", msg.lower())
         self.assertIn("field not found", msg)  # original error text preserved
 
+    def test_close_failure_after_comment_says_comment_already_posted(self):
+        """Finding 2: if the rejection comment succeeds but `gh issue close` then
+        fails, the raised BoardError must say the comment was already posted to the
+        issue, that the issue is still OPEN, and that the item was not moved -
+        otherwise the user is left guessing why a still-open issue has a rejection
+        comment on it. set_status must never run in this case."""
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_comment, ISSUE_COMMENT_OK)
+        router.on(_is_issue_close, ISSUE_CLOSE_FAIL)
+        # deliberately no handler for _is_set_status: if it's called anyway, the
+        # router raises AssertionError for the unrouted call.
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_reject(["42", "--reason", "dup"], router)
+        msg = str(ctx.exception)
+        self.assertIn("#42", msg)
+        self.assertIn("already posted", msg.lower())
+        self.assertIn("open", msg.lower())
+        self.assertIn("not", msg.lower())
+        self.assertIn("cannot close: already closed", msg)  # original error text preserved
+        self.assertFalse(any(_is_set_status(c) for c in router.calls))
+
+
+BROKEN_DRAFT_CONTENT_NONE = {
+    "id": "PVTI_broken1",
+    "title": "broken draft item, content is None",
+    "status": "In progress",
+    "content": None,
+}
+
+BROKEN_DRAFT_CONTENT_NO_ID = {
+    "id": "PVTI_broken2",
+    "title": "broken draft item, content lacks id",
+    "status": "In progress",
+    "content": {"type": "DraftIssue", "body": "some body"},
+}
+
+
+class TestGhRejectMalformedDraft(unittest.TestCase):
+    """Finding 1: a draft item whose content is None or lacks an id (a shape
+    _board.py's own suite anticipates - see
+    TestSelectItem.test_content_none_does_not_crash_numeric_lookup) must raise a
+    clean BoardError, not a bare KeyError, and must never attempt the mutation."""
+
+    def test_content_none_raises_boarderror_not_keyerror(self):
+        router = GhAddRouter()
+        router.on(_is_item_list, FakeCompleted(
+            stdout=json.dumps({"items": [BROKEN_DRAFT_CONTENT_NONE]})))
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_reject(["broken draft item, content is None", "--reason", "x"], router)
+        msg = str(ctx.exception)
+        self.assertIn("broken draft item, content is None", msg)
+        self.assertIn("PVTI_broken1", msg)
+        self.assertIn("malformed", msg.lower())
+        self.assertFalse(any(_is_update_draft(c) for c in router.calls))
+
+    def test_content_missing_id_raises_boarderror_not_keyerror(self):
+        router = GhAddRouter()
+        router.on(_is_item_list, FakeCompleted(
+            stdout=json.dumps({"items": [BROKEN_DRAFT_CONTENT_NO_ID]})))
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_reject(["broken draft item, content lacks id", "--reason", "x"], router)
+        msg = str(ctx.exception)
+        self.assertIn("broken draft item, content lacks id", msg)
+        self.assertIn("PVTI_broken2", msg)
+        self.assertIn("malformed", msg.lower())
+        self.assertFalse(any(_is_update_draft(c) for c in router.calls))
+
 
 if __name__ == "__main__":
     unittest.main()

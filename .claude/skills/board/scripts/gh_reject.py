@@ -30,12 +30,29 @@ def main(runner=None) -> int:
     if number:
         run_gh(["issue", "comment", str(number), "--repo", cfg["repo"],
                 "--body", f"**Rejected:** {args.reason}"], runner=runner)
-        run_gh(["issue", "close", str(number), "--repo", cfg["repo"],
-                "--reason", "not planned"], runner=runner)
+        # The comment is now permanently posted. If closing the issue fails from
+        # here, the user must be told the comment already landed - otherwise
+        # they're left with a still-open issue carrying a rejection comment and no
+        # clue why.
+        try:
+            run_gh(["issue", "close", str(number), "--repo", cfg["repo"],
+                    "--reason", "not planned"], runner=runner)
+        except BoardError as e:
+            raise BoardError(
+                f"the rejection comment was already posted to issue #{number}, but "
+                f"closing it failed: {e}\nIssue #{number} remains OPEN and the "
+                f"board item was not moved to Rejected."
+            ) from e
         ref = f"#{number} closed (not planned)"
     else:
+        draft_id = content.get("id")
+        if not draft_id:
+            raise BoardError(
+                f"{item.get('title') or '(untitled)'} ({item['id']}) has malformed "
+                f"draft content (missing id) - cannot record the rejection reason."
+            )
         body = (content.get("body") or "") + note
-        gql(_UPDATE_DRAFT, {"d": content["id"], "b": body}, runner=runner)
+        gql(_UPDATE_DRAFT, {"d": draft_id, "b": body}, runner=runner)
         ref = "draft body annotated"
 
     # As in gh_done.py: the issue (if any) is now permanently closed, or the
