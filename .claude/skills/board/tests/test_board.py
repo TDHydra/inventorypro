@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import _board
 import gh_add
+import gh_done
+import gh_reject
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -385,6 +387,159 @@ class TestGhAddDraftPath(unittest.TestCase):
             rc = run_gh_add(["SCRATCH", "--draft"], router)
         self.assertEqual(rc, 0)
         self.assertFalse(any(_is_issue_create(c) for c in router.calls))
+
+
+def _is_item_list(cmd):
+    return cmd[1:3] == ["project", "item-list"]
+
+
+def _is_issue_close(cmd):
+    return cmd[1:3] == ["issue", "close"]
+
+
+def _is_issue_comment(cmd):
+    return cmd[1:3] == ["issue", "comment"]
+
+
+_is_update_draft = _is_graphql_for("updateProjectV2DraftIssue")
+
+
+ISSUE_ITEM = {
+    "id": "PVTI_issue1",
+    "title": "SCRATCH issue item",
+    "status": "In progress",
+    "content": {"type": "Issue", "number": 42},
+}
+
+DRAFT_ITEM = {
+    "id": "PVTI_draft1",
+    "title": "SCRATCH draft item",
+    "status": "In progress",
+    "content": {"type": "DraftIssue", "id": "DI_draft1", "body": "some body"},
+}
+
+ITEM_LIST_ISSUE = FakeCompleted(stdout=json.dumps({"items": [ISSUE_ITEM]}))
+ITEM_LIST_DRAFT = FakeCompleted(stdout=json.dumps({"items": [DRAFT_ITEM]}))
+ISSUE_CLOSE_OK = FakeCompleted(stdout="")
+ISSUE_CLOSE_FAIL = FakeCompleted(returncode=1, stdout="", stderr="cannot close: already closed")
+ISSUE_COMMENT_OK = FakeCompleted(stdout="")
+UPDATE_DRAFT_OK = FakeCompleted(stdout=json.dumps(
+    {"data": {"updateProjectV2DraftIssue": {"draftIssue": {"id": "DI_draft1"}}}}))
+
+
+def run_gh_done(argv, router):
+    with mock.patch.object(sys, "argv", ["gh_done.py", *argv]):
+        return gh_done.main(runner=router)
+
+
+def run_gh_reject(argv, router):
+    with mock.patch.object(sys, "argv", ["gh_reject.py", *argv]):
+        return gh_reject.main(runner=router)
+
+
+class TestGhDone(unittest.TestCase):
+    def test_closes_issue_before_moving_to_done(self):
+        """Ordering invariant: the issue must be closed BEFORE set_status runs, so a
+        crash between the two never leaves an open issue sitting in Done."""
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_close, ISSUE_CLOSE_OK)
+        router.on(_is_set_status, SET_STATUS_OK)
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = run_gh_done(["42"], router)
+        self.assertEqual(rc, 0)
+        close_idx = next(i for i, c in enumerate(router.calls) if _is_issue_close(c))
+        status_idx = next(i for i, c in enumerate(router.calls) if _is_set_status(c))
+        self.assertLess(close_idx, status_idx)
+        self.assertIn("#42 closed", out.getvalue())
+
+    def test_does_not_move_item_when_issue_close_fails(self):
+        """The core invariant: if `gh issue close` fails, set_status must never run -
+        an open issue must never end up in Done."""
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_close, ISSUE_CLOSE_FAIL)
+        # deliberately no handler for _is_set_status: if it's called anyway, the
+        # router raises AssertionError for the unrouted call.
+
+        with self.assertRaises(_board.BoardError):
+            run_gh_done(["42"], router)
+        self.assertFalse(any(_is_set_status(c) for c in router.calls))
+
+    def test_draft_item_never_calls_issue_close(self):
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_DRAFT)
+        router.on(_is_set_status, SET_STATUS_OK)
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = run_gh_done(["SCRATCH draft"], router)
+        self.assertEqual(rc, 0)
+        self.assertFalse(any(_is_issue_close(c) for c in router.calls))
+        self.assertIn("draft (no issue to close)", out.getvalue())
+
+    def test_post_close_set_status_failure_says_issue_already_closed(self):
+        """If set_status fails AFTER the issue is closed, the error must tell the
+        user the issue was already closed - otherwise they're left with a closed
+        issue outside Done and no clue why."""
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_close, ISSUE_CLOSE_OK)
+        router.on(_is_set_status, SET_STATUS_FAIL)
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_done(["42"], router)
+        msg = str(ctx.exception)
+        self.assertIn("#42", msg)
+        self.assertIn("already closed", msg.lower())
+        self.assertIn("field not found", msg)  # original error text preserved
+
+
+class TestGhReject(unittest.TestCase):
+    def test_issue_backed_comments_then_closes_not_planned(self):
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_comment, ISSUE_COMMENT_OK)
+        router.on(_is_issue_close, ISSUE_CLOSE_OK)
+        router.on(_is_set_status, SET_STATUS_OK)
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = run_gh_reject(["42", "--reason", "not needed"], router)
+        self.assertEqual(rc, 0)
+        comment_idx = next(i for i, c in enumerate(router.calls) if _is_issue_comment(c))
+        close_idx = next(i for i, c in enumerate(router.calls) if _is_issue_close(c))
+        self.assertLess(comment_idx, close_idx)
+        close_cmd = router.calls[close_idx]
+        self.assertIn("not planned", close_cmd)
+        self.assertIn("not needed", out.getvalue())
+
+    def test_draft_updates_body_via_mutation(self):
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_DRAFT)
+        router.on(_is_update_draft, UPDATE_DRAFT_OK)
+        router.on(_is_set_status, SET_STATUS_OK)
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = run_gh_reject(["SCRATCH draft", "--reason", "duplicate of #10"], router)
+        self.assertEqual(rc, 0)
+        update_call = next(c for c in router.calls if _is_update_draft(c))
+        joined = " ".join(update_call)
+        self.assertIn("duplicate of #10", joined)
+        self.assertFalse(any(_is_issue_close(c) for c in router.calls))
+
+    def test_post_close_set_status_failure_says_issue_already_closed(self):
+        router = GhAddRouter()
+        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_comment, ISSUE_COMMENT_OK)
+        router.on(_is_issue_close, ISSUE_CLOSE_OK)
+        router.on(_is_set_status, SET_STATUS_FAIL)
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_reject(["42", "--reason", "dup"], router)
+        msg = str(ctx.exception)
+        self.assertIn("#42", msg)
+        self.assertIn("already closed", msg.lower())
+        self.assertIn("field not found", msg)  # original error text preserved
 
 
 if __name__ == "__main__":
