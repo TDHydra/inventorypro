@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import _board
 import gh_add
 import gh_done
+import gh_promote
 import gh_reject
 
 
@@ -611,6 +612,54 @@ class TestGhRejectMalformedDraft(unittest.TestCase):
         self.assertIn("PVTI_broken2", msg)
         self.assertIn("malformed", msg.lower())
         self.assertFalse(any(_is_update_draft(c) for c in router.calls))
+
+
+class TestGhPromote(unittest.TestCase):
+    """gh_promote converts a draft into a permanent, undeletable GitHub issue."""
+
+    ITEMS = {"items": [
+        {"id": "PVTI_draft", "title": "a draft item", "status": "Backlog",
+         "content": {"type": "DraftIssue"}},
+        {"id": "PVTI_issue", "title": "an issue item", "status": "Backlog",
+         "content": {"type": "Issue", "number": 42}},
+    ]}
+
+    def _router(self):
+        r = GhAddRouter()
+        r.on(lambda c: c[1:3] == ["project", "item-list"],
+             FakeCompleted(stdout=json.dumps(self.ITEMS)))
+        return r
+
+    def _run(self, argv, router):
+        with unittest.mock.patch.object(sys, "argv", ["gh_promote.py", *argv]):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                rc = gh_promote.main(runner=router)
+        return rc, out.getvalue()
+
+    def test_dry_run_without_yes_converts_nothing(self):
+        router = self._router()
+        rc, out = self._run(["a draft item"], router)
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot be undone", out)
+        self.assertFalse(any("graphql" in c for c in router.calls),
+                         "dry run must not call the convert mutation")
+
+    def test_refuses_an_item_that_is_already_an_issue(self):
+        router = self._router()
+        with self.assertRaises(_board.BoardError) as ctx:
+            self._run(["an issue item", "--yes"], router)
+        self.assertIn("already issue #42", str(ctx.exception))
+        self.assertFalse(any("graphql" in c for c in router.calls))
+
+    def test_yes_converts_and_reports_the_new_issue(self):
+        router = self._router()
+        router.on(lambda c: c[1:3] == ["api", "graphql"], FakeCompleted(stdout=json.dumps(
+            {"data": {"convertProjectV2DraftIssueItemToIssue": {"item": {
+                "id": "PVTI_draft",
+                "content": {"number": 77, "url": "https://github.com/o/r/issues/77"}}}}})))
+        rc, out = self._run(["a draft item", "--yes"], router)
+        self.assertEqual(rc, 0)
+        self.assertIn("#77", out)
 
 
 if __name__ == "__main__":
