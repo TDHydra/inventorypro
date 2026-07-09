@@ -30,3 +30,23 @@ export function overLimit(key: string, max: number, windowMs = WINDOW_MS): boole
   b.count += 1;
   return b.count > max;
 }
+
+// Periodic garbage collection: nothing above ever DELETES a bucket — an expired
+// one is only replaced when the same key comes back, so one-off keys (e.g. a
+// user's `mut:`/`refresh:` bucket after they stop calling) accumulate forever.
+// Deletes every bucket whose window has already ended (now > reset); an active
+// window is never dropped, so no in-flight count is lost. The map parameter
+// exists for unit tests; production sweeps the module singleton.
+export function sweepBuckets(
+  now: number,
+  map: Map<string, { count: number; reset: number }> = buckets,
+): number {
+  let removed = 0;
+  for (const [key, b] of map) {
+    if (now > b.reset) {
+      map.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}

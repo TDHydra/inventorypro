@@ -21,7 +21,51 @@ interface SetPinBody {
 // target (user_id); a sliding window of failures triggers a temporary lockout.
 // Blocks PIN guessing on /auth/token and hammering a single account on /set-pin.
 const attempts = new Map<string, { count: number; first: number; lockedUntil: number }>();
-const WINDOW_MS = 15 * 60_000;
+export const WINDOW_MS = 15 * 60_000;
+
+// user_id must look like the UUID primary key it is (users.id). Without this
+// bound, any unauthenticated caller could spray unique junk user_ids at
+// /auth/token — each recordFail() permanently added a map entry, growing the
+// attempts map without limit (memory-exhaustion DoS). A `pattern` (NOT
+// format:'uuid' — fastify's default Ajv has no ajv-formats registered, so
+// `format` would be silently ignored) plus maxLength closes the hole at the
+// schema layer; the sweep timer below reclaims what legitimate churn leaves.
+const USER_ID_SCHEMA = {
+  type: 'string',
+  maxLength: 36,
+  pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+} as const;
+
+// Periodic garbage collection for the attempts map: recordSuccess() is the ONLY
+// other deletion path, so keys for never-successful targets (bogus user_ids,
+// one-off roster IPs) would otherwise live forever. Deletes entries that are
+// not currently locked AND whose failure window has fully elapsed — an active
+// lockout is never dropped early. The map parameter exists for unit tests;
+// production passes nothing and sweeps the module singleton.
+export function sweepAttempts(
+  now: number,
+  map: Map<string, { count: number; first: number; lockedUntil: number }> = attempts,
+): number {
+  let removed = 0;
+  for (const [key, r] of map) {
+    if (r.lockedUntil > now) continue; // still locked — keep
+    if (now - r.first > WINDOW_MS) {
+      map.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+// True when a verified JWT payload is a refresh token. Refresh tokens
+// ({sub, type:'refresh'}, 7d) are signed with the SAME secret as access tokens
+// ({sub, name, role}, 15m), so every access-token verification point must also
+// reject type:'refresh' or a long-lived refresh token doubles as an access
+// token. Legacy access tokens carry no `type` claim and must keep passing.
+export function isRefreshToken(payload: unknown): boolean {
+  return !!payload && typeof payload === 'object'
+    && (payload as { type?: unknown }).type === 'refresh';
+}
 
 // Exponential backoff once a target has racked up enough failures: no lock below
 // the threshold, then a small initial delay doubling per additional failure,
@@ -115,7 +159,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['user_id', 'pin'],
         properties: {
-          user_id: { type: 'string' },
+          user_id: USER_ID_SCHEMA,
           pin: { type: 'string', minLength: 4, maxLength: 8 },
         },
       },
@@ -213,7 +257,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['user_id', 'pin', 'enrollment_code'],
         properties: {
-          user_id: { type: 'string' },
+          user_id: USER_ID_SCHEMA,
           pin: { type: 'string', minLength: 4, maxLength: 8 },
           // One-time enrollment codes are issued as 6-digit numeric strings
           // (see issueEnrollmentCode in routes/users.ts). Enforce that shape here.
