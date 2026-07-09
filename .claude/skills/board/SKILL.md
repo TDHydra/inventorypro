@@ -23,7 +23,7 @@ with the matching titles listed so you can narrow it.
 | `gh_add.py <title> [--body B] [--draft \| --issue] [--status S]` | new bug or discovered work; real issue by default (`--status` defaults to `Backlog`) |
 | `gh_done.py <selector>` | work finished **and** verified |
 | `gh_reject.py <selector> --reason "…"` (required) | decided against |
-| `gh_promote.py <selector> --yes` | draft → real issue. Irreversible. **Not yet built** — see Gotchas. |
+| `gh_promote.py <selector> --yes` | draft → real issue. Irreversible; dry-runs without `--yes`. |
 
 ## When to write without asking
 
@@ -57,9 +57,6 @@ Items are units of intent; commits are units of change.
   issue (closing it, or commenting + closing as not-planned), so each has exactly one writer —
   `gh_done.py` / `gh_reject.py` — and no other path may set those columns. The invariant this
   protects: **no open issue may sit in the `Done` column.**
-- `gh_promote.py` does not exist yet (it's a separate, blocked task — the GitHub API rate limit
-  was exhausted before it could be built). Treat `--draft` items as needing manual promotion
-  (`gh issue create` + `addProjectV2ItemById`, or wait for the script) until it lands.
 - Requires `gh` token scope `project`. If a script reports the scope is missing, the user must
   run `gh auth refresh -s project,read:project` themselves — it's interactive, so Claude cannot
   do it for them.
