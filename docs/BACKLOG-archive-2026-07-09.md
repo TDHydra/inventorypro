@@ -1,7 +1,20 @@
-# InventoryPro — Backlog
+# InventoryPro — Backlog (ARCHIVE, frozen 2026-07-09)
 
-*Single living checklist. Supersedes the scattered "Out of scope" notes in `docs/superpowers/specs/*`.
-Last reconciled against the codebase 2026-07-05 (API migrations 001–035, mobile 001–029).*
+> **This file is historical. Do not edit it.**
+>
+> The live backlog is **GitHub Project 2**: https://github.com/users/TDHydra/projects/2
+>
+> Every item below was backfilled onto that board on 2026-07-09. Work is tracked there now —
+> add, move, and close items on the board, not here. This file is kept only for the
+> `*(verified: …)*` notes, which record *which files and functions* implemented each completed
+> item; that evidence describes work already done, so it cannot go stale.
+>
+> Two items below were already wrong when this file was frozen: "Componentize the app" and
+> "Shelf picker → extract reusable components" are listed as pending, but `LocationShelfPicker`
+> exists (unadopted) and componentization has reached Wave 2. Trust the board.
+
+*Last reconciled against the codebase 2026-07-05 (API migrations 001–035, mobile 001–029).
+Superseded the scattered "Out of scope" notes in `docs/superpowers/specs/*`.*
 
 Status legend: `[ ]` pending · `[~]` partial · `[x]` done (kept here for history) · 🚫 decided against.
 
