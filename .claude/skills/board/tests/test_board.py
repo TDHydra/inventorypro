@@ -1,11 +1,15 @@
+import contextlib
+import io
 import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import _board
+import gh_add
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -240,6 +244,147 @@ class TestSetStatus(unittest.TestCase):
         self.assertIn("item=PVTI_x", cmd)
         self.assertIn("field=PVTSSF_field", cmd)
         self.assertIn("opt=98236657", cmd)
+
+
+class GhAddRouter:
+    """Routes fake `gh` invocations for gh_add.py by inspecting the argv shape, so
+    the --issue and --draft paths can be exercised without ever touching the
+    network or creating a real (permanent) GitHub issue."""
+
+    def __init__(self):
+        self.calls = []
+        self.handlers = []
+
+    def on(self, predicate, response):
+        self.handlers.append((predicate, response))
+        return self
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        for predicate, response in self.handlers:
+            if predicate(cmd):
+                return response(cmd) if callable(response) else response
+        raise AssertionError(f"unrouted gh invocation: {cmd}")
+
+
+def _is_issue_create(cmd):
+    return cmd[1:3] == ["issue", "create"]
+
+
+def _is_issue_view(cmd):
+    return cmd[1:3] == ["issue", "view"]
+
+
+def _is_graphql_for(name):
+    def predicate(cmd):
+        return cmd[1:3] == ["api", "graphql"] and any(name in part for part in cmd)
+    return predicate
+
+
+_is_add_item = _is_graphql_for("addProjectV2ItemById")
+_is_add_draft = _is_graphql_for("addProjectV2DraftIssue")
+_is_set_status = _is_graphql_for("updateProjectV2ItemFieldValue")
+
+
+ISSUE_CREATE_OK = FakeCompleted(stdout="https://github.com/TDHydra/inventorypro/issues/42\n")
+ISSUE_VIEW_OK = FakeCompleted(stdout=json.dumps({"id": "I_kwDOnode42"}))
+ADD_ITEM_OK = FakeCompleted(stdout=json.dumps(
+    {"data": {"addProjectV2ItemById": {"item": {"id": "PVTI_added42"}}}}))
+ADD_ITEM_FAIL = FakeCompleted(stdout=json.dumps(
+    {"errors": [{"message": "addProjectV2ItemById: revoked project scope"}]}))
+SET_STATUS_OK = FakeCompleted(stdout=json.dumps(
+    {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "PVTI_added42"}}}}))
+SET_STATUS_FAIL = FakeCompleted(stdout=json.dumps(
+    {"errors": [{"message": "updateProjectV2ItemFieldValue: field not found"}]}))
+ADD_DRAFT_OK = FakeCompleted(stdout=json.dumps(
+    {"data": {"addProjectV2DraftIssue": {"projectItem": {"id": "PVTI_draft1"}}}}))
+
+
+def run_gh_add(argv, router):
+    with mock.patch.object(sys, "argv", ["gh_add.py", *argv]):
+        return gh_add.main(runner=router)
+
+
+class TestGhAddIssuePath(unittest.TestCase):
+    def test_add_project_item_failure_names_issue_and_says_not_on_board(self):
+        """Finding 1a: `gh issue create` permanently creates the issue before
+        addProjectV2ItemById ever runs. If that mutation fails, the BoardError must
+        name the issue so the user isn't left with an orphan discoverable only via
+        `gh issue list`."""
+        router = GhAddRouter()
+        router.on(_is_issue_create, ISSUE_CREATE_OK)
+        router.on(_is_issue_view, ISSUE_VIEW_OK)
+        router.on(_is_add_item, ADD_ITEM_FAIL)
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_add(["SCRATCH", "--issue"], router)
+        msg = str(ctx.exception)
+        self.assertIn("#42", msg)
+        self.assertIn("not on the board", msg.lower())
+        self.assertIn("revoked project scope", msg)  # original error text preserved
+
+    def test_set_status_failure_names_issue_and_says_status_not_set(self):
+        """Finding 1b: a failure that happens AFTER the item is added to the board
+        must still name the issue and say its status was never set."""
+        router = GhAddRouter()
+        router.on(_is_issue_create, ISSUE_CREATE_OK)
+        router.on(_is_issue_view, ISSUE_VIEW_OK)
+        router.on(_is_add_item, ADD_ITEM_OK)
+        router.on(_is_set_status, SET_STATUS_FAIL)
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_add(["SCRATCH", "--issue"], router)
+        msg = str(ctx.exception)
+        self.assertIn("#42", msg)
+        self.assertIn("status", msg.lower())
+        self.assertIn("not", msg.lower())
+        self.assertIn("field not found", msg)  # original error text preserved
+
+    def test_unparseable_issue_number_raises_before_issue_view_and_includes_raw_stdout(self):
+        """Finding 2: the number parsed from `gh issue create`'s stdout must be
+        validated as numeric before being handed to `gh issue view`. A future `gh`
+        that prints a trailing hint line must not sail into `gh issue view` with
+        garbage — and the raw stdout must be surfaced so the user can find whatever
+        was actually created."""
+        router = GhAddRouter()
+        router.on(_is_issue_create, FakeCompleted(
+            stdout="https://github.com/TDHydra/inventorypro/issues/42\nsome future hint line\n"))
+        router.on(_is_issue_view, ISSUE_VIEW_OK)  # must never be reached
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            run_gh_add(["SCRATCH", "--issue"], router)
+        msg = str(ctx.exception)
+        self.assertIn("some future hint line", msg)
+        self.assertFalse(any(_is_issue_view(c) for c in router.calls),
+                          "gh issue view must not run once the number fails to parse")
+
+    def test_happy_path_returns_zero_and_calls_expected_mutations(self):
+        router = GhAddRouter()
+        router.on(_is_issue_create, ISSUE_CREATE_OK)
+        router.on(_is_issue_view, ISSUE_VIEW_OK)
+        router.on(_is_add_item, ADD_ITEM_OK)
+        router.on(_is_set_status, SET_STATUS_OK)
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = run_gh_add(["SCRATCH", "--issue", "--status", "Backlog"], router)
+        self.assertEqual(rc, 0)
+        self.assertIn("#42", out.getvalue())
+        self.assertTrue(any(_is_issue_create(c) for c in router.calls))
+        self.assertTrue(any(_is_issue_view(c) for c in router.calls))
+        self.assertTrue(any(_is_add_item(c) for c in router.calls))
+        self.assertTrue(any(_is_set_status(c) for c in router.calls))
+
+
+class TestGhAddDraftPath(unittest.TestCase):
+    def test_draft_path_never_calls_issue_create(self):
+        router = GhAddRouter()
+        router.on(_is_add_draft, ADD_DRAFT_OK)
+        router.on(_is_set_status, SET_STATUS_OK)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = run_gh_add(["SCRATCH", "--draft"], router)
+        self.assertEqual(rc, 0)
+        self.assertFalse(any(_is_issue_create(c) for c in router.calls))
 
 
 if __name__ == "__main__":
