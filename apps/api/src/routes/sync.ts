@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
+import { isOrgAuthority } from '../lib/teamAuthority';
 import {
   loadTableColumns,
   applyWritePolicy,
@@ -90,6 +91,40 @@ function chatScopeSql(table: string, callerParam: string): string | null {
     case 'messages': return `conversation_id IN (${mine})`;
     default: return null;
   }
+}
+
+// Team tables are scoped to the teams the caller belongs to. Like the chat tables,
+// this cannot be expressed by the single-column SCOPED_TABLES map: scoping
+// team_members on `user_id` would show a device only its OWN membership row rather
+// than its teammates' — the same trap chatScopeSql exists to avoid for
+// conversation_participants. So it is a subquery, keyed on the caller's memberships.
+//
+//   teams        → the teams I belong to
+//   team_members → every member of the teams I belong to (my teammates, not just me)
+//   jobs         → my teams' jobs, PLUS every unassigned job (team_id IS NULL is
+//                  "org-wide"; every job predates migration 043 and is NULL, so this
+//                  returns exactly today's set until jobs are actually assigned)
+//
+// Only applied when the caller may NOT see all teams — see canSeeAllTeams below.
+function teamScopeSql(table: string, callerParam: string): string | null {
+  const mine = `SELECT team_id FROM team_members WHERE user_id = ${callerParam}`;
+  switch (table) {
+    case 'teams': return `id IN (${mine})`;
+    case 'team_members': return `team_id IN (${mine})`;
+    case 'jobs': return `(team_id IS NULL OR team_id IN (${mine}))`;
+    default: return null;
+  }
+}
+
+// May this caller see every team's data? Tier 3+ (office_manager, hr_manager,
+// franchise_manager) and full_admin (apex, tier 5) — see lib/teamAuthority.
+//
+// NOT gated on view_all_logs/manage_teams: tier 2 (production_manager,
+// head_of_construction, …) holds BOTH, so that gate would scope only tier-1 crew
+// and still hand every crew lead the whole org's rosters and permission overrides.
+// A tier check also cannot be re-opened by a stray runtime permission override.
+function canSeeAllTeams(caller: { role: string }): boolean {
+  return isOrgAuthority(caller.role);
 }
 
 function conflictTarget(table: string): string {
@@ -480,11 +515,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
 
     // Scoped tables (e.g. notifications) only ever return the caller's own rows;
-    // chat tables are scoped to the caller's own conversations (chatScopeSql).
+    // chat tables are scoped to the caller's own conversations (chatScopeSql); team
+    // tables to the caller's own teams (teamScopeSql), unless they may see all teams.
+    // NOTE the caller id is $3 here ($1 = limit, $2 = offset) but $2 in /sync/pull.
     const scopeCol = SCOPED_TABLES[table];
     const chatScope = chatScopeSql(table, '$3');
-    const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3` : chatScope ? ` WHERE ${chatScope}` : '';
-    const scoped = !!scopeCol || !!chatScope;
+    const teamScope = canSeeAllTeams(caller) ? null : teamScopeSql(table, '$3');
+    const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3`
+      : chatScope ? ` WHERE ${chatScope}`
+      : teamScope ? ` WHERE ${teamScope}` : '';
+    const scoped = !!scopeCol || !!chatScope || !!teamScope;
     const { rows } = await fastify.pg.query(
       `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
       scoped ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
@@ -526,11 +566,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
     for (const table of FULL_TABLES) {
       const dateCol = table === 'media' ? 'created_at' : 'updated_at';
       // Scoped tables (e.g. notifications) only ever return the caller's own rows;
-      // chat tables are scoped to the caller's own conversations (chatScopeSql).
+      // chat tables are scoped to the caller's own conversations (chatScopeSql); team
+      // tables to the caller's own teams (teamScopeSql), unless they may see all teams.
+      // NOTE the caller id is $2 here ($1 = since) but $3 in /sync/full.
       const scopeCol = SCOPED_TABLES[table];
       const chatScope = chatScopeSql(table, '$2');
-      const scopeSql = scopeCol ? ` AND ${scopeCol} = $2` : chatScope ? ` AND ${chatScope}` : '';
-      const scoped = !!scopeCol || !!chatScope;
+      const teamScope = canSeeAllTeams(caller) ? null : teamScopeSql(table, '$2');
+      const scopeSql = scopeCol ? ` AND ${scopeCol} = $2`
+        : chatScope ? ` AND ${chatScope}`
+        : teamScope ? ` AND ${teamScope}` : '';
+      const scoped = !!scopeCol || !!chatScope || !!teamScope;
       const { rows } = await fastify.pg.query(
         `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
         scoped ? [since, userId] : [since]

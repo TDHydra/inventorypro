@@ -2,6 +2,7 @@ import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
 import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';
+import { reconcileTeams } from './teamPurge';
 import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
@@ -142,6 +143,10 @@ async function runDrainAndPull(): Promise<void> {
   try {
     await drainOutbox();
     await pullChanges();
+    // Incremental pull is upsert-only and never deletes. Once teams are scoped
+    // server-side, a team the user was REMOVED from simply stops being returned —
+    // nothing tells this device to forget it. Reconcile every sync, not once.
+    await reconcileTeams();
     // A pull may have changed product_class units/decimals — refresh the cache
     // that formatQuantity() reads so quantities reflect the latest config.
     loadClassConfigCache();
