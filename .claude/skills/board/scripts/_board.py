@@ -98,11 +98,13 @@ def select_item(items: list[dict], selector: str) -> dict:
 
     number = sel.lstrip("#")
     if number.isdigit():
-        hits = [i for i in items if i.get("content", {}).get("number") == int(number)]
+        hits = [i for i in items if (i.get("content") or {}).get("number") == int(number)]
         if len(hits) == 1:
             return hits[0]
         if not hits:
             raise BoardError(f"no board item for issue #{number}")
+        listing = "\n".join(f"  - {i['title']} ({i['id']})" for i in hits)
+        raise BoardError(f"issue #{number} matches {len(hits)} items:\n{listing}")
 
     needle = sel.lower()
     hits = [i for i in items if needle in i.get("title", "").lower()]

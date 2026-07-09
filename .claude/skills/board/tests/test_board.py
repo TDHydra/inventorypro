@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -139,6 +140,49 @@ class TestSelectItem(unittest.TestCase):
     def test_no_match_raises(self):
         with self.assertRaises(_board.BoardError):
             _board.select_item(ITEMS, "nonexistent thing")
+
+    def test_content_none_does_not_crash_numeric_lookup(self):
+        """A board item with content: None (e.g. a broken draft) must not poison
+        numeric-selector lookups for every other item on the board."""
+        items = ITEMS + [
+            {"id": "PVTI_ddd", "title": "redacted item", "content": None},
+        ]
+        self.assertEqual(_board.select_item(items, "42")["id"], "PVTI_bbb")
+
+    def test_duplicate_issue_number_raises_ambiguous(self):
+        """Two items both claiming content.number == 42 must raise, listing both -
+        never silently fall through to substring matching and return the wrong one."""
+        items = [
+            {"id": "PVTI_bbb", "title": "Componentization Wave 2",
+             "status": "Backlog", "content": {"type": "Issue", "number": 42}},
+            {"id": "PVTI_eee", "title": "Fix bug 42 in parser",
+             "status": "Backlog", "content": {"type": "Issue", "number": 42}},
+        ]
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.select_item(items, "42")
+        msg = str(ctx.exception)
+        self.assertIn("PVTI_bbb", msg)
+        self.assertIn("PVTI_eee", msg)
+
+
+class TestFetchItems(unittest.TestCase):
+    def test_builds_expected_argv_and_parses_items(self):
+        seen = {}
+
+        def runner(cmd, **kwargs):
+            seen["cmd"] = cmd
+            return FakeCompleted(stdout=json.dumps({"items": [{"id": "PVTI_x"}]}))
+
+        result = _board.fetch_items(CFG, runner=runner)
+        cmd = seen["cmd"]
+        self.assertIn("--limit", cmd)
+        self.assertIn("500", cmd)
+        self.assertIn("--owner", cmd)
+        self.assertIn(CFG["owner"], cmd)
+        self.assertIn(str(CFG["project_number"]), cmd)
+        self.assertIn("--format", cmd)
+        self.assertIn("json", cmd)
+        self.assertEqual(result, [{"id": "PVTI_x"}])
 
 
 if __name__ == "__main__":
