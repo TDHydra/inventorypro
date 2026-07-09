@@ -9,7 +9,7 @@ import {
   adjustStock, getStockQuantity,
 } from '../../../src/db/queries/items';
 import type { InventoryItem } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath, getShelfLocations, getShelvesForParent, findOrCreateShelf, findOrCreateShelfByName } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelf, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
@@ -18,6 +18,7 @@ import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationShelfPicker } from '../../../src/components/pickers';
 import { useSession } from '../../../src/hooks/useSession';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
@@ -108,15 +109,6 @@ export default function AddStockScreen() {
   const nearestLocation = useMemo(
     () => sortedLocations.find(l => l.distanceM != null) ?? null,
     [sortedLocations],
-  );
-  const locationOptions: PickerOption[] = useMemo(
-    () => sortedLocations.map(l => {
-      const parentName = l.parent_id ? locationById.get(l.parent_id)?.name : undefined;
-      const distLabel = l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined;
-      const sublabel = [parentName, distLabel].filter(Boolean).join(' · ') || undefined;
-      return { id: l.id, label: l.name, sublabel };
-    }),
-    [sortedLocations, locationById],
   );
   // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
   // Falls back to the full breadcrumb list when no shelves exist yet so the field
@@ -215,24 +207,10 @@ export default function AddStockScreen() {
     setName(text);
   }
 
-  function handleLocationSelect(opt: PickerOption) {
-    setShelfValue(null); // shelf is per-location — reset when the location changes
-    if (selectedLocation && selectedLocation.id === opt.id) {
-      setSelectedLocation(null);
-    } else {
-      setSelectedLocation(opt);
-    }
-  }
-
-  // The selected location's "has shelves" flag drives the Shelf field.
+  // The selected location's "has shelves" flag routes stock to a shelf child in
+  // handleSave (LocationShelfPicker gates the Shelf field on the same flag).
   const selectedLocFull = selectedLocation ? locationById.get(selectedLocation.id) : undefined;
   const locationHasShelves = selectedLocFull?.has_shelves === 1;
-  const shelfOptions: PickerOption[] = useMemo(
-    () => (locationHasShelves && selectedLocation)
-      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
-      : [],
-    [locationHasShelves, selectedLocation],
-  );
 
   function clearForm() {
     setSelectedItem(null);
@@ -607,24 +585,13 @@ export default function AddStockScreen() {
                 distanceM={nearestLocation?.distanceM ?? null}
                 onUse={() => nearestLocation && setSelectedLocation({ id: nearestLocation.id, label: nearestLocation.name })}
               />
-              <SearchablePicker
-                placeholder="Search locations..."
-                options={locationOptions}
-                value={selectedLocation}
-                onSelect={handleLocationSelect}
+              <LocationShelfPicker
+                proximitySort
+                locationValue={selectedLocation}
+                shelfValue={shelfValue}
+                onChangeLocation={setSelectedLocation}
+                onChangeShelf={setShelfValue}
               />
-              {locationHasShelves && (
-                <>
-                  <FieldLabel style={{ marginTop: 12 }}>Shelf</FieldLabel>
-                  <SearchablePicker
-                    placeholder="Type or pick a shelf (e.g. A1)…"
-                    options={shelfOptions}
-                    value={shelfValue}
-                    onSelect={(opt) => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
-                    onCreate={(text) => setShelfValue({ id: '__new__', label: text })}
-                  />
-                </>
-              )}
             </>
           )}
 

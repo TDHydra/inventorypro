@@ -14,10 +14,10 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { UserPicker } from '../../../src/components/pickers';
 import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
@@ -102,10 +102,6 @@ export default function LocationsScreen() {
   );
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const userOptions = useMemo<PickerOption[]>(
-    () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
-    [allUsers],
-  );
   const userMap = useMemo<Map<string, string>>(
     () => new Map(allUsers.map(u => [u.id, u.name])),
     [allUsers],
@@ -464,14 +460,11 @@ export default function LocationsScreen() {
                 />
 
                 <FieldLabel>{ownerRequired ? 'Owner *' : 'Belongs to (optional)'}</FieldLabel>
-                <SearchablePicker
+                {/* UserPicker treats re-selecting the current person as clear. */}
+                <UserPicker
                   placeholder="Search people…"
-                  options={userOptions}
                   value={ownerOption}
-                  onSelect={(opt) => {
-                    // Tapping "Change" re-passes current value — treat as clear
-                    setOwnerOption(prev => (prev?.id === opt.id ? null : opt));
-                  }}
+                  onChange={setOwnerOption}
                 />
                 {ownerRequired && !ownerOption && (
                   <Text style={s.dupWarn}>
