@@ -15,11 +15,11 @@ import {
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
-import { getAllLocations } from '../../../src/db/queries/locations';
 import { getAllTeams } from '../../../src/db/queries/teams';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationPicker } from '../../../src/components/pickers';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { generateUUID } from '../../../src/utils/uuid';
 import { colors } from '../../../src/theme';
@@ -58,10 +58,6 @@ export default function CreateJobScreen() {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;
   });
-
-  const locationOptions = useMemo((): PickerOption[] => {
-    return getAllLocations().map(l => ({ id: l.id, label: l.name }));
-  }, []);
 
   // Prior values for the typeahead dropdowns.
   const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
@@ -278,15 +274,12 @@ export default function CreateJobScreen() {
             </HidableField>
 
             <HidableField fieldId="jobs.site_location">
-              <View style={s.fieldWrap}>
-                <FieldLabel>Site Location</FieldLabel>
-                <SearchablePicker
-                  placeholder="Search locations..."
-                  options={locationOptions}
-                  value={siteLocation}
-                  onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
-                />
-              </View>
+              <LocationPicker
+                label="Site Location"
+                placeholder="Search locations..."
+                value={siteLocation}
+                onChange={setSiteLocation}
+              />
             </HidableField>
 
             <HidableField fieldId="jobs.reference_number">

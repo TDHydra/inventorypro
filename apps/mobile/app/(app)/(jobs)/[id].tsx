@@ -18,6 +18,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationPicker } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
 import { colors } from '../../../src/theme';
@@ -363,17 +364,12 @@ export default function JobDetailScreen() {
                 />
               </View>
 
-              <View style={s.fieldWrap}>
-                <FieldLabel>Site Location</FieldLabel>
-                <SearchablePicker
-                  placeholder="Search locations..."
-                  options={locationOptions}
-                  value={editSiteLocation}
-                  onSelect={opt =>
-                    setEditSiteLocation(prev => prev?.id === opt.id ? null : opt)
-                  }
-                />
-              </View>
+              <LocationPicker
+                label="Site Location"
+                placeholder="Search locations..."
+                value={editSiteLocation}
+                onChange={setEditSiteLocation}
+              />
 
               <View style={s.fieldWrap}>
                 <FieldLabel>Reference # (external)</FieldLabel>
