@@ -15,6 +15,11 @@
 - **Never call `updateProjectV2Field` without passing every existing option's `id`.** Omitting IDs recreates options and silently clears that field on every board item.
 - **Scripts hardcode no identifiers.** Every ID comes from `references/board.md`. Only that file knows this is InventoryPro.
 - **Every script exits nonzero with a readable message on failure.** No silent `continue`.
+- **The working tree is shared with another active Claude session** committing to this same
+  branch. Therefore: `git add` only the exact paths you created (never `git add -A` or `git add .`),
+  never `git reset --hard`, never `git rebase`, never `git switch` the branch, and never amend a
+  commit you did not just create. If `git status` shows changes under `apps/`, they are not yours —
+  leave them alone.
 - Repo: `TDHydra/inventorypro`, node id `R_kgDOTHELWA`. Project 2, owner `TDHydra`, id `PVT_kwHODJIRY84Bc40q`.
 - Requires `gh` token scope `project`. If absent, scripts must say so and tell the user to run `gh auth refresh -s project,read:project`.
 
@@ -1325,40 +1330,56 @@ Create `~/inventorypro/.claude/settings.json`:
 }
 ```
 
-- [ ] **Step 3: Verify it stays silent with no new commit**
+**Verification runs against a throwaway repo, never against `~/inventorypro`.**
+Another Claude session commits to this branch concurrently. `git reset --hard HEAD~1` here would
+destroy *its* commit, not our test commit. Never rewrite this branch's history. A scratch repo
+also lets us test the `main`-branch case without switching the real branch out from under that
+session.
+
+- [ ] **Step 3: Build a scratch repo and verify silence when no commit is new**
 
 ```bash
-cd ~/inventorypro
-rm -f "$(git rev-parse --git-dir)/board-last-seen"
+SCRATCH=$(mktemp -d)
+git init -q -b feat/scratch "$SCRATCH"
+cd "$SCRATCH"
+git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "base"
+HOOK=~/inventorypro/.claude/hooks/board_reminder.sh
+
+# Pre-seed the marker with HEAD: nothing new since last turn.
 git rev-parse HEAD > "$(git rev-parse --git-dir)/board-last-seen"
-CLAUDE_PROJECT_DIR=~/inventorypro bash .claude/hooks/board_reminder.sh; echo "exit=$?"
+CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOK"; echo "exit=$?"
 ```
 Expected: no output, `exit=0`
 
 - [ ] **Step 4: Verify it fires once on a new commit, then goes quiet**
 
 ```bash
-git commit --allow-empty -m "test: hook fires"
-CLAUDE_PROJECT_DIR=~/inventorypro bash .claude/hooks/board_reminder.sh; echo "exit=$?"
+cd "$SCRATCH"
+git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "test: hook fires"
+CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOK"; echo "exit=$?"
 ```
-Expected: the reminder on stderr, `exit=2`
+Expected: the reminder on stderr naming the commit, `exit=2`
 
-Immediately again:
+Immediately again, with no new commit:
 ```bash
-CLAUDE_PROJECT_DIR=~/inventorypro bash .claude/hooks/board_reminder.sh; echo "exit=$?"
+CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOK"; echo "exit=$?"
 ```
-Expected: no output, `exit=0` — proves it cannot loop.
-
-Clean up: `git reset --hard HEAD~1`
+Expected: no output, `exit=0` — proves it records the SHA before signalling and cannot loop.
 
 - [ ] **Step 5: Verify it stays silent on `main`**
 
 ```bash
-git switch main
-CLAUDE_PROJECT_DIR=~/inventorypro bash .claude/hooks/board_reminder.sh; echo "exit=$?"
-git switch -
+cd "$SCRATCH"
+git switch -q -c main
+git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "on main"
+CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOK"; echo "exit=$?"
 ```
-Expected: no output, `exit=0`
+Expected: no output, `exit=0` — a fresh commit on `main` must still be ignored.
+
+Clean up: `cd ~/inventorypro && rm -rf "$SCRATCH"`
+
+**Do not run the hook against `~/inventorypro` with a stale marker**, or it will exit 2 and
+report the other session's commit. That is harmless but confusing.
 
 - [ ] **Step 6: Commit**
 
