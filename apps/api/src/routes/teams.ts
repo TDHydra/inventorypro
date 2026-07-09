@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requirePermission, userHasPermission, canActOnTarget } from '../lib/permissions';
 import { sanitizeTeamOverrides } from '../lib/syncPolicy';
+import { resolveTeamAuthority, managerActionBlocked } from '../lib/teamAuthority';
 
 interface TeamBody {
   name: string;
@@ -116,6 +117,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const { name, type } = request.body;
+      // Renaming is manager-restricted. /sync/push enforces the same rule via the
+      // same resolveTeamAuthority helper — keep both paths on it so neither drifts.
+      if (name !== undefined) {
+        const callerId = (request.user as { sub: string }).sub;
+        const authority = await resolveTeamAuthority(fastify.pg, callerId, request.params.id);
+        if (managerActionBlocked(authority, 'rename_team')) {
+          return reply.status(403).send({ error: 'A team manager cannot rename their own team.' });
+        }
+      }
       const sets: string[] = [];
       const params: unknown[] = [];
       if (name !== undefined) { params.push(name); sets.push(`name = $${params.length}`); }
@@ -243,6 +253,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'You cannot manage a team member at or above your own level.' });
       }
 
+      // Toggling is_manager is manager-restricted. /sync/push enforces the same rule
+      // via the same resolveTeamAuthority helper — keep both paths on it so neither drifts.
+      if (is_manager !== undefined) {
+        const authority = await resolveTeamAuthority(fastify.pg, guardCallerId, request.params.id);
+        if (managerActionBlocked(authority, 'set_manager')) {
+          return reply.status(403).send({ error: 'A team manager cannot change managers on their own team.' });
+        }
+      }
+
       const sets: string[] = [];
       const params: unknown[] = [];
       if (is_manager !== undefined) {
@@ -306,7 +325,17 @@ const routes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      // Removing yourself from a team you manage is manager-restricted (it would
+      // orphan the team). /sync/push enforces the same rule via the same
+      // resolveTeamAuthority helper — keep both paths on it so neither drifts.
+      const callerId = (request.user as { sub: string }).sub;
+      if (request.params.uid === callerId) {
+        const authority = await resolveTeamAuthority(fastify.pg, callerId, request.params.id);
+        if (managerActionBlocked(authority, 'remove_self')) {
+          return reply.status(403).send({ error: 'A team manager cannot remove themselves from their own team.' });
+        }
+      }
       await fastify.pg.query(
         `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,
         [request.params.id, request.params.uid]

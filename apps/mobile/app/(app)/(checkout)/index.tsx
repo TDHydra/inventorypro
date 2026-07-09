@@ -659,7 +659,11 @@ export default function CheckoutScreen() {
               )}
             </ScrollView>
           ) : (
-            <>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 24 }}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={s.label}>Quantity</Text>
               <TextInput
                 style={s.qtyInput}
@@ -668,7 +672,7 @@ export default function CheckoutScreen() {
                 keyboardType="decimal-pad"
                 selectTextOnFocus
               />
-            </>
+            </ScrollView>
           )}
 
           <PrimaryButton

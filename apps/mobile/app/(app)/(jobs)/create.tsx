@@ -15,10 +15,11 @@ import {
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
-import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllTeams } from '../../../src/db/queries/teams';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationPicker } from '../../../src/components/pickers';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { generateUUID } from '../../../src/utils/uuid';
 import { colors } from '../../../src/theme';
@@ -43,16 +44,20 @@ export default function CreateJobScreen() {
   const [description, setDescription] = useState('');
   const [referenceNumber, setReferenceNumber] = useState('');
   const [insuranceCarrier, setInsuranceCarrier] = useState('');
+  // Optional owning team. null = org-wide (visible to everyone).
+  const [team, setTeam] = useState<PickerOption | null>(null);
+
+  // Only teams this device actually holds are offerable — a non-org user's scoped
+  // pull leaves only their own teams here, so they can't assign to a team they
+  // don't belong to.
+  const teamOptions = useMemo((): PickerOption[] =>
+    getAllTeams().map(t => ({ id: t.id, label: t.name })), []);
 
   const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
   const [type, setType] = useState<string | null>(() => {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;
   });
-
-  const locationOptions = useMemo((): PickerOption[] => {
-    return getAllLocations().map(l => ({ id: l.id, label: l.name }));
-  }, []);
 
   // Prior values for the typeahead dropdowns.
   const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
@@ -119,6 +124,7 @@ export default function CreateJobScreen() {
       type: type || null,
       reference_number: referenceNumber.trim() || null,
       insurance_carrier: insuranceCarrier.trim() || null,
+      team_id: team?.id ?? null,
     };
 
     // All three writes (row + outbox + audit log) must land together; on any
@@ -144,6 +150,7 @@ export default function CreateJobScreen() {
           type: newJob.type,
           reference_number: newJob.reference_number,
           insurance_carrier: newJob.insurance_carrier,
+          team_id: newJob.team_id,
         });
         appendLog({
           action: 'job_created',
@@ -225,6 +232,21 @@ export default function CreateJobScreen() {
             </View>
           )}
 
+          {teamOptions.length > 0 && (
+            <View style={s.fieldWrap}>
+              <FieldLabel>Team</FieldLabel>
+              <SearchablePicker
+                placeholder="No team (visible to everyone)"
+                options={teamOptions}
+                value={team}
+                onSelect={opt => setTeam(prev => prev?.id === opt.id ? null : opt)}
+              />
+              <Text style={s.teamHint}>
+                {team ? 'Only this team will see the job.' : 'Visible to everyone (org-wide).'}
+              </Text>
+            </View>
+          )}
+
           <AdvancedFields>
             <HidableField fieldId="jobs.customer_name">
               <View style={s.fieldWrap}>
@@ -252,15 +274,12 @@ export default function CreateJobScreen() {
             </HidableField>
 
             <HidableField fieldId="jobs.site_location">
-              <View style={s.fieldWrap}>
-                <FieldLabel>Site Location</FieldLabel>
-                <SearchablePicker
-                  placeholder="Search locations..."
-                  options={locationOptions}
-                  value={siteLocation}
-                  onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
-                />
-              </View>
+              <LocationPicker
+                label="Site Location"
+                placeholder="Search locations..."
+                value={siteLocation}
+                onChange={setSiteLocation}
+              />
             </HidableField>
 
             <HidableField fieldId="jobs.reference_number">
@@ -338,6 +357,7 @@ const s = StyleSheet.create({
   hintText: { fontSize: 13, color: colors.primaryText },
 
   fieldWrap: { gap: 6 },
+  teamHint: { fontSize: 12, color: colors.textMuted },
   chipRow: { gap: 8, paddingRight: 8 },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
 

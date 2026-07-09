@@ -33,6 +33,10 @@ type Props<T> = {
   locked?: boolean;
   // Receives the reordered keys (in the new visual order).
   onReorder: (orderedKeys: string[]) => void;
+  // Fires true when a drag gesture begins and false when it ends (on both
+  // release and terminate) so a parent ScrollView can disable scrolling while a
+  // row is being dragged.
+  onDragActiveChange?: (active: boolean) => void;
   renderRow: (item: T, api: DragRowApi) => ReactNode;
 };
 
@@ -42,6 +46,7 @@ export function DragList<T>({
   rowHeight,
   locked = false,
   onReorder,
+  onDragActiveChange,
   renderRow,
 }: Props<T>) {
   const dragY = useRef(new Animated.Value(0)).current;
@@ -68,6 +73,7 @@ export function DragList<T>({
     setDragIndex(index);
     setTargetIndex(index);
     dragY.setValue(0);
+    onDragActiveChange?.(true);
   }
 
   function handleDragMove(startIndex: number, dy: number) {
@@ -88,6 +94,7 @@ export function DragList<T>({
     setDragIndex(null);
     setTargetIndex(null);
     dragY.setValue(0);
+    onDragActiveChange?.(false);
     if (from == null || to == null) return;
     commit(from, to);
   }

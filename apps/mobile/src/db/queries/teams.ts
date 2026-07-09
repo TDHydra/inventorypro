@@ -42,6 +42,10 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   view_financial_data: 'View financial data',
   system_settings: 'Change system settings',
   send_notifications: 'Send broadcast notifications',
+  // Present for the Record<Permission,…> exhaustiveness check only — deliberately
+  // absent from TEAM_OVERRIDABLE_PERMISSIONS above: the audit log is org-wide and
+  // carries cross-user PII, so it stays role/user-level, never team-grantable.
+  view_audit_log: 'View the API audit log',
 };
 
 export interface Team {

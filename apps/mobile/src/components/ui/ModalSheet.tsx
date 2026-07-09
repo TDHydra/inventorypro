@@ -1,7 +1,7 @@
-import { Modal, Pressable, KeyboardAvoidingView, View, StyleSheet } from 'react-native';
+import { Modal, Pressable, KeyboardAvoidingView, ScrollView, View, StyleSheet } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 
-export function ModalSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+export function ModalSheet({ visible, onClose, children, scroll = false }: { visible: boolean; onClose: () => void; children: React.ReactNode; scroll?: boolean }) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       {/* Full-screen dim backdrop — tapping it closes (onClose only hides; callers keep input state). */}
@@ -14,11 +14,26 @@ export function ModalSheet({ visible, onClose, children }: { visible: boolean; o
         behavior="padding"
         pointerEvents="box-none"
       >
-        {/* Pressing the sheet itself does NOT close (this Pressable swallows the press). */}
-        <Pressable style={s.sheet} onPress={() => {}}>
+        {/* Pressing the sheet itself does NOT close (this Pressable swallows the press).
+            When scroll is set, the sheet drops its own padding (it moves to the
+            ScrollView's contentContainerStyle) so the pill stays pinned and the
+            scrollbar isn't clipped. */}
+        <Pressable style={scroll ? s.sheetScroll : s.sheet} onPress={() => {}}>
           {/* Drag-handle pill — standard bottom-sheet affordance */}
           <View style={s.handle} />
-          {children}
+          {scroll ? (
+            // flexShrink:1 is REQUIRED: RN defaults flexShrink:0, so a ScrollView in a
+            // height-capped parent measures at full content height and never scrolls.
+            <ScrollView
+              style={s.scrollView}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={s.scrollContent}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            children
+          )}
         </Pressable>
       </KeyboardAvoidingView>
     </Modal>
@@ -32,6 +47,15 @@ const s = StyleSheet.create({
     backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
     padding: spacing.xl, maxHeight: '88%',
   },
+  // Scroll variant: same as `sheet` but padding is delegated to scrollContent so the
+  // pill and scrollbar aren't double-padded / clipped. paddingTop keeps the pill inset.
+  sheetScroll: {
+    backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
+    paddingTop: spacing.xl, maxHeight: '88%',
+  },
+  scrollView: { flexShrink: 1 },
+  // Padding lives here (NOT flex:1 — that clamps content to the viewport so it never overflows/scrolls).
+  scrollContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   handle: {
     width: 40, height: 4, borderRadius: 2,
     backgroundColor: colors.border,

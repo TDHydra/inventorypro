@@ -182,10 +182,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     // Log successful login
     await fastify.pg.query(
+      // request_id correlates this row to its api_request_audit entry, so the
+      // audit tab can expand a request into the business actions it produced.
       `INSERT INTO activity_log
-         (id, user_id, action, entity_type, entity_id, created_at, synced_at)
-       VALUES (gen_random_uuid(), $1, 'login', 'user', $1, NOW(), NOW())`,
-      [user.id]
+         (id, user_id, action, entity_type, entity_id, created_at, synced_at, metadata)
+       VALUES (gen_random_uuid(), $1, 'login', 'user', $1, NOW(), NOW(), $2)`,
+      [user.id, JSON.stringify({ request_id: request.id })]
     );
 
     return {
@@ -272,9 +274,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const refreshToken = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
 
     await fastify.pg.query(
-      `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at)
-       VALUES (gen_random_uuid(), $1, 'pin_set', 'user', $1, NOW(), NOW())`,
-      [user.id]
+      `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at, metadata)
+       VALUES (gen_random_uuid(), $1, 'pin_set', 'user', $1, NOW(), NOW(), $2)`,
+      [user.id, JSON.stringify({ request_id: request.id })]
     );
 
     return {

@@ -922,7 +922,7 @@ export default function AdminUsersScreen() {
         />
 
         {/* Create modal */}
-        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
+        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)} scroll>
           <Text style={s.modalTitle}>New User</Text>
           <AppInput
             placeholder="Full name"

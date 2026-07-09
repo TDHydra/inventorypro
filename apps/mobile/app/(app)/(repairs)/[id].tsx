@@ -28,6 +28,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 
 const ENTITY_TYPE_LABEL: Record<Repair['entity_type'], string> = {
@@ -540,11 +541,10 @@ export default function RepairDetailScreen() {
             choose where it returns.
           </Text>
           <FieldLabel style={{ marginTop: 12 }}>Return to Location (optional)</FieldLabel>
-          <SearchablePicker
+          <LocationPicker
             placeholder="Search location…"
-            options={locationOptions}
             value={returnLoc}
-            onSelect={(opt) => setReturnLoc(prev => (prev?.id === opt.id ? null : opt))}
+            onChange={setReturnLoc}
           />
           <View style={[s.row, { marginTop: 16 }]}>
             <TouchableOpacity
@@ -580,11 +580,10 @@ export default function RepairDetailScreen() {
           />
 
           <FieldLabel style={{ marginTop: 12 }}>Location</FieldLabel>
-          <SearchablePicker
+          <LocationPicker
             placeholder="Search location…"
-            options={locationOptions}
             value={partLocation}
-            onSelect={(opt) => setPartLocation(prev => (prev?.id === opt.id ? null : opt))}
+            onChange={setPartLocation}
           />
 
           <FieldLabel style={{ marginTop: 12 }}>Quantity</FieldLabel>

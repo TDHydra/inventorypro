@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
+  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/theme';
@@ -14,7 +14,9 @@ import { finishLogin } from '../../src/auth/finishLogin';
 import { fetchRoster, RosterUser } from '../../src/auth/roster';
 
 type Screen = 'pick' | 'pin' | 'setpin';
-type SetStep = 'enter' | 'confirm';
+// First-login runs as three sequential steps, one screen each: enrollment code,
+// then choose a PIN, then confirm it.
+type SetStep = 'code' | 'enter' | 'confirm';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -75,8 +77,8 @@ export default function LoginScreen() {
     setEnrollmentCode('');
     setPinError(null);
     if (user.pin_set === 0) {
-      // Brand-new account — set & confirm a PIN before first sign-in.
-      setSetStep('enter');
+      // Brand-new account — enrollment code, then set & confirm a PIN.
+      setSetStep('code');
       setScreen('setpin');
     } else {
       setScreen('pin');
@@ -148,18 +150,22 @@ export default function LoginScreen() {
     }
   };
 
-  // First-login: collect the enrollment code, then the PIN + confirmation, then set it server-side.
-  async function submitSetPin(pinValue: string) {
-    if (!selectedUser) return;
-
-    const codeError = validatePinFormat(enrollmentCode, 6);
-    if (codeError) {
+  // Step 1 → 2. The code is only format-checked here; the server is the real
+  // authority and rejects a wrong code at submitSetPin (401 → back to 'code').
+  function submitEnrollmentCode() {
+    if (validatePinFormat(enrollmentCode, 6)) {
       setPinError('Enter the 6-digit enrollment code your admin gave you.');
-      setFirstPin('');
-      setPin('');
-      setSetStep('enter');
       return;
     }
+    setPinError(null);
+    setPin('');
+    setFirstPin('');
+    setSetStep('enter');
+  }
+
+  // Step 3: PIN entered and confirmed — set it server-side.
+  async function submitSetPin(pinValue: string) {
+    if (!selectedUser) return;
 
     setLoading(true);
     setPinError(null);
@@ -169,13 +175,35 @@ export default function LoginScreen() {
       markUserPinSet(selectedUser.id, pinValue.length);
       proceedAfterAuth(result.userId);
     } catch (err) {
-      // Network or server error — restart the setup so they re-enter cleanly.
-      setPinError((err as Error).message || 'Could not set your PIN. Check your connection.');
+      const msg = (err as Error).message || 'Could not set your PIN. Check your connection.';
+      setPinError(msg);
       setFirstPin('');
       setPin('');
-      setSetStep('enter');
+      // A rejected code has to be re-entered on step 1 — landing on the PIN pad
+      // would hide the field the user actually needs to fix.
+      if (msg.includes('enrollment code')) {
+        setEnrollmentCode('');
+        setSetStep('code');
+      } else {
+        setSetStep('enter');
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Back walks the wizard one step at a time; only step 1 leaves for the picker.
+  function stepBack() {
+    setPinError(null);
+    setPin('');
+    if (setStep === 'confirm') {
+      setFirstPin('');
+      setSetStep('enter');
+    } else if (setStep === 'enter') {
+      setFirstPin('');
+      setSetStep('code');
+    } else {
+      setScreen('pick');
     }
   }
 
@@ -206,18 +234,24 @@ export default function LoginScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <TouchableOpacity style={styles.back} onPress={() => setScreen('pick')}>
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+        >
+        <TouchableOpacity style={styles.back} onPress={stepBack}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
 
         <View style={styles.firstBanner}>
-          <Text style={styles.firstBannerText}>👋 First sign-in — set up your PIN</Text>
+          <Text style={styles.firstBannerText}>
+            {setStep === 'code' ? '👋 First sign-in — enter your code' : '👋 First sign-in — set up your PIN'}
+          </Text>
         </View>
 
         <Text style={styles.greeting}>Welcome,</Text>
         <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
 
-        {setStep === 'enter' && (
+        {setStep === 'code' ? (
           <View style={styles.enrollSection}>
             <Text style={styles.pinLabel}>Enrollment code</Text>
             <Text style={styles.pinSub}>Enter the 6-digit code your admin gave you.</Text>
@@ -226,31 +260,43 @@ export default function LoginScreen() {
               placeholder="000000"
               placeholderTextColor={colors.textMuted}
               value={enrollmentCode}
-              onChangeText={v => setEnrollmentCode(v.replace(/\D/g, '').slice(0, 6))}
+              onChangeText={v => { setEnrollmentCode(v.replace(/\D/g, '').slice(0, 6)); setPinError(null); }}
               keyboardType="number-pad"
               maxLength={6}
+              autoFocus
+              onSubmitEditing={submitEnrollmentCode}
+              returnKeyType="next"
+            />
+            {pinError && <Text style={styles.enrollError}>{pinError}</Text>}
+            <TouchableOpacity
+              style={[styles.continueBtn, enrollmentCode.length !== 6 && styles.continueBtnDisabled]}
+              onPress={submitEnrollmentCode}
+              disabled={enrollmentCode.length !== 6}
+            >
+              <Text style={styles.continueText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.pinSection}>
+            <Text style={styles.pinLabel}>
+              {setStep === 'enter' ? 'Create your PIN' : 'Re-enter to confirm'}
+            </Text>
+            <Text style={styles.pinSub}>
+              {setStep === 'enter'
+                ? `Choose a ${selectedUser.pin_length_required}-digit PIN you'll use to sign in.`
+                : 'Enter the same PIN again so we know it’s right.'}
+            </Text>
+            <PINPad
+              value={pin}
+              onChange={handleSetPinChange}
+              requiredLength={selectedUser.pin_length_required}
+              error={pinError}
             />
           </View>
         )}
 
-        <View style={styles.pinSection}>
-          <Text style={styles.pinLabel}>
-            {setStep === 'enter' ? 'Create your PIN' : 'Re-enter to confirm'}
-          </Text>
-          <Text style={styles.pinSub}>
-            {setStep === 'enter'
-              ? `Choose a ${selectedUser.pin_length_required}-digit PIN you'll use to sign in.`
-              : 'Enter the same PIN again so we know it’s right.'}
-          </Text>
-          <PINPad
-            value={pin}
-            onChange={handleSetPinChange}
-            requiredLength={selectedUser.pin_length_required}
-            error={pinError}
-          />
-        </View>
-
         {loading && <Text style={styles.loading}>Setting up…</Text>}
+        </ScrollView>
       </KeyboardAvoidingView>
     );
   }
@@ -400,6 +446,18 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingVertical: 10,
   },
+  enrollError: { marginTop: 12, fontSize: 13, color: colors.danger, textAlign: 'center' },
+  continueBtn: {
+    marginTop: 28,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  continueBtnDisabled: { opacity: 0.4 },
+  continueText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   loading: { marginTop: 20, color: colors.textSecondary },
   firstBanner: { backgroundColor: colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
   firstBannerText: { color: colors.primaryText, fontSize: 13, fontWeight: '700' },

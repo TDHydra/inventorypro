@@ -13,7 +13,8 @@ import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { getAllLocations } from '../../../src/db/queries/locations';
-import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationPicker } from '../../../src/components/pickers';
 import {
   getUnitByTag, upsertUnit, getUnitsForItem, countUnitsByStatus,
   setUnitStatus, EquipmentUnit,
@@ -703,13 +704,10 @@ export default function EquipmentModelDetailScreen() {
         <ScrollView keyboardShouldPersistTaps="handled">
           <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
           <FieldLabel style={{ marginTop: 12 }}>Return to Location *</FieldLabel>
-          <SearchablePicker
+          <LocationPicker
             placeholder="Search location…"
-            options={locationOptions}
             value={repairInLoc}
-            onSelect={(opt) => {
-              setRepairInLoc(prev => (prev?.id === opt.id ? null : opt));
-            }}
+            onChange={setRepairInLoc}
           />
           <View style={[s.row, { marginTop: 16 }]}>
             <TouchableOpacity
@@ -732,7 +730,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Edit Unit Modal ─────────────────────────────────────────────── */}
-      <ModalSheet visible={editUnit !== null} onClose={() => setEditUnit(null)}>
+      <ModalSheet visible={editUnit !== null} onClose={() => setEditUnit(null)} scroll>
         <Text style={s.promptTitle}>Edit Unit</Text>
         <Text style={s.promptSub}>{editUnit?.asset_tag}</Text>
         <FieldLabel style={{ marginTop: 14 }}>Asset Tag *</FieldLabel>
@@ -773,7 +771,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Unit History Modal ──────────────────────────────────────────── */}
-      <ModalSheet visible={historyUnit !== null} onClose={() => setHistoryUnit(null)}>
+      <ModalSheet visible={historyUnit !== null} onClose={() => setHistoryUnit(null)} scroll>
         <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
         {historyUnit && (
           <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
@@ -833,7 +831,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Per-unit Media Modal ────────────────────────────────────────── */}
-      <ModalSheet visible={unitMediaUnit !== null} onClose={() => setUnitMediaUnit(null)}>
+      <ModalSheet visible={unitMediaUnit !== null} onClose={() => setUnitMediaUnit(null)} scroll>
         <Text style={s.modalTitle}>Photos — {unitMediaUnit?.asset_tag}</Text>
         {unitMediaUnit && (
           <MediaGallery
@@ -878,13 +876,10 @@ export default function EquipmentModelDetailScreen() {
           <Text style={s.modalTitle}>Add Units — {item.name}</Text>
 
           <FieldLabel>Location *</FieldLabel>
-          <SearchablePicker
+          <LocationPicker
             placeholder="Search location…"
-            options={locationOptions}
             value={addUnitsLoc}
-            onSelect={(opt) => {
-              setAddUnitsLoc(prev => (prev?.id === opt.id ? null : opt));
-            }}
+            onChange={setAddUnitsLoc}
           />
 
           <Text style={[s.sectionLabel, { marginTop: 8 }]}>Unit Rows</Text>

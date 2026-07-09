@@ -81,6 +81,9 @@ export default function DashboardsScreen() {
   // Editor state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<KeyedBlock[]>([]);
+  // Disable the editor ScrollView while a block is being dragged so the reorder
+  // gesture doesn't fight the parent scroll.
+  const [dragActive, setDragActive] = useState(false);
 
   // Name modal (create / rename)
   const [nameModal, setNameModal] = useState<{ mode: 'create' | 'rename'; id?: string } | null>(null);
@@ -293,7 +296,7 @@ export default function DashboardsScreen() {
     return (
       <>
         <Stack.Screen options={{ title: 'Edit Layout', headerShown: true }} />
-        <ScrollView style={s.container} contentContainerStyle={s.content}>
+        <ScrollView style={s.container} contentContainerStyle={s.content} scrollEnabled={!dragActive}>
           <TouchableOpacity style={s.backRow} onPress={() => setEditingId(null)}>
             <Text style={s.backText}>‹ All presets</Text>
           </TouchableOpacity>
@@ -341,6 +344,7 @@ export default function DashboardsScreen() {
                   keyExtractor={(b) => b.key}
                   rowHeight={ROW_HEIGHT}
                   onReorder={handleReorder}
+                  onDragActiveChange={setDragActive}
                   renderRow={(item, api) => {
                     const d = widgetDisplay(item.block);
                     const def = WIDGET_REGISTRY[item.block.widget];

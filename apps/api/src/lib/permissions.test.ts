@@ -106,3 +106,23 @@ test('two franchise_managers (same effective tier 4) can still act on each other
   assert.equal(canActOnTarget('franchise_manager', 'office_manager'), true);
   assert.equal(canAssignRole('franchise_manager', 'production_manager'), true);
 });
+
+// Regression guard for the reset-enrollment-code escalation path.
+// POST /users/:id/reset-enrollment-code re-arms /auth/set-pin AND returns the
+// plaintext code to the caller. It is gated on `manage_users || set_pins`, which
+// an hr_manager (tier 3) holds — so without a tier check they could mint an
+// enrollment code for a never-signed-in full_admin and take that account.
+test('reset-enrollment-code: a set_pins holder cannot act on a higher-tier target', () => {
+  // hr_manager (tier 3) holds set_pins but must not touch tier 4 / apex.
+  assert.equal(canActOnTarget('hr_manager', 'full_admin'), false);
+  assert.equal(canActOnTarget('hr_manager', 'franchise_manager'), false);
+  // A franchise_manager (tier 4) is still NOT apex: only full_admin may act on full_admin.
+  assert.equal(canActOnTarget('franchise_manager', 'full_admin'), false);
+  // Peers and below are fine.
+  assert.equal(canActOnTarget('hr_manager', 'office_manager'), true);
+  assert.equal(canActOnTarget('hr_manager', 'construction_crew'), true);
+  assert.equal(canActOnTarget('full_admin', 'full_admin'), true);
+  // Fail closed: an unresolved caller role acts on nobody.
+  assert.equal(canActOnTarget(null, 'construction_crew'), false);
+  assert.equal(canActOnTarget(undefined, 'temporary_employee'), false);
+});

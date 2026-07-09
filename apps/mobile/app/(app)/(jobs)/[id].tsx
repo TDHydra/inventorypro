@@ -10,12 +10,15 @@ import {
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllTeams, getTeamById } from '../../../src/db/queries/teams';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { ROLE_TIER } from '../../../src/constants/roles';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationPicker } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
 import { colors } from '../../../src/theme';
@@ -85,6 +88,22 @@ export default function JobDetailScreen() {
   const locationOptions = useMemo((): PickerOption[] => {
     return getAllLocations().map(l => ({ id: l.id, label: l.name }));
   }, [refreshKey]);
+
+  // Owning team. Only teams this device holds are offerable — a non-org user's
+  // scoped pull leaves only their own teams here. Org authority is the tier test
+  // (>= 3), NOT the manage_teams permission (tier-2 team managers hold that).
+  const isOrgAuthority = !!user && (ROLE_TIER[user.role] ?? 0) >= 3;
+  const teamOptions = useMemo((): PickerOption[] =>
+    getAllTeams().map(t => ({ id: t.id, label: t.name })), [refreshKey]);
+  const teamName = useMemo(() => {
+    if (!job?.team_id) return null;
+    return getTeamById(job.team_id)?.name ?? 'Assigned team';
+  }, [job?.team_id, refreshKey]);
+
+  // Team-change flow (org authority only), kept out of the generic edit form so a
+  // tier-2 create_jobs editor can't reassign teams.
+  const [teamEditing, setTeamEditing] = useState(false);
+  const [teamPick, setTeamPick] = useState<PickerOption | null>(null);
 
   function reload() {
     setJob(getJobById(id));
@@ -163,6 +182,65 @@ export default function JobDetailScreen() {
 
     setEditing(false);
     reload();
+  }
+
+  function startTeamEdit() {
+    const cur = job!.team_id ? (teamOptions.find(t => t.id === job!.team_id) ?? null) : null;
+    setTeamPick(cur);
+    setTeamEditing(true);
+  }
+
+  function commitTeam() {
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
+    const newTeamId = teamPick?.id ?? null;
+    const currentTeamId = job!.team_id ?? null;
+    if (newTeamId === currentTeamId) { setTeamEditing(false); return; }
+
+    const apply = () => {
+      // team_id change + audit log commit together; keep the picker open on
+      // failure so the user can retry.
+      try {
+        runInTransaction(() => {
+          updateJobFields(id, { team_id: newTeamId });
+          appendLog({
+            action: 'job_updated',
+            entity_type: 'job',
+            entity_id: id,
+            user_id: user.id,
+            note: newTeamId ? `Team: ${teamPick!.label}` : 'Team: org-wide',
+            team_id: newTeamId,
+            from_location_id: null,
+            to_location_id: null,
+            quantity: null,
+            unit: null,
+            job_id: id,
+            metadata: null,
+            device_id: null,
+          });
+        });
+      } catch (e) {
+        Alert.alert('Could not change team', e instanceof Error ? e.message : 'The team could not be changed. Please try again.');
+        return;
+      }
+      setTeamEditing(false);
+      reload();
+    };
+
+    // Assigning a job to a team narrows who can see it: the scoped pull returns
+    // only org-wide jobs plus the viewer's own teams, so the job vanishes from
+    // every non-member's device on their next sync. Confirm before that happens.
+    if (newTeamId !== null) {
+      Alert.alert(
+        'Assign to team?',
+        `"${job!.name}" will move to ${teamPick!.label}. It will disappear from the devices of anyone not on that team on their next sync.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Assign', onPress: apply },
+        ],
+      );
+    } else {
+      apply();
+    }
   }
 
   function doArchive() {
@@ -286,17 +364,12 @@ export default function JobDetailScreen() {
                 />
               </View>
 
-              <View style={s.fieldWrap}>
-                <FieldLabel>Site Location</FieldLabel>
-                <SearchablePicker
-                  placeholder="Search locations..."
-                  options={locationOptions}
-                  value={editSiteLocation}
-                  onSelect={opt =>
-                    setEditSiteLocation(prev => prev?.id === opt.id ? null : opt)
-                  }
-                />
-              </View>
+              <LocationPicker
+                label="Site Location"
+                placeholder="Search locations..."
+                value={editSiteLocation}
+                onChange={setEditSiteLocation}
+              />
 
               <View style={s.fieldWrap}>
                 <FieldLabel>Reference # (external)</FieldLabel>
@@ -405,7 +478,33 @@ export default function JobDetailScreen() {
                     </Text>
                   </View>
                 )}
+                <View style={s.metaRow}>
+                  <FieldLabel style={{ minWidth: 60 }}>Team</FieldLabel>
+                  <Text style={s.metaValue}>{teamName ?? 'Org-wide (everyone)'}</Text>
+                </View>
               </Card>
+
+              {/* Team reassignment — org authority (tier >= 3) only */}
+              {teamEditing && (
+                <Card variant="detail">
+                  <FieldLabel>Owning Team</FieldLabel>
+                  <Text style={[s.muted, { marginTop: 4, marginBottom: 8 }]}>
+                    Clear the team for org-wide (visible to everyone).
+                  </Text>
+                  <SearchablePicker
+                    placeholder="No team (visible to everyone)"
+                    options={teamOptions}
+                    value={teamPick}
+                    onSelect={opt => setTeamPick(prev => prev?.id === opt.id ? null : opt)}
+                  />
+                  <View style={s.row}>
+                    <TouchableOpacity style={[s.btnGhost, { flex: 1 }]} onPress={() => setTeamEditing(false)}>
+                      <Text style={s.btnGhostText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <PrimaryButton label="Save Team" onPress={commitTeam} style={{ flex: 1 }} />
+                  </View>
+                </Card>
+              )}
 
               {/* Deployed section */}
               <FieldLabel>Deployed</FieldLabel>
@@ -485,6 +584,9 @@ export default function JobDetailScreen() {
               <PrimaryButton label="Request Approval" onPress={() => setApprovalOpen(true)} />
               {(canEdit || canClose) && (
                 <PrimaryButton label="Edit Job" onPress={startEdit} />
+              )}
+              {isOrgAuthority && !teamEditing && (
+                <PrimaryButton label="Change Team" onPress={startTeamEdit} />
               )}
               {canEdit && job.status !== 'archived' && (
                 <PrimaryButton tone="danger" label="Archive Job" onPress={doArchive} />

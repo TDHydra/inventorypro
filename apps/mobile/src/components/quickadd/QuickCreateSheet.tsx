@@ -59,7 +59,7 @@ export function QuickCreateSheet({ visible, kind, initialName: _initialName, onC
   }
 
   return (
-    <ModalSheet visible={visible} onClose={onClose}>
+    <ModalSheet visible={visible} onClose={onClose} scroll>
       {renderForm()}
     </ModalSheet>
   );

@@ -64,6 +64,15 @@ export function incrementOutboxAttempt(id: string, error: string): void {
   );
 }
 
+// Permanently drop a single entry the server rejected for a reason retrying can
+// never fix (an authorization denial). Unlike incrementOutboxAttempt this does
+// not leave the row pending-but-dead — it's removed, so the sync indicator can't
+// stick on a write that will never be accepted.
+export function dropOutboxEntry(id: string): void {
+  const db = getDb();
+  db.executeSync(`DELETE FROM outbox WHERE id = ?`, [id]);
+}
+
 export function getPendingCount(): number {
   const db = getDb();
   const result = db.executeSync(

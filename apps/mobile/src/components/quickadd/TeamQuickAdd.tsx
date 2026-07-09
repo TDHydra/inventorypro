@@ -294,7 +294,7 @@ export default function TeamQuickAdd({ onSaved }: Props) {
         <Text style={s.modalTitle}>
           {permEditIdx !== null ? `${pendingMembers[permEditIdx]?.user.label} · Team Permissions` : 'Team Permissions'}
         </Text>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
+        <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
           {permEditIdx !== null && TEAM_OVERRIDABLE_PERMISSIONS.map(perm => {
             const base = baseTeamPermValue(pendingMembers[permEditIdx].role, perm);
             const value = perm in permDraft ? permDraft[perm] : base;

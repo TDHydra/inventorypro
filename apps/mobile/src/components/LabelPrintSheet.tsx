@@ -73,7 +73,7 @@ export function LabelPrintSheet({ visible, onClose, title, code, qrUrl, payload 
   }
 
   return (
-    <ModalSheet visible={visible} onClose={onClose}>
+    <ModalSheet visible={visible} onClose={onClose} scroll>
       <Text style={s.heading}>Print Label</Text>
       <Text style={s.subheading}>{title}</Text>
 

@@ -12,10 +12,10 @@ import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../db/maintenance';
-import { getAllLocations } from '../../db/queries/locations';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import { renderIcon } from '../../constants/locationStyles';
-import { SearchablePicker, PickerOption } from '../SearchablePicker';
+import { PickerOption } from '../SearchablePicker';
+import { LocationPicker } from '../pickers';
 import { SuggestInput } from '../SuggestInput';
 import { colors, spacing, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -50,11 +50,6 @@ export default function JobQuickAdd({ onSaved }: Props) {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;
   });
-
-  const locationOptions = useMemo(
-    (): PickerOption[] => getAllLocations().map(l => ({ id: l.id, label: l.name })),
-    [],
-  );
 
   // Prior values for the typeahead dropdowns.
   const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
@@ -238,15 +233,12 @@ export default function JobQuickAdd({ onSaved }: Props) {
           />
         </View>
 
-        <View style={s.fieldWrap}>
-          <FieldLabel>Site Location</FieldLabel>
-          <SearchablePicker
-            placeholder="Search locations..."
-            options={locationOptions}
-            value={siteLocation}
-            onSelect={opt => setSiteLocation(prev => prev?.id === opt.id ? null : opt)}
-          />
-        </View>
+        <LocationPicker
+          label="Site Location"
+          placeholder="Search locations..."
+          value={siteLocation}
+          onChange={setSiteLocation}
+        />
 
         <View style={s.fieldWrap}>
           <FieldLabel>Reference # (external)</FieldLabel>

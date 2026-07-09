@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
-import { UserSession, parsePermissionOverrides } from './permissions';
+import { UserSession, TeamContext, parsePermissionOverrides } from './permissions';
 import { getUserById } from '../db/queries/users';
+import { getDb, rowsAs } from '../db/schema';
+import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 if (!__DEV__ && !API_BASE.startsWith('https://')) {
@@ -105,6 +107,39 @@ export async function hasStoredSession(): Promise<boolean> {
   return !!user && user.active === 1;
 }
 
+// Per-member team overrides are stored as a JSON string and may only carry the
+// TEAM_OVERRIDABLE_PERMISSIONS allowlist. A team-scoped grant must never confer
+// account/system authority (manage_users, manage_roles_permissions,
+// system_settings, view_audit_log, …), so filter to the allowlist here — a
+// tampered/legacy row can't widen a member's authority past what the team editor
+// can set, and org-admin remains a strict role/tier test (isOrgAuthority).
+function buildTeamContexts(userId: string): TeamContext[] {
+  try {
+    // Built here (not at module scope) to sidestep the session↔teams import
+    // cycle: at module-eval the allowlist may still be undefined, which would
+    // yield an empty set and silently strip every override.
+    const overridable = new Set<string>(TEAM_OVERRIDABLE_PERMISSIONS);
+    const db = getDb();
+    const result = db.executeSync(
+      `SELECT team_id, team_permission_overrides FROM team_members WHERE user_id = ?`,
+      [userId],
+    );
+    const rows = rowsAs<{ team_id: string; team_permission_overrides: string }>(result.rows);
+    return rows.map(r => {
+      const parsed = parsePermissionOverrides(r.team_permission_overrides);
+      const filtered: Record<string, boolean> = {};
+      for (const [perm, allowed] of Object.entries(parsed)) {
+        if (overridable.has(perm)) filtered[perm] = allowed;
+      }
+      return { team_id: r.team_id, team_permission_overrides: filtered };
+    });
+  } catch {
+    // team_members not ready (pre-migration / transient) — team overrides simply
+    // don't apply this session rather than blocking login.
+    return [];
+  }
+}
+
 export function buildUserSession(userId: string): UserSession | null {
   const user = getUserById(userId);
   if (!user) return null;
@@ -116,5 +151,6 @@ export function buildUserSession(userId: string): UserSession | null {
     pin_length_required: user.pin_length_required,
     active: user.active,
     expires_at: user.expires_at,
+    team_contexts: buildTeamContexts(user.id),
   };
 }

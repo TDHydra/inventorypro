@@ -133,7 +133,7 @@ export default function BroadcastScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Broadcast', headerShown: true }} />
-      <ScrollView style={s.container} contentContainerStyle={s.content}>
+      <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
 
         {/* ── Audience ─────────────────────────────────────────────────── */}
         <View>
