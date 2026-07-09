@@ -9,14 +9,15 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { resolveTaxonomyValue } from './resolveTaxonomyValue';
 
-// Sibling of TaxonomyPicker for the OTHER taxonomy shape: the horizontal row of
-// FilterChips (getTaxonomyTypes* + map → `${renderIcon(icon)} ${label}` chip +
-// hold selection) that teams/index, teams/[id], JobQuickAdd and TeamQuickAdd each
-// hand-roll. TaxonomyPicker's SearchablePicker dropdown cannot express this row.
+// The app's one taxonomy input shape: the horizontal row of FilterChips
+// (getTaxonomyTypes* + map → `${renderIcon(icon)} ${label}` chip + hold selection)
+// that teams/index, teams/[id], JobQuickAdd and TeamQuickAdd each hand-roll.
+// (A dropdown sibling, TaxonomyPicker, existed but never gained a call site and
+// was deleted — board #19.)
 //
 // #74 is mid-migration: some screens persist the taxonomy LABEL, some the soft-FK
-// id. Like TaxonomyPicker this ALWAYS reports both via onChange and never migrates
-// which one a call site persists.
+// id. This ALWAYS reports both via onChange and never migrates which one a call
+// site persists.
 //
 // Returns a FRAGMENT, not a Field/View wrapper: at every call site the FieldLabel
 // and the chip ScrollView are laid out by the PARENT container's gap (12 in the
