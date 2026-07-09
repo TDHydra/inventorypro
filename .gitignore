@@ -24,6 +24,10 @@ apps/api/dist/
 *.log
 .DS_Store
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # This is a pnpm workspace — npm / `expo install` can spuriously regenerate this.
 package-lock.json
 
