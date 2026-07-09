@@ -641,7 +641,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['entries'],
         properties: {
-          entries: { type: 'array', items: { type: 'object' } },
+          entries: { type: 'array', items: { type: 'object' }, maxItems: 100 },
         },
       },
     },
