@@ -78,5 +78,8 @@ Items are units of intent; commits are units of change.
 - Issues can be closed but never deleted — creating one is permanent. Use `gh_add.py --draft`
   when you only need a board item (e.g. speculative or rejected-on-arrival work), not a real
   issue.
-- Items in `Done`/`Rejected` are drafts; items in the live columns (`Backlog`/`Ready`/
-  `In progress`/`In review`) are real issues, so commits and PRs can cite them.
+- Items in the live columns (`Backlog`/`Ready`/`In progress`/`In review`) are real issues, so
+  commits and PRs can cite them. `Done`/`Rejected` hold a mix: the 70 items backfilled from the
+  archived backlog are drafts, while work completed since is a **closed issue** that `gh_done.py`
+  moved there. Do not assume a `Done` item is a draft. The invariant is only that **no OPEN issue
+  sits in `Done`.**

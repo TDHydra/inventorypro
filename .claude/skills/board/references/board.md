@@ -16,7 +16,15 @@ The live backlog is GitHub Project 2: https://github.com/users/TDHydra/projects/
 | `Rejected` | Decided against. Body records why. |
 
 Items in `Backlog`/`Ready`/`In progress`/`In review` are real GitHub issues, so commits and PRs
-can cite them. Items in `Done`/`Rejected` are draft issues — archaeology, nothing links to them.
+can cite them.
+
+The 70 items backfilled from `docs/BACKLOG-archive-2026-07-09.md` into `Done`/`Rejected` are draft
+issues — archaeology, nothing will ever link to them. That is a fact about the backfill, **not an
+invariant of those columns.** When live work finishes, `gh_done.py` closes its issue and moves the
+item to `Done`, where it stays issue-backed. So `Done` legitimately holds both drafts (history) and
+closed issues (work completed since).
+
+The real invariant is narrower: **no OPEN issue may sit in `Done`.**
 
 ## Identifiers
 
