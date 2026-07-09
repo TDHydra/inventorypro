@@ -1126,7 +1126,7 @@ export default function AdminUsersScreen() {
                       <Text style={s.actionIcon}>✉️</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={s.actionTitle}>Reset access code</Text>
-                        <Text style={s.actionSub}>Issue a new one-time code — shown here and emailed if address is set (online)</Text>
+                        <Text style={s.actionSub}>Issue a new one-time code; shown here and emailed if address is set (online)</Text>
                       </View>
                     </TouchableOpacity>
                   )}
