@@ -38,14 +38,22 @@ test('shouldAudit drops routine sync polls but never a failure or a mutation', (
   assert.equal(shouldAudit('GET', '/telemetry/summary', 'success'), false);
   assert.equal(shouldAudit('GET', '/audit', 'success'), false);            // no self-noise
 
+  // Telemetry ingest is a POST, not a GET. Skipping only GETs would let every
+  // device's telemetry flush write an audit row — caught in prod, not in test.
+  assert.equal(shouldAudit('POST', '/telemetry', 'success'), false);
+
   // A failing poll is still a failure.
   assert.equal(shouldAudit('GET', '/sync/pull', 'denied'), true);
   assert.equal(shouldAudit('GET', '/sync/pull', 'server_error'), true);
+  assert.equal(shouldAudit('POST', '/telemetry', 'server_error'), true);
   // The write surface is always captured.
   assert.equal(shouldAudit('POST', '/sync/push', 'success'), true);
   assert.equal(shouldAudit('PATCH', '/users/abc', 'success'), true);
+  assert.equal(shouldAudit('POST', '/auth/token', 'success'), true);
   // Ordinary reads are captured — "who read what" is part of the ask.
   assert.equal(shouldAudit('GET', '/items', 'success'), true);
+  // A prefix must not match a sibling route by string prefix alone.
+  assert.equal(shouldAudit('GET', '/healthcheck-ish', 'success'), true);
 });
 
 test('debug mode captures every request, including the sync polls', () => {

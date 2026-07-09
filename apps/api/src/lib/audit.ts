@@ -13,12 +13,17 @@ import type { FastifyRequest } from 'fastify';
 export type Outcome = 'success' | 'denied' | 'rate_limited' | 'client_error' | 'server_error';
 
 // Routine, high-volume endpoints that would otherwise bury the signal. Every
-// offline-first device polls /sync/pull continuously, so these reads dominate
-// the table by orders of magnitude. Debug mode (below) captures them anyway.
+// offline-first device polls /sync/pull continuously and flushes /telemetry in
+// batches, so these dominate the table by orders of magnitude.
 //
-// Note POST /sync/push is deliberately NOT skippable — it is the app's entire
-// write surface and is always audited.
-const NOISY_GET_PREFIXES = [
+// Matched regardless of METHOD: POST /telemetry is behavioral ingest with its
+// own sink, not a business mutation, and skipping it only for GET would let
+// every telemetry flush write an audit row. Only *successful* requests are
+// skipped — a failure here is still a failure. Debug mode captures them anyway.
+//
+// POST /sync/push is deliberately absent: it is the app's entire write surface
+// and is always audited.
+const NOISY_PREFIXES = [
   '/health',
   '/telemetry',   // fire-and-forget behavioral ingest; has its own sink
   '/labels',      // QR png renders
@@ -71,9 +76,12 @@ export function isSecurityClass(method: string, url: string, outcome: Outcome): 
 export function shouldAudit(method: string, url: string, outcome: Outcome): boolean {
   if (debugMode) return true;
   if (outcome !== 'success') return true;              // never drop a failure
-  if (method !== 'GET') return true;                   // never drop a mutation
-  const path = url.split('?')[0];
-  return !NOISY_GET_PREFIXES.some(p => path === p || path.startsWith(`${p}/`) || path.startsWith(p));
+  // Order matters: this must precede any "never drop a mutation" shortcut, or
+  // POST /telemetry (a batched flush, not a business write) slips through and
+  // every device's telemetry flush writes an audit row.
+  const path = stripQuery(url);
+  if (NOISY_PREFIXES.some(p => path === p || path.startsWith(`${p}/`))) return false;
+  return true;
 }
 
 // Strip the query string: it is caller-supplied and may carry data we have no
