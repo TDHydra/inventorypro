@@ -81,6 +81,17 @@ class TestGql(unittest.TestCase):
         self.assertIn("gh", message)
         self.assertTrue("not installed" in message or "not found" in message or "not on path" in message)
 
+    def test_graphql_error_with_null_message_does_not_crash(self):
+        """An error object with message: None must not cause join() to crash."""
+        def runner(cmd, **kwargs):
+            return FakeCompleted(stdout='{"errors":[{"message":null},{"message":"boom"}]}')
+
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.gql("query{x}", {}, runner=runner)
+        msg = str(ctx.exception)
+        self.assertIn("graphql:", msg)
+        self.assertIn("boom", msg)
+
 
 CFG = {
     "owner": "TDHydra",
@@ -163,6 +174,28 @@ class TestSelectItem(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("PVTI_bbb", msg)
         self.assertIn("PVTI_eee", msg)
+
+    def test_title_none_does_not_crash_substring_lookup(self):
+        """A board item with title: None must not poison substring lookups with AttributeError."""
+        items = [{"id": "PVTI_x", "title": None, "content": {}}]
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.select_item(items, "minio")
+        # Should raise "no board item matching", not AttributeError
+        self.assertIn("no board item matching", str(ctx.exception))
+
+    def test_title_none_does_not_break_numeric_ambiguity_listing(self):
+        """When title is None, the numeric ambiguity listing must not crash formatting the None."""
+        items = [
+            {"id": "PVTI_x", "title": None, "content": {"number": 42}},
+            {"id": "PVTI_y", "title": "Fix bug 42", "content": {"number": 42}},
+        ]
+        with self.assertRaises(_board.BoardError) as ctx:
+            _board.select_item(items, "42")
+        msg = str(ctx.exception)
+        # The ambiguity listing should include both items and not crash on the None
+        self.assertIn("PVTI_x", msg)
+        self.assertIn("PVTI_y", msg)
+        self.assertIn("(untitled)", msg)  # None should render as "(untitled)"
 
 
 class TestFetchItems(unittest.TestCase):

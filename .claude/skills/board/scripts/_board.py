@@ -63,7 +63,7 @@ def gql(query: str, variables: dict, runner=None) -> dict:
     out = run_gh(args, runner=runner)
     payload = json.loads(out)
     if "errors" in payload:
-        msgs = "; ".join(e.get("message", str(e)) for e in payload["errors"])
+        msgs = "; ".join(e.get("message") or str(e) for e in payload["errors"])
         raise BoardError(f"graphql: {msgs}")
     return payload["data"]
 
@@ -103,16 +103,16 @@ def select_item(items: list[dict], selector: str) -> dict:
             return hits[0]
         if not hits:
             raise BoardError(f"no board item for issue #{number}")
-        listing = "\n".join(f"  - {i['title']} ({i['id']})" for i in hits)
+        listing = "\n".join(f"  - {i.get('title') or '(untitled)'} ({i['id']})" for i in hits)
         raise BoardError(f"issue #{number} matches {len(hits)} items:\n{listing}")
 
     needle = sel.lower()
-    hits = [i for i in items if needle in i.get("title", "").lower()]
+    hits = [i for i in items if needle in (i.get("title") or "").lower()]
     if len(hits) == 1:
         return hits[0]
     if not hits:
         raise BoardError(f"no board item matching {selector!r}")
-    listing = "\n".join(f"  - {i['title']} ({i['id']})" for i in hits)
+    listing = "\n".join(f"  - {i.get('title') or '(untitled)'} ({i['id']})" for i in hits)
     raise BoardError(f"{selector!r} matches {len(hits)} items:\n{listing}")
 
 
