@@ -108,6 +108,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const isAdmin = usePermission('system_settings');
   const canBroadcast = usePermission('send_notifications');
+  const canViewAudit = usePermission('view_audit_log');
   const { user, logout } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   const refreshKey = useFocusRefresh();
@@ -595,6 +596,22 @@ export default function SettingsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={s.rowLabel}>📣 Send Broadcast</Text>
                 <Text style={s.rowSub}>Compose a notification to roles, teams, or everyone.</Text>
+              </View>
+              <Text style={s.rowSub}>›</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── API Audit (view_audit_log holders — may not be full admins) ── */}
+        {canViewAudit && (
+          <View style={s.card}>
+            <TouchableOpacity
+              style={s.row}
+              onPress={() => router.push('/(app)/(admin)/audit-log')}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>🛡️ API Audit</Text>
+                <Text style={s.rowSub}>Who called the API, when, and whether it succeeded (live).</Text>
               </View>
               <Text style={s.rowSub}>›</Text>
             </TouchableOpacity>

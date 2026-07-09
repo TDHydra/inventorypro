@@ -85,6 +85,7 @@ const tier4: PermissionMap = {
   manage_roles_permissions:   true,
   view_financial_data:        true,
   system_settings:            true,
+  view_audit_log:            true,
   send_notifications:         true,
 };
 
@@ -109,6 +110,7 @@ const tier3: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        true,
   system_settings:            false,
+  view_audit_log:            false,
   send_notifications:         true,
 };
 
@@ -133,6 +135,7 @@ const tier2: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        false,
   system_settings:            false,
+  view_audit_log:            false,
   send_notifications:         false,
 };
 
@@ -157,6 +160,7 @@ const tier1: PermissionMap = {
   manage_roles_permissions:   false,
   view_financial_data:        false,
   system_settings:            false,
+  view_audit_log:            false,
   send_notifications:         false,
 };
 

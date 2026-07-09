@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyPostgres from '@fastify/postgres';
@@ -6,6 +7,8 @@ import helmet from '@fastify/helmet';
 import { runMigrations } from './db/migrate';
 import { overRateLimit } from './lib/rateLimit';
 import { startNotificationTimer } from './lib/notificationTimer';
+import { recordAudit, startAuditPruneTimer } from './lib/auditWriter';
+import { sanitizeErrorMessage } from './lib/audit';
 
 import authRoutes from './routes/auth';
 import syncRoutes from './routes/sync';
@@ -20,6 +23,7 @@ import labelRoutes from './routes/labels';
 import telemetryRoutes from './routes/telemetry';
 import pushRoutes from './routes/push';
 import notificationsRoutes from './routes/notifications';
+import auditRoutes from './routes/audit';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -28,6 +32,12 @@ const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
   },
+  // A real correlation id instead of Fastify's process-local integer reqId
+  // (req-1, req-2… which resets every restart and means nothing to a client).
+  // Echoed back as X-Request-Id and stored on every audit row, so a support
+  // ticket quoting an id can be traced straight to the request and the
+  // activity_log rows it produced.
+  genReqId: () => randomUUID(),
   // Behind the NPM reverse proxy, request.ip is otherwise always the proxy's
   // IP — collapsing all clients onto one IP-keyed rate-limit bucket. Trust
   // X-Forwarded-For so request.ip reflects the real client. Pinned to the
@@ -53,6 +63,10 @@ async function build() {
       cb(null, false);
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    // Without this the split-origin web client (invenpro.app → api.invenpro.app)
+    // cannot read X-Request-Id off the response: CORS hides non-safelisted
+    // response headers from JS unless they are explicitly exposed.
+    exposedHeaders: ['X-Request-Id'],
   });
 
   // Security headers. CSP off: this is a JSON+image API (no server-rendered
@@ -92,6 +106,19 @@ async function build() {
     }
   });
 
+  // Surface the correlation id to the caller on every response, including errors.
+  fastify.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Request-Id', request.id);
+  });
+
+  // API access/audit trail (migration 042). Runs AFTER the response is sent, so
+  // it adds no latency to the request; the write is fire-and-forget and can
+  // never fail a request. Reads nothing but method/url/status/timing/ip and the
+  // user-agent + X-Telemetry-* headers — never the body or Authorization.
+  fastify.addHook('onResponse', async (request, reply) => {
+    recordAudit(fastify, request, reply.statusCode, reply.elapsedTime);
+  });
+
   // Per-user DOS guard on mutating endpoints (generous). /auth has its own
   // limiter and is public, so it's skipped. Unauthenticated requests fall
   // through to the route's own auth (which rejects them).
@@ -124,6 +151,7 @@ async function build() {
   await fastify.register(telemetryRoutes, { prefix: '/telemetry' });
   await fastify.register(pushRoutes, { prefix: '/push' });
   await fastify.register(notificationsRoutes, { prefix: '/notifications' });
+  await fastify.register(auditRoutes, { prefix: '/audit' });
 
   // Health check — includes uptime and version for ops dashboards.
   // npm_package_version is set automatically when started via pnpm/npm run scripts.
@@ -141,6 +169,13 @@ async function build() {
   fastify.setErrorHandler((err, request, reply) => {
     request.log.error({ err }, 'request error');
     const status = (err as any).statusCode ?? 500;
+    // Stash a sanitized reason for the onResponse audit hook. For 5xx this is
+    // the error's class name only — never the message, stack, or SQL/driver
+    // text, matching what we refuse to send the client below. sanitizeErrorMessage
+    // also drops /auth 4xx messages, which can echo submitted field context.
+    (request as any).auditError = status >= 500
+      ? (err.name || 'Error')
+      : sanitizeErrorMessage(request.url, status, err.message);
     if (status >= 500) return reply.status(status).send({ error: 'Internal Server Error' });
     return reply.status(status).send({ error: err.message });
   });
@@ -158,6 +193,9 @@ runMigrations()
       }
       // Start the notification timer (checkout-idle etc.) once we're serving.
       startNotificationTimer(app.pg);
+      // Prune api_request_audit now and daily. Boot-only pruning would never
+      // fire in practice — prod restarts are rare and this table grows per request.
+      startAuditPruneTimer(app);
     });
   })
   .catch(err => {

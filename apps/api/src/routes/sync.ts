@@ -142,6 +142,12 @@ async function applyEntry(
     // Attribute to the AUTHENTICATED caller, not the client-supplied user_id —
     // otherwise any token could forge audit entries blaming another user.
     // (created_at stays client-supplied: offline events carry their real time.)
+    //
+    // Deliberately NOT stamped with metadata.request_id (unlike the server-written
+    // login/pin_set rows in auth.ts). These rows were created on-device, possibly
+    // days earlier while offline, and merely happen to be carried by THIS push —
+    // correlating them to it would assert a causal link that does not exist. Only
+    // server-written activity correlates to the request that produced it.
     await pg.query(
       `INSERT INTO activity_log
          (id, user_id, team_id, action, entity_type, entity_id,
