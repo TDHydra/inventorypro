@@ -171,7 +171,7 @@ export default function TeamsScreen() {
         {/* Create team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
         <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
             <Text style={s.modalTitle}>New Team</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+            <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
               <AppInput
                 placeholder="Team name *"
                 value={name}

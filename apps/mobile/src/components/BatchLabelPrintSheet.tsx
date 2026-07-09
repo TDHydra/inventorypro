@@ -67,7 +67,7 @@ export function BatchLabelPrintSheet({ visible, onClose, items }: Props) {
   }
 
   return (
-    <ModalSheet visible={visible} onClose={onClose}>
+    <ModalSheet visible={visible} onClose={onClose} scroll>
       <Text style={s.heading}>Print {items.length} label{items.length === 1 ? '' : 's'}</Text>
 
       {customTemplates.length > 0 && (

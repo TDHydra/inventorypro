@@ -527,6 +527,7 @@ export default function HubScreen() {
       <ModalSheet
         visible={mode === 'destination'}
         onClose={() => { resetConsumable(); setEquipBatch([]); setMode('browse'); }}
+        scroll
       >
         {equipBatch.length > 0 ? (
           <Text style={s.sheetTitle}>

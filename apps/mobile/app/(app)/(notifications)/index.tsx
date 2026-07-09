@@ -179,6 +179,7 @@ export default function NotificationsScreen() {
         <FlatList
           data={rows}
           keyExtractor={n => n.id}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={s.list}
           refreshControl={
             <RefreshControl

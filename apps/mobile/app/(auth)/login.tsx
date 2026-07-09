@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
+  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/theme';
@@ -234,6 +234,10 @@ export default function LoginScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+        >
         <TouchableOpacity style={styles.back} onPress={stepBack}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
@@ -292,6 +296,7 @@ export default function LoginScreen() {
         )}
 
         {loading && <Text style={styles.loading}>Setting up…</Text>}
+        </ScrollView>
       </KeyboardAvoidingView>
     );
   }

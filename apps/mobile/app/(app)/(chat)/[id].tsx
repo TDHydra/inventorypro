@@ -200,7 +200,7 @@ export default function ChatThreadScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      <ModalSheet visible={managing} onClose={() => setManaging(false)}>
+      <ModalSheet visible={managing} onClose={() => setManaging(false)} scroll>
         <Text style={s.sheetTitle}>{title}</Text>
 
         <Text style={s.sectionLabel}>Notifications</Text>

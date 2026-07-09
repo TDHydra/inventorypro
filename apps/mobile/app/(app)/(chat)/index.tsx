@@ -175,7 +175,7 @@ export default function ChatListScreen() {
         />
       </View>
 
-      <ModalSheet visible={composing} onClose={() => setComposing(false)}>
+      <ModalSheet visible={composing} onClose={() => setComposing(false)} scroll>
         <Text style={s.sheetTitle}>New conversation</Text>
         <Text style={s.sheetHint}>Pick one person for a direct message, or several for a group.</Text>
 

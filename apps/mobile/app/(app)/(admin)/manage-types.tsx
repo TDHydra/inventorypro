@@ -216,6 +216,7 @@ function DraggableTypeList({
   onReorder,
   onMoveUp,
   onMoveDown,
+  onDraggingChange,
 }: {
   list: TaxonomyType[];
   locked: boolean;
@@ -223,6 +224,7 @@ function DraggableTypeList({
   onReorder: (orderedIds: string[]) => void;
   onMoveUp: (index: number) => void;
   onMoveDown: (index: number) => void;
+  onDraggingChange: (dragging: boolean) => void;
 }) {
   const dragY = useRef(new Animated.Value(0)).current;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -239,6 +241,8 @@ function DraggableTypeList({
     setDragIndex(index);
     setTargetIndex(index);
     dragY.setValue(0);
+    // Stop the outer page ScrollView from stealing the row's vertical drag.
+    onDraggingChange(true);
   }
 
   function handleDragMove(startIndex: number, dy: number) {
@@ -259,6 +263,9 @@ function DraggableTypeList({
     setDragIndex(null);
     setTargetIndex(null);
     dragY.setValue(0);
+    // Re-enable page scroll BEFORE the early return — an interrupted/terminated
+    // gesture (which also routes here) must never leave the page unscrollable.
+    onDraggingChange(false);
     if (from == null || to == null || from === to) return;
     const ids = list.map(t => t.id);
     const [moved] = ids.splice(from, 1);
@@ -315,6 +322,10 @@ export default function ManageTypesScreen() {
   const { user } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   const { locked } = useMaintenanceMode();
+
+  // True while any section's row is mid-drag; disables the outer ScrollView so
+  // the parent doesn't steal the row PanResponder's vertical gesture.
+  const [dragging, setDragging] = useState(false);
 
   const [teamTypes, setTeamTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('team', { includeInactive: true }),
@@ -679,6 +690,7 @@ export default function ManageTypesScreen() {
               onReorder={ids => handleReorderCommit(list, ids)}
               onMoveUp={i => handleMoveUp(list, i)}
               onMoveDown={i => handleMoveDown(list, i)}
+              onDraggingChange={setDragging}
             />
           )}
         </View>
@@ -731,7 +743,7 @@ export default function ManageTypesScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView style={s.container} contentContainerStyle={s.content}>
+        <ScrollView style={s.container} contentContainerStyle={s.content} scrollEnabled={!dragging}>
           {locked && <MaintenanceBanner />}
           {renderSection('Team Types', 'team', teamTypes, '+ Add Team Type')}
           {renderSection('Job Types', 'job', jobTypes, '+ Add Job Type')}

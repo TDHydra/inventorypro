@@ -732,7 +732,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Edit Unit Modal ─────────────────────────────────────────────── */}
-      <ModalSheet visible={editUnit !== null} onClose={() => setEditUnit(null)}>
+      <ModalSheet visible={editUnit !== null} onClose={() => setEditUnit(null)} scroll>
         <Text style={s.promptTitle}>Edit Unit</Text>
         <Text style={s.promptSub}>{editUnit?.asset_tag}</Text>
         <FieldLabel style={{ marginTop: 14 }}>Asset Tag *</FieldLabel>
@@ -773,7 +773,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Unit History Modal ──────────────────────────────────────────── */}
-      <ModalSheet visible={historyUnit !== null} onClose={() => setHistoryUnit(null)}>
+      <ModalSheet visible={historyUnit !== null} onClose={() => setHistoryUnit(null)} scroll>
         <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
         {historyUnit && (
           <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
@@ -833,7 +833,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Per-unit Media Modal ────────────────────────────────────────── */}
-      <ModalSheet visible={unitMediaUnit !== null} onClose={() => setUnitMediaUnit(null)}>
+      <ModalSheet visible={unitMediaUnit !== null} onClose={() => setUnitMediaUnit(null)} scroll>
         <Text style={s.modalTitle}>Photos — {unitMediaUnit?.asset_tag}</Text>
         {unitMediaUnit && (
           <MediaGallery

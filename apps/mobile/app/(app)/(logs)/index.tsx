@@ -460,6 +460,7 @@ export default function LogsScreen() {
             <FlatList<ServerLogRow>
               data={filteredServerLogs}
               keyExtractor={l => l.id}
+              style={{ flex: 1 }}
               contentContainerStyle={s.list}
               keyboardShouldPersistTaps="handled"
               refreshControl={
@@ -528,6 +529,7 @@ export default function LogsScreen() {
           <FlatList<LogEntry>
             data={filter === 'unsynced' ? logs : localLogs}
             keyExtractor={l => l.id}
+            style={{ flex: 1 }}
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item: log }) => {

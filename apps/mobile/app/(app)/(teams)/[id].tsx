@@ -492,7 +492,8 @@ export default function TeamDetailScreen() {
       {/* Edit team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
       <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
           <Text style={s.modalTitle}>Edit Team</Text>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+          {/* flexShrink:1 lets this ScrollView shrink within ModalSheet's maxHeight cap so it actually scrolls (RN defaults flexShrink:0). */}
+          <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             <AppInput
               placeholder="Team name *"
               value={editName}
@@ -535,7 +536,8 @@ export default function TeamDetailScreen() {
       {/* Add member modal — onClose only hides; selection preserved on outside-tap dismiss */}
       <ModalSheet visible={showAddMember} onClose={() => setShowAddMember(false)}>
           <Text style={s.modalTitle}>Add Team Member</Text>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+          {/* flexShrink:1 lets this ScrollView shrink within ModalSheet's maxHeight cap so it actually scrolls (RN defaults flexShrink:0). */}
+          <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             {nonMemberOptions.length === 0 ? (
               <Text style={s.muted}>All active users are already on this team.</Text>
             ) : (
@@ -589,7 +591,8 @@ export default function TeamDetailScreen() {
         <Text style={s.modalTitle}>
           {permMember ? `${permMember.user_name ?? permMember.user_id} · Team Permissions` : 'Team Permissions'}
         </Text>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
+        {/* flexShrink:1 lets this ScrollView shrink within ModalSheet's maxHeight cap so it actually scrolls (RN defaults flexShrink:0). */}
+        <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
           <Text style={s.permsIntro}>
             Overrides apply only within {team.name}. Toggling a permission back to its
             default removes the override.
