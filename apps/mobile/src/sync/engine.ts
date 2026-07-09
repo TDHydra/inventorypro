@@ -1,6 +1,6 @@
 import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
-import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
+import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxEntry, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';
 import { reconcileTeams } from './teamPurge';
 import { reconcileLogSyncState } from '../db/queries/log';
@@ -51,6 +51,20 @@ function trackIfNewlyDead(e: OutboxEntry): void {
   }
 }
 
+// A server conflict is PERMANENT when retrying can never make it succeed: an
+// authorization denial. The /sync/push handler surfaces these as conflict
+// messages containing 'Forbidden' / 'cannot' / 'not allowed' (apps/api/src/routes/
+// sync.ts — e.g. 'Forbidden: teams requires manage_teams', 'Table not allowed').
+// Everything else — the generic 'write rejected' (masks a bad column or an FK to a
+// not-yet-synced row) and 'Maintenance mode: writes are frozen' (succeeds once the
+// freeze lifts) — is treated as TRANSIENT and retried, bounded by MAX_ATTEMPTS.
+// Deliberately conservative: only these three phrases classify as permanent, so an
+// unrecognized rejection defaults to today's retry-then-dead-letter behavior.
+const PERMANENT_REJECTION = /forbidden|cannot|not allowed/i;
+function isPermanentRejection(error?: string): boolean {
+  return !!error && PERMANENT_REJECTION.test(error);
+}
+
 async function drainOutbox(): Promise<void> {
   if (running) return;
   running = true;
@@ -87,19 +101,29 @@ async function drainOutbox(): Promise<void> {
 
     markOutboxSynced(result.ok);
 
-    // The server returns entries it could NOT apply (e.g. a bad column or an
-    // FK to a not-yet-synced row) in `conflicts`. Previously these were dropped
-    // silently — they stayed pending at attempts=0 and were re-sent every cycle
-    // forever, keeping the indicator stuck with no diagnostic. Count the attempt
-    // and record the error so they're bounded by MAX_ATTEMPTS and visible.
+    // The server returns entries it could NOT apply in `conflicts`. Two kinds:
+    //  - PERMANENT (an authorization denial): retrying can never help. Drop the
+    //    entry now instead of dead-lettering it — a dead-lettered authz reject
+    //    stays pending and pins the sync indicator on a write that will never be
+    //    accepted (the known "stuck on N pending" symptom).
+    //  - TRANSIENT (a bad column, an FK to a not-yet-synced row, a maintenance
+    //    freeze): count the attempt and record the error so it's bounded by
+    //    MAX_ATTEMPTS and visible. This preserves the prior behavior for these.
+    // "reason" is the server's own short rejection message (already non-PII —
+    // e.g. "Table not allowed", "Forbidden: teams requires manage_teams") — never
+    // the synced row's field content.
     const entryById = new Map(entries.map(e => [e.id, e]));
     for (const c of result.conflicts ?? []) {
-      incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
       const e = entryById.get(c.id);
+      if (isPermanentRejection(c.error)) {
+        dropOutboxEntry(c.id);
+        if (e) {
+          track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server', permanent: true } });
+        }
+        continue;
+      }
+      incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
       if (e) {
-        // "reason" here is the server's own short rejection message (already
-        // non-PII — e.g. "Table not allowed", "Rejected by server") — never the
-        // synced row's field content.
         track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server' } });
         trackIfNewlyDead(e);
       }

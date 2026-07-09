@@ -27,6 +27,10 @@ export interface Job {
   // Insurance carrier/company name (migration 016). Distinct from
   // reference_number which holds the claim #/customer PO.
   insurance_carrier?: string | null;
+  // Owning team (migration 035 / API 043). NULL means org-wide: visible to
+  // everyone. Once set, the scoped pull (routes/sync.ts teamScopeSql) stops
+  // returning this job to devices outside that team, and reconcile removes it.
+  team_id?: string | null;
 }
 
 export function getOpenJobs(): Job[] {
@@ -103,8 +107,8 @@ export function upsertJob(job: Job): void {
   db.executeSync(
     `INSERT OR REPLACE INTO jobs
        (id, name, status, created_by, created_at, updated_at, synced_at,
-        job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier, type_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier, type_id, team_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([
       job.id, job.name, job.status, job.created_by, job.created_at, job.updated_at, job.synced_at,
       job.job_number ?? null,
@@ -116,6 +120,7 @@ export function upsertJob(job: Job): void {
       job.reference_number ?? null,
       job.insurance_carrier ?? null,
       typeId,
+      job.team_id ?? null,
     ])
   );
 }
@@ -173,6 +178,9 @@ export function updateJobFields(
     type?: string | null;
     reference_number?: string | null;
     insurance_carrier?: string | null;
+    // NULL = org-wide. Setting it removes the job from non-members' devices on
+    // their next sync (scoped pull + reconcile), so the UI confirms the change.
+    team_id?: string | null;
   }
 ): void {
   const db = getDb();
@@ -195,6 +203,7 @@ export function updateJobFields(
   }
   if (fields.reference_number !== undefined) { sets.push('reference_number = ?'); params.push(fields.reference_number); }
   if (fields.insurance_carrier !== undefined) { sets.push('insurance_carrier = ?'); params.push(fields.insurance_carrier); }
+  if (fields.team_id !== undefined) { sets.push('team_id = ?'); params.push(fields.team_id); }
   if (sets.length === 0) return;
   sets.push('updated_at = ?');
   params.push(updated_at);

@@ -1,10 +1,12 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
-import { getAllTeams, upsertTeam, Team } from '../../../src/db/queries/teams';
+import { getAllTeams, getTeamMembers, upsertTeam, Team } from '../../../src/db/queries/teams';
+import { ROLE_TIER } from '../../../src/constants/roles';
+import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
@@ -38,6 +40,27 @@ export default function TeamsScreen() {
   useEffect(() => {
     setTeams(getAllTeams());
   }, [dataVersion]);
+
+  // Client mirror of the server's isOrgAuthority (effectiveTier(role) >= 3, tiers
+  // office_manager/hr_manager/franchise_manager/full_admin). Deliberately keyed on
+  // ROLE_TIER, NOT the manage_teams permission — tier-2 leads hold manage_teams but
+  // are not org authority. ROLE_TIER has no apex bump, but every tier >= 3 role is
+  // already >= 3 there, so it matches the server threshold; unknown roles fail closed.
+  const isOrgAuthority = !!user && (ROLE_TIER[user.role] ?? 0) >= 3;
+
+  // "My Teams" = teams whose local team_members row names the authenticated user,
+  // with the manager flag for the badge. Filtering here from getAllTeams/getTeamMembers
+  // is safe because the device no longer holds foreign teams (sync scopes them away);
+  // the server is the enforcement of record, this split is only presentation.
+  const myTeams = useMemo(() => {
+    if (!user) return [];
+    return teams
+      .map(team => {
+        const mine = getTeamMembers(team.id).find(m => m.user_id === user.id);
+        return mine ? { team, isManager: mine.is_manager === 1 } : null;
+      })
+      .filter((m): m is { team: Team; isManager: boolean } => m !== null);
+  }, [teams, user]);
 
   // Create form state
   const [name, setName] = useState('');
@@ -117,6 +140,26 @@ export default function TeamsScreen() {
     resetForm(); // clear only after successful submit
   }
 
+  function renderTeamCard(team: Team, isManager: boolean) {
+    const typeIcon = getTypeIcon('team', team.type);
+    return (
+      <TouchableOpacity
+        key={team.id}
+        onPress={() => router.push({ pathname: '/(app)/(teams)/[id]', params: { id: team.id } })}
+      >
+        <Card variant="list">
+          <View style={s.cardRow}>
+            <View style={s.cardText}>
+              <Text style={s.name}>{team.name}</Text>
+              <Text style={s.type}>{typeIcon ? `${typeIcon} ${team.type}` : team.type}</Text>
+            </View>
+            {isManager ? <Text style={s.managerBadge}>Manager</Text> : null}
+          </View>
+        </Card>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: 'Teams', headerShown: true }} />
@@ -134,9 +177,7 @@ export default function TeamsScreen() {
           </View>
         )}
 
-        <FlatList
-          data={teams}
-          keyExtractor={t => t.id}
+        <ScrollView
           contentContainerStyle={s.list}
           refreshControl={
             <RefreshControl
@@ -146,27 +187,31 @@ export default function TeamsScreen() {
               colors={[colors.primary]}
             />
           }
-          renderItem={({ item: team }) => {
-            const typeIcon = getTypeIcon('team', team.type);
-            return (
-              <TouchableOpacity
-                onPress={() => router.push({ pathname: '/(app)/(teams)/[id]', params: { id: team.id } })}
-              >
-                <Card variant="list">
-                  <Text style={s.name}>{team.name}</Text>
-                  <Text style={s.type}>{typeIcon ? `${typeIcon} ${team.type}` : team.type}</Text>
-                </Card>
-              </TouchableOpacity>
-            );
-          }}
-          ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyText}>
-                No teams set up yet{canManage ? '. Tap "+ New" to create one.' : '.'}
-              </Text>
-            </View>
-          }
-        />
+        >
+          {isOrgAuthority ? (
+            <>
+              <Text style={s.sectionHeader}>My Teams</Text>
+              {myTeams.length
+                ? myTeams.map(m => renderTeamCard(m.team, m.isManager))
+                : <Text style={s.sectionEmpty}>You're not on a team yet.</Text>}
+
+              <Text style={s.sectionHeader}>All Teams</Text>
+              {teams.length
+                ? teams.map(team => renderTeamCard(team, false))
+                : <Text style={s.sectionEmpty}>
+                    No teams set up yet{canManage ? '. Tap "+ New" to create one.' : '.'}
+                  </Text>}
+            </>
+          ) : myTeams.length ? (
+            myTeams.map(m => renderTeamCard(m.team, m.isManager))
+          ) : (
+            <EmptyState
+              icon="👥"
+              title="You're not on a team yet"
+              subtitle="Ask an admin to add you to a team to see it here."
+            />
+          )}
+        </ScrollView>
 
         {/* Create team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
         <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
@@ -224,10 +269,20 @@ const s = StyleSheet.create({
   addBtn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   list: { padding: 12, gap: 8, paddingBottom: 48 },
+  sectionHeader: {
+    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 2, paddingHorizontal: 4,
+  },
+  sectionEmpty: { fontSize: 13, color: colors.textMuted, paddingHorizontal: 4, paddingVertical: 8 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  cardText: { flex: 1 },
+  managerBadge: {
+    fontSize: 11, fontWeight: '700', color: colors.primary,
+    backgroundColor: colors.primaryBg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+    overflow: 'hidden',
+  },
   name: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   type: { fontSize: 12, color: colors.textSecondary, marginTop: 2, textTransform: 'capitalize' },
-  empty: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 24 },
-  emptyText: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
 
   modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
   chipRow: { gap: 8, paddingRight: 8 },

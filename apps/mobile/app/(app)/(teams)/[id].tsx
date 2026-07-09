@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
   setMemberManagerOnline, setMemberPermissionOverridesOnline,
@@ -11,13 +11,12 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
-import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { getAllActiveUsers, roleColor, getRoleColorMap, getRolePermissionOverrides } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, UserRole, Permission, canActOnTarget } from '../../../src/constants/roles';
+import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, ROLE_TIER, UserRole, Permission, canActOnTarget } from '../../../src/constants/roles';
 import { parsePermissionOverrides } from '../../../src/auth/permissions';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
@@ -28,17 +27,51 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
+import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { QuickCreateSheet } from '../../../src/components/quickadd/QuickCreateSheet';
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
-  const canManage = usePermission('manage_teams');
   const { locked } = useMaintenanceMode();
 
   const [team, setTeam] = useState<Team | null>(() => getTeamById(id));
   const [members, setMembers] = useState<TeamMember[]>(() => getTeamMembers(id));
+
+  // Re-read team + roster on focus so a stale foreign team (still held before
+  // teamPurge.reconcileTeams runs) or a server-side manager demotion self-corrects
+  // once the next pull applies — the disables below are courtesy, not enforcement.
+  useFocusEffect(
+    useCallback(() => {
+      setTeam(getTeamById(id));
+      setMembers(getTeamMembers(id));
+    }, [id]),
+  );
+
+  // Membership resolved from the AUTHENTICATED caller's own team_members row, never
+  // the payload. is_manager here can lag the server: a manager demoted server-side
+  // keeps is_manager=1 locally until the next pull (we re-read on focus, above).
+  const myMembership = useMemo(
+    () => members.find(m => m.user_id === user?.id) ?? null,
+    [members, user?.id],
+  );
+  const isMember = myMembership !== null;
+  const isManager = myMembership?.is_manager === 1;
+  // Org authority is a TIER test (>= 3), mirroring the server's isOrgAuthority and the
+  // list screen — deliberately NOT the manage_teams permission: tier-3 office/hr
+  // managers are org authority yet lack manage_teams, while tier-2 leads hold
+  // manage_teams but are not org authority. Unknown roles fail closed.
+  const isOrgAuthority = !!user && (ROLE_TIER[user.role] ?? 0) >= 3;
+
+  // Who may act on the roster: org authority (full) or this team's managers. A plain
+  // member sees the roster read-only (no controls). manage_teams is NOT the gate.
+  const canManageRoster = isOrgAuthority || isManager;
+  // Courtesy gray-out only — NOT enforcement. A team manager without org authority may
+  // not appoint/demote managers, remove themselves, or rename/delete the team; those
+  // controls are disabled here, but the server guard (routes/teams.ts + /sync/push) is
+  // the enforcement of record.
+  const managerRestricted = isManager && !isOrgAuthority;
 
   // Edit modal
   const [showEdit, setShowEdit] = useState(false);
@@ -361,6 +394,25 @@ export default function TeamDetailScreen() {
     );
   }
 
+  // ── Deep-link guard ──────────────────────────────────────────────────────────
+  // Non-members with no org authority never see the roster/activity/stock — covers a
+  // stale device still holding a foreign team before reconcileTeams runs, and any web
+  // client. The server scopes pulls (sync.ts teamScopeSql); this is the UI backstop.
+  if (!isMember && !isOrgAuthority) {
+    return (
+      <>
+        <Stack.Screen options={{ title: team.name, headerShown: true }} />
+        <View style={s.center}>
+          <EmptyState
+            icon="🔒"
+            title="You're not a member of this team"
+            subtitle="Ask a team manager or an admin to add you."
+          />
+        </View>
+      </>
+    );
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -389,17 +441,27 @@ export default function TeamDetailScreen() {
               </View>
             </View>
           )}
-          {canManage && (
-            <TouchableOpacity style={s.editBtn} onPress={openEdit}>
+          {canManageRoster && (
+            <TouchableOpacity
+              style={[s.editBtn, managerRestricted && s.mgrToggleDisabled]}
+              onPress={openEdit}
+              disabled={managerRestricted}
+            >
               <Text style={s.editBtnText}>Edit Team</Text>
             </TouchableOpacity>
+          )}
+          {managerRestricted && (
+            <Text style={s.restrictNote}>
+              You're a team manager. Only an organization admin can appoint managers,
+              rename or delete the team, or remove you from it.
+            </Text>
           )}
         </Card>
 
         {/* Roster */}
         <View style={s.sectionHeader}>
           <Text style={s.sectionLabel}>Members ({members.length})</Text>
-          {canManage && (
+          {canManageRoster && (
             <TouchableOpacity onPress={() => setShowAddMember(true)}>
               <Text style={s.addLink}>+ Add</Text>
             </TouchableOpacity>
@@ -409,7 +471,7 @@ export default function TeamDetailScreen() {
         <Card variant="detail">
           {members.length === 0 ? (
             <Text style={s.muted}>
-              No members yet{canManage ? '. Tap "+ Add" to add someone.' : '.'}
+              No members yet{canManageRoster ? '. Tap "+ Add" to add someone.' : '.'}
             </Text>
           ) : (
             members.map((m, i) => {
@@ -419,6 +481,9 @@ export default function TeamDetailScreen() {
               // closed if the session role is missing. (Remove stays available —
               // it's a membership action, not a role/permission change.)
               const canActMember = canActOnTarget((user?.role ?? '') as UserRole, (m.user_role ?? '') as UserRole);
+              // A manager without org authority may not remove themselves (courtesy
+              // gray-out; the server is the enforcement of record).
+              const blockSelfRemove = managerRestricted && m.user_id === user?.id;
               return (
               <View
                 key={m.user_id}
@@ -431,21 +496,21 @@ export default function TeamDetailScreen() {
                       {ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role}
                     </Text>
                   )}
-                  {canManage && !canActMember && (
+                  {canManageRoster && !canActMember && (
                     <Text style={s.lockNote}>
                       🔒 At or above your access level — you can't change their role or permissions.
                     </Text>
                   )}
                 </View>
-                {canManage ? (
+                {canManageRoster ? (
                   <TouchableOpacity
                     onPress={() => handleToggleManager(m)}
-                    disabled={locked || !canActMember}
+                    disabled={locked || !canActMember || managerRestricted}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     style={[
                       s.mgrToggle,
                       m.is_manager === 1 && s.mgrToggleActive,
-                      (locked || !canActMember) && s.mgrToggleDisabled,
+                      (locked || !canActMember || managerRestricted) && s.mgrToggleDisabled,
                     ]}
                   >
                     <Text
@@ -462,7 +527,7 @@ export default function TeamDetailScreen() {
                     <Text style={s.mgrBadgeText}>Manager</Text>
                   </View>
                 ) : null}
-                {canManage && (
+                {canManageRoster && (
                   <TouchableOpacity
                     onPress={() => openPermEditor(m)}
                     disabled={locked || !canActMember}
@@ -472,11 +537,12 @@ export default function TeamDetailScreen() {
                     <Text style={s.permsText}>Perms</Text>
                   </TouchableOpacity>
                 )}
-                {canManage && (
+                {canManageRoster && (
                   <TouchableOpacity
                     onPress={() => handleRemoveMember(m)}
+                    disabled={blockSelfRemove}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={s.removeBtn}
+                    style={[s.removeBtn, blockSelfRemove && s.mgrToggleDisabled]}
                   >
                     <Text style={s.removeText}>Remove</Text>
                   </TouchableOpacity>
@@ -690,6 +756,7 @@ const s = StyleSheet.create({
   memberName: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
   memberRole: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   lockNote: { fontSize: 12, color: colors.textMuted, lineHeight: 16, marginTop: 4, maxWidth: '90%' },
+  restrictNote: { fontSize: 12, color: colors.textMuted, lineHeight: 16, marginTop: 10 },
   removeBtn: { marginLeft: 12 },
   removeText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   permsBtn: {
