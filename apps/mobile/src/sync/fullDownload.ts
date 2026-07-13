@@ -84,6 +84,12 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
   const schema = await import('../db/schema');
   const db = schema.getDb();
 
+  // Local column set for the generic arm, resolved once per page. The server
+  // can be migrations ahead of this bundle (web deploys and field APKs lag the
+  // API), so any server column the local table doesn't have yet must be
+  // dropped, not INSERTed — otherwise first-launch dies on the unknown column.
+  let localCols: Set<string> | null = null;
+
   for (const row of rows as Record<string, unknown>[]) {
     switch (table) {
       case 'inventory_items': upsertItem(row as any); break;
@@ -114,11 +120,17 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)
         // and sanitize values (JSONB objects / booleans) for op-sqlite.
-        const cols = Object.keys(row);
+        if (!localCols) {
+          localCols = new Set(
+            (db.executeSync(`PRAGMA table_info(${table})`).rows as { name: string }[]).map(r => r.name),
+          );
+        }
+        const known = localCols;
+        const cols = Object.keys(row).filter(c => known.has(c));
         if (cols.length === 0) break;
         db.executeSync(
           `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
-          schema.bindParams(Object.values(row)),
+          schema.bindParams(cols.map(c => row[c])),
         );
         break;
       }
