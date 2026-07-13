@@ -343,6 +343,11 @@ export default function LoginScreen() {
           onChangeText={setSearch}
           autoCapitalize="none"
           autoCorrect={false}
+          // Desktop flow: land in search on load, Enter picks the top match —
+          // name → Enter → PIN digits, no mouse. Native keeps the soft
+          // keyboard tucked away until the user taps.
+          autoFocus={Platform.OS === 'web'}
+          onSubmitEditing={() => { if (filtered.length > 0) selectUser(filtered[0]); }}
         />
       </View>
 
