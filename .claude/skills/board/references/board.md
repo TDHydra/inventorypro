@@ -45,6 +45,12 @@ The real invariant is narrower: **no OPEN issue may sit in `Done`.**
     "Rejected": "5da22600"
   },
   "area_field_id": "PVTSSF_lAHODJIRY84Bc40qzhXecgY",
+  "priority_field_id": "PVTSSF_lAHODJIRY84Bc40qzhXeXFM",
+  "priority_options": {
+    "P0": "79628723",
+    "P1": "0a877460",
+    "P2": "da944a9c"
+  },
   "rehearsal_project_id": "PVT_kwHODJIRY84Bc42n"
 }
 ```
