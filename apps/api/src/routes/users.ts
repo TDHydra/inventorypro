@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { randomInt } from 'node:crypto';
 import { requirePermission, userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import { sendEnrollmentCodeEmail } from '../lib/mail';
+import { EMAIL_SCHEMA } from '../lib/schemaShapes';
 
 // Resolve the caller's effective permissions (role default + role/user overrides),
 // same source requirePermission uses. Returns null when the caller is unknown.
@@ -282,7 +283,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         properties: {
           // Optional recipient override; falls back to the stored users.email.
-          email: { type: 'string', minLength: 3, maxLength: 320 },
+          email: EMAIL_SCHEMA,
         },
       },
     },

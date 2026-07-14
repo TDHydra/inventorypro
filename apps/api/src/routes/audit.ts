@@ -1,6 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission, effectiveTier } from '../lib/permissions';
 import { isAuditDebug, setAuditDebug } from '../lib/audit';
+import { createDemoModeGate, DemoModeGate } from '../lib/demoMode';
+import { UUID_SCHEMA } from '../lib/schemaShapes';
 
 // Admin read surface for the API access/audit trail (migration 042).
 // Gated on `view_audit_log`. Raw PII (ip / user_agent / device) is returned only
@@ -20,8 +22,18 @@ interface ListQuery {
   limit?: number;
 }
 
-const routes: FastifyPluginAsync = async (fastify) => {
+export interface AuditRoutesOpts {
+  // Shared with routes/auth.ts (see index.ts) so a PATCH here invalidates the
+  // SAME cache the roster/set-pin checks read — not a second instance whose
+  // stale value would linger a full TTL.
+  demoGate?: DemoModeGate;
+}
+
+const routes: FastifyPluginAsync<AuditRoutesOpts> = async (fastify, opts) => {
   auth.preHandler = [(fastify as any).authenticate];
+  const demoGate = opts.demoGate ?? createDemoModeGate({
+    query: (sql, params) => fastify.pg.query(sql, params as any[]),
+  });
 
   // Resolve the caller's role from the DB (authoritative) and confirm the
   // permission. Returns null after replying 403.
@@ -48,13 +60,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
       querystring: {
         type: 'object',
         properties: {
-          outcome: { type: 'string', enum: ['success', 'denied', 'rate_limited', 'client_error', 'server_error'] },
-          user_id: { type: 'string', format: 'uuid' },
+          outcome: { type: 'string', enum: ['success', 'denied', 'rate_limited', 'client_error', 'server_error', 'validation_reject'] },
+          user_id: UUID_SCHEMA,
           method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'DELETE'] },
           q: { type: 'string', maxLength: 200 },
           security_only: { type: 'boolean' },
           before_ts: { type: 'string' },
-          before_id: { type: 'string', format: 'uuid' },
+          before_id: UUID_SCHEMA,
           limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
         },
       },
@@ -125,7 +137,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       params: {
         type: 'object',
         required: ['requestId'],
-        properties: { requestId: { type: 'string', format: 'uuid' } },
+        properties: { requestId: UUID_SCHEMA },
       },
     },
   }, async (request, reply) => {
@@ -162,6 +174,36 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (!g) return;
     if (!g.isApex) return reply.status(403).send({ error: 'Only a full admin can change audit debug mode.' });
     return { debug: setAuditDebug(request.body.debug) };
+  });
+
+  // GET/PATCH /audit/demo-mode — kill switch for the public demo accounts
+  // (app_config.demo_mode, migration 047). OFF hides demo accounts from the
+  // login roster and blocks their /auth/set-pin enrollment. Persisted (unlike
+  // /audit/debug): whether strangers can enter the demo sandbox must survive a
+  // restart. Missing row → ON, matching the migration seed.
+  fastify.get('/demo-mode', { ...auth }, async (request, reply) => {
+    const g = await gate(request, reply);
+    if (!g) return;
+    return { enabled: await demoGate.isEnabled() };
+  });
+
+  fastify.patch<{ Body: { enabled: boolean } }>('/demo-mode', {
+    ...auth,
+    schema: {
+      body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
+    },
+  }, async (request, reply) => {
+    const g = await gate(request, reply);
+    if (!g) return;
+    if (!g.isApex) return reply.status(403).send({ error: 'Only a full admin can change demo mode.' });
+    await fastify.pg.query(
+      `INSERT INTO app_config (key, value, updated_at)
+       VALUES ('demo_mode', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [request.body.enabled ? '1' : '0'],
+    );
+    demoGate.invalidate();
+    return { enabled: request.body.enabled };
   });
 };
 

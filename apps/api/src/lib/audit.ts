@@ -10,7 +10,7 @@ import type { FastifyRequest } from 'fastify';
 // denylist of field names, which silently fails the moment someone adds a new
 // secret-bearing field. audit.test.ts enforces this.
 
-export type Outcome = 'success' | 'denied' | 'rate_limited' | 'client_error' | 'server_error';
+export type Outcome = 'success' | 'denied' | 'rate_limited' | 'client_error' | 'server_error' | 'validation_reject';
 
 // Routine, high-volume endpoints that would otherwise bury the signal. Every
 // offline-first device polls /sync/pull continuously and flushes /telemetry in
@@ -52,9 +52,14 @@ export function setAuditDebug(on: boolean): boolean {
 export const AUDIT_RETAIN_DAYS = parseInt(process.env.AUDIT_RETAIN_DAYS ?? '30', 10);
 export const AUDIT_RETAIN_SECURITY_DAYS = parseInt(process.env.AUDIT_RETAIN_SECURITY_DAYS ?? '365', 10);
 
-export function outcomeFor(statusCode: number): Outcome {
+// `validationReject` is stashed by the global error handler when Fastify's
+// schema validation rejected the request (err.validation) — a malformed-input
+// probe is distinguishable from an ordinary client error without ever reading
+// the offending body.
+export function outcomeFor(statusCode: number, validationReject = false): Outcome {
   if (statusCode >= 500) return 'server_error';
   if (statusCode === 429) return 'rate_limited';       // brute force ≠ validation typo
+  if (validationReject && statusCode >= 400) return 'validation_reject';
   if (statusCode === 401 || statusCode === 403) return 'denied';
   if (statusCode >= 400) return 'client_error';
   return 'success';
@@ -64,8 +69,12 @@ export function outcomeFor(statusCode: number): Outcome {
 // who-can-do-what. These answer "was there an intrusion", not "was there traffic".
 export function isSecurityClass(method: string, url: string, outcome: Outcome): boolean {
   if (outcome === 'denied' || outcome === 'rate_limited' || outcome === 'server_error') return true;
+  // Schema-invalid input is probe-shaped traffic — retained like other failures.
+  if (outcome === 'validation_reject') return true;
   if (url.startsWith('/auth')) return true;            // logins, set-pin, refresh — success or not
   if (method === 'GET') return false;
+  // Toggling the demo-account kill switch changes who can sign in.
+  if (url.startsWith('/audit/demo-mode')) return true;
   return /^\/(users|teams)\b/.test(url);               // role/permission/membership changes
 }
 
@@ -126,10 +135,11 @@ export function buildAuditRow(
   durationMs: number,
   actor: { id: string | null; name: string | null; role: string | null },
   errorMessage: string | null,
+  validationReject = false,
 ): AuditRow {
   const method = request.method;
   const path = stripQuery(request.url);
-  const outcome = outcomeFor(statusCode);
+  const outcome = outcomeFor(statusCode, validationReject);
   return {
     request_id: String(request.id),
     user_id: actor.id,

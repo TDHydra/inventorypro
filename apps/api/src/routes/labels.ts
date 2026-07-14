@@ -1,9 +1,21 @@
 import { FastifyPluginAsync } from 'fastify';
 import QRCode from 'qrcode';
 import { signPayload, getQrSecret } from '../lib/qrSign';
+import { overLimit } from '../lib/rateLimit';
 
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = { preHandler: [(fastify as any).authenticate] };
+
+  // Per-IP cap on QR PNG renders: each request costs a signing lookup plus a
+  // 512px PNG encode, and /labels is excluded from the audit trail as noise
+  // (NOISY_PREFIXES), so without a limiter it is a free CPU-burn target.
+  // Scoped hook — applies to every route in this plugin only. 60/min is far
+  // above any label-printing session.
+  fastify.addHook('onRequest', async (request, reply) => {
+    if (overLimit(`labels:${request.ip}`, 60)) {
+      return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
+    }
+  });
 
   // GET /labels/item/:id/qr.png
   fastify.get<{ Params: { id: string } }>('/item/:id/qr.png', {

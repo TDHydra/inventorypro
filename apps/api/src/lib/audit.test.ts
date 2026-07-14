@@ -17,6 +17,15 @@ test('outcomeFor separates rate limiting from ordinary client errors', () => {
   assert.equal(outcomeFor(503), 'server_error');
 });
 
+test('outcomeFor flags schema-validation rejects distinctly — but only on 4xx', () => {
+  assert.equal(outcomeFor(400, true), 'validation_reject');
+  assert.equal(outcomeFor(400), 'client_error');          // no flag → ordinary 4xx
+  assert.equal(outcomeFor(400, false), 'client_error');
+  assert.equal(outcomeFor(500, true), 'server_error');    // 5xx always wins
+  assert.equal(outcomeFor(429, true), 'rate_limited');    // throttling wins too
+  assert.equal(outcomeFor(200, true), 'success');         // stray flag on a 2xx is ignored
+});
+
 test('security class covers failures, all auth traffic, and privilege changes', () => {
   assert.equal(isSecurityClass('POST', '/auth/token', 'success'), true);   // successful login
   assert.equal(isSecurityClass('POST', '/auth/token', 'denied'), true);    // failed login
@@ -27,6 +36,12 @@ test('security class covers failures, all auth traffic, and privilege changes', 
   assert.equal(isSecurityClass('POST', '/teams/x/members', 'success'), true);
   assert.equal(isSecurityClass('GET', '/items', 'success'), false);        // routine read
   assert.equal(isSecurityClass('POST', '/sync/push', 'success'), false);   // routine write
+  // Schema-invalid input is probe-shaped traffic — retained like other failures.
+  assert.equal(isSecurityClass('POST', '/items', 'validation_reject'), true);
+  assert.equal(isSecurityClass('GET', '/items', 'validation_reject'), true);
+  // Toggling the demo-account kill switch changes who can sign in; reading it doesn't.
+  assert.equal(isSecurityClass('PATCH', '/audit/demo-mode', 'success'), true);
+  assert.equal(isSecurityClass('GET', '/audit/demo-mode', 'success'), false);
 });
 
 test('shouldAudit drops routine sync polls but never a failure or a mutation', () => {
@@ -123,6 +138,30 @@ test('buildAuditRow never captures the body, Authorization, or Cookie', () => {
   assert.equal(row.user_agent, 'InventoryPro/1.0');
   assert.equal(row.device_id, 'dev-1');
   assert.equal(row.security_class, true);
+});
+
+// The validation_reject flag threads through to the row WITHOUT weakening the
+// invariant above: still a boolean stashed by the error handler, never the
+// offending body itself.
+test('buildAuditRow marks validation rejects and keeps them security-class', () => {
+  const fakeRequest = {
+    method: 'POST',
+    url: '/items?x=1',
+    id: 'r-vr',
+    ip: '10.0.0.9',
+    routeOptions: { url: '/items' },
+    body: { name: 12345, oversized: 'x'.repeat(9000) },   // must never leak
+    headers: { 'user-agent': 'InventoryPro/1.0' },
+  } as any;
+
+  const row = buildAuditRow(fakeRequest, 400, 3, { id: null, name: null, role: null }, 'body/name must be string', true);
+  assert.equal(row.outcome, 'validation_reject');
+  assert.equal(row.security_class, true);
+  assert.ok(!JSON.stringify(row).includes('oversized'), 'audit row leaked the body');
+
+  // Same request without the flag stays an ordinary client_error.
+  const plain = buildAuditRow(fakeRequest, 400, 3, { id: null, name: null, role: null }, null);
+  assert.equal(plain.outcome, 'client_error');
 });
 
 test('buildAuditRow snapshots the actor so a deleted user stays identifiable', () => {

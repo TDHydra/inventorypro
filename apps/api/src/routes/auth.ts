@@ -1,6 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import bcrypt from 'bcrypt';
 import { overLimit } from '../lib/rateLimit';
+import { createDemoModeGate, DemoModeGate } from '../lib/demoMode';
+import { UUID_SCHEMA } from '../lib/schemaShapes';
 
 interface TokenBody {
   user_id: string;
@@ -26,15 +28,10 @@ export const WINDOW_MS = 15 * 60_000;
 // user_id must look like the UUID primary key it is (users.id). Without this
 // bound, any unauthenticated caller could spray unique junk user_ids at
 // /auth/token — each recordFail() permanently added a map entry, growing the
-// attempts map without limit (memory-exhaustion DoS). A `pattern` (NOT
-// format:'uuid' — fastify's default Ajv has no ajv-formats registered, so
-// `format` would be silently ignored) plus maxLength closes the hole at the
-// schema layer; the sweep timer below reclaims what legitimate churn leaves.
-const USER_ID_SCHEMA = {
-  type: 'string',
-  maxLength: 36,
-  pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-} as const;
+// attempts map without limit (memory-exhaustion DoS). The shared UUID_SCHEMA
+// (lib/schemaShapes.ts) closes the hole at the schema layer with pattern +
+// maxLength; the sweep timer below reclaims what legitimate churn leaves.
+const USER_ID_SCHEMA = UUID_SCHEMA;
 
 // Periodic garbage collection for the attempts map: recordSuccess() is the ONLY
 // other deletion path, so keys for never-successful targets (bogus user_ids,
@@ -117,7 +114,16 @@ function rosterRateLimited(ip: string): boolean {
   return r.count > ROSTER_LIMIT;
 }
 
-const routes: FastifyPluginAsync = async (fastify) => {
+export interface AuthRoutesOpts {
+  // Shared with routes/audit.ts (see index.ts) so PATCH /audit/demo-mode
+  // invalidates the cache these routes read.
+  demoGate?: DemoModeGate;
+}
+
+const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
+  const demoGate = opts.demoGate ?? createDemoModeGate({
+    query: (sql, params) => fastify.pg.query(sql, params as any[]),
+  });
   // GET /auth/roster — PUBLIC login picker roster. Intentionally unauthenticated:
   // a brand-new device has no token yet and needs the list of names to sign in.
   // Returns ONLY the minimum the picker needs — id, name, role (display subtitle),
@@ -129,6 +135,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (rosterRateLimited(request.ip)) {
       return reply.status(429).send({ error: 'Too many requests. Try again later.' });
     }
+    // Demo mode OFF hides the demo accounts entirely: they are neither listed
+    // nor is their public enrollment code exposed. Filtered in SQL (not in the
+    // mapping) so a disabled demo account can never reach the response at all.
+    const demoOn = await demoGate.isEnabled();
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
       pin_length_required: number; pin_set: boolean;
@@ -141,6 +151,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
          FROM users
         WHERE active = true
           AND (expires_at IS NULL OR expires_at > NOW())
+          ${demoOn ? '' : 'AND NOT is_test'}
         ORDER BY name`,
       []
     );
@@ -153,8 +164,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
         pin_set: u.pin_set ? 1 : 0,
         is_test: u.is_test ? 1 : 0,
         // Public BY DESIGN (login screen shows it for demo accounts); the CASE
-        // above guarantees it is null for every real account.
-        test_code: u.test_code,
+        // above guarantees it is null for every real account, and the demo-mode
+        // filter guarantees no is_test row exists here when the switch is off.
+        test_code: demoOn ? u.test_code : null,
       })),
     });
   });
@@ -306,6 +318,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
     // matches the 15-minute idle cap on device; `test: true` in the JWT is
     // observability only — enforcement is DB-resolved everywhere.
     if (user.is_test) {
+      // Kill switch first — when demo mode is off a demo account is not
+      // enrollable at all, so refuse BEFORE comparing the (public) code.
+      if (!(await demoGate.isEnabled())) {
+        return reply.status(403).send({ error: 'Demo accounts are currently disabled' });
+      }
       if (!user.enrollment_code_public || request.body.enrollment_code !== user.enrollment_code_public) {
         recordFail(lockKey);
         return reply.status(401).send({ error: 'Invalid enrollment code' });
