@@ -146,12 +146,3 @@ export function deleteMedia(id: string, userId: string | null): void {
   appendOutbox('DELETE', 'media', { id });
   logMediaAction('media_deleted', id, userId, null);
 }
-
-// Batch delete — same offline-first contract as deleteMedia, one outbox entry
-// per id so the server processes each independently (permission re-check +
-// object cleanup per row on apply).
-export function deleteBulkMedia(ids: string[], userId: string | null): void {
-  for (const id of ids) {
-    deleteMedia(id, userId);
-  }
-}

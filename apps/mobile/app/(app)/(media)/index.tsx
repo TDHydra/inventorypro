@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, Image, StyleSheet,
   Dimensions, RefreshControl,
@@ -9,13 +9,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { MediaDetailSheet } from '../../../src/components/MediaDetailSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { useSession } from '../../../src/hooks/useSession';
-import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
-import { isWriteBlocked } from '../../../src/db/maintenance';
-import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
-import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
-import { Alert } from '../../../src/lib/themedAlert';
-import { getMediaHubPage, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
+import { getMediaHubPage, MediaHubRow, MediaHubFilter } from '../../../src/db/queries/media';
 import { syncNow } from '../../../src/sync/engine';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
@@ -33,10 +27,6 @@ const FILTERS: { label: string; value: MediaHubFilter }[] = [
 export default function MediaHubScreen() {
   // 'everything' surfaces media on non-job entities too — same gate as Activity Logs.
   const canViewAll = usePermission('view_all_logs');
-  const canDelete = usePermission('delete_media');
-  const { user } = useSession();
-  const { locked } = useMaintenanceMode();
-  const ms = useMultiSelect<MediaHubRow>();
 
   const [filter, setFilter] = useState<MediaHubFilter>('open');
   const [query, setQuery] = useState('');
@@ -118,37 +108,6 @@ export default function MediaHubScreen() {
     ? `No media matching "${query}"`
     : filter === 'open' ? 'No media on open jobs' : 'No media yet';
 
-  // Bulk delete — permanently removes selected media (offline-first, same as
-  // single delete). Gated on delete_media; server re-checks on sync push.
-  const handleBulkDelete = useCallback(() => {
-    if (isWriteBlocked()) return;
-    const ids = Array.from(ms.selected);
-    if (ids.length === 0) { ms.exit(); return; }
-    Alert.alert(
-      `Delete ${ids.length} item${ids.length === 1 ? '' : 's'}?`,
-      'This permanently removes the selected photos and videos from every device. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: `Delete ${ids.length}`,
-          style: 'destructive',
-          onPress: () => {
-            deleteBulkMedia(ids, user?.id ?? null);
-            reloadWindow();
-            ms.exit();
-            void syncNow().catch(() => { /* offline — deletes flush on next sync */ });
-          },
-        },
-      ],
-    );
-  }, [ms, reloadWindow, user?.id]);
-
-  const bulkActions = useMemo<BulkAction[]>(() => [
-    ...(canDelete
-      ? [{ key: 'delete', label: 'Delete', destructive: true, onPress: () => { handleBulkDelete(); } } as BulkAction]
-      : []),
-  ], [canDelete, handleBulkDelete]);
-
   return (
     <>
       <Stack.Screen options={{ title: 'Media', headerShown: true }} />
@@ -196,38 +155,21 @@ export default function MediaHubScreen() {
               colors={[colors.primary]}
             />
           }
-          renderItem={({ item }) => {
-            const selected = ms.isSelected(item.id);
-            return (
-              <TouchableOpacity
-                style={s.cell}
-                activeOpacity={0.8}
-                onPress={() => {
-                  if (ms.active) { ms.toggle(item.id); return; }
-                  setSelectedId(item.id);
-                }}
-                onLongPress={() => { if (!ms.active) ms.enter(item.id); }}
-                delayLongPress={300}
-              >
-                <View>
-                  <Image source={{ uri: item.thumbnail_url ?? item.url }} style={[s.thumb, ms.active && selected && s.thumbSelected]} resizeMode="cover" />
-                  {item.media_type === 'video' && !ms.active && (
-                    <View style={s.videoBadge}>
-                      <Text style={s.videoIcon}>▶</Text>
-                    </View>
-                  )}
-                  {ms.active && (
-                    <View style={[s.checkOverlay, selected && s.checkOverlayOn]}>
-                      {selected && <Text style={s.checkMark}>✓</Text>}
-                    </View>
-                  )}
-                </View>
-                <Text style={s.cellCaption} numberOfLines={1}>
-                  {item.location_note ?? item.job_name ?? ''}
-                </Text>
-              </TouchableOpacity>
-            );
-          }}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={s.cell} activeOpacity={0.8} onPress={() => setSelectedId(item.id)}>
+              <View>
+                <Image source={{ uri: item.thumbnail_url ?? item.url }} style={s.thumb} resizeMode="cover" />
+                {item.media_type === 'video' && (
+                  <View style={s.videoBadge}>
+                    <Text style={s.videoIcon}>▶</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={s.cellCaption} numberOfLines={1}>
+                {item.location_note ?? item.job_name ?? ''}
+              </Text>
+            </TouchableOpacity>
+          )}
           ListEmptyComponent={
             loaded ? (
               <EmptyState
@@ -238,15 +180,6 @@ export default function MediaHubScreen() {
             ) : null
           }
         />
-        {ms.active && (
-          <BulkActionBar
-            count={ms.count}
-            actions={bulkActions}
-            onSelectAll={() => ms.selectAll(rows.map(r => r.id))}
-            onCancel={ms.exit}
-            disabled={locked}
-          />
-        )}
       </View>
 
       <MediaDetailSheet
@@ -274,7 +207,6 @@ const s = StyleSheet.create({
   gridRow: { gap: 12, marginBottom: 12 },
   cell: { width: THUMB },
   thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: colors.border },
-  thumbSelected: { opacity: 0.65 },
   videoBadge: {
     position: 'absolute', top: 0, left: 0, width: THUMB, height: THUMB,
     alignItems: 'center', justifyContent: 'center',
@@ -282,13 +214,4 @@ const s = StyleSheet.create({
   },
   videoIcon: { color: '#fff', fontSize: 24 },
   cellCaption: { fontSize: fontSizes.xs, color: colors.textSecondary, marginTop: 3 },
-  checkOverlay: {
-    position: 'absolute', top: 4, right: 4,
-    width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2, borderColor: '#fff',
-    backgroundColor: 'rgba(15,23,42,0.35)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  checkOverlayOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: '#fff', fontSize: 13, fontWeight: '700', lineHeight: 16 },
 });
