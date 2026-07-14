@@ -14,7 +14,9 @@ import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker } from '../../../src/components/pickers';
+import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
+import { HidableField } from '../../../src/components/ui/HidableField';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
 import {
   getUnitByTag, upsertUnit, getUnitsForItem, countUnitsByStatus,
   setUnitStatus, EquipmentUnit,
@@ -50,6 +52,32 @@ function buildMaintMap(units: EquipmentUnit[]): Map<string, MaintenanceEvent[]> 
   return map;
 }
 
+// The methods computeBookValue understands; deselecting the active chip = none.
+const DEPRECIATION_METHODS = [
+  { value: 'straight_line', label: 'Straight line' },
+  { value: 'declining_balance', label: 'Declining balance' },
+] as const;
+
+// Lenient form parsers — blank/unparseable input becomes null, mirroring saveMaint.
+function isoDateOrNull(v: string): string | null {
+  const t = v.trim();
+  if (!t) return null;
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+function numOrNull(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = parseFloat(t);
+  return isNaN(n) ? null : n;
+}
+function intOrNull(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = parseInt(t, 10);
+  return isNaN(n) ? null : n;
+}
+
 export default function EquipmentModelDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -66,13 +94,16 @@ export default function EquipmentModelDetailScreen() {
   const [item, setItem] = useState<InventoryItem | null>(() => getItemById(id));
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [editCategory, setEditCategory] = useState('');
+  // Equipment type (taxonomy category 'equipment', #28): label cache + durable id.
+  // Replaced the free-text category autocomplete — stored category data is left
+  // untouched, it's just no longer edited here.
+  const [editType, setEditType] = useState<string | null>(null);
+  const [editTypeId, setEditTypeId] = useState<string | null>(null);
   const [editReturnable, setEditReturnable] = useState(false);
   const [editTagPrefix, setEditTagPrefix] = useState('');
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
-  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
 
   // Add Units modal state
   const [addUnitsOpen, setAddUnitsOpen] = useState(false);
@@ -108,6 +139,13 @@ export default function EquipmentModelDetailScreen() {
   const [editUnitTag, setEditUnitTag] = useState('');
   const [editUnitSerial, setEditUnitSerial] = useState('');
   const [editUnitNotes, setEditUnitNotes] = useState('');
+  const [editUnitAcquired, setEditUnitAcquired] = useState('');
+  const [editUnitPrice, setEditUnitPrice] = useState('');
+  const [editUnitLife, setEditUnitLife] = useState('');
+  const [editUnitSalvage, setEditUnitSalvage] = useState('');
+  const [editUnitMethod, setEditUnitMethod] = useState('');
+  const [editUnitNextService, setEditUnitNextService] = useState('');
+  const [editUnitInterval, setEditUnitInterval] = useState('');
 
   // Unit history modal state
   const [historyUnit, setHistoryUnit] = useState<EquipmentUnit | null>(null);
@@ -178,7 +216,8 @@ export default function EquipmentModelDetailScreen() {
       sku: item.sku ?? '',
       supplier: item.supplier ?? '',
     });
-    setEditCategory(item.category ?? '');
+    setEditType(item.type ?? null);
+    setEditTypeId(item.type_id ?? null);
     setEditReturnable(item.returnable === 1);
     setEditTagPrefix(item.tag_prefix ?? '');
     setEditing(true);
@@ -195,7 +234,9 @@ export default function EquipmentModelDetailScreen() {
       barcode: form.barcode.trim() || null,
       sku: form.sku.trim() || null,
       supplier: form.supplier.trim() || null,
-      category: editCategory.trim() || null,
+      // type_id is dual-written by updateItemFields (resolveTypeId); stored
+      // `category` is intentionally no longer edited on equipment screens.
+      type: editType,
       returnable: (editReturnable ? 1 : 0) as number,
       tag_prefix: editTagPrefix.trim() || null,
     };
@@ -386,6 +427,13 @@ export default function EquipmentModelDetailScreen() {
     setEditUnitTag(unit.asset_tag);
     setEditUnitSerial(unit.serial_number ?? '');
     setEditUnitNotes(unit.notes ?? '');
+    setEditUnitAcquired(unit.acquired_at ? unit.acquired_at.slice(0, 10) : '');
+    setEditUnitPrice(unit.purchase_price != null ? String(unit.purchase_price) : '');
+    setEditUnitLife(unit.useful_life_months != null ? String(unit.useful_life_months) : '');
+    setEditUnitSalvage(unit.salvage_value != null ? String(unit.salvage_value) : '');
+    setEditUnitMethod(unit.depreciation_method ?? '');
+    setEditUnitNextService(unit.next_service_at ? unit.next_service_at.slice(0, 10) : '');
+    setEditUnitInterval(unit.service_interval_months != null ? String(unit.service_interval_months) : '');
   }
 
   function saveEditUnit() {
@@ -393,11 +441,24 @@ export default function EquipmentModelDetailScreen() {
     if (isWriteBlocked()) return;
     if (!editUnitTag.trim()) { Alert.alert('Required', 'Asset tag is required.'); return; }
     const now = new Date().toISOString();
-    const changes = {
+    const changes: Partial<EquipmentUnit> = {
       asset_tag: editUnitTag.trim(),
       serial_number: editUnitSerial.trim() || null,
       notes: editUnitNotes.trim() || null,
+      acquired_at: isoDateOrNull(editUnitAcquired),
+      useful_life_months: intOrNull(editUnitLife),
+      depreciation_method: editUnitMethod || null,
+      next_service_at: isoDateOrNull(editUnitNextService),
+      service_interval_months: intOrNull(editUnitInterval),
     };
+    // purchase_price / salvage_value arrive null on non-financial devices (the
+    // server strips them from pull), so only write them back when this device
+    // can actually see them — otherwise an edit here would push nulls over the
+    // server's real values.
+    if (canViewFinancial) {
+      changes.purchase_price = numOrNull(editUnitPrice);
+      changes.salvage_value = numOrNull(editUnitSalvage);
+    }
     upsertUnit({ ...editUnit, ...changes, updated_at: now });
     appendOutbox('UPDATE', 'equipment_units', { id: editUnit.id, ...changes, updated_at: now });
     appendLog({
@@ -487,13 +548,19 @@ export default function EquipmentModelDetailScreen() {
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
               <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
               <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
-              <SuggestInput
-                label="Category"
-                value={editCategory}
-                onChange={setEditCategory}
-                suggestions={categoryOptions}
-                placeholder="Air Movers, Dehumidifiers…"
-              />
+              <HidableField fieldId="equipment.type">
+                <View style={s.fieldWrap}>
+                  <TaxonomyChips
+                    category="equipment"
+                    label="Type"
+                    withFallback
+                    deselectable
+                    valueId={editTypeId}
+                    valueLabel={editType}
+                    onChange={v => { setEditType(v.label); setEditTypeId(v.id); }}
+                  />
+                </View>
+              </HidableField>
               <View style={s.fieldWrap}>
                 <FieldLabel>Tag Prefix</FieldLabel>
                 <AppInput
@@ -742,22 +809,97 @@ export default function EquipmentModelDetailScreen() {
           autoCorrect={false}
         />
         <AdvancedFields>
-          <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
-          <AppInput
-            value={editUnitSerial}
-            onChangeText={setEditUnitSerial}
-            placeholder="Serial number"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
-          <AppInput
-            style={s.multiline}
-            value={editUnitNotes}
-            onChangeText={setEditUnitNotes}
-            placeholder="Notes"
-            multiline
-          />
+          <HidableField fieldId="equipment.serial_number">
+            <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
+            <AppInput
+              value={editUnitSerial}
+              onChangeText={setEditUnitSerial}
+              placeholder="Serial number"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </HidableField>
+          <HidableField fieldId="equipment.notes">
+            <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
+            <AppInput
+              style={s.multiline}
+              value={editUnitNotes}
+              onChangeText={setEditUnitNotes}
+              placeholder="Notes"
+              multiline
+            />
+          </HidableField>
+          <HidableField fieldId="equipment.acquired_at">
+            <FieldLabel style={{ marginTop: 10 }}>Acquired date (optional)</FieldLabel>
+            <AppInput
+              value={editUnitAcquired}
+              onChangeText={setEditUnitAcquired}
+              placeholder="YYYY-MM-DD"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </HidableField>
+          {/* Financial fields: view_financial_data gate AND the hidable-field
+              gate must both pass (mirrors the book-value display gating). */}
+          {canViewFinancial && (
+            <HidableField fieldId="equipment.purchase_price">
+              <FieldLabel style={{ marginTop: 10 }}>Purchase price (optional)</FieldLabel>
+              <AppInput
+                value={editUnitPrice}
+                onChangeText={setEditUnitPrice}
+                placeholder="0.00"
+                keyboardType="numeric"
+              />
+            </HidableField>
+          )}
+          <HidableField fieldId="equipment.depreciation">
+            <FieldLabel style={{ marginTop: 10 }}>Useful life (months)</FieldLabel>
+            <AppInput
+              value={editUnitLife}
+              onChangeText={setEditUnitLife}
+              placeholder="e.g. 60"
+              keyboardType="numeric"
+            />
+            {canViewFinancial && (
+              <>
+                <FieldLabel style={{ marginTop: 10 }}>Salvage value (optional)</FieldLabel>
+                <AppInput
+                  value={editUnitSalvage}
+                  onChangeText={setEditUnitSalvage}
+                  placeholder="0.00"
+                  keyboardType="numeric"
+                />
+              </>
+            )}
+            <FieldLabel style={{ marginTop: 10 }}>Depreciation method</FieldLabel>
+            <View style={s.methodRow}>
+              {DEPRECIATION_METHODS.map(m => (
+                <FilterChip
+                  key={m.value}
+                  label={m.label}
+                  active={editUnitMethod === m.value}
+                  onPress={() => setEditUnitMethod(prev => (prev === m.value ? '' : m.value))}
+                />
+              ))}
+            </View>
+          </HidableField>
+          <HidableField fieldId="equipment.service_schedule">
+            <FieldLabel style={{ marginTop: 10 }}>Next service date (optional)</FieldLabel>
+            <AppInput
+              value={editUnitNextService}
+              onChangeText={setEditUnitNextService}
+              placeholder="YYYY-MM-DD"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FieldLabel style={{ marginTop: 10 }}>Service interval (months)</FieldLabel>
+            <AppInput
+              value={editUnitInterval}
+              onChangeText={setEditUnitInterval}
+              placeholder="e.g. 6"
+              keyboardType="numeric"
+            />
+          </HidableField>
         </AdvancedFields>
         <View style={[s.row, { marginTop: 16 }]}>
           <TouchableOpacity
@@ -964,6 +1106,7 @@ const s = StyleSheet.create({
   stockLoc: { fontSize: 15, color: colors.textPrimary, fontWeight: '600', flex: 1 },
   stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
   fieldWrap: { gap: 6 },
+  methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
