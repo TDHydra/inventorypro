@@ -1,64 +1,75 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { getIdleTimeoutMinutes } from '../db/appSettings';
+import { createIdleTimer, IdleTimer } from './idleTimerCore';
 
 /**
  * Idle auto-logout hook.
  *
  * Reads `idle_timeout_minutes` from `app_settings` on every timer arm (mount,
  * AppState→active, and explicit `reset()` calls) so changes to the setting
- * take effect on the next touch or foreground event.
- *
- * When minutes > 0, a `setTimeout(logout, mins * 60_000)` runs and resets on
- * each `reset()` or foreground event.  When minutes === 0, the hook is a no-op.
+ * take effect on the next touch or foreground event. When the effective
+ * minutes are 0, the hook is a no-op. Timer semantics live in
+ * `idleTimerCore.ts` (unit-tested).
  *
  * @param logout  The session-context logout function (clearSession + setUser(null))
- * @returns       `{ reset }` — call on every user touch to restart the timer
+ * @param opts.overrideMinutes  Forces the timeout regardless of the setting —
+ *                              test/demo sessions pin this to 15 (works even
+ *                              when the admin setting disables idle logout).
+ * @param opts.onWarn  Fired 60s before logout (skipped for timeouts ≤90s) —
+ *                     the "Still there?" nudge hangs off this.
+ * @returns `{ reset }` — call on every user touch to restart the timer
  */
-export function useIdleLogout(logout: () => Promise<void>): { reset: () => void } {
-  // Keep a stable ref to logout so the timer callback always sees the latest one
+export interface IdleLogoutOptions {
+  overrideMinutes?: number;
+  onWarn?: () => void;
+}
+
+export function useIdleLogout(
+  logout: () => Promise<void>,
+  opts?: IdleLogoutOptions,
+): { reset: () => void } {
+  // Stable refs so the timer callbacks always see the latest closures
   const logoutRef = useRef(logout);
+  const onWarnRef = useRef(opts?.onWarn);
   useEffect(() => {
     logoutRef.current = logout;
-  }, [logout]);
+    onWarnRef.current = opts?.onWarn;
+  });
 
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const armTimer = useCallback(() => {
-    // Clear any existing timer first
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    const mins = getIdleTimeoutMinutes();
-    if (mins <= 0) return; // disabled
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      void logoutRef.current();
-    }, mins * 60_000);
+  const timerRef = useRef<IdleTimer | null>(null);
+  const reset = useCallback(() => {
+    timerRef.current?.arm();
   }, []);
 
-  const reset = armTimer;
-
+  const overrideMinutes = opts?.overrideMinutes;
   useEffect(() => {
-    // Arm on mount
-    armTimer();
+    const timer = createIdleTimer({
+      getMinutes: getIdleTimeoutMinutes,
+      overrideMinutes,
+      onTimeout: () => {
+        void logoutRef.current();
+      },
+      onWarn: () => {
+        onWarnRef.current?.();
+      },
+    });
+    timerRef.current = timer;
 
-    // Re-arm whenever the app returns to the foreground
+    // Arm on mount; re-arm whenever the app returns to the foreground
+    timer.arm();
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
       if (state === 'active') {
-        armTimer();
+        timer.arm();
       }
     });
 
     return () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
       sub.remove();
+      timer.dispose();
+      timerRef.current = null;
     };
-  }, [armTimer]);
+  }, [overrideMinutes]);
 
   return { reset };
 }

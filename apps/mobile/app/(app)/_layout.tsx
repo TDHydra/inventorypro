@@ -7,6 +7,7 @@ import { NotificationBell } from '../../src/components/NotificationBell';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
+import { appAlertBus, IDLE_NUDGE_TAG } from '../../src/lib/alertBus';
 import { colors } from '../../src/theme';
 
 export default function AppLayout() {
@@ -14,7 +15,26 @@ export default function AppLayout() {
   const router = useRouter();
 
   // Idle auto-logout — must be called before any early return (React rules)
-  const { reset } = useIdleLogout(logout);
+  const idle = useIdleLogout(
+    async () => {
+      appAlertBus.dismissActive(IDLE_NUDGE_TAG); // don't leave the nudge over the login screen
+      await logout();
+    },
+    { onWarn: showIdleNudge },
+  );
+  const reset = idle.reset;
+  // Nudge everybody a minute before the idle logout. The dialog renders in its
+  // own native window, so its button press never reaches the touch interceptor
+  // below — the cancel-style button resets explicitly (backdrop taps and
+  // Android back also route through the cancel button).
+  function showIdleNudge() {
+    appAlertBus.alert({
+      tag: IDLE_NUDGE_TAG,
+      title: 'Still there?',
+      message: "You'll be signed out in a minute due to inactivity.",
+      buttons: [{ text: "I'm still here", style: 'cancel', onPress: () => idle.reset() }],
+    });
+  }
   const maint = useMaintenanceMode();
 
   // Guard — redirect to login if no session
@@ -38,6 +58,7 @@ export default function AppLayout() {
       style={{ flex: 1 }}
       onStartShouldSetResponderCapture={() => {
         reset();
+        appAlertBus.dismissActive(IDLE_NUDGE_TAG); // any activity clears the nudge
         return false;
       }}
     >

@@ -5,6 +5,7 @@ import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
 import { clearDbSnapshot } from '../db/webPersistence';
 import { clearSnapshotKey } from '../db/webCrypto';
 import { installWebIdleWipe } from '../hooks/useWebIdleWipe';
+import { appAlertBus, IDLE_NUDGE_TAG } from '../lib/alertBus';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const JWT_KEY = 'inventorypro_jwt';
@@ -175,7 +176,19 @@ export async function wipeWebSecureState(): Promise<void> {
 // idle, also drive the provider's `logout()` from the web mount — e.g. call
 // `installWebIdleWipe(logout)` (or add a subscriber) from app/_layout.tsx or a
 // web-only session hook, replacing the token-only wipe wired here.
-installWebIdleWipe(() => { void wipeWebSecureState(); });
+installWebIdleWipe(() => { void wipeWebSecureState(); }, undefined, {
+  // Same pre-wipe nudge the native app shows; any DOM interaction both re-arms
+  // the timer (above) and clears a visible nudge (below).
+  onWarn: () => {
+    appAlertBus.alert({
+      tag: IDLE_NUDGE_TAG,
+      title: 'Still there?',
+      message: "You'll be signed out in a minute due to inactivity.",
+      buttons: [{ text: "I'm still here", style: 'cancel' }],
+    });
+  },
+  onActivity: () => { appAlertBus.dismissActive(IDLE_NUDGE_TAG); },
+});
 
 export async function hasActiveSession(): Promise<boolean> {
   const [jwt, userId] = await Promise.all([getJwt(), getSavedUserId()]);
