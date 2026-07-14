@@ -1,18 +1,21 @@
 import { useState, useMemo, useCallback } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { getRepairs, Repair } from '../../../src/db/queries/repairs';
 import { getTypeIcon, isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { colors } from '../../../src/theme';
-import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
-import { syncNow } from '../../../src/sync/engine';
+import { ListScreenShell, ShellFilter } from '../../../src/components/ui/ListScreenShell';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 type StatusFilter = 'open' | 'done' | 'all';
+
+const FILTERS: ShellFilter[] = [
+  { id: 'open', label: 'Open' },
+  { id: 'done', label: 'Done' },
+  { id: 'all', label: 'All' },
+];
 
 // Compact relative age from an ISO timestamp (e.g. "3d", "5h", "just now").
 function ageLabel(iso: string): string {
@@ -35,15 +38,6 @@ export default function RepairsScreen() {
   const reloadLocalData = useCallback(() => setReloadKey(k => k + 1), []);
   const dataVersion = useDataVersion();
 
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try { await syncNow(); } catch { /* offline — local reload still runs */ }
-    reloadLocalData();
-    setRefreshing(false);
-  }, [refreshing, reloadLocalData]);
-
   // Include dataVersion so an already-open list refreshes after a background
   // sync pull applies changes, without a manual pull-to-refresh.
   const repairs = useMemo((): Repair[] => {
@@ -54,89 +48,67 @@ export default function RepairsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Repairs', headerShown: true }} />
-      <View style={s.container}>
-        <View style={s.filterRow}>
-          {(['open', 'done', 'all'] as StatusFilter[]).map(f => (
-            <FilterChip
-              key={f}
-              label={f.charAt(0).toUpperCase() + f.slice(1)}
-              active={filter === f}
-              onPress={() => setFilter(f)}
-            />
-          ))}
-        </View>
-
-        <FlatList
-          data={repairs}
-          keyExtractor={r => r.id}
-          contentContainerStyle={s.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
-            />
-          }
-          renderItem={({ item }) => {
-            const icon = getTypeIcon('repair_status', item.status);
-            const completed = item.completed_at != null;
-            const terminal = completed || isTerminalStatus(item.status);
-            const overdue = !!item.due_at && !terminal && new Date(item.due_at).getTime() < Date.now();
-            return (
-              <TouchableOpacity
-                onPress={() =>
-                  router.push({ pathname: '/(app)/(repairs)/[id]', params: { id: item.id } })
-                }
-              >
-                <Card variant="list">
-                  <Text style={s.cardName}>{item.entity_label ?? '(unlabeled)'}</Text>
-                  <View style={s.cardRow}>
-                    <View style={[
-                      s.statusBadge,
-                      terminal ? s.statusBadgeDone : s.statusBadgeOpen,
-                    ]}>
-                      <Text style={[
-                        s.statusBadgeText,
-                        terminal ? s.statusBadgeTextDone : s.statusBadgeTextOpen,
-                      ]}>
-                        {icon ? `${icon} ` : ''}{item.status}
-                      </Text>
-                    </View>
-                    {overdue && (
-                      <View style={s.overdueBadge}>
-                        <Text style={s.overdueBadgeText}>Overdue</Text>
-                      </View>
-                    )}
-                    <Text style={s.cardDate}>{ageLabel(item.created_at)}</Text>
-                  </View>
-                </Card>
-              </TouchableOpacity>
-            );
-          }}
-          ListEmptyComponent={
-            <EmptyState
-              title="No repairs"
-              subtitle={
-                filter === 'open' ? 'No open repair tickets.'
-                  : filter === 'done' ? 'No completed repairs yet.'
-                  : 'No repair tickets recorded.'
+      <ListScreenShell
+        data={repairs}
+        filters={FILTERS}
+        activeFilterId={filter}
+        onFilterChange={id => setFilter(id as StatusFilter)}
+        onReload={reloadLocalData}
+        renderItem={({ item }) => {
+          const icon = getTypeIcon('repair_status', item.status);
+          const completed = item.completed_at != null;
+          const terminal = completed || isTerminalStatus(item.status);
+          const overdue = !!item.due_at && !terminal && new Date(item.due_at).getTime() < Date.now();
+          return (
+            <TouchableOpacity
+              style={s.item}
+              onPress={() =>
+                router.push({ pathname: '/(app)/(repairs)/[id]', params: { id: item.id } })
               }
-            />
-          }
-        />
-      </View>
+            >
+              <Card variant="list">
+                <Text style={s.cardName}>{item.entity_label ?? '(unlabeled)'}</Text>
+                <View style={s.cardRow}>
+                  <View style={[
+                    s.statusBadge,
+                    terminal ? s.statusBadgeDone : s.statusBadgeOpen,
+                  ]}>
+                    <Text style={[
+                      s.statusBadgeText,
+                      terminal ? s.statusBadgeTextDone : s.statusBadgeTextOpen,
+                    ]}>
+                      {icon ? `${icon} ` : ''}{item.status}
+                    </Text>
+                  </View>
+                  {overdue && (
+                    <View style={s.overdueBadge}>
+                      <Text style={s.overdueBadgeText}>Overdue</Text>
+                    </View>
+                  )}
+                  <Text style={s.cardDate}>{ageLabel(item.created_at)}</Text>
+                </View>
+              </Card>
+            </TouchableOpacity>
+          );
+        }}
+        emptyState={
+          <EmptyState
+            title="No repairs"
+            subtitle={
+              filter === 'open' ? 'No open repair tickets.'
+                : filter === 'done' ? 'No completed repairs yet.'
+                : 'No repair tickets recorded.'
+            }
+          />
+        }
+      />
     </>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  filterRow: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12,
-    paddingVertical: 10, gap: 8,
-  },
-  list: { padding: 12, gap: 8, paddingBottom: 80 },
+  // The shell's listContent has no row gap; this keeps the original gap:8 spacing.
+  item: { marginBottom: 8 },
   cardName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusBadge: {
