@@ -284,6 +284,9 @@ export default function LoginScreen() {
               returnKeyType="next"
             />
             {pinError && <Text style={styles.enrollError}>{pinError}</Text>}
+            {!!selectedUser.is_test && !!selectedUser.test_code && (
+              <Text style={styles.testCode}>demo account — enter code {selectedUser.test_code}</Text>
+            )}
             <TouchableOpacity
               style={[styles.continueBtn, enrollmentCode.length !== 6 && styles.continueBtnDisabled]}
               onPress={submitEnrollmentCode}
@@ -379,6 +382,9 @@ export default function LoginScreen() {
             <View style={styles.userInfo}>
               <Text style={[styles.userName2, { color: roleColor(item.role, roleColors) }]}>{item.name}</Text>
               <Text style={styles.userRole}>{item.role.replace(/_/g, ' ')}</Text>
+              {!!item.is_test && !!item.test_code && (
+                <Text style={styles.testCode}>demo account — code {item.test_code}</Text>
+              )}
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -442,6 +448,9 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1 },
   userName2: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
   userRole: { fontSize: 12, color: colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
+  // Deliberately quiet: the demo access code is public, but it should read as a
+  // hint under the row/field ("small grayed out lettering"), not a callout.
+  testCode: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
   chevron: { fontSize: 20, color: colors.textDisabled },
   separator: { height: 1, backgroundColor: colors.borderDetail, marginLeft: 66 },
   empty: { textAlign: 'center', color: colors.textMuted, marginTop: 12, fontSize: 15 },
