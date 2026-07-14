@@ -45,6 +45,8 @@ export interface User {
   expires_at: string | null;
   email?: string | null;
   dashboard_preset_id?: string | null;
+  is_test?: number; // 1 = public demo account (sandboxed session, code shown at login)
+  enrollment_code_public?: string | null; // display-only; non-null only when is_test
   created_at: string;
   updated_at: string;
   synced_at: string | null;
@@ -101,12 +103,13 @@ export function upsertUser(user: User): void {
   db.executeSync(
     `INSERT OR REPLACE INTO users
        (id, name, role, pin_length_required, pin_set, permission_overrides,
-        active, expires_at, created_at, updated_at, synced_at, dashboard_preset_id, email)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        active, expires_at, created_at, updated_at, synced_at, dashboard_preset_id, email, is_test, enrollment_code_public)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([user.id, user.name, user.role,
      user.pin_length_required, user.pin_set, user.permission_overrides,
      user.active, user.expires_at, user.created_at,
-     user.updated_at, user.synced_at, user.dashboard_preset_id ?? null, user.email ?? null])
+     user.updated_at, user.synced_at, user.dashboard_preset_id ?? null, user.email ?? null,
+     user.is_test ?? 0, user.enrollment_code_public ?? null])
   );
 }
 

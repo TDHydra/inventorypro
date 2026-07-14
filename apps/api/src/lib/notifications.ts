@@ -134,7 +134,9 @@ export async function resolveRecipients(
   // assignee would otherwise still receive inbox rows + push. One query guarantees
   // the active-only contract for every source.
   try {
-    const { rows } = await pg.query(`SELECT id FROM users WHERE id = ANY($1) AND active = TRUE`, [union]);
+    // NOT is_test: demo accounts never receive notifications — their inbox rows
+    // would be server writes for throwaway sessions (and they hold no push token).
+    const { rows } = await pg.query(`SELECT id FROM users WHERE id = ANY($1) AND active = TRUE AND NOT is_test`, [union]);
     const active = new Set(rows.map(r => r.id as string));
     return union.filter(u => active.has(u));
   } catch {

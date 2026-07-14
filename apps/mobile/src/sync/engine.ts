@@ -2,6 +2,7 @@ import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
 import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxEntry, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';
+import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
 import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
@@ -10,6 +11,7 @@ import { loadRolePermissionCache } from '../auth/permissions';
 import { loadDashboardCache } from '../dashboard/store';
 import { notifyHiddenFieldsChanged } from '../db/hiddenFields';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
+import { prefetchNewMediaThumbnails } from './mediaPrefetch';
 import { track } from '../telemetry';
 import { flushTelemetry } from '../telemetry/flush';
 
@@ -164,6 +166,11 @@ async function syncCycle(): Promise<void> {
 // transient failure never escapes; offline simply throws inside the fetch and
 // is swallowed here.
 async function runDrainAndPull(): Promise<void> {
+  // Test/demo sessions are fully sandboxed: no push (throwaway edits must never
+  // reach the server) and no pull (INSERT OR REPLACE would clobber the sandbox
+  // edits mid-demo). Single choke point — covers the heartbeat, reconnect,
+  // foreground, fast-retry, and user-initiated syncNow paths alike.
+  if (isSandboxActive()) return;
   try {
     await drainOutbox();
     await pullChanges();
@@ -187,6 +194,10 @@ async function runDrainAndPull(): Promise<void> {
     // It swallows its own errors and resolves void, so it can't disturb the
     // existing try/catch/return behaviour of this cycle.
     void runLocalAlertChecks();
+    // Fire-and-forget thumbnail warm-up for media rows that arrived since the
+    // last prefetch. Runs every cycle (even empty pulls) so a >batch backlog
+    // drains over subsequent cycles; bounded, self-swallowing, never blocks.
+    void prefetchNewMediaThumbnails();
     // Fire-and-forget telemetry flush — rides the same ~60s cadence + the
     // reconnect/foreground triggers as the rest of this cycle. Deliberately
     // NOT part of the /sync/push request: its own transport, its own

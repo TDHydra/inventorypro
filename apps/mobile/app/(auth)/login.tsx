@@ -12,6 +12,8 @@ import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/a
 import { saveSession } from '../../src/auth/session';
 import { finishLogin } from '../../src/auth/finishLogin';
 import { fetchRoster, RosterUser } from '../../src/auth/roster';
+import { getPendingCount } from '../../src/sync/outbox';
+import { Alert } from '../../src/lib/themedAlert';
 
 type Screen = 'pick' | 'pin' | 'setpin';
 // First-login runs as three sequential steps, one screen each: enrollment code,
@@ -48,7 +50,9 @@ export default function LoginScreen() {
     setRosterError(null);
     const local = getAllActiveUsers();
     if (local.length > 0) {
-      setUsers(local);
+      // Local rows carry the demo code as enrollment_code_public; the roster
+      // endpoint calls it test_code — normalize so the picker reads one field.
+      setUsers(local.map(u => ({ ...u, test_code: u.is_test ? u.enrollment_code_public ?? null : null })));
       setNeedsFullSync(false);
       setRosterLoading(false);
       return;
@@ -71,6 +75,15 @@ export default function LoginScreen() {
   }, [search, users]);
 
   function selectUser(user: RosterUser) {
+    // A test session wipes the whole local DB at logout — never let one start
+    // on top of a real user's unsynced work. Strict block, not a warning.
+    if (user.is_test && getPendingCount() > 0) {
+      Alert.alert(
+        'Unsynced changes on this device',
+        'A demo session would discard changes that have not synced yet. Sync them first (open the app as the signed-in user), then try again.',
+      );
+      return;
+    }
     setSelectedUser(user);
     setPin('');
     setFirstPin('');
@@ -172,7 +185,10 @@ export default function LoginScreen() {
     try {
       const result = await setPinFirstTime(selectedUser.id, pinValue, enrollmentCode);
       await saveSession(result.jwt, result.refreshToken, result.userId);
-      markUserPinSet(selectedUser.id, pinValue.length);
+      // Test accounts self-reset: the server never persists their PIN, so the
+      // local pin_set must stay 0 too — otherwise the NEXT visitor on this
+      // device lands on the PIN screen and dead-ends against a 409.
+      if (!selectedUser.is_test) markUserPinSet(selectedUser.id, pinValue.length);
       proceedAfterAuth(result.userId);
     } catch (err) {
       const msg = (err as Error).message || 'Could not set your PIN. Check your connection.';
@@ -268,6 +284,9 @@ export default function LoginScreen() {
               returnKeyType="next"
             />
             {pinError && <Text style={styles.enrollError}>{pinError}</Text>}
+            {!!selectedUser.is_test && !!selectedUser.test_code && (
+              <Text style={styles.testCode}>demo account — enter code {selectedUser.test_code}</Text>
+            )}
             <TouchableOpacity
               style={[styles.continueBtn, enrollmentCode.length !== 6 && styles.continueBtnDisabled]}
               onPress={submitEnrollmentCode}
@@ -343,6 +362,11 @@ export default function LoginScreen() {
           onChangeText={setSearch}
           autoCapitalize="none"
           autoCorrect={false}
+          // Desktop flow: land in search on load, Enter picks the top match —
+          // name → Enter → PIN digits, no mouse. Native keeps the soft
+          // keyboard tucked away until the user taps.
+          autoFocus={Platform.OS === 'web'}
+          onSubmitEditing={() => { if (filtered.length > 0) selectUser(filtered[0]); }}
         />
       </View>
 
@@ -358,6 +382,9 @@ export default function LoginScreen() {
             <View style={styles.userInfo}>
               <Text style={[styles.userName2, { color: roleColor(item.role, roleColors) }]}>{item.name}</Text>
               <Text style={styles.userRole}>{item.role.replace(/_/g, ' ')}</Text>
+              {!!item.is_test && !!item.test_code && (
+                <Text style={styles.testCode}>demo account — code {item.test_code}</Text>
+              )}
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -421,6 +448,9 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1 },
   userName2: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
   userRole: { fontSize: 12, color: colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
+  // Deliberately quiet: the demo access code is public, but it should read as a
+  // hint under the row/field ("small grayed out lettering"), not a callout.
+  testCode: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
   chevron: { fontSize: 20, color: colors.textDisabled },
   separator: { height: 1, backgroundColor: colors.borderDetail, marginLeft: 66 },
   empty: { textAlign: 'center', color: colors.textMuted, marginTop: 12, fontSize: 15 },

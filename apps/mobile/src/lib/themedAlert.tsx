@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, View, Text, Pressable, BackHandler, StyleSheet } from 'react-native';
 import { colors, radii, spacing, fontSizes } from '../theme';
+import { appAlertBus, type AlertButton, type AlertRequest } from './alertBus';
 
 /**
  * Themed, in-app replacement for React Native's OS `Alert`.
@@ -10,53 +11,27 @@ import { colors, radii, spacing, fontSizes } from '../theme';
  * buttons?)` signature matches RN's. A single `<AlertHost/>` mounted at the app
  * root renders the dialog so it inherits our colors, spacing and layout instead
  * of the bare OS popup.
+ *
+ * The queue/showing state machine lives in `alertBus.ts` (unit-tested, no RN
+ * imports); this file is only the React renderer plus the RN-shaped facade.
  */
 
-export type AlertButtonStyle = 'default' | 'cancel' | 'destructive';
-export interface AlertButton {
-  text?: string;
-  onPress?: () => void;
-  style?: AlertButtonStyle;
-}
-interface AlertRequest {
-  title: string;
-  message?: string;
-  buttons: AlertButton[];
-}
-
-type Listener = (req: AlertRequest | null) => void;
-let listener: Listener | null = null;
-let showing = false;
-// Requests raised before the host mounts (or while one is showing) wait here.
-const queue: AlertRequest[] = [];
-
-function pump(): void {
-  if (showing || !listener || queue.length === 0) return;
-  showing = true;
-  listener(queue.shift()!);
-}
-
-function normalize(buttons?: AlertButton[]): AlertButton[] {
-  if (!buttons || buttons.length === 0) return [{ text: 'OK', style: 'default' }];
-  return buttons;
-}
+export type { AlertButton, AlertButtonStyle } from './alertBus';
 
 /** Mirrors React Native's `Alert` API so call sites only change the import path. */
 export const Alert = {
   alert(title: string, message?: string, buttons?: AlertButton[]): void {
-    queue.push({ title, message, buttons: normalize(buttons) });
-    pump();
+    appAlertBus.alert({ title, message, buttons });
   },
 };
 
-/** Mount once at the app root. Renders whatever `Alert.alert` requests. */
+/** Mount once at the app root. Renders whatever the app alert bus delivers. */
 export function AlertHost() {
   const [req, setReq] = useState<AlertRequest | null>(null);
 
   useEffect(() => {
-    listener = setReq;
-    pump(); // drain anything raised before we mounted
-    return () => { listener = null; };
+    appAlertBus.setListener(setReq);
+    return () => { appAlertBus.setListener(null); };
   }, []);
 
   const cancelButton = req?.buttons.find((b) => b.style === 'cancel');
@@ -73,7 +48,6 @@ export function AlertHost() {
 
   function dismiss(button?: AlertButton) {
     setReq(null);
-    showing = false;
     // Run onPress AFTER the modal tears down. If a callback navigates (e.g.
     // "Add to Catalog" → router.push) while this <Modal> is still mounted, its
     // native window lingers on top of the pushed screen and swallows touches
@@ -81,7 +55,7 @@ export function AlertHost() {
     // commit and the modal close first — mirroring OS Alert, where onPress runs
     // after the dialog is gone.
     if (button?.onPress) setTimeout(button.onPress, 0);
-    pump(); // surface the next queued request, if any
+    appAlertBus.notifyDismissed(); // surface the next queued request, if any
   }
 
   if (!req) return null;

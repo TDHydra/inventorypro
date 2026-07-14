@@ -7,12 +7,13 @@ import fastifyPostgres from '@fastify/postgres';
 import fastifyCors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { runMigrations } from './db/migrate';
-import { overRateLimit } from './lib/rateLimit';
+import { overRateLimit, sweepBuckets } from './lib/rateLimit';
 import { startNotificationTimer } from './lib/notificationTimer';
 import { recordAudit, startAuditPruneTimer } from './lib/auditWriter';
+import { createTestAccountGate } from './lib/testAccounts';
 import { sanitizeErrorMessage } from './lib/audit';
 
-import authRoutes from './routes/auth';
+import authRoutes, { isRefreshToken, sweepAttempts } from './routes/auth';
 import syncRoutes from './routes/sync';
 import itemRoutes from './routes/items';
 import locationRoutes from './routes/locations';
@@ -117,10 +118,14 @@ async function build() {
     sign: { expiresIn: '15m' },
   });
 
-  // Auth decorator — verifies JWT on protected routes
+  // Auth decorator — verifies JWT on protected routes. Refresh tokens are
+  // signed with the same secret, so a bare jwtVerify would accept a 7-day
+  // refresh token anywhere a 15-minute access token is expected — reject
+  // type:'refresh' explicitly. Legacy access tokens (no type claim) still pass.
   fastify.decorate('authenticate', async function (request: any, reply: any) {
     try {
-      await request.jwtVerify();
+      const payload = await request.jwtVerify();
+      if (isRefreshToken(payload)) throw new Error('refresh token is not an access token');
     } catch {
       reply.status(401).send({ error: 'Unauthorized' });
     }
@@ -142,16 +147,33 @@ async function build() {
   // Per-user DOS guard on mutating endpoints (generous). /auth has its own
   // limiter and is public, so it's skipped. Unauthenticated requests fall
   // through to the route's own auth (which rejects them).
+  // DB-resolved is_test lookups for the write wall below (60s TTL cache).
+  const testGate = createTestAccountGate({
+    query: (sql, params) => fastify.pg.query(sql, params as any[]),
+  });
+
   fastify.addHook('preHandler', async (request: any, reply: any) => {
     const m = request.method;
     if (m !== 'POST' && m !== 'PATCH' && m !== 'DELETE') return;
     if (request.url.startsWith('/auth')) return;
+    let payload: any;
+    try { payload = await request.jwtVerify(); } catch { return; }
+    // A refresh token must never act as an access token (same-secret JWTs);
+    // reject here too — this hook runs before the route's authenticate.
+    if (isRefreshToken(payload)) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+    const sub: string | undefined = payload?.sub;
+    // Test/demo accounts are read-only server-wide — every mutating route,
+    // /telemetry included. Their sessions are sandboxed on-device; nothing they
+    // do may leave a trace here. (DB-resolved, never the JWT claim.)
+    if (sub && (await testGate.isTestUser(sub))) {
+      return reply.status(403).send({ error: 'Forbidden: test accounts are read-only on the server' });
+    }
     // /telemetry has its OWN per-user/IP `telemetry:` bucket (routes/telemetry.ts)
     // and is fire-and-forget behavioral ingest — never let a telemetry flush burst
     // consume a user's business `mut:` (/sync/push) quota.
     if (request.url.startsWith('/telemetry')) return;
-    let sub: string | undefined;
-    try { sub = (await request.jwtVerify())?.sub; } catch { return; }
     if (sub && overRateLimit(`mut:${sub}`)) {
       return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
     }
@@ -207,6 +229,23 @@ async function build() {
   return fastify;
 }
 
+// Sweep the in-memory brute-force (auth attempts) and rate-limit (buckets) maps
+// periodically. Neither map otherwise deletes stale keys, so unauthenticated
+// junk (bogus user_ids on /auth/token, one-off roster IPs) and churned user
+// buckets grow them without bound — a slow memory-exhaustion DoS. Same
+// run-now-then-interval + unref pattern as startAuditPruneTimer.
+function startLimiterSweepTimer(): NodeJS.Timeout {
+  const run = () => {
+    const now = Date.now();
+    sweepAttempts(now);
+    sweepBuckets(now);
+  };
+  run();
+  const t = setInterval(run, 10 * 60_000);
+  t.unref();
+  return t;
+}
+
 runMigrations()
   .then(() => build())
   .then(app => {
@@ -220,6 +259,8 @@ runMigrations()
       // Prune api_request_audit now and daily. Boot-only pruning would never
       // fire in practice — prod restarts are rare and this table grows per request.
       startAuditPruneTimer(app);
+      // GC the in-memory limiter maps so they can't grow without bound.
+      startLimiterSweepTimer();
     });
   })
   .catch(err => {

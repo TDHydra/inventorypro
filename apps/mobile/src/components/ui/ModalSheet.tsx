@@ -1,5 +1,11 @@
-import { Modal, Pressable, KeyboardAvoidingView, ScrollView, View, StyleSheet } from 'react-native';
+import { Modal, Platform, Pressable, KeyboardAvoidingView, ScrollView, View, StyleSheet } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
+
+// The app renders edge-to-edge on Android, so the transparent gesture-nav bar
+// overlays the bottom of every sheet; without this inset the last row sits
+// underneath it and can't be tapped (no safe-area-context module in the dev
+// client, so a fixed inset instead of useSafeAreaInsets).
+const NAV_BAR_INSET = Platform.OS === 'android' ? 32 : 0;
 
 export function ModalSheet({ visible, onClose, children, scroll = false }: { visible: boolean; onClose: () => void; children: React.ReactNode; scroll?: boolean }) {
   return (
@@ -45,7 +51,7 @@ const s = StyleSheet.create({
   kav: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
-    padding: spacing.xl, maxHeight: '88%',
+    padding: spacing.xl, paddingBottom: spacing.xl + NAV_BAR_INSET, maxHeight: '88%',
   },
   // Scroll variant: same as `sheet` but padding is delegated to scrollContent so the
   // pill and scrollbar aren't double-padded / clipped. paddingTop keeps the pill inset.
@@ -55,7 +61,7 @@ const s = StyleSheet.create({
   },
   scrollView: { flexShrink: 1 },
   // Padding lives here (NOT flex:1 — that clamps content to the viewport so it never overflows/scrolls).
-  scrollContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+  scrollContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl + NAV_BAR_INSET },
   handle: {
     width: 40, height: 4, borderRadius: 2,
     backgroundColor: colors.border,

@@ -42,18 +42,20 @@ fuser 8081/tcp 2>/dev/null && echo "8081 STILL busy — kill the printed pid man
 # 2. reverse the port to the device
 adb reverse tcp:8081 tcp:8081
 
-# 3. start Metro non-interactively (CI=1 + stdin from /dev/null). ALWAYS pass --clear:
+# 3. start Metro non-interactively (stdin from /dev/null is enough — do NOT set CI=1:
+#    CI=1 FREEZES the file watcher, so every JS edit after startup serves a stale bundle
+#    and hot reload silently never happens; this has burned us twice). ALWAYS pass --clear:
 #    Metro's transform cache otherwise serves a STALE bundle — a new migration/module
 #    silently won't load (e.g. app logs "schema vN ready" one version behind, migration skipped).
 cd ~/inventorypro/apps/mobile
-EXPO_PUBLIC_API_URL=https://api.invenpro.app CI=1 nohup npx expo start --dev-client --localhost --port 8081 --clear </dev/null >/tmp/metro.log 2>&1 &
+EXPO_PUBLIC_API_URL=https://api.invenpro.app nohup npx expo start --dev-client --localhost --port 8081 --clear </dev/null >/tmp/metro.log 2>&1 &
 # wait for "Waiting on http://localhost:8081" in /tmp/metro.log (first --clear build takes ~1 min)
 
 # 4. COLD-launch (force-stop first) so DB migrations re-run on startup:
 adb shell am force-stop com.inventorypro.app
 adb shell am start -a android.intent.action.VIEW -d "exp+inventorypro://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081" com.inventorypro.app
 ```
-Verify: `adb logcat` shows `[DB] ✓ SQLite migration vN applied` / `schema vN ready` (for a migration) and no red box. The "React Native DevTools chrome-sandbox" error in Metro output is harmless. Read JS errors via `adb logcat ReactNativeJS:* '*:S'`. On-device SQLite check: `adb exec-out run-as com.inventorypro.app cat /data/data/com.inventorypro.app/databases/inventorypro.sqlite > /tmp/dev.sqlite` then inspect with python3/sqlite3 (schema_version lives in `app_settings`, key `schema_version`; CI mode disables live-reload so relaunch to pick up further JS changes).
+Verify: `adb logcat` shows `[DB] ✓ SQLite migration vN applied` / `schema vN ready` (for a migration) and no red box. The "React Native DevTools chrome-sandbox" error in Metro output is harmless. Read JS errors via `adb logcat ReactNativeJS:* '*:S'`. On-device SQLite check: `adb exec-out run-as com.inventorypro.app cat /data/data/com.inventorypro.app/databases/inventorypro.sqlite > /tmp/dev.sqlite` then inspect with python3/sqlite3 (schema_version lives in `app_settings`, key `schema_version`).
 
 ## C. Play Store (EAS cloud build) — when Google API/signing is set up
 EAS project: `@tdhydra/inventorypro` (id d4244438-0520-46c3-9ad1-fd5da43f7f86). `eas.json` `preview`/`production` profiles set `EXPO_PUBLIC_API_URL=https://api.invenpro.app`.

@@ -1233,20 +1233,38 @@ for i in json.load(sys.stdin):
 
 - [ ] **Step 4: Verify the invariant**
 
+**Do not assert that every `Done`/`Rejected` item is a draft.** That holds only for the 70
+backfilled history items. Once `gh_done.py` completes live work, its item sits in `Done` as a
+**closed issue**. Issue #13 already proves this. The real invariant is narrower:
+
+> Every item in a live column is issue-backed, and **no OPEN issue sits in `Done`.**
+
+The open/closed state is not in the board JSON, so cross-reference the REST issue list (a separate
+quota from GraphQL, so this is cheap even when `gh project` is rate-limited).
+
 ```bash
-python3 gh_list.py --json | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-live=[i for i in d if i.get('status') not in ('Done','Rejected')]
-arch=[i for i in d if i.get('status') in ('Done','Rejected')]
-bad_live=[i['title'] for i in live if i['content']['type']!='Issue']
-bad_arch=[i['title'] for i in arch if i['content']['type']!='DraftIssue']
-print('live items, all issues:', not bad_live, bad_live[:3])
-print('archive items, all drafts:', not bad_arch, bad_arch[:3])
-print('open issues in Done:', [i['title'] for i in d if i.get('status')=='Done' and i['content']['type']=='Issue'])
-"
+python3 gh_list.py --json > /tmp/board.json
+gh issue list --repo TDHydra/inventorypro --state open --limit 200 --json number > /tmp/open.json
+
+python3 - <<'EOF'
+import json
+board = json.load(open('/tmp/board.json'))
+open_nums = {i['number'] for i in json.load(open('/tmp/open.json'))}
+
+def ctype(i): return (i.get('content') or {}).get('type')
+def num(i):   return (i.get('content') or {}).get('number')
+
+live = [i for i in board if i.get('status') not in ('Done', 'Rejected')]
+bad_live = [i['title'] for i in live if ctype(i) != 'Issue']
+open_in_done = [f"#{num(i)} {i['title']}" for i in board
+                if i.get('status') == 'Done' and num(i) in open_nums]
+
+print('live items all issue-backed:', not bad_live, bad_live[:3])
+print('OPEN issues sitting in Done :', open_in_done or 'none')
+assert not open_in_done, 'INVARIANT VIOLATED: open issue in Done'
+EOF
 ```
-Expected: `True []`, `True []`, and an empty list of open issues in `Done`.
+Expected: `live items all issue-backed: True []` and `OPEN issues sitting in Done : none`.
 
 - [ ] **Step 5: Record the migration**
 

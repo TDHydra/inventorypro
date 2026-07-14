@@ -41,7 +41,7 @@ export function keepRealColumns(
 // Set ONLY through dedicated permissioned paths (REST /users, teams manager
 // endpoint) or by the server. Kills mass-assignment on the write-gated tables.
 export const SENSITIVE_DENY: Record<string, Set<string>> = {
-  users: new Set(['role', 'pin_hash', 'pin_set', 'permission_overrides', 'active', 'expires_at', 'enrollment_code_hash']),
+  users: new Set(['role', 'pin_hash', 'pin_set', 'permission_overrides', 'active', 'expires_at', 'enrollment_code_hash', 'is_test', 'enrollment_code_public']),
   team_members: new Set(['is_manager']),
   // notifications rows are server-authored; a client may ONLY flip read_at (mark
   // read). Every other column is denied so a mark-read UPDATE can't rewrite the
@@ -54,7 +54,10 @@ export const SENSITIVE_DENY: Record<string, Set<string>> = {
 
 // users columns that are ALWAYS denied via sync regardless of permission — these
 // are credentials / auth material, never editable through the generic write path.
-const USERS_ALWAYS_DENY = new Set(['pin_hash', 'pin_set', 'enrollment_code_hash']);
+// is_test/enrollment_code_public are server-owned demo-account markers: letting
+// any caller set them would either sandbox a real account or plant a public
+// login code on one.
+const USERS_ALWAYS_DENY = new Set(['pin_hash', 'pin_set', 'enrollment_code_hash', 'is_test', 'enrollment_code_public']);
 
 // users columns that require manage_roles_permissions specifically — a caller
 // with only manage_users (e.g. an hr_manager editing name/active/expires_at via
@@ -90,6 +93,10 @@ export const TEAM_OVERRIDABLE_PERMISSIONS: Set<string> = new Set([
   'checkout_inventory', 'checkin_inventory', 'add_inventory', 'quick_add',
   'edit_inventory', 'delete_inventory', 'transfer_between_locations',
   'create_jobs', 'close_jobs', 'manage_locations', 'upload_media',
+  // edit_media yes, delete_media deliberately NO: deletion is destructive and
+  // its GRANT is full-admin-only (the delete_inventory pattern in routes/sync.ts),
+  // so it must not be mintable per-team by a manager either.
+  'edit_media',
   'view_team_activity', 'checkout_for_team', 'view_financial_data',
 ]);
 
@@ -195,6 +202,85 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // activity_log / stock_by_location have their own handling and resolve to null.
 // A `null` value means the op is allowed to any authenticated user (no specific
 // permission required) — distinct from an ABSENT op, which fails closed to DENY.
+// Entities media may attach to. Deliberately excludes users/teams/role_settings/
+// app_config (a fixed IDOR sink — see routes/media.ts, which imports this).
+export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log']);
+
+// Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors any
+// media URL/delete to a key WE generated in /upload-url, never a client path.
+// Lives here (not lib/mediaCleanup.ts, which re-exports it) so this pure policy
+// module can validate url/thumbnail_url without importing the S3 stack — s3.ts
+// fails closed at import time when MinIO credentials are absent.
+export const KEY_RE = /^[a-z_]+\/[a-zA-Z0-9_-]{1,64}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+
+// A stored media URL must be exactly `${base}/${key}` — the same construction
+// POST /media performs (routes/media.ts) — where base is the server's own
+// PUBLIC_MEDIA_URL and key is a server-issued object key anchored under THIS
+// row's entity_type/entity_id. Anything else is the SSRF/DB-pollution sink the
+// REST path already closed: a client-chosen url is stored verbatim and later
+// served as this entity's media. Returns an error string or null when OK.
+function validateMediaUrlField(
+  field: 'url' | 'thumbnail_url',
+  value: unknown,
+  entityType: string,
+  entityId: string,
+): string | null {
+  if (typeof value !== 'string' || value === '') return `media ${field} must be a non-empty string`;
+  const base = process.env.PUBLIC_MEDIA_URL ?? 'https://localhost/media';
+  if (!value.startsWith(`${base}/`)) return `media ${field} must be under the server media URL`;
+  const key = value.slice(base.length + 1);
+  // KEY_RE is fully anchored, so query strings, fragments, extra path segments
+  // and `..` traversal in <rest> all fail the shape check.
+  if (!KEY_RE.test(key)) return `media ${field} key is not a server-issued object key`;
+  if (!key.startsWith(`${entityType}/${entityId}/`)) return `media ${field} does not match its entity`;
+  return null;
+}
+
+// Validate a media sync write's entity linkage AND url/thumbnail_url. Pure
+// (no DB) so it unit-tests; the target-job EXISTENCE check lives in the push
+// handler where pg is.
+//  - INSERT must land on an allowlisted entity type (previously only the REST
+//    upload path enforced this; the sync path let any entity_type through),
+//    and url (plus thumbnail_url when present) must be the server-constructed
+//    `${PUBLIC_MEDIA_URL}/${entity_type}/${entity_id}/${uuid}.${ext}` shape —
+//    exactly what MediaGallery sends (it stores the publicUrl the server
+//    returned from /upload-url).
+//  - UPDATE may re-link (the "move" feature) ONLY to a job: moving media onto
+//    users/teams/etc. via a crafted payload stays impossible, and moving
+//    between non-job entities has no UI or use case — fail closed. url /
+//    thumbnail_url changes are rejected outright: the app never updates them
+//    (it only edits caption/location_note and relinks entity to job — see
+//    apps/mobile/src/db/queries/media.ts), and a moved row deliberately keeps
+//    its ORIGINAL upload-prefix url, so there is no legitimate url UPDATE.
+// Returns an error string (becomes the sync conflict message) or null when OK.
+export function validateMediaWrite(
+  op: 'INSERT' | 'UPDATE',
+  payload: Record<string, unknown>,
+): string | null {
+  if (op === 'INSERT') {
+    const entityType = String(payload.entity_type);
+    if (!MEDIA_ENTITY_TYPES.has(entityType)) return 'media entity_type not allowed';
+    if (payload.entity_id == null) return 'media entity_id is required';
+    const entityId = String(payload.entity_id);
+    const urlErr = validateMediaUrlField('url', payload.url, entityType, entityId);
+    if (urlErr) return urlErr;
+    if (payload.thumbnail_url != null) {
+      const thumbErr = validateMediaUrlField('thumbnail_url', payload.thumbnail_url, entityType, entityId);
+      if (thumbErr) return thumbErr;
+    }
+    return null;
+  }
+  if ('url' in payload || 'thumbnail_url' in payload) {
+    return 'media url/thumbnail_url cannot be changed via sync';
+  }
+  const touchesLink = payload.entity_type !== undefined || payload.entity_id !== undefined;
+  if (!touchesLink) return null;
+  if (String(payload.entity_type) !== 'job' || payload.entity_id == null) {
+    return 'media can only be moved to a job';
+  }
+  return null;
+}
+
 const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   inventory_items: { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'delete_inventory' },
   equipment_units: { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'delete_inventory' },
@@ -204,7 +290,10 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   repair_parts:    { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   maintenance_events: { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   taxonomy_types:  { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
-  media:           { INSERT: 'upload_media', UPDATE: 'upload_media', DELETE: 'upload_media' },
+  // media is a real family: uploading, editing details (caption/location-note/
+  // move), and deleting are separately grantable. delete_media's GRANT is
+  // additionally restricted to full_admin in routes/sync.ts.
+  media:           { INSERT: 'upload_media', UPDATE: 'edit_media', DELETE: 'delete_media' },
   stock_by_location: { INSERT: 'checkin_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   // notifications: clients may only mark-read (UPDATE); INSERT/DELETE fail closed.
   notifications:   { UPDATE: null },
@@ -250,7 +339,7 @@ export const ACTIVITY_ACTIONS = new Set([
   'add_inventory', 'edit_inventory', 'delete_inventory', 'create_job', 'close_job',
   'create_location', 'edit_location', 'role_color_changed', 'role_permission_changed',
   'role_min_pin_changed', 'user_created', 'user_updated', 'team_created', 'team_updated',
-  'repair_created', 'repair_updated', 'media_uploaded',
+  'repair_created', 'repair_updated', 'media_uploaded', 'media_updated', 'media_deleted',
   // observed in apps/mobile call sites:
   'add_stock', 'add_units', 'checkout_to_job', 'consumed', 'item_created', 'item_updated',
   'job_archived', 'job_created', 'job_updated', 'location_archived', 'location_created',
@@ -273,7 +362,9 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
 // columns on jobs are gated behind view_financial_data.
 const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
-const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id';
+// enrollment_code_public is public BY DESIGN, but only for demo rows — the CASE
+// guarantees a real user's row can never carry a code even if one were planted.
+const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';

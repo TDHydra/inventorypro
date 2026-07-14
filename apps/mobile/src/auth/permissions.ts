@@ -58,6 +58,8 @@ export interface UserSession {
   active: number;
   expires_at: string | null;
   team_contexts?: TeamContext[];
+  /** 1 = public demo account: sandboxed sync, 15-min idle cap, wiped at logout. */
+  is_test?: number;
 }
 
 /**

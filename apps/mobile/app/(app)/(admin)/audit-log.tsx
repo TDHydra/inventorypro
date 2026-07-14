@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput,
   ActivityIndicator, RefreshControl, ScrollView, Platform,
 } from 'react-native';
+import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { getValidJwt } from '../../../src/auth/session';
@@ -10,6 +11,7 @@ import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { MapDisplay } from '../../../src/components/MapDisplay';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -41,6 +43,43 @@ interface AuditRow {
   app_version: string | null;
   error_message: string | null;
   security_class: boolean;
+}
+
+// Private/reserved addresses can't be geolocated — hide the map button rather
+// than send an admin to a meaningless pin. (Pre-TRUST_PROXY-fix audit rows all
+// carry the unraid proxy's 192.168.1.239, so old rows simply get no button.)
+function isMappableIp(ip: string): boolean {
+  if (/^(10\.|192\.168\.|127\.|169\.254\.)/.test(ip)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return false;
+  if (ip === '::1' || /^(fc|fd|fe80)/i.test(ip)) return false;
+  return true;
+}
+
+// Where a tapped IP resolves to — feeds the in-app map sheet.
+interface IpGeo {
+  ip: string;
+  latitude: number;
+  longitude: number;
+  place: string; // "City, Region, Country" — best-effort caption
+}
+
+// Geolocate the IP for the in-app map. The IP is sent to a third-party lookup
+// service (ipwho.is — keyless, HTTPS, CORS-enabled so it also works on web)
+// only when an admin explicitly taps, never automatically. Returns null when
+// the IP can't be placed.
+async function lookupIpGeo(ip: string): Promise<IpGeo | null> {
+  try {
+    const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`);
+    const geo = await res.json() as {
+      success?: boolean; latitude?: number; longitude?: number;
+      city?: string; region?: string; country?: string;
+    };
+    if (!geo.success || typeof geo.latitude !== 'number' || typeof geo.longitude !== 'number') return null;
+    const place = [geo.city, geo.region, geo.country].filter(Boolean).join(', ');
+    return { ip, latitude: geo.latitude, longitude: geo.longitude, place };
+  } catch {
+    return null;
+  }
 }
 
 interface Cursor { before_ts: string; before_id: string }
@@ -146,6 +185,8 @@ export default function AuditLogScreen() {
   const [selected, setSelected] = useState<AuditRow | null>(null);
   const [activity, setActivity] = useState<ActivityRow[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [mapLookupBusy, setMapLookupBusy] = useState(false);
+  const [ipMap, setIpMap] = useState<IpGeo | null>(null);
   const [activityError, setActivityError] = useState(false);
 
   // Build the query string from the current filters (+ optional keyset cursor).
@@ -431,7 +472,34 @@ export default function AuditLogScreen() {
               <Text style={s.note}>IP and device are visible to full admins only.</Text>
             ) : (
               <>
-                <Field label="IP" value={selected.ip ?? '—'} mono />
+                <View style={s.field}>
+                  <Text style={s.fieldLabel}>IP</Text>
+                  {selected.ip && isMappableIp(selected.ip) ? (
+                    // The IP itself is the hyperlink: tap → geolocate → in-app
+                    // map sheet. Private/pre-fix proxy IPs stay plain text.
+                    <View style={s.ipRow}>
+                      {mapLookupBusy ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+                      <TouchableOpacity
+                        hitSlop={10}
+                        disabled={mapLookupBusy}
+                        onPress={() => {
+                          const ip = selected.ip!;
+                          setMapLookupBusy(true);
+                          void lookupIpGeo(ip)
+                            .then(geo => {
+                              if (geo) setIpMap(geo);
+                              else Alert.alert('Could not locate IP', 'The lookup service could not place this address.');
+                            })
+                            .finally(() => setMapLookupBusy(false));
+                        }}
+                      >
+                        <Text style={[s.fieldValue, s.mono, s.ipLink]}>{selected.ip}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <Text style={[s.fieldValue, s.mono]} selectable>{selected.ip ?? '—'}</Text>
+                  )}
+                </View>
                 <Field label="Device ID" value={selected.device_id ?? '—'} mono />
                 <Field label="User agent" value={selected.user_agent ?? '—'} />
               </>
@@ -463,6 +531,23 @@ export default function AuditLogScreen() {
               happened.
             </Text>
           </ScrollView>
+        )}
+      </ModalSheet>
+
+      {/* In-app IP location: a view-only interactive map (pan/zoom, nothing
+          else) — MapDisplay is the vendored Leaflet+OSM WebView already used by
+          the jobs/logs screens, so no new dependency and no API key. */}
+      <ModalSheet visible={ipMap != null} onClose={() => setIpMap(null)}>
+        {ipMap && (
+          <>
+            <Text style={s.mapTitle}>Approximate IP location</Text>
+            <Text style={[s.mono, s.mapIp]} selectable>{ipMap.ip}</Text>
+            <MapDisplay latitude={ipMap.latitude} longitude={ipMap.longitude} height={380} />
+            <Text style={s.mapCaption}>
+              ≈ {ipMap.place || 'Unknown area'} · IP-based geolocation is city-level at best, not an
+              exact address.
+            </Text>
+          </>
         )}
       </ModalSheet>
     </>
@@ -531,6 +616,11 @@ const s = StyleSheet.create({
   field: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5 },
   fieldLabel: { fontSize: fontSizes.caption, color: colors.textMuted, flexShrink: 0 },
   fieldValue: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1, textAlign: 'right' },
+  ipRow: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.md },
+  ipLink: { color: colors.primary, textDecorationLine: 'underline' },
+  mapTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.xs },
+  mapIp: { color: colors.textSecondary, marginBottom: spacing.md },
+  mapCaption: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: spacing.md, marginBottom: spacing.md },
   note: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: spacing.xs, fontStyle: 'italic' },
   sectionTitle: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: spacing.lg, marginBottom: spacing.sm },
   activityRow: { paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderDetail },

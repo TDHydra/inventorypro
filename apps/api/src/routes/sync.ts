@@ -9,7 +9,10 @@ import {
   isAllowedActivity,
   selectColumnsFor,
   requiresRolesPermForTarget,
+  validateMediaWrite,
 } from '../lib/syncPolicy';
+import { cleanupMediaObjects } from '../lib/mediaCleanup';
+import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
 import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
@@ -499,18 +502,18 @@ async function resolveCaller(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   userId: string,
 ): Promise<
-  | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+  | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null; is_test: boolean }
   | undefined
 > {
   const { rows } = await pg.query(
-    `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+    `SELECT u.role, u.permission_overrides, u.is_test, rs.permission_overrides AS role_overrides
        FROM users u
        LEFT JOIN role_settings rs ON rs.role = u.role
       WHERE u.id = $1`,
     [userId],
   );
   return rows[0] as
-    | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+    | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null; is_test: boolean }
     | undefined;
 }
 
@@ -606,7 +609,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
 
     for (const table of FULL_TABLES) {
-      const dateCol = table === 'media' ? 'created_at' : 'updated_at';
+      // media used created_at here until migration 044 added updated_at (backfilled
+      // = created_at, so watermarks were preserved). With the cursor on updated_at,
+      // media EDITS (caption/location_note/move) finally propagate incrementally.
+      const dateCol = 'updated_at';
       // Scoped tables (e.g. notifications) only ever return the caller's own rows;
       // chat tables are scoped to the caller's own conversations (chatScopeSql); team
       // tables to the caller's own teams (teamScopeSql), unless they may see all teams.
@@ -636,7 +642,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         required: ['entries'],
         properties: {
-          entries: { type: 'array', items: { type: 'object' } },
+          entries: { type: 'array', items: { type: 'object' }, maxItems: 100 },
         },
       },
     },
@@ -668,6 +674,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
     for (const entry of entries) {
       if (!ALLOWED_TABLES.has(entry.table_name)) {
         conflicts.push({ id: entry.id, error: 'Table not allowed' });
+        continue;
+      }
+
+      // Test/demo accounts are sandbox-only. This sits ABOVE every other branch
+      // (including the system_settings maintenance exemption) so not even the
+      // full_admin demo account can write anything through sync.
+      if (caller.is_test) {
+        conflicts.push({ id: entry.id, error: TEST_ACCOUNT_WRITE_ERROR });
         continue;
       }
 
@@ -703,9 +717,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
           continue;
         }
 
-        // Only a full_admin may grant/revoke the destructive delete_inventory
-        // permission (mirrors the client lock in roles.tsx). Compare the incoming
-        // delete_inventory bit against the stored row; deny a CHANGE by a non-apex
+        // Only a full_admin may grant/revoke the destructive delete permissions
+        // (mirrors the client lock in roles.tsx). Compare each guarded bit in the
+        // incoming overrides against the stored row; deny a CHANGE by a non-apex
         // caller. Other permission edits on the role are unaffected.
         if (caller.role !== 'full_admin') {
           const parseOv = (v: unknown): Record<string, unknown> => {
@@ -719,15 +733,17 @@ const routes: FastifyPluginAsync = async (fastify) => {
             [String(editedRole)],
           );
           const current = parseOv(curRows[0]?.permission_overrides);
-          const incHas = 'delete_inventory' in incoming;
-          const curHas = 'delete_inventory' in current;
-          const changed = incHas !== curHas || (incHas && incoming.delete_inventory !== current.delete_inventory);
-          if (changed) {
+          const guarded = ['delete_inventory', 'delete_media'].find(perm => {
+            const incHas = perm in incoming;
+            const curHas = perm in current;
+            return incHas !== curHas || (incHas && incoming[perm] !== current[perm]);
+          });
+          if (guarded) {
             request.log.warn(
-              { userId, role: caller.role, editedRole },
-              'sync push role_settings delete_inventory grant denied (not full_admin)',
+              { userId, role: caller.role, editedRole, perm: guarded },
+              'sync push role_settings destructive-grant denied (not full_admin)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: only a full admin can grant or revoke the delete_inventory permission' });
+            conflicts.push({ id: entry.id, error: `Forbidden: only a full admin can grant or revoke the ${guarded} permission` });
             continue;
           }
         }
@@ -850,6 +866,41 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // media: entity-linkage guard (pure rules in syncPolicy.validateMediaWrite).
+      // INSERT must attach to an allowlisted entity type (the REST upload path
+      // always enforced this; the sync path didn't). UPDATE may re-link (the
+      // "move" feature) only to a job — and the target job must actually exist,
+      // checked here where pg lives.
+      if (entry.table_name === 'media' && (entry.operation === 'INSERT' || entry.operation === 'UPDATE')) {
+        const mediaErr = validateMediaWrite(entry.operation, entry.payload);
+        if (mediaErr) {
+          request.log.warn({ userId, operation: entry.operation }, 'sync push media write denied (entity linkage)');
+          conflicts.push({ id: entry.id, error: `Forbidden: ${mediaErr}` });
+          continue;
+        }
+        if (entry.operation === 'UPDATE' && entry.payload.entity_id !== undefined) {
+          const { rows: jobRows } = await fastify.pg.query(
+            `SELECT 1 FROM jobs WHERE id = $1`, [entry.payload.entity_id],
+          );
+          if (!jobRows[0]) {
+            conflicts.push({ id: entry.id, error: 'Forbidden: target job does not exist' });
+            continue;
+          }
+        }
+      }
+
+      // media DELETE: capture the row BEFORE applyEntry removes it, so the
+      // MinIO object cleanup after a successful delete has the url/thumbnail
+      // to work from. Cleanup itself is fire-and-forget below — the sync-path
+      // delete used to orphan every object (only the unused REST route cleaned).
+      let mediaRowForCleanup: { id: string; url: string; thumbnail_url: string | null } | null = null;
+      if (entry.table_name === 'media' && entry.operation === 'DELETE') {
+        const { rows: mediaRows } = await fastify.pg.query(
+          `SELECT id, url, thumbnail_url FROM media WHERE id = $1`, [entry.payload.id],
+        );
+        mediaRowForCleanup = (mediaRows[0] as { id: string; url: string; thumbnail_url: string | null } | undefined) ?? null;
+      }
+
       // notifications are per-user inbox rows: clients may only UPDATE (mark read),
       // never INSERT/DELETE (op-perm already denies those), and only their OWN row.
       // A crafted entry claiming another user's row (payload.user_id != caller) is
@@ -954,6 +1005,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
       try {
         await applyEntry(fastify.pg, entry, userId, realColumns, can, touchedItems);
         ok.push(entry.id);
+        // Media row deleted → best-effort MinIO object cleanup (shared with the
+        // REST route; move-tolerant + table-wide refcount). Fire-and-forget:
+        // never blocks or fails the sync write — a failed cleanup only leaves
+        // an orphaned object, never data loss.
+        if (mediaRowForCleanup) {
+          const row = mediaRowForCleanup;
+          void cleanupMediaObjects(fastify.pg, row).catch(err =>
+            request.log.warn({ mediaId: row.id, err: (err as Error).message }, 'media object cleanup failed'),
+          );
+        }
         // New chat message → notify the OTHER participants, filtered by each one's
         // notify_pref vs the message urgency (messageRecipients). Fire-and-forget:
         // never blocks or fails the sync write. sender_id was forced to the caller.

@@ -1,4 +1,5 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { colors } from '../theme';
 
 interface Props {
@@ -20,6 +21,27 @@ export function PINPad({ value, onChange, requiredLength, error }: Props) {
       onChange(value + key);
     }
   };
+
+  // Physical-keyboard entry (web): desktops drive the pad with a real keyboard.
+  // Document-level so no element needs focus first; e.key is the digit for both
+  // the number row and the numpad. Skipped while a real text field has focus so
+  // typing in another input on the same screen can't leak into the PIN.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        handleKey(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleKey('⌫');
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  });
 
   return (
     <View style={styles.container}>

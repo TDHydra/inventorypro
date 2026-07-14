@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { initDb } from '../src/db/schema';
+import { initDb, resetLocalDb } from '../src/db/schema';
 import { SessionContext, SessionContextValue } from '../src/hooks/useSession';
 import { UserSession } from '../src/auth/permissions';
 import { clearSession } from '../src/auth/session';
+import { TEST_SESSION_FLAG } from '../src/auth/finishLogin';
+import { setSandboxActive } from '../src/sync/sandbox';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
 import { loadClassConfigCache } from '../src/constants/units';
 import { loadRolePermissionCache } from '../src/auth/permissions';
@@ -31,7 +33,14 @@ export default function RootLayout() {
   useEffect(() => {
     installGlobalErrorTracking();
     initDb()
-      .then(() => {
+      .then(async () => {
+        // A test/demo session that was killed mid-run never reached the logout
+        // wipe — its throwaway edits are still in the DB. Wipe before anything
+        // reads it; the empty DB then behaves like a fresh install.
+        if (getAppSetting(TEST_SESSION_FLAG) === '1') {
+          console.log('[DB] stale test session detected — wiping sandbox');
+          await resetLocalDb();
+        }
         setDbReady(true);
         loadClassConfigCache();
         loadRolePermissionCache();
@@ -51,10 +60,23 @@ export default function RootLayout() {
   }, []);
 
   const logout = async () => {
+    const wasTestSession = !!user?.is_test;
     // Unregister the push token first — the /push/unregister route is authed,
     // so it must run BEFORE clearSession() deletes the JWT. Best-effort.
-    await unregisterPush();
+    // (Test sessions never registered one and can't call mutating routes.)
+    if (!wasTestSession) await unregisterPush();
     await clearSession();
+    if (wasTestSession) {
+      // Discard every sandbox edit (outbox included) and the test-session flag.
+      // The empty DB makes the next login fetch the public roster and run the
+      // first-launch full download — a clean slate for the next visitor.
+      try {
+        await resetLocalDb();
+      } catch (err) {
+        console.error('[DB] test-session wipe failed:', err);
+      }
+      setSandboxActive(false);
+    }
     setUser(null);
   };
 

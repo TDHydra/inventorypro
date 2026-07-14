@@ -21,6 +21,7 @@ import { MediaGallery } from '../../../src/components/MediaGallery';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { getDb } from '../../../src/db/schema';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { UserPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
@@ -587,13 +588,11 @@ export default function LocationDetailScreen() {
             )}
 
             <FieldLabel>{ownerRequired ? 'Belongs to (required)' : 'Belongs to (optional)'}</FieldLabel>
-            <SearchablePicker
+            {/* UserPicker treats re-selecting the current person as clear. */}
+            <UserPicker
               placeholder="Search people…"
-              options={userOptions}
               value={editOwnerOption}
-              onSelect={(opt) => {
-                setEditOwnerOption(prev => (prev?.id === opt.id ? null : opt));
-              }}
+              onChange={setEditOwnerOption}
             />
             {ownerMissing && (
               <Text style={s.ownerError}>

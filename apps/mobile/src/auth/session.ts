@@ -152,5 +152,6 @@ export function buildUserSession(userId: string): UserSession | null {
     active: user.active,
     expires_at: user.expires_at,
     team_contexts: buildTeamContexts(user.id),
+    is_test: user.is_test ?? 0,
   };
 }
