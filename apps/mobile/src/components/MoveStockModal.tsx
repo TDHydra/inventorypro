@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Alert } from '../lib/themedAlert';
@@ -10,14 +10,13 @@ import { FieldLabel } from './ui/FieldLabel';
 import { confirmDestructive } from '../lib/confirm';
 import { parseQuantity } from '../lib/validation';
 import { runInTransaction } from '../db/tx';
-import { getStockAtLocation, getAllLocations } from '../db/queries/locations';
+import { getStockAtLocation, resolveLocationShelfSelection } from '../db/queries/locations';
 import { adjustStock, getStockQuantity, getItemById } from '../db/queries/items';
 import { appendLog } from '../db/queries/log';
 import { appendOutbox } from '../sync/outbox';
 import { useSession } from '../hooks/useSession';
-import { useCurrentPosition } from '../hooks/useCurrentPosition';
-import { sortByProximity } from '../location/proximity';
 import { SearchablePicker, PickerOption } from './SearchablePicker';
+import { LocationShelfPicker } from './pickers';
 
 interface Props {
   visible: boolean;
@@ -34,16 +33,15 @@ interface Props {
  *
  * Picker options:
  *   - Item: from `getStockAtLocation(fromLocationId)` (only items with qty > 0)
- *   - Destination: from `getAllLocations()` excluding the source location,
- *     proximity-sorted via `sortByProximity` using the device's current coords
- *     (same `useCurrentPosition` pattern as the check-in return-location list) —
- *     falls back to the existing (alphabetical-ish) order when coords aren't available
+ *   - Destination: the shared two-stage LocationShelfPicker (shelf-free location
+ *     list + Shelf sub-field), proximity-sorted, excluding the source location
  *
- * On confirm:
- *   1. adjustStock(itemId, fromLocationId, -qty)  [deducts from source]
- *   2. adjustStock(itemId, destLocationId, +qty)  [adds to destination]
- *   3. appendOutbox ADJUST for both stock_by_location rows (signed deltas)
- *   4. appendLog 'transfer' with from/to/qty/unit
+ * On confirm (all inside one transaction):
+ *   1. resolve (location, shelf) → destination id (creating a typed-in shelf)
+ *   2. adjustStock(itemId, fromLocationId, -qty)  [deducts from source]
+ *   3. adjustStock(itemId, destId, +qty)          [adds to destination]
+ *   4. appendOutbox ADJUST for both stock_by_location rows (signed deltas)
+ *   5. appendLog 'transfer' with from/to/qty/unit
  */
 export default function MoveStockModal({
   visible,
@@ -53,53 +51,24 @@ export default function MoveStockModal({
   onDone,
 }: Props) {
   const { user } = useSession();
-  // Position: request once whenever the modal opens (fire-and-forget; never blocks UI).
-  const { coords, request } = useCurrentPosition();
-  useEffect(() => {
-    if (visible) void request();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
 
   // Load data once (these are sync queries, so useMemo is fine)
   const stock = useMemo(() => getStockAtLocation(fromLocationId), [fromLocationId]);
-  const allLocs = useMemo(() => getAllLocations(), [visible]);
 
   const itemOptions = useMemo<PickerOption[]>(
     () => stock.map(s => ({ id: s.item_id, label: s.name, sublabel: `${s.quantity} on hand` })),
     [stock],
   );
 
-  // Proximity-sorted destination list; re-runs when coords arrive after the async
-  // request. Un-anchored locations (no lat/lng, or coords unavailable) sink to the
-  // bottom in their original order — never reordered ahead of anchored ones.
-  const sortedLocs = useMemo(
-    () =>
-      sortByProximity(
-        allLocs
-          .filter(l => l.id !== fromLocationId)
-          .map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
-        coords,
-      ),
-    [allLocs, fromLocationId, coords],
-  );
-
-  const locOptions = useMemo<PickerOption[]>(
-    () =>
-      sortedLocs.map(l => ({
-        id: l.id,
-        label: l.name,
-        sublabel: l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined,
-      })),
-    [sortedLocs],
-  );
-
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null);
   const [destLoc, setDestLoc] = useState<PickerOption | null>(null);
+  const [destShelf, setDestShelf] = useState<PickerOption | null>(null);
   const [qtyText, setQtyText] = useState('');
 
   function reset() {
     setSelectedItem(null);
     setDestLoc(null);
+    setDestShelf(null);
     setQtyText('');
   }
 
@@ -140,7 +109,7 @@ export default function MoveStockModal({
 
     confirmDestructive({
       title: 'Move stock?',
-      message: `Move ${qty}${unitLabel} from ${fromLocationName} to ${destLoc.label}? This updates stock at both locations.`,
+      message: `Move ${qty}${unitLabel} from ${fromLocationName} to ${destLoc.label}${destShelf ? ` (shelf ${destShelf.label})` : ''}? This updates stock at both locations.`,
       confirmLabel: 'Move',
       onConfirm: () => {
         const now = new Date().toISOString();
@@ -148,10 +117,15 @@ export default function MoveStockModal({
         try {
           // All writes go in ONE transaction so a mid-flow failure rolls back
           // atomically — never deduct from source without crediting destination.
+          // The shelf resolve (which may CREATE the typed-in shelf) happens inside
+          // too, so a failed transfer can't leave an orphaned new shelf behind.
           runInTransaction(() => {
+            const dest = resolveLocationShelfSelection(destLoc, destShelf);
+            if (!dest.ok || !dest.id) throw new Error('Could not resolve the shelf destination');
+
             // Adjust stock (adjustStock handles the INSERT OR REPLACE in SQLite)
             adjustStock(itemId, fromLocationId, -qty);
-            adjustStock(itemId, destLoc.id, qty);
+            adjustStock(itemId, dest.id, qty);
 
             // Outbox SIGNED deltas for both rows; the server merges authoritatively
             // (idempotent + clamped via ADJUST), creating the destination row if absent.
@@ -163,7 +137,7 @@ export default function MoveStockModal({
             });
             appendOutbox('ADJUST', 'stock_by_location', {
               item_id: itemId,
-              location_id: destLoc.id,
+              location_id: dest.id,
               delta: qty,
               updated_at: now,
             });
@@ -174,7 +148,7 @@ export default function MoveStockModal({
               entity_type: 'item',
               entity_id: itemId,
               from_location_id: fromLocationId,
-              to_location_id: destLoc.id,
+              to_location_id: dest.id,
               quantity: qty,
               unit,
               user_id: user?.id ?? null,
@@ -232,11 +206,13 @@ export default function MoveStockModal({
         )}
 
         <FieldLabel>Destination</FieldLabel>
-        <SearchablePicker
-          placeholder="Search locations…"
-          options={locOptions}
-          value={destLoc}
-          onSelect={(opt) => setDestLoc(prev => (prev?.id === opt.id ? null : opt))}
+        <LocationShelfPicker
+          proximitySort
+          excludeIds={[fromLocationId]}
+          locationValue={destLoc}
+          shelfValue={destShelf}
+          onChangeLocation={setDestLoc}
+          onChangeShelf={setDestShelf}
         />
 
         <View>

@@ -5,7 +5,7 @@ import { getRepairStatuses, isTerminalStatus } from '../../db/queries/taxonomy';
 import { setUnitStatus, searchUnitsByTag } from '../../db/queries/equipmentUnits';
 import { searchItems } from '../../db/queries/items';
 import { getAllActiveUsers, getUserById, roleColor, getRoleColorMap } from '../../db/queries/users';
-import { getAllLocations, findOrCreateVehicleByName } from '../../db/queries/locations';
+import { getNonShelfLocations, findOrCreateVehicleByName } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { isWriteBlocked } from '../../db/maintenance';
@@ -61,10 +61,11 @@ export default function RepairQuickAdd({ onSaved }: Props) {
     [assigneeOpt],
   );
 
-  // Vehicles = location rows tagged as 'Vehicle' (fall back to all locations so the
-  // picker is never empty when no type has been set yet).
+  // Vehicles = location rows tagged as 'Vehicle' (fall back to all NON-SHELF
+  // locations so the picker is never empty when no type has been set yet —
+  // shelves are stock sub-slots, never a repair target).
   const vehicleOptions = useMemo<PickerOption[]>(() => {
-    const all = getAllLocations();
+    const all = getNonShelfLocations();
     const vehicles = all.filter(l => (l.type ?? '').toLowerCase() === 'vehicle');
     return (vehicles.length ? vehicles : all).map(l => ({ id: l.id, label: l.name }));
   }, [vehiclesRefresh]);

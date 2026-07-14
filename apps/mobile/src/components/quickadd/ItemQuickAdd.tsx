@@ -6,7 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertItem, getItemBySku, searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
-import { getAllLocations, getShelvesForParent, findOrCreateShelf, resolveLocationShelf } from '../../db/queries/locations';
+import { resolveLocationShelf, resolveLocationShelfSelection } from '../../db/queries/locations';
 import { getMainStorageLocationId } from '../../db/mainStorage';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -24,8 +24,8 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
-import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
 import { track } from '../../telemetry';
 import type { QuickAddSaveMeta } from './justAdded';
@@ -76,34 +76,6 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(() => storageDefault().location);
   const [shelfValue, setShelfValue] = useState<PickerOption | null>(() => storageDefault().shelf);
   const [nameError, setNameError] = useState('');
-
-  // Location typeahead over ALL locations (parent shown as sublabel). Selecting a
-  // location whose has_shelves flag is set reveals a second ranked shelf picker.
-  const allLocations = useMemo(() => getAllLocations(), []);
-  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
-  const locationOptions = useMemo<PickerOption[]>(
-    () => allLocations.map(l => {
-      const parentName = l.parent_id ? locationById.get(l.parent_id)?.name : undefined;
-      return { id: l.id, label: l.name, sublabel: parentName };
-    }),
-    [allLocations, locationById],
-  );
-
-  // The selected location's has_shelves flag drives the Shelf field.
-  const selectedLocFull = selectedLocation ? locationById.get(selectedLocation.id) : undefined;
-  const locationHasShelves = selectedLocFull?.has_shelves === 1;
-  const shelfOptions = useMemo<PickerOption[]>(
-    () => (locationHasShelves && selectedLocation)
-      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
-      : [],
-    [locationHasShelves, selectedLocation],
-  );
-
-  // Selecting a location resets the shelf (shelf is per-location); tap again to clear.
-  function handleLocationSelect(opt: PickerOption) {
-    setShelfValue(null);
-    setSelectedLocation(prev => (prev?.id === opt.id ? null : opt));
-  }
 
   // Duplicate detection: does the typed item # already exist in the catalog?
   const skuMatch = useMemo(() => getItemBySku(sku), [sku]);
@@ -204,31 +176,15 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     // Resolve the home location. Two-stage: if the chosen location has shelves and
     // a shelf is picked/typed, home is that shelf (created when new); otherwise the
     // location itself. A failed shelf-create must NOT silently drop the location.
-    let homeLocationId: string | null = null;
-    if (selectedLocation) {
-      if (locationHasShelves && shelfValue?.label) {
-        if (shelfValue.id === '__new__') {
-          let resolved: string | null = null;
-          try {
-            resolved = findOrCreateShelf(selectedLocation.id, shelfValue.label);
-          } catch {
-            resolved = null;
-          }
-          if (!resolved) {
-            Alert.alert(
-              'Couldn’t add that shelf',
-              `We couldn’t create the shelf “${shelfValue.label}”. Pick an existing shelf or try again.`,
-            );
-            return;
-          }
-          homeLocationId = resolved;
-        } else {
-          homeLocationId = shelfValue.id;
-        }
-      } else {
-        homeLocationId = selectedLocation.id;
-      }
+    const homeResult = resolveLocationShelfSelection(selectedLocation, shelfValue);
+    if (!homeResult.ok) {
+      Alert.alert(
+        'Couldn’t add that shelf',
+        `We couldn’t create the shelf “${homeResult.shelfLabel}”. Pick an existing shelf or try again.`,
+      );
+      return;
     }
+    const homeLocationId = homeResult.id;
 
     // Current stock must attach to a location — use the home location. Require
     // one rather than silently dropping the entered quantity.
@@ -452,24 +408,12 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       />
 
       <FieldLabel>Home location (where it belongs)</FieldLabel>
-      <SearchablePicker
-        placeholder="Search locations…"
-        options={locationOptions}
-        value={selectedLocation}
-        onSelect={handleLocationSelect}
+      <LocationShelfPicker
+        locationValue={selectedLocation}
+        shelfValue={shelfValue}
+        onChangeLocation={setSelectedLocation}
+        onChangeShelf={setShelfValue}
       />
-      {locationHasShelves && (
-        <>
-          <FieldLabel>Shelf</FieldLabel>
-          <SearchablePicker
-            placeholder="Type or pick a shelf (e.g. A1)…"
-            options={shelfOptions}
-            value={shelfValue}
-            onSelect={(opt) => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
-            onCreate={(text) => setShelfValue({ id: '__new__', label: text })}
-          />
-        </>
-      )}
 
       <PrimaryButton
         label="Save & add another"

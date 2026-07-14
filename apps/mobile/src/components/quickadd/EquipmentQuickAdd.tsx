@@ -10,12 +10,13 @@ import { sanitizeScan } from '../../scan/sanitize';
 import { searchItems } from '../../db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../db/queries/equipmentUnits';
-import { getAllLocations, getShelvesForParent, findOrCreateShelf } from '../../db/queries/locations';
+import { resolveLocationShelfSelection } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, fontSizes, radii } from '../../theme';
@@ -69,32 +70,6 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       })),
     [],
   );
-
-  const allLocations = useMemo(() => getAllLocations(), []);
-  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
-  const locationOptions = useMemo<PickerOption[]>(
-    () => allLocations.map(l => {
-      const parentName = l.parent_id ? locationById.get(l.parent_id)?.name : undefined;
-      return { id: l.id, label: l.name, sublabel: parentName };
-    }),
-    [allLocations, locationById],
-  );
-
-  // The selected location's has_shelves flag drives the Shelf field.
-  const selectedLocFull = selectedLocation ? locationById.get(selectedLocation.id) : undefined;
-  const locationHasShelves = selectedLocFull?.has_shelves === 1;
-  const shelfOptions = useMemo<PickerOption[]>(
-    () => (locationHasShelves && selectedLocation)
-      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
-      : [],
-    [locationHasShelves, selectedLocation],
-  );
-
-  // Selecting a location resets the shelf (shelf is per-location); tap again to clear.
-  function handleLocationSelect(opt: PickerOption) {
-    setShelfValue(null);
-    setSelectedLocation(prev => (prev?.id === opt.id ? null : opt));
-  }
 
   function updateRow(key: string, patch: Partial<UnitRow>) {
     setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
@@ -162,28 +137,13 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
 
     // Resolve the shared batch location the same way ItemQuickAdd resolves its
     // home location: shelf (creating it if new) wins over the bare location.
-    let resolvedLocationId: string | null = null;
-    if (selectedLocation) {
-      if (locationHasShelves && shelfValue?.label) {
-        if (shelfValue.id === '__new__') {
-          let resolved: string | null = null;
-          try {
-            resolved = findOrCreateShelf(selectedLocation.id, shelfValue.label);
-          } catch {
-            resolved = null;
-          }
-          if (!resolved) {
-            setFormError(`We couldn’t create the shelf “${shelfValue.label}”. Pick an existing shelf or try again.`);
-            return;
-          }
-          resolvedLocationId = resolved;
-        } else {
-          resolvedLocationId = shelfValue.id;
-        }
-      } else {
-        resolvedLocationId = selectedLocation.id;
-      }
+    // Location is optional here — no selection resolves to a null id.
+    const dest = resolveLocationShelfSelection(selectedLocation, shelfValue);
+    if (!dest.ok) {
+      setFormError(`We couldn’t create the shelf “${dest.shelfLabel}”. Pick an existing shelf or try again.`);
+      return;
     }
+    const resolvedLocationId = dest.id;
 
     setFormError('');
     setRows(prev => prev.map(r => ({ ...r, error: '' })));
@@ -330,24 +290,12 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       </TouchableOpacity>
 
       <FieldLabel>Location for this batch (optional)</FieldLabel>
-      <SearchablePicker
-        placeholder="Search locations…"
-        options={locationOptions}
-        value={selectedLocation}
-        onSelect={handleLocationSelect}
+      <LocationShelfPicker
+        locationValue={selectedLocation}
+        shelfValue={shelfValue}
+        onChangeLocation={setSelectedLocation}
+        onChangeShelf={setShelfValue}
       />
-      {locationHasShelves && (
-        <>
-          <FieldLabel>Shelf</FieldLabel>
-          <SearchablePicker
-            placeholder="Type or pick a shelf (e.g. A1)…"
-            options={shelfOptions}
-            value={shelfValue}
-            onSelect={(opt) => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
-            onCreate={(text) => setShelfValue({ id: '__new__', label: text })}
-          />
-        </>
-      )}
 
       {!!formError && <Text style={s.errorText}>{formError}</Text>}
 

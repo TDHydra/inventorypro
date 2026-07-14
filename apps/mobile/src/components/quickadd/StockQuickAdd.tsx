@@ -4,13 +4,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../db/queries/items';
-import { getAllLocations, getShelvesForParent, findOrCreateShelf } from '../../db/queries/locations';
+import { resolveLocationShelfSelection } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { LocationShelfPicker } from '../pickers';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -55,22 +56,6 @@ export default function StockQuickAdd({ onSaved }: Props) {
     [mode, selectedLocation, selectedItemOpt],
   );
 
-  const allLocations = useMemo(() => getAllLocations(), []);
-  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
-  const locationOptions: PickerOption[] = useMemo(
-    () => allLocations.map(l => ({ id: l.id, label: l.name })),
-    [allLocations],
-  );
-
-  // The selected location's has_shelves flag drives the Shelf field (migration 020).
-  const locationHasShelves = selectedLocation ? locationById.get(selectedLocation.id)?.has_shelves === 1 : false;
-  const shelfOptions = useMemo<PickerOption[]>(
-    () => (locationHasShelves && selectedLocation)
-      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
-      : [],
-    [locationHasShelves, selectedLocation],
-  );
-
   // DB-backed search (not a capped pre-load) so the full catalog is reachable.
   const itemSearch = useMemo(
     () => (q: string): PickerOption[] =>
@@ -106,14 +91,14 @@ export default function StockQuickAdd({ onSaved }: Props) {
     const itemId = selectedItemOpt.id;
     // Resolve the target location: when the location bears shelves and a shelf is
     // chosen, stock is tracked against the shelf (creating it if it's new — which
-    // can fail and return null, so guard it). Otherwise the bare location.
-    const locationId = (locationHasShelves && shelfValue?.label)
-      ? (shelfValue.id === '__new__' ? findOrCreateShelf(selectedLocation.id, shelfValue.label) : shelfValue.id)
-      : selectedLocation.id;
-    if (!locationId) {
-      setError(`Couldn’t create the shelf “${shelfValue?.label}”. Pick an existing shelf or try again.`);
+    // can fail, so guard it). Otherwise the bare location.
+    const dest = resolveLocationShelfSelection(selectedLocation, shelfValue);
+    if (!dest.ok) {
+      setError(`Couldn’t create the shelf “${dest.shelfLabel}”. Pick an existing shelf or try again.`);
       return;
     }
+    // id is only null when no location is picked, which is guarded above.
+    const locationId = dest.id ?? selectedLocation.id;
     const now = new Date().toISOString();
     const fullItem = getItemById(itemId);
     const itemUnit = fullItem?.unit ?? 'each';
@@ -188,29 +173,15 @@ export default function StockQuickAdd({ onSaved }: Props) {
   return (
     <View style={s.container}>
       <FieldLabel>Location</FieldLabel>
-      <SearchablePicker
-        placeholder="Search locations..."
-        options={locationOptions}
-        value={selectedLocation}
-        onSelect={opt => {
-          // Shelf is per-location — reset it whenever the location changes.
-          setShelfValue(null);
-          setSelectedLocation(prev => prev?.id === opt.id ? null : opt);
+      <LocationShelfPicker
+        locationValue={selectedLocation}
+        shelfValue={shelfValue}
+        onChangeLocation={opt => {
+          setSelectedLocation(opt);
           if (error) setError('');
         }}
+        onChangeShelf={setShelfValue}
       />
-      {locationHasShelves && (
-        <>
-          <FieldLabel>Shelf</FieldLabel>
-          <SearchablePicker
-            placeholder="Type or pick a shelf (e.g. A1)…"
-            options={shelfOptions}
-            value={shelfValue}
-            onSelect={opt => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
-            onCreate={text => setShelfValue({ id: '__new__', label: text })}
-          />
-        </>
-      )}
 
       <FieldLabel>Item</FieldLabel>
       <SearchablePicker
