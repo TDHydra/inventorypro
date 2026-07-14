@@ -316,6 +316,7 @@ const CATEGORY_NOUN: Record<string, string> = {
   location_type: 'Location Type',
   location_subtype: 'Location Sub-Type',
   repair_status: 'Repair Status',
+  equipment: 'Equipment Type',
 };
 
 export default function ManageTypesScreen() {
@@ -347,6 +348,9 @@ export default function ManageTypesScreen() {
   );
   const [repairStatuses, setRepairStatuses] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('repair_status', { includeInactive: true }),
+  );
+  const [equipmentTypes, setEquipmentTypes] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('equipment', { includeInactive: true }),
   );
 
   // Add modal
@@ -384,6 +388,7 @@ export default function ManageTypesScreen() {
     setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
     setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
     setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
+    setEquipmentTypes(getTaxonomyTypes('equipment', { includeInactive: true }));
   }
 
   // ── Add handlers ────────────────────────────────────────────────────────────
@@ -752,6 +757,7 @@ export default function ManageTypesScreen() {
           {renderSection('Location Types', 'location_type', locTypes, '+ Add Location Type')}
           {renderSection('Location Sub-Types', 'location_subtype', locSubtypes, '+ Add Location Sub-Type')}
           {renderSection('Repair Statuses', 'repair_status', repairStatuses, '+ Add Repair Status')}
+          {renderSection('Equipment Types', 'equipment', equipmentTypes, '+ Add Equipment Type')}
         </ScrollView>
       )}
 
