@@ -1,7 +1,19 @@
 import { getDb, rowsAs } from '../schema';
 import { generateUUID } from '../../utils/uuid';
 import { appendOutbox } from '../../sync/outbox';
+import { isSandboxActive } from '../../sync/sandbox';
 import { track } from '../../telemetry';
+
+/** Metadata is a JSON string (or null); tolerate malformed values rather than throwing. */
+function safeParseMetadata(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
 
 export interface LogEntry {
   id: string;
@@ -45,6 +57,13 @@ export function appendLog(
   const latitude = entry.latitude ?? null;
   const longitude = entry.longitude ?? null;
   const location_accuracy = entry.location_accuracy ?? null;
+  // Demo sessions ARE logged — the Activity Logs screen is part of what a test
+  // account is there to show — but every row is stamped so it can never be
+  // mistaken for real activity. These rows stay on-device (the sandbox never
+  // pushes; the server rejects test-account writes) and die with the logout wipe.
+  const entryMetadata = isSandboxActive()
+    ? JSON.stringify({ ...safeParseMetadata(entry.metadata), demo: true })
+    : entry.metadata;
   db.executeSync(
     `INSERT INTO activity_log
        (id, user_id, team_id, action, entity_type, entity_id,
@@ -55,7 +74,7 @@ export function appendLog(
     [id, entry.user_id, entry.team_id, entry.action, entry.entity_type,
      entry.entity_id, entry.from_location_id, entry.to_location_id,
      entry.quantity, entry.unit, entry.job_id, entry.note,
-     entry.metadata, entry.device_id, created_at,
+     entryMetadata, entry.device_id, created_at,
      latitude, longitude, location_accuracy]
   );
   // Sync the row to the server's append-only log (idempotent insert server-side).
@@ -64,7 +83,7 @@ export function appendLog(
     entity_type: entry.entity_type, entity_id: entry.entity_id,
     from_location_id: entry.from_location_id, to_location_id: entry.to_location_id,
     quantity: entry.quantity, unit: entry.unit, job_id: entry.job_id,
-    note: entry.note, metadata: entry.metadata, device_id: entry.device_id, created_at,
+    note: entry.note, metadata: entryMetadata, device_id: entry.device_id, created_at,
     latitude, longitude, location_accuracy,
   });
   // Audit blend: every business action logged here also shows up in

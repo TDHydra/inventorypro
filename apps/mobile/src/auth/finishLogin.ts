@@ -39,9 +39,14 @@ export function finishLogin(userId: string, setUser: (s: UserSession) => void): 
 
   // Authentication is never a data mutation — signing in must NEVER be blocked by
   // maintenance mode. The login audit is best-effort: if the write-guard (or
-  // anything) throws, swallow it so the user still gets in. Test sessions skip
-  // it entirely — their audit rows would only ever be throwaway sandbox data.
-  if (!isTestSession) try {
+  // anything) throws, swallow it so the user still gets in.
+  //
+  // Demo sessions are logged too — appendLog stamps every row from a sandbox
+  // session with `demo: true` (and they never leave the device), so the Activity
+  // Logs screen works for someone exploring the app as a test account without
+  // any of it passing for real activity. setSandboxActive() above must therefore
+  // run BEFORE this call.
+  try {
     appendLog({
       user_id: session.id,
       team_id: null,
