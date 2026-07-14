@@ -28,6 +28,8 @@ export interface MessageRow {
   urgency: MessageUrgency;
   created_at: string;
   updated_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
   sender_name?: string | null;
 }
 
@@ -167,6 +169,32 @@ export function sendMessage(
   return row;
 }
 
+// Edit a message's body (sender-only, enforced server-side). MUST be an outbox
+// UPDATE: messages is INSERT_NO_UPSERT on the server, so a re-INSERT with the
+// existing id is a no-op there — only an UPDATE op applies the new body.
+export function editMessage(id: string, body: string): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.executeSync(
+    `UPDATE messages SET body = ?, edited_at = ?, updated_at = ? WHERE id = ?`,
+    [body, now, now, id],
+  );
+  appendOutbox('UPDATE', 'messages', { id, body, edited_at: now });
+}
+
+// Soft-delete a message: stamp deleted_at and blank the body (the server also
+// forces body = '' on any deleted_at UPDATE, so content never survives). Same
+// INSERT_NO_UPSERT constraint as editMessage — this must be an UPDATE op.
+export function deleteMessage(id: string): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.executeSync(
+    `UPDATE messages SET deleted_at = ?, body = '', updated_at = ? WHERE id = ?`,
+    [now, now, id],
+  );
+  appendOutbox('UPDATE', 'messages', { id, deleted_at: now, body: '' });
+}
+
 // Messages for a conversation, oldest first (ascending) — capped. Joins the
 // sender's name for display (LEFT JOIN so an unknown sender still renders).
 export function getMessages(conversationId: string, limit = 500): MessageRow[] {
@@ -192,11 +220,12 @@ export function listConversations(currentUserId: string): ConversationListItem[]
   const result = db.executeSync(
     `SELECT
         c.id, c.kind, c.title, cp.notify_pref,
-        (SELECT m.body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-        (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_at,
+        (SELECT m.body FROM messages m WHERE m.conversation_id = c.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+        (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC LIMIT 1) AS last_at,
         (SELECT COUNT(*) FROM messages m
            WHERE m.conversation_id = c.id
              AND m.sender_id != ?
+             AND m.deleted_at IS NULL
              AND (cp.last_read_at IS NULL OR m.created_at > cp.last_read_at)) AS unread,
         (SELECT u.name FROM conversation_participants p JOIN users u ON u.id = p.user_id
            WHERE p.conversation_id = c.id AND p.user_id != ? LIMIT 1) AS peer_name
@@ -217,6 +246,7 @@ export function totalUnread(currentUserId: string): number {
        JOIN conversation_participants cp
          ON cp.conversation_id = m.conversation_id AND cp.user_id = ?
       WHERE m.sender_id != ?
+        AND m.deleted_at IS NULL
         AND (cp.last_read_at IS NULL OR m.created_at > cp.last_read_at)`,
     [currentUserId, currentUserId],
   );

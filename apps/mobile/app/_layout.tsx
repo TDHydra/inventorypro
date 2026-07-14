@@ -4,7 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { initDb, resetLocalDb } from '../src/db/schema';
 import { SessionContext, SessionContextValue } from '../src/hooks/useSession';
 import { UserSession } from '../src/auth/permissions';
-import { clearSession } from '../src/auth/session';
+import { clearSession, getSavedUserId } from '../src/auth/session';
+import { loadChatCache } from '../src/chat/store';
 import { TEST_SESSION_FLAG } from '../src/auth/finishLogin';
 import { setSandboxActive } from '../src/sync/sandbox';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
@@ -45,6 +46,7 @@ export default function RootLayout() {
         loadClassConfigCache();
         loadRolePermissionCache();
         loadDashboardCache();
+        void getSavedUserId().then(id => loadChatCache(id));
         startSyncEngine();
         // Notifications: create the Android channel, then (unless the user has
         // turned the pref off) make sure we hold OS permission so post-sync

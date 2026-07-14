@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import {
   getAllUsers, updateUserLocal, markUserPinReset, getRoleSettings,
   getRolePermissionOverrides, setUserActive, setUserRole, changeRoleOnline, User,
@@ -13,6 +13,8 @@ import {
   ROLE_DEFAULTS, canActOnTarget, canAssignRole,
 } from '../../../src/constants/roles';
 import { getAllTeams, addTeamMember } from '../../../src/db/queries/teams';
+import { createDmConversation } from '../../../src/db/queries/chat';
+import { syncNow } from '../../../src/sync/engine';
 import { getDashboardPresets } from '../../../src/db/queries/dashboards';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { getDb } from '../../../src/db/schema';
@@ -161,6 +163,7 @@ function formatDate(iso: string | null): string {
 
 export default function AdminUsersScreen() {
   const { user: sessionUser } = useSession();
+  const router = useRouter();
   const canManageUsers = usePermission('manage_users');
   const { locked } = useMaintenanceMode();
   const sel = useMultiSelect<User>();
@@ -203,6 +206,21 @@ export default function AdminUsersScreen() {
   );
 
   function refresh() { setUsers(getAllUsers()); }
+
+  // Find-or-create a DM with this user and open the thread (mirrors the team
+  // roster's Message action; createDmConversation reuses an existing 1:1).
+  function messageUser(u: User) {
+    if (!sessionUser) return;
+    let convId: string;
+    try {
+      convId = createDmConversation(sessionUser.id, u.id);
+    } catch {
+      Alert.alert('Could not start chat', 'Please try again.');
+      return;
+    }
+    void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    router.push({ pathname: '/(app)/(chat)/[id]', params: { id: convId } });
+  }
 
   function openEdit(u: User) {
     setEditUser(u);
@@ -913,6 +931,16 @@ export default function AdminUsersScreen() {
                     <Text style={[s.statusText, { color: STATUS_META[st].color }]}>{STATUS_META[st].label}</Text>
                   </View>
                 )}
+                {!sel.active && u.id !== sessionUser?.id && (
+                  <TouchableOpacity
+                    onPress={() => messageUser(u)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={s.msgBtn}
+                    accessibilityLabel={`Message ${u.name}`}
+                  >
+                    <Text style={s.msgBtnText}>💬</Text>
+                  </TouchableOpacity>
+                )}
                 <Text style={s.tier}>T{ROLE_TIER[u.role as UserRole]}</Text>
                 <Text style={s.chevron}>›</Text>
               </TouchableOpacity>
@@ -1297,6 +1325,11 @@ const s = StyleSheet.create({
     backgroundColor: '#F1F5F9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
   chevron: { fontSize: 18, color: colors.textDisabled },
+  msgBtn: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  msgBtnText: { fontSize: fontSizes.body2 },
   empty: { textAlign: 'center', marginTop: 40, color: colors.textMuted, fontSize: fontSizes.body },
   modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.brand, marginBottom: 8 },
   roleSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginBottom: 12 },

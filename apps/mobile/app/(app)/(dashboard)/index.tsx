@@ -12,6 +12,7 @@ import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/role
 import { track } from '../../../src/telemetry';
 import { colors } from '../../../src/theme';
 import { useDashboardLayout } from '../../../src/dashboard/store';
+import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
 
 function timeGreeting(): string {
@@ -39,6 +40,9 @@ export default function DashboardScreen() {
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
   // which reproduces today's dashboard exactly (same tiles/order/gates below).
   const layout = useDashboardLayout(user);
+  // Unread badge on the Messages tile — reactive via the chat store (loadChatCache
+  // runs at boot, post-pull, and from the chat screens' own writes).
+  const chatUnread = useTotalUnread();
 
   if (!user) return null;
 
@@ -89,6 +93,11 @@ export default function DashboardScreen() {
         <Text style={styles.tileIcon}>{icon}</Text>
         <Text style={primary ? styles.tileLabelPrimary : styles.tileLabel}>{label}</Text>
         {primary && <Text style={styles.tileSubPrimary}>Scan or search for an item</Text>}
+        {block.widget === 'chat' && chatUnread > 0 && (
+          <View style={styles.tileBadge}>
+            <Text style={styles.tileBadgeText}>{chatUnread > 99 ? '99+' : chatUnread}</Text>
+          </View>
+        )}
       </TouchableOpacity>
     );
 
@@ -227,6 +236,19 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   tileHalf: { flex: 1 },
+  tileBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tileBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   tileIcon: { fontSize: 22, marginBottom: 6 },
   tileLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   tileLabelPrimary: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 4 },

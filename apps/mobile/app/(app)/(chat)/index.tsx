@@ -173,6 +173,15 @@ export default function ChatListScreen() {
             />
           }
         />
+        {/* FAB — same compose flow as the header "+ New", but always visible */}
+        <TouchableOpacity
+          style={s.fab}
+          onPress={openCompose}
+          accessibilityLabel="New conversation"
+          activeOpacity={0.85}
+        >
+          <Text style={s.fabText}>+</Text>
+        </TouchableOpacity>
       </View>
 
       <ModalSheet visible={composing} onClose={() => setComposing(false)} scroll>
@@ -223,6 +232,13 @@ const s = StyleSheet.create({
   list: { padding: spacing.md, gap: spacing.sm, paddingBottom: 80 },
   newBtn: { paddingHorizontal: 8, paddingVertical: 4, marginRight: 4 },
   newBtnText: { color: '#fff', fontSize: fontSizes.body, fontWeight: '700' },
+  fab: {
+    position: 'absolute', right: 20, bottom: 24,
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
+    elevation: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
+  },
+  fabText: { color: '#fff', fontSize: 30, fontWeight: '700', lineHeight: 34 },
   cardUnread: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
   row: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
   avatar: { fontSize: 22 },

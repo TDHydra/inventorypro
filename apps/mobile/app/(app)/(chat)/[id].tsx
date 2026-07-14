@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import {
-  getMessages, sendMessage, getConversation, getParticipants, getMyParticipant,
+  getMessages, sendMessage, editMessage, deleteMessage, getConversation,
+  getParticipants, getMyParticipant,
   conversationTitle, markConversationRead, setNotifyPref, addParticipant,
   removeParticipant, leaveConversation,
   type MessageRow, type ParticipantRow, type NotifyPref, type MessageUrgency,
@@ -61,23 +62,85 @@ export default function ChatThreadScreen() {
     [conversation, participants, userId],
   );
 
-  // Mark read on open + whenever new messages arrive.
+  // Mark read on open + whenever new messages arrive. Guarded on the conversation
+  // still existing locally — after a chat purge the participant row is gone and an
+  // outbox UPDATE for it would be rejected server-side.
+  const conversationExists = !!conversation;
   useEffect(() => {
-    if (userId) { markConversationRead(conversationId, userId); loadChatCache(userId); }
+    if (userId && conversationExists) { markConversationRead(conversationId, userId); loadChatCache(userId); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, userId, messages.length]);
+  }, [conversationId, userId, conversationExists, messages.length]);
 
   const [draft, setDraft] = useState('');
   const [urgency, setUrgency] = useState<MessageUrgency>('urgent');
 
+  // ── edit / delete own messages ──────────────────────────────────────────────
+  const [actionMsg, setActionMsg] = useState<MessageRow | null>(null); // long-press menu target
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [prevDraft, setPrevDraft] = useState(''); // composer text stashed while editing
+
+  const beginEdit = useCallback((m: MessageRow) => {
+    setActionMsg(null);
+    setEditingId(m.id);
+    setPrevDraft(draft);
+    setDraft(m.body);
+  }, [draft]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setDraft(prevDraft);
+    setPrevDraft('');
+  }, [prevDraft]);
+
+  const onDelete = useCallback((m: MessageRow) => {
+    setActionMsg(null);
+    if (editingId === m.id) cancelEdit();
+    deleteMessage(m.id);
+    reload();
+    void syncNow().catch(() => { /* offline — outbox syncs later */ });
+  }, [editingId, cancelEdit, reload]);
+
   const send = useCallback(() => {
     const body = draft.trim();
     if (!body || !userId) return;
-    sendMessage(conversationId, userId, body, urgency);
-    setDraft('');
+    if (editingId) {
+      editMessage(editingId, body);
+      setEditingId(null);
+      setDraft(prevDraft);
+      setPrevDraft('');
+    } else {
+      sendMessage(conversationId, userId, body, urgency);
+      setDraft('');
+    }
     reload();
     void syncNow().catch(() => { /* offline — outbox syncs later */ });
-  }, [draft, userId, conversationId, urgency, reload]);
+  }, [draft, userId, conversationId, urgency, editingId, prevDraft, reload]);
+
+  // ── read receipts (Step E) ──────────────────────────────────────────────────
+  // Rendered under the caller's LATEST own (non-deleted) message only, from the
+  // other participants' last_read_at (already synced rows — refreshes via the
+  // useDataVersion re-query above).
+  const lastOwn = useMemo((): MessageRow | undefined => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.sender_id === userId && !m.deleted_at) return m;
+    }
+    return undefined;
+  }, [messages, userId]);
+
+  const receipt = useMemo((): string | null => {
+    if (!lastOwn) return null;
+    const others = participants.filter(p => p.user_id !== userId);
+    if (others.length === 0) return null;
+    const sentAt = new Date(lastOwn.created_at).getTime();
+    const readers = others.filter(
+      p => p.last_read_at != null && new Date(p.last_read_at).getTime() >= sentAt,
+    );
+    if (conversation?.kind === 'group') {
+      return readers.length > 0 ? `Read by ${readers.length} of ${others.length}` : null;
+    }
+    return readers.length === others.length ? 'Read' : null;
+  }, [lastOwn, participants, userId, conversation?.kind]);
 
   // ── manage sheet (notify pref + group membership) ──────────────────────────
   const [managing, setManaging] = useState(false);
@@ -119,21 +182,58 @@ export default function ChatThreadScreen() {
 
   const renderMessage = useCallback(({ item }: { item: MessageRow }) => {
     const mine = item.sender_id === userId;
-    return (
-      <View style={[s.msgRow, mine ? s.msgRowMine : s.msgRowTheirs]}>
-        <View style={[s.bubble, mine ? s.bubbleMine : s.bubbleTheirs]}>
-          {isGroup && !mine && item.sender_name ? (
-            <Text style={s.sender}>{item.sender_name}</Text>
-          ) : null}
-          <Text style={[s.msgText, mine && s.msgTextMine]}>{item.body}</Text>
-          <View style={s.metaRow}>
-            {item.urgency === 'urgent' && <Text style={[s.urgentTag, mine && s.urgentTagMine]}>URGENT</Text>}
-            <Text style={[s.msgTime, mine && s.msgTimeMine]}>{timeLabel(item.created_at)}</Text>
+    if (item.deleted_at) {
+      return (
+        <View style={[s.msgRow, mine ? s.msgRowMine : s.msgRowTheirs]}>
+          <View style={[s.bubble, s.bubbleDeleted]}>
+            <Text style={s.deletedText}>Message deleted</Text>
           </View>
         </View>
+      );
+    }
+    return (
+      <View>
+        <View style={[s.msgRow, mine ? s.msgRowMine : s.msgRowTheirs]}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            disabled={!mine}
+            onLongPress={() => setActionMsg(item)}
+            style={[s.bubble, mine ? s.bubbleMine : s.bubbleTheirs]}
+          >
+            {isGroup && !mine && item.sender_name ? (
+              <Text style={s.sender}>{item.sender_name}</Text>
+            ) : null}
+            <Text style={[s.msgText, mine && s.msgTextMine]}>{item.body}</Text>
+            <View style={s.metaRow}>
+              {item.urgency === 'urgent' && <Text style={[s.urgentTag, mine && s.urgentTagMine]}>URGENT</Text>}
+              {item.edited_at ? <Text style={[s.msgTime, mine && s.msgTimeMine]}>(edited)</Text> : null}
+              <Text style={[s.msgTime, mine && s.msgTimeMine]}>{timeLabel(item.created_at)}</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+        {item.id === lastOwn?.id && receipt ? (
+          <View style={s.receiptRow}>
+            <Text style={s.receiptText}>{receipt}</Text>
+          </View>
+        ) : null}
       </View>
     );
-  }, [userId, isGroup]);
+  }, [userId, isGroup, lastOwn?.id, receipt]);
+
+  // The conversation row disappeared while open (removed-member purge / deletion)
+  // — render a graceful dead-end instead of an empty shell that can still write.
+  if (!conversation) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Chat', headerShown: true }} />
+        <View style={s.goneWrap}>
+          <Text style={s.goneTitle}>This conversation is no longer available</Text>
+          <Text style={s.goneSub}>You may have been removed from it, or it was deleted.</Text>
+          <PrimaryButton label="Back to messages" onPress={() => router.back()} />
+        </View>
+      </>
+    );
+  }
 
   return (
     <>
@@ -167,19 +267,28 @@ export default function ChatThreadScreen() {
         />
 
         <View style={s.composer}>
-          <View style={s.urgencyRow}>
-            {(['urgent', 'regular'] as MessageUrgency[]).map(u => (
-              <TouchableOpacity
-                key={u}
-                style={[s.uToggle, urgency === u && s.uToggleOn]}
-                onPress={() => setUrgency(u)}
-              >
-                <Text style={[s.uToggleText, urgency === u && s.uToggleTextOn]}>
-                  {u === 'urgent' ? 'Urgent' : 'Regular'}
-                </Text>
+          {editingId ? (
+            <View style={s.editingRow}>
+              <Text style={s.editingText}>Editing message</Text>
+              <TouchableOpacity onPress={cancelEdit} hitSlop={8}>
+                <Text style={s.editingCancel}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-          </View>
+            </View>
+          ) : (
+            <View style={s.urgencyRow}>
+              {(['urgent', 'regular'] as MessageUrgency[]).map(u => (
+                <TouchableOpacity
+                  key={u}
+                  style={[s.uToggle, urgency === u && s.uToggleOn]}
+                  onPress={() => setUrgency(u)}
+                >
+                  <Text style={[s.uToggleText, urgency === u && s.uToggleTextOn]}>
+                    {u === 'urgent' ? 'Urgent' : 'Regular'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           <View style={s.inputRow}>
             <TextInput
               style={s.input}
@@ -194,11 +303,28 @@ export default function ChatThreadScreen() {
               onPress={send}
               disabled={!draft.trim()}
             >
-              <Text style={s.sendText}>Send</Text>
+              <Text style={s.sendText}>{editingId ? 'Save' : 'Send'}</Text>
             </TouchableOpacity>
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Long-press action menu for the caller's own messages */}
+      <ModalSheet visible={!!actionMsg} onClose={() => setActionMsg(null)}>
+        <Text style={s.sheetTitle}>Message</Text>
+        <TouchableOpacity
+          style={s.msgActionRow}
+          onPress={() => { if (actionMsg) beginEdit(actionMsg); }}
+        >
+          <Text style={s.msgActionText}>✏️ Edit</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={s.msgActionRow}
+          onPress={() => { if (actionMsg) onDelete(actionMsg); }}
+        >
+          <Text style={[s.msgActionText, s.msgActionDanger]}>🗑 Delete</Text>
+        </TouchableOpacity>
+      </ModalSheet>
 
       <ModalSheet visible={managing} onClose={() => setManaging(false)} scroll>
         <Text style={s.sheetTitle}>{title}</Text>
@@ -271,6 +397,19 @@ const s = StyleSheet.create({
   urgentTagMine: { color: '#FFE0C2' },
   msgTime: { fontSize: fontSizes.xs, color: colors.textMuted },
   msgTimeMine: { color: 'rgba(255,255,255,0.8)' },
+  bubbleDeleted: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.borderDetail },
+  deletedText: { fontSize: fontSizes.body2, fontStyle: 'italic', color: colors.textMuted },
+  receiptRow: { alignItems: 'flex-end', paddingRight: 4, marginTop: 2 },
+  receiptText: { fontSize: fontSizes.xs, color: colors.textMuted },
+  editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  editingText: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary },
+  editingCancel: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.danger },
+  msgActionRow: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
+  msgActionText: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '600' },
+  msgActionDanger: { color: colors.danger },
+  goneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md, backgroundColor: colors.background },
+  goneTitle: { fontSize: fontSizes.md, fontWeight: '700', color: colors.textPrimary, textAlign: 'center' },
+  goneSub: { fontSize: fontSizes.body2, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
   composer: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, padding: spacing.sm, gap: spacing.sm },
   urgencyRow: { flexDirection: 'row', gap: spacing.sm },
   uToggle: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.border },

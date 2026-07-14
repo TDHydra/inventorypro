@@ -4,11 +4,13 @@ import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxE
 import { pullChanges } from './pull';
 import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
+import { reconcileChat } from './chatPurge';
 import { reconcileLogSyncState } from '../db/queries/log';
-import { getValidJwt } from '../auth/session';
+import { getValidJwt, getSavedUserId } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
 import { loadRolePermissionCache } from '../auth/permissions';
 import { loadDashboardCache } from '../dashboard/store';
+import { loadChatCache } from '../chat/store';
 import { notifyHiddenFieldsChanged } from '../db/hiddenFields';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
 import { prefetchNewMediaThumbnails } from './mediaPrefetch';
@@ -229,6 +231,9 @@ async function runDrainAndPull(): Promise<void> {
     // server-side, a team the user was REMOVED from simply stops being returned —
     // nothing tells this device to forget it. Reconcile every sync, not once.
     await reconcileTeams();
+    // Same upsert-only hole for chat: a conversation the user was removed from
+    // stops being returned but never leaves the device without this.
+    await reconcileChat();
     // A pull may have changed product_class units/decimals — refresh the cache
     // that formatQuantity() reads so quantities reflect the latest config.
     loadClassConfigCache();
@@ -238,6 +243,9 @@ async function runDrainAndPull(): Promise<void> {
     // A pull may also have changed dashboard_presets or the per-user/role
     // assignment — refresh the cache the hub's useDashboardLayout() reads.
     loadDashboardCache();
+    // A pull may also have delivered new messages / read receipts — refresh the
+    // total-unread cache the ChatBell + dashboard chat tile read.
+    void getSavedUserId().then(id => { if (id) loadChatCache(id); });
     // A pull may also have changed app_config hidden_fields — notify subscribers
     // so HidableField components re-render without waiting for a focus event.
     notifyHiddenFieldsChanged();
