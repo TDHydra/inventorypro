@@ -302,6 +302,9 @@ export default function CheckoutScreen() {
       user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
       metadata: null, device_id: null,
+      latitude: coords?.latitude ?? null,
+      longitude: coords?.longitude ?? null,
+      location_accuracy: coords?.accuracy ?? null,
     });
     setSelectedJob({ id: newJob.id, name: newJob.name });
   }

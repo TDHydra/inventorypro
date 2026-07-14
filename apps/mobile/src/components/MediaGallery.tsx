@@ -12,8 +12,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useSession } from '../hooks/useSession';
 import { getDb } from '../db/schema';
 import { appendOutbox } from '../sync/outbox';
+import { appendLog } from '../db/queries/log';
 import { generateUUID } from '../utils/uuid';
 import { getValidJwt } from '../auth/session';
+import { useCurrentPosition } from '../hooks/useCurrentPosition';
 import { MediaRecord, getMediaForEntity, getLocationNoteSuggestions, deleteMedia } from '../db/queries/media';
 import { ModalSheet } from './ui/ModalSheet';
 import { SuggestInput } from './SuggestInput';
@@ -45,6 +47,11 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   const { user } = useSession();
   const canDelete = usePermission('delete_media');
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
+
+  // Position: request once on mount so coords are likely ready by upload time.
+  const { coords, request } = useCurrentPosition();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void request(); }, []);
   // Re-query when a background pull lands new rows (dataVersion bumps) so media
   // from other devices appears without a remount. Safe mid-interaction: the
   // lightbox holds its own MediaRecord, and upload state lives separately.
@@ -228,6 +235,25 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
       is_primary: isPrimary, // boolean — server column is BOOLEAN
       uploaded_by: user.id,
       created_at: now,
+    });
+
+    appendLog({
+      action: 'media_uploaded',
+      entity_type: 'media',
+      entity_id: id,
+      user_id: user.id,
+      team_id: null,
+      from_location_id: null,
+      to_location_id: null,
+      quantity: null,
+      unit: null,
+      job_id: null,
+      note: locationNote,
+      metadata: null,
+      device_id: null,
+      latitude: coords?.latitude ?? null,
+      longitude: coords?.longitude ?? null,
+      location_accuracy: coords?.accuracy ?? null,
     });
 
     setMedia(getMediaForEntity(entityType, entityId));

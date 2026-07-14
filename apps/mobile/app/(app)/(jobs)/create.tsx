@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import {
@@ -34,6 +35,11 @@ export default function CreateJobScreen() {
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
   const { locked } = useMaintenanceMode();
+
+  // Position: request once on mount (fire-and-forget; never blocks UI).
+  const { coords, request } = useCurrentPosition();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void request(); }, []);
 
   const [name, setName] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -164,6 +170,9 @@ export default function CreateJobScreen() {
           job_id: id,
           metadata: null,
           device_id: null,
+          latitude: coords?.latitude ?? null,
+          longitude: coords?.longitude ?? null,
+          location_accuracy: coords?.accuracy ?? null,
         });
       });
     } catch (e) {
