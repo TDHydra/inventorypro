@@ -1,5 +1,5 @@
 import { getDb, rowsAs, bindParams } from '../schema';
-import { resolveTypeId, resolveLabels, ITEM_CATEGORY } from './taxonomy';
+import { resolveTypeId, resolveLabels, ITEM_CATEGORY, EQUIPMENT_CATEGORY } from './taxonomy';
 import { appendOutbox } from '../../sync/outbox';
 import { runInTransaction } from '../tx';
 
@@ -43,6 +43,11 @@ export interface InventoryItem {
   category: string | null;
   // Durable taxonomy FK (migration 029, #74) — `category` is the label cache.
   category_id?: string | null;
+  // Equipment type (migration 038, #28) — `type` is the label cache, `type_id`
+  // the durable taxonomy FK (category 'equipment'). Optional so existing
+  // literals stay valid; writers coalesce undefined → null.
+  type?: string | null;
+  type_id?: string | null;
   returnable: number;
   unit_tracked: number;
   tag_prefix: string | null;
@@ -201,17 +206,19 @@ export function upsertItem(item: InventoryItem): void {
   // Dual-write the taxonomy FK (#74): prefer an explicit category_id (pulled rows),
   // else resolve from the label so locally-created items anchor to the id too.
   const categoryId = item.category_id ?? resolveTypeId(ITEM_CATEGORY, item.category);
+  // Same dual-write for the equipment type FK (#28, migration 038).
+  const typeId = item.type_id ?? (item.type ? resolveTypeId(EQUIPMENT_CATEGORY, item.type) : null);
   db.executeSync(
     `INSERT OR REPLACE INTO inventory_items
        (id, name, barcode, description, sku, supplier, model, kind,
         category, returnable, unit_tracked, tag_prefix,
-        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size, category_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size, category_id, type, type_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
      item.sku, item.supplier, item.model, item.kind,
      item.category, item.returnable, item.unit_tracked, item.tag_prefix,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
-     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null, categoryId])
+     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null, categoryId, item.type ?? null, typeId])
   );
 }
 
@@ -223,6 +230,7 @@ const ALLOWED_ITEM_UPDATE_COLUMNS = new Set<string>([
   'name', 'barcode', 'description', 'sku', 'supplier', 'model',
   'category', 'returnable', 'unit_tracked', 'tag_prefix',
   'unit_category', 'unit', 'min_qty_alert', 'reorder_to', 'home_location_id', 'pack_size',
+  'type',
 ]);
 
 // Partial edit of catalog fields (not stock). Returns the column/value map that
@@ -232,7 +240,7 @@ export function updateItemFields(
   fields: Partial<Pick<InventoryItem,
     'name' | 'barcode' | 'description' | 'sku' | 'supplier' | 'model' |
     'category' | 'returnable' | 'unit_tracked' | 'tag_prefix' |
-    'unit_category' | 'unit' | 'min_qty_alert' | 'reorder_to' | 'home_location_id' | 'pack_size'>>
+    'unit_category' | 'unit' | 'min_qty_alert' | 'reorder_to' | 'home_location_id' | 'pack_size' | 'type'>>
 ): Record<string, unknown> {
   const db = getDb();
   const now = new Date().toISOString();
@@ -245,6 +253,10 @@ export function updateItemFields(
   // write category_id alongside it (internal — not caller-injectable via the allowlist).
   if (entries.some(([k]) => k === 'category')) {
     entries.push(['category_id', resolveTypeId(ITEM_CATEGORY, (fields as { category?: string | null }).category)]);
+  }
+  // Same dual-write for the equipment type FK (#28, migration 038).
+  if (entries.some(([k]) => k === 'type')) {
+    entries.push(['type_id', resolveTypeId(EQUIPMENT_CATEGORY, (fields as { type?: string | null }).type)]);
   }
   const allowedFields = Object.fromEntries(entries);
   const setClause = entries.map(([k]) => `${k} = ?`).join(', ');

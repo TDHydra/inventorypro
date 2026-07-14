@@ -391,7 +391,7 @@ const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
 // pull is scoped to the caller's own conversations in sync.ts.
 const CONVERSATIONS_COLS = 'id, kind, title, created_by, created_at, updated_at';
 const CONVERSATION_PARTICIPANTS_COLS = 'conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at';
-const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at';
+const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
