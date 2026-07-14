@@ -12,6 +12,8 @@ import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/a
 import { saveSession } from '../../src/auth/session';
 import { finishLogin } from '../../src/auth/finishLogin';
 import { fetchRoster, RosterUser } from '../../src/auth/roster';
+import { getPendingCount } from '../../src/sync/outbox';
+import { Alert } from '../../src/lib/themedAlert';
 
 type Screen = 'pick' | 'pin' | 'setpin';
 // First-login runs as three sequential steps, one screen each: enrollment code,
@@ -48,7 +50,9 @@ export default function LoginScreen() {
     setRosterError(null);
     const local = getAllActiveUsers();
     if (local.length > 0) {
-      setUsers(local);
+      // Local rows carry the demo code as enrollment_code_public; the roster
+      // endpoint calls it test_code — normalize so the picker reads one field.
+      setUsers(local.map(u => ({ ...u, test_code: u.is_test ? u.enrollment_code_public ?? null : null })));
       setNeedsFullSync(false);
       setRosterLoading(false);
       return;
@@ -71,6 +75,15 @@ export default function LoginScreen() {
   }, [search, users]);
 
   function selectUser(user: RosterUser) {
+    // A test session wipes the whole local DB at logout — never let one start
+    // on top of a real user's unsynced work. Strict block, not a warning.
+    if (user.is_test && getPendingCount() > 0) {
+      Alert.alert(
+        'Unsynced changes on this device',
+        'A demo session would discard changes that have not synced yet. Sync them first (open the app as the signed-in user), then try again.',
+      );
+      return;
+    }
     setSelectedUser(user);
     setPin('');
     setFirstPin('');
@@ -172,7 +185,10 @@ export default function LoginScreen() {
     try {
       const result = await setPinFirstTime(selectedUser.id, pinValue, enrollmentCode);
       await saveSession(result.jwt, result.refreshToken, result.userId);
-      markUserPinSet(selectedUser.id, pinValue.length);
+      // Test accounts self-reset: the server never persists their PIN, so the
+      // local pin_set must stay 0 too — otherwise the NEXT visitor on this
+      // device lands on the PIN screen and dead-ends against a 409.
+      if (!selectedUser.is_test) markUserPinSet(selectedUser.id, pinValue.length);
       proceedAfterAuth(result.userId);
     } catch (err) {
       const msg = (err as Error).message || 'Could not set your PIN. Check your connection.';

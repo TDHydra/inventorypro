@@ -2,6 +2,7 @@ import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
 import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxEntry, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';
+import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
 import { reconcileLogSyncState } from '../db/queries/log';
 import { getValidJwt } from '../auth/session';
@@ -165,6 +166,11 @@ async function syncCycle(): Promise<void> {
 // transient failure never escapes; offline simply throws inside the fetch and
 // is swallowed here.
 async function runDrainAndPull(): Promise<void> {
+  // Test/demo sessions are fully sandboxed: no push (throwaway edits must never
+  // reach the server) and no pull (INSERT OR REPLACE would clobber the sandbox
+  // edits mid-demo). Single choke point — covers the heartbeat, reconnect,
+  // foreground, fast-retry, and user-initiated syncNow paths alike.
+  if (isSandboxActive()) return;
   try {
     await drainOutbox();
     await pullChanges();

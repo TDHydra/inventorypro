@@ -10,6 +10,8 @@ export interface RosterUser {
   role: string;
   pin_length_required: number;
   pin_set: number; // 0 = must set a PIN on first sign-in, 1 = already set
+  is_test?: number; // 1 = public demo account (sandboxed session)
+  test_code?: string | null; // demo access code, shown under the login fields
 }
 
 /** Fetches the sign-in roster. Used only when the local DB is empty (new device). */

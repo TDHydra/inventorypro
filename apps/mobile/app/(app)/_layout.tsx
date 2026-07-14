@@ -20,7 +20,12 @@ export default function AppLayout() {
       appAlertBus.dismissActive(IDLE_NUDGE_TAG); // don't leave the nudge over the login screen
       await logout();
     },
-    { onWarn: showIdleNudge },
+    {
+      onWarn: showIdleNudge,
+      // Test/demo sessions are pinned to a 15-minute idle logout even when the
+      // admin setting disables idle logout entirely.
+      overrideMinutes: user?.is_test ? 15 : undefined,
+    },
   );
   const reset = idle.reset;
   // Nudge everybody a minute before the idle logout. The dialog renders in its
