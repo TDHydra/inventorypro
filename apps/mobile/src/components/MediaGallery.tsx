@@ -42,6 +42,12 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   useEffect(() => {
     setMedia(getMediaForEntity(entityType, entityId));
   }, [dataVersion, entityType, entityId]);
+  // The hero falls back to the first photo when nothing is flagged; the star does
+  // NOT (an unstarred gallery must stay unstarred). Both resolve to a SINGLE row —
+  // getMediaForEntity orders is_primary DESC, created_at DESC — so a transient
+  // duplicate (two devices each electing a primary offline, before the server's
+  // correction pulls back — bug #50) shows one star, not two.
+  const primaryId = media.find(m => m.is_primary === 1)?.id ?? null;
   const primary = media.find(m => m.is_primary === 1) ?? media[0] ?? null;
   const [lightbox, setLightbox] = useState<MediaRecord | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -296,9 +302,9 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
           <TouchableOpacity key={m.id} onPress={() => setLightbox(m)}>
             <Image
               source={{ uri: m.thumbnail_url ?? m.url }}
-              style={[styles.thumb, m.is_primary === 1 && styles.thumbPrimary]}
+              style={[styles.thumb, m.id === primaryId && styles.thumbPrimary]}
             />
-            {m.is_primary === 1 && <View style={styles.primaryBadge}><Text style={styles.primaryText}>★</Text></View>}
+            {m.id === primaryId && <View style={styles.primaryBadge}><Text style={styles.primaryText}>★</Text></View>}
             {m.media_type === 'video' && <View style={styles.videoBadge}><Text style={styles.videoIcon}>▶</Text></View>}
           </TouchableOpacity>
         ))}

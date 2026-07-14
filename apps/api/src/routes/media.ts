@@ -171,10 +171,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
       thumbnailUrl = `${process.env.PUBLIC_MEDIA_URL ?? 'https://localhost/media'}/${thumbnail_url}`;
     }
 
-    // If setting as primary, unset existing primary for this entity
+    // If setting as primary, unset existing primary for this entity. This route
+    // takes an EXPLICIT is_primary from the caller (unlike the sync path's
+    // automatic first-photo election, where the first claim wins), so the new row
+    // takes over. updated_at must be bumped or the demoted row is invisible to
+    // incremental pull (WHERE updated_at > since) and other devices keep the old
+    // star forever — see lib/mediaPrimary.ts and migration 050.
     if (is_primary) {
       await fastify.pg.query(
-        `UPDATE media SET is_primary = false
+        `UPDATE media SET is_primary = false, updated_at = NOW()
          WHERE entity_type = $1 AND entity_id = $2 AND is_primary = true`,
         [entity_type, entity_id]
       );

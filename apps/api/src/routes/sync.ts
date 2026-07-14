@@ -12,6 +12,7 @@ import {
   validateMediaWrite,
 } from '../lib/syncPolicy';
 import { cleanupMediaObjects } from '../lib/mediaCleanup';
+import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
 import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
@@ -336,6 +337,11 @@ async function applyEntry(
     // reassignment, and reject the whole entry if it touched a sensitive column.
     const { row, rejected } = applyWritePolicy(table_name, 'UPDATE', payload, callerUserId, realColumns, can);
     if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
+    // media: a client may not mint a SECOND primary for an entity (bug #50) —
+    // a losing claim is coerced to false. Today's only client UPDATE touching
+    // is_primary is the move feature, which always clears it, so this is a no-op
+    // for current flows; it closes the path rather than trusting them to stay so.
+    if (table_name === 'media') await resolvePrimaryClaim(pg, row, payload.id);
     const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
     // Real partial update — only the columns the device actually changed.
     // updated_at is server-authoritative (never trust the client clock) — strip
@@ -458,6 +464,12 @@ async function applyEntry(
     row.status = 'open';
     delete row.decided_by; delete row.decided_at; delete row.decision_note;
   }
+  // media: "first photo becomes primary" is elected on the CLIENT from its local
+  // replica, so two devices uploading to the same empty entity both claim it and
+  // both rows land (distinct UUIDs → they never collide on the conflict target).
+  // The server arbitrates: first claim wins, a later one is coerced to false and
+  // flows back on the next pull (updated_at = NOW() below). Bug #50.
+  if (table_name === 'media') await resolvePrimaryClaim(pg, row, row.id);
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
   const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
@@ -489,7 +501,17 @@ async function applyEntry(
     : `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO NOTHING`;
 
-  await pg.query(sql, allKeys.map(k => row[k] ?? null));
+  try {
+    await pg.query(sql, allKeys.map(k => row[k] ?? null));
+  } catch (err) {
+    // Another device won the primary between our existence check above and this
+    // write (migration 050's partial unique index caught it). Retry as non-primary
+    // instead of stranding the entry as a permanent conflict — an unsynced photo is
+    // worse than an unstarred one.
+    if (!isPrimaryConflict(err)) throw err;
+    row.is_primary = false;
+    await pg.query(sql, allKeys.map(k => row[k] ?? null));
+  }
 
   // New approval request → notify the approvers once (deduped on request id so a
   // retried push doesn't re-notify). Fire-and-forget; never blocks the sync write.
