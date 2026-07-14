@@ -88,7 +88,15 @@ export default function AppLayout() {
               <SyncIndicator />
               <TouchableOpacity
                 style={styles.switchBtn}
-                onPress={() => router.push('/(auth)/login')}
+                onPress={() => {
+                  // "Switch" normally keeps the session alive behind the login
+                  // screen. For a demo session that would leak the sandbox: its
+                  // unsent outbox rows would still be in the DB and the next
+                  // real user's sync would push them to the server as their own.
+                  // Leaving a test session must always go through logout (wipe).
+                  if (user?.is_test) { void logout(); return; }
+                  router.push('/(auth)/login');
+                }}
               >
                 <Text style={styles.switchText}>Switch</Text>
               </TouchableOpacity>

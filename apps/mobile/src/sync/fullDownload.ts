@@ -50,26 +50,44 @@ export async function runFullDownload(
   jwt: string,
   onProgress: (p: DownloadProgress) => void,
 ): Promise<void> {
-  for (let i = 0; i < SYNC_TABLES.length; i++) {
-    const table = SYNC_TABLES[i];
-    onProgress({ table, step: i + 1, total: SYNC_TABLES.length });
+  const schema = await import('../db/schema');
+  const db = schema.getDb();
 
-    let page = 0;
-    let hasMore = true;
+  // Suspend local FK enforcement for the bulk restore. /sync/full pages every
+  // table ORDER BY id, so rows arrive in uuid order, not dependency order: a
+  // location whose parent's uuid sorts after its own is INSERTed before that
+  // parent exists (locations.parent_id is self-referencing), and SQLite's
+  // immediate FK check then fails the entire first-launch download. Scoped
+  // tables can also legitimately reference rows the server never sends this
+  // caller. The server owns FK integrity for all of this data — re-checking it
+  // row-by-row here only breaks enrollment.
+  db.executeSync(`PRAGMA foreign_keys = OFF`);
+  try {
+    for (let i = 0; i < SYNC_TABLES.length; i++) {
+      const table = SYNC_TABLES[i];
+      onProgress({ table, step: i + 1, total: SYNC_TABLES.length });
 
-    while (hasMore) {
-      const res = await fetch(
-        `${API_BASE}/sync/full?table=${table}&page=${page}&limit=500`,
-        { headers: { Authorization: `Bearer ${jwt}` } },
-      );
-      if (res.status === 401 || res.status === 403) throw new SessionExpiredError();
-      if (!res.ok) throw new Error(`Failed to download ${table}: ${res.status}`);
+      let page = 0;
+      let hasMore = true;
 
-      const data = (await res.json()) as { rows: unknown[]; hasMore: boolean };
-      await applyRows(table, data.rows);
-      hasMore = data.hasMore;
-      page++;
+      while (hasMore) {
+        const res = await fetch(
+          `${API_BASE}/sync/full?table=${table}&page=${page}&limit=500`,
+          { headers: { Authorization: `Bearer ${jwt}` } },
+        );
+        if (res.status === 401 || res.status === 403) throw new SessionExpiredError();
+        if (!res.ok) throw new Error(`Failed to download ${table}: ${res.status}`);
+
+        const data = (await res.json()) as { rows: unknown[]; hasMore: boolean };
+        await applyRows(table, data.rows);
+        hasMore = data.hasMore;
+        page++;
+      }
     }
+  } finally {
+    // Always restore — a failed download is retried, and every write after this
+    // point (including the user's own edits) must be FK-checked as normal.
+    db.executeSync(`PRAGMA foreign_keys = ON`);
   }
 
   // Pin the thumbnail-prefetch watermark past the freshly downloaded history so

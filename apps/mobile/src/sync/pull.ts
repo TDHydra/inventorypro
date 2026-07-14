@@ -90,17 +90,28 @@ export async function pullChanges(): Promise<void> {
   // not on every empty-diff heartbeat pull.
   let changed = false;
 
-  for (const [table, { rows }] of Object.entries(data)) {
-    const sql = TABLE_UPSERT_SQL[table];
-    if (!sql || rows.length === 0) continue;
+  // Suspend FK enforcement while applying the batch. Rows arrive in server
+  // order, not dependency order, and locations.parent_id is self-referencing —
+  // a child arriving before its parent in the same batch would fail the INSERT
+  // and abort the whole cycle ("FOREIGN KEY constraint failed"), which reads as
+  // sync being silently dead. The server owns FK integrity for synced rows.
+  db.executeSync(`PRAGMA foreign_keys = OFF`);
+  try {
+    for (const [table, { rows }] of Object.entries(data)) {
+      const sql = TABLE_UPSERT_SQL[table];
+      if (!sql || rows.length === 0) continue;
 
-    for (const row of rows) {
-      const values = rowToValues(table, row);
-      if (values.length > 0) {
-        db.executeSync(sql, values as (string | number | null)[]);
-        changed = true;
+      for (const row of rows) {
+        const values = rowToValues(table, row);
+        if (values.length > 0) {
+          db.executeSync(sql, values as (string | number | null)[]);
+          changed = true;
+        }
       }
     }
+  } finally {
+    // Restore before any local write path runs — user edits stay FK-checked.
+    db.executeSync(`PRAGMA foreign_keys = ON`);
   }
 
   setLastPulledAt(new Date().toISOString());

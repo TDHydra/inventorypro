@@ -81,3 +81,16 @@ test('server-only tables are absent from the pull path', () => {
     assert.ok(!SRC.includes(t), `pull.ts must not sync ${t}`);
   }
 });
+
+// Why this test exists: an incremental pull applies server rows in whatever
+// order the server sends them, and locations.parent_id is a SELF-REFERENCING FK.
+// A newly-created child arriving in the same batch as (or before) its parent
+// blew up the whole cycle with "FOREIGN KEY constraint failed" — the sync then
+// looked silently dead. The server owns FK integrity; a pull must not re-check it.
+test('pull suspends FK enforcement while applying server rows and restores it', () => {
+  const src = readFileSync(join(dirname(new URL(import.meta.url).pathname), 'pull.ts'), 'utf8');
+  assert.ok(/PRAGMA foreign_keys\s*=\s*OFF/i.test(src),
+    'pullChanges must disable FK enforcement before applying rows');
+  assert.ok(/finally\s*{[^}]*PRAGMA foreign_keys\s*=\s*ON/is.test(src),
+    'FK enforcement must be restored in a finally block');
+});

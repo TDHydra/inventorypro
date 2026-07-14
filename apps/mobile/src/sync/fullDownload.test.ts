@@ -22,3 +22,19 @@ test('generic upsert filters server row keys to local columns', () => {
   assert.ok(!SRC.includes('Object.values(row)'),
     'values must come from the FILTERED column list, not the raw row');
 });
+
+// Why this test exists: /sync/full returns rows ORDER BY id, but several synced
+// tables carry SELF-REFERENCING FKs (locations.parent_id) and cross-table FKs
+// into rows the server may legitimately not send (scoped tables). A child whose
+// uuid sorts before its parent's is then INSERTed first and SQLite's immediate
+// FK check kills the whole first-launch download with "FOREIGN KEY constraint
+// failed" (prod had 20 such child-before-parent locations). The server owns FK
+// integrity for this data, so the bulk restore must not re-enforce it locally.
+test('full download suspends FK enforcement for the duration and always restores it', () => {
+  assert.ok(/PRAGMA foreign_keys\s*=\s*OFF/i.test(SRC),
+    'runFullDownload must disable FK enforcement before bulk-inserting server rows');
+  assert.ok(/PRAGMA foreign_keys\s*=\s*ON/i.test(SRC),
+    'FK enforcement must be re-enabled after the download');
+  assert.ok(/finally\s*{[^}]*PRAGMA foreign_keys\s*=\s*ON/is.test(SRC),
+    'FK enforcement must be restored in a finally block — a failed/retried download must not leave it off');
+});
