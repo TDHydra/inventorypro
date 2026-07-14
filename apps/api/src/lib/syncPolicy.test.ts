@@ -88,6 +88,13 @@ test('activity_log action/entity_type constrained to enum', () => {
   assert.equal(isAllowedActivity('checkout', 'nonsense'), false);
 });
 
+// #56: an action the client actually emits but the server never allowlisted is an
+// audit row rejected, retried to MAX_OUTBOX_ATTEMPTS, and lost. hiddenFields.ts was
+// the last such gap. Adding a new appendLog() call site? Add it here too.
+test('every action/entity_type the client emits is allowlisted (#56)', () => {
+  assert.equal(isAllowedActivity('hidden_field_changed', 'app_config'), true);
+});
+
 test('jobs hides PII/financial columns without view_financial_data', () => {
   const restricted = selectColumnsFor('jobs', false);
   assert.ok(!/customer_name|site_address|insurance_carrier/.test(restricted));

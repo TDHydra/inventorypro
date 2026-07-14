@@ -13,6 +13,7 @@ import {
 } from '../lib/syncPolicy';
 import { cleanupMediaObjects } from '../lib/mediaCleanup';
 import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
+import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
 import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
@@ -243,6 +244,15 @@ async function applyEntry(
     // days earlier while offline, and merely happen to be carried by THIS push —
     // correlating them to it would assert a causal link that does not exist. Only
     // server-written activity correlates to the request that produced it.
+    // A reference the server doesn't have must never cost us the audit row (#56).
+    // The commonest cause is authorization: the user lacked the permission for the
+    // underlying write, so that entity's INSERT was permanently rejected and the
+    // client dropped it — leaving this row pointing at a job/team/location that
+    // exists nowhere on the server. Left alone, the FK (or a non-uuid entity_id)
+    // raises, applyEntry throws, and the generic 'write rejected' sends the client
+    // into a retry-to-dead-letter loop that silently erases the entry. So: null the
+    // unresolvable column, keep the id under metadata.orphaned_refs, record the row.
+    const { values: refs, orphaned } = await resolveActivityRefs(pg, payload);
     await pg.query(
       `INSERT INTO activity_log
          (id, user_id, team_id, action, entity_type, entity_id,
@@ -252,12 +262,12 @@ async function applyEntry(
        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),$16,$17,$18
        WHERE NOT EXISTS (SELECT 1 FROM activity_log WHERE id = $1)`,
       [
-        payload.id, callerUserId, payload.team_id ?? null,
-        payload.action, payload.entity_type, payload.entity_id ?? null,
-        payload.from_location_id ?? null, payload.to_location_id ?? null,
+        payload.id, callerUserId, refs.team_id,
+        payload.action, payload.entity_type, refs.entity_id,
+        refs.from_location_id, refs.to_location_id,
         payload.quantity ?? null, payload.unit ?? null,
-        payload.job_id ?? null, payload.note ?? null,
-        payload.metadata ? JSON.stringify(payload.metadata) : null,
+        refs.job_id, payload.note ?? null,
+        buildActivityMetadata(payload.metadata, orphaned),
         payload.device_id ?? null, payload.created_at,
         payload.latitude ?? null, payload.longitude ?? null, payload.location_accuracy ?? null,
       ]

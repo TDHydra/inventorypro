@@ -351,9 +351,15 @@ export const ACTIVITY_ACTIONS = new Set([
   'user_permission_changed', 'user_pin_reset', 'user_role_changed', 'recount',
   // equipment lifecycle (migration 033): logged on maintenance_events insert.
   'maintenance_event',
+  // Settings → form-field show/hide (db/hiddenFields.ts). The only client action
+  // still missing from this allowlist — every one was rejected and lost (#56).
+  'hidden_field_changed',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
+  // db/hiddenFields.ts logs form-field show/hide against the app_config row that
+  // stores them. Missing here, every such row was rejected and retried to death (#56).
+  'app_config',
 ]);
 export function isAllowedActivity(action: unknown, entityType: unknown): boolean {
   return typeof action === 'string' && ACTIVITY_ACTIONS.has(action)
