@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { getAllLocations, getShelvesForParent } from '../../db/queries/locations';
+import { getNonShelfLocations, getShelvesForParent } from '../../db/queries/locations';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { FieldLabel } from '../ui/FieldLabel';
 import { LocationPicker } from './LocationPicker';
@@ -8,6 +8,8 @@ import { sortByProximity } from '../../location/proximity';
 
 // The two-stage location→shelf field that inventory/add hand-rolls (add.tsx's
 // location SearchablePicker + the conditional Shelf one below it), extracted once.
+// The location list is shelf-free (getNonShelfLocations): shelves appear ONLY via
+// the Shelf sub-field of their has_shelves parent, never as first-class options.
 // The caller holds both selections as PickerOptions; the component owns the
 // coupling between them: a shelf belongs to its parent, so any location change
 // clears the shelf, and the Shelf field only exists while the chosen location has
@@ -27,12 +29,16 @@ export function LocationShelfPicker({
   onChangeLocation,
   onChangeShelf,
   proximitySort,
+  excludeIds,
 }: {
   locationValue: PickerOption | null;
   shelfValue: PickerOption | null;
   onChangeLocation: (opt: PickerOption | null) => void;
   onChangeShelf: (opt: PickerOption | null) => void;
   proximitySort?: boolean;
+  // Location ids to hide from the location options (e.g. a transfer's source
+  // location). Doesn't touch the Shelf sub-field.
+  excludeIds?: string[];
 }) {
   // useCurrentPosition is platform-resolved: the native hook imports expo-location,
   // the .web.ts sibling uses navigator.geolocation — so no native module reaches
@@ -43,7 +49,7 @@ export function LocationShelfPicker({
     if (proximitySort) void request();
   }, [proximitySort, request]);
 
-  const allLocations = useMemo(() => getAllLocations(), []);
+  const allLocations = useMemo(() => getNonShelfLocations(), []);
   const locationById = useMemo(
     () => new Map(allLocations.map(l => [l.id, l])),
     [allLocations],
@@ -52,8 +58,11 @@ export function LocationShelfPicker({
   // Proximity-ordered options (parent + distance sublabels), mirroring add.tsx's
   // locationOptions. Only consumed by the proximitySort branch; harmless otherwise.
   const locationOptions = useMemo<PickerOption[]>(() => {
+    const candidates = excludeIds?.length
+      ? allLocations.filter(l => !excludeIds.includes(l.id))
+      : allLocations;
     const sorted = sortByProximity(
-      allLocations.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+      candidates.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
       coords,
     );
     return sorted.map(l => {
@@ -62,7 +71,7 @@ export function LocationShelfPicker({
       const sublabel = [parentName, distLabel].filter(Boolean).join(' · ') || undefined;
       return { id: l.id, label: l.name, sublabel };
     });
-  }, [allLocations, coords, locationById]);
+  }, [allLocations, coords, locationById, excludeIds]);
 
   // has_shelves gates the Shelf field; shelves are scoped to the chosen parent.
   const selectedFull = locationValue ? locationById.get(locationValue.id) : undefined;
@@ -92,7 +101,12 @@ export function LocationShelfPicker({
         />
       ) : (
         // LocationPicker already does clear-on-retap and hands us the final value.
-        <LocationPicker value={locationValue} onChange={changeLocation} placeholder="Search locations..." />
+        <LocationPicker
+          value={locationValue}
+          onChange={changeLocation}
+          placeholder="Search locations..."
+          filter={excludeIds ? l => !excludeIds.includes(l.id) : undefined}
+        />
       )}
       {locationHasShelves && (
         <>
