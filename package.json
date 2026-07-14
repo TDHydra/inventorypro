@@ -10,6 +10,7 @@
     "dev:mobile": "pnpm --filter mobile start",
     "build:api": "pnpm --filter api build",
     "db:migrate": "pnpm --filter api db:migrate",
+    "security:audit": "bash scripts/security-audit.sh",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down"
   },
