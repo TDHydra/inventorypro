@@ -10,6 +10,7 @@ import { runMigrations } from './db/migrate';
 import { overRateLimit, sweepBuckets } from './lib/rateLimit';
 import { startNotificationTimer } from './lib/notificationTimer';
 import { recordAudit, startAuditPruneTimer } from './lib/auditWriter';
+import { createTestAccountGate } from './lib/testAccounts';
 import { sanitizeErrorMessage } from './lib/audit';
 
 import authRoutes, { isRefreshToken, sweepAttempts } from './routes/auth';
@@ -146,14 +147,15 @@ async function build() {
   // Per-user DOS guard on mutating endpoints (generous). /auth has its own
   // limiter and is public, so it's skipped. Unauthenticated requests fall
   // through to the route's own auth (which rejects them).
+  // DB-resolved is_test lookups for the write wall below (60s TTL cache).
+  const testGate = createTestAccountGate({
+    query: (sql, params) => fastify.pg.query(sql, params as any[]),
+  });
+
   fastify.addHook('preHandler', async (request: any, reply: any) => {
     const m = request.method;
     if (m !== 'POST' && m !== 'PATCH' && m !== 'DELETE') return;
     if (request.url.startsWith('/auth')) return;
-    // /telemetry has its OWN per-user/IP `telemetry:` bucket (routes/telemetry.ts)
-    // and is fire-and-forget behavioral ingest — never let a telemetry flush burst
-    // consume a user's business `mut:` (/sync/push) quota.
-    if (request.url.startsWith('/telemetry')) return;
     let payload: any;
     try { payload = await request.jwtVerify(); } catch { return; }
     // A refresh token must never act as an access token (same-secret JWTs);
@@ -162,6 +164,16 @@ async function build() {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
     const sub: string | undefined = payload?.sub;
+    // Test/demo accounts are read-only server-wide — every mutating route,
+    // /telemetry included. Their sessions are sandboxed on-device; nothing they
+    // do may leave a trace here. (DB-resolved, never the JWT claim.)
+    if (sub && (await testGate.isTestUser(sub))) {
+      return reply.status(403).send({ error: 'Forbidden: test accounts are read-only on the server' });
+    }
+    // /telemetry has its OWN per-user/IP `telemetry:` bucket (routes/telemetry.ts)
+    // and is fire-and-forget behavioral ingest — never let a telemetry flush burst
+    // consume a user's business `mut:` (/sync/push) quota.
+    if (request.url.startsWith('/telemetry')) return;
     if (sub && overRateLimit(`mut:${sub}`)) {
       return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
     }

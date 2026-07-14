@@ -333,3 +333,27 @@ test('validateMediaWrite: UPDATE rejects any url/thumbnail_url change', () => {
     id: 'm1', entity_type: 'job', entity_id: 'j2', url: mediaUrlFor('job', 'j2'),
   }), null);
 });
+
+test('applyWritePolicy always rejects is_test + enrollment_code_public on users, even with manage_roles_permissions', () => {
+  const realUsers = new Map([
+    ['users', new Set(['id', 'name', 'is_test', 'enrollment_code_public'])],
+  ]);
+  const { row, rejected } = applyWritePolicy(
+    'users',
+    'UPDATE',
+    { id: 'u1', name: 'ok', is_test: true, enrollment_code_public: '111111' },
+    'caller',
+    realUsers,
+    () => true, // apex caller — these columns are server-owned regardless
+  );
+  assert.deepEqual(Object.keys(row), ['id', 'name']);
+  assert.ok(rejected.includes('is_test'));
+  assert.ok(rejected.includes('enrollment_code_public'));
+});
+
+test('users exposes enrollment_code_public only through the is_test CASE guard', () => {
+  const cols = selectColumnsFor('users', true);
+  assert.ok(cols.includes('CASE WHEN is_test THEN enrollment_code_public'));
+  // never as a bare projection that would leak a value planted on a real row
+  assert.ok(!cols.includes(', enrollment_code_public,'));
+});

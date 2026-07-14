@@ -132,9 +132,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
       pin_length_required: number; pin_set: boolean;
+      is_test: boolean; test_code: string | null;
     }>(
       `SELECT id, name, role, pin_length_required,
-              (pin_hash IS NOT NULL) AS pin_set
+              (pin_hash IS NOT NULL) AS pin_set,
+              is_test,
+              CASE WHEN is_test THEN enrollment_code_public END AS test_code
          FROM users
         WHERE active = true
           AND (expires_at IS NULL OR expires_at > NOW())
@@ -148,6 +151,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
         role: u.role,
         pin_length_required: u.pin_length_required,
         pin_set: u.pin_set ? 1 : 0,
+        is_test: u.is_test ? 1 : 0,
+        // Public BY DESIGN (login screen shows it for demo accounts); the CASE
+        // above guarantees it is null for every real account.
+        test_code: u.test_code,
       })),
     });
   });
@@ -279,8 +286,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
       id: string; name: string; role: string;
       pin_set: boolean; active: boolean; expires_at: string | null;
       enrollment_code_hash: string | null;
+      is_test: boolean; enrollment_code_public: string | null;
     }>(
-      `SELECT id, name, role, pin_set, active, expires_at, enrollment_code_hash FROM users WHERE id = $1`,
+      `SELECT id, name, role, pin_set, active, expires_at, enrollment_code_hash, is_test, enrollment_code_public FROM users WHERE id = $1`,
       [user_id]
     );
     const user = rows[0];
@@ -290,6 +298,32 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (user.expires_at && new Date(user.expires_at) < new Date()) {
       return reply.status(403).send({ error: 'Account has expired' });
     }
+
+    // Test/demo accounts self-reset: verify against the public code and issue a
+    // session WITHOUT persisting anything — pin_hash stays NULL (so the roster
+    // keeps pin_set=0 and the enrollment wizard always runs), the code is never
+    // cleared, and no activity_log row is written. The short refresh token
+    // matches the 15-minute idle cap on device; `test: true` in the JWT is
+    // observability only — enforcement is DB-resolved everywhere.
+    if (user.is_test) {
+      if (!user.enrollment_code_public || request.body.enrollment_code !== user.enrollment_code_public) {
+        recordFail(lockKey);
+        return reply.status(401).send({ error: 'Invalid enrollment code' });
+      }
+      recordSuccess(lockKey);
+      const testJwt = fastify.jwt.sign(
+        { sub: user.id, name: user.name, role: user.role, test: true },
+        { expiresIn: '15m' }
+      );
+      const testRefresh = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '1h' });
+      return {
+        jwt: testJwt,
+        refreshToken: testRefresh,
+        userId: user.id,
+        user: { id: user.id, name: user.name, role: user.role },
+      };
+    }
+
     if (user.pin_set) {
       // Already set — refuse so nobody can overwrite an existing PIN.
       recordFail(lockKey);

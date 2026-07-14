@@ -12,6 +12,7 @@ import {
   validateMediaWrite,
 } from '../lib/syncPolicy';
 import { cleanupMediaObjects } from '../lib/mediaCleanup';
+import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
 import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
@@ -501,18 +502,18 @@ async function resolveCaller(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   userId: string,
 ): Promise<
-  | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+  | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null; is_test: boolean }
   | undefined
 > {
   const { rows } = await pg.query(
-    `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+    `SELECT u.role, u.permission_overrides, u.is_test, rs.permission_overrides AS role_overrides
        FROM users u
        LEFT JOIN role_settings rs ON rs.role = u.role
       WHERE u.id = $1`,
     [userId],
   );
   return rows[0] as
-    | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+    | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null; is_test: boolean }
     | undefined;
 }
 
@@ -673,6 +674,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
     for (const entry of entries) {
       if (!ALLOWED_TABLES.has(entry.table_name)) {
         conflicts.push({ id: entry.id, error: 'Table not allowed' });
+        continue;
+      }
+
+      // Test/demo accounts are sandbox-only. This sits ABOVE every other branch
+      // (including the system_settings maintenance exemption) so not even the
+      // full_admin demo account can write anything through sync.
+      if (caller.is_test) {
+        conflicts.push({ id: entry.id, error: TEST_ACCOUNT_WRITE_ERROR });
         continue;
       }
 

@@ -41,7 +41,7 @@ export function keepRealColumns(
 // Set ONLY through dedicated permissioned paths (REST /users, teams manager
 // endpoint) or by the server. Kills mass-assignment on the write-gated tables.
 export const SENSITIVE_DENY: Record<string, Set<string>> = {
-  users: new Set(['role', 'pin_hash', 'pin_set', 'permission_overrides', 'active', 'expires_at', 'enrollment_code_hash']),
+  users: new Set(['role', 'pin_hash', 'pin_set', 'permission_overrides', 'active', 'expires_at', 'enrollment_code_hash', 'is_test', 'enrollment_code_public']),
   team_members: new Set(['is_manager']),
   // notifications rows are server-authored; a client may ONLY flip read_at (mark
   // read). Every other column is denied so a mark-read UPDATE can't rewrite the
@@ -54,7 +54,10 @@ export const SENSITIVE_DENY: Record<string, Set<string>> = {
 
 // users columns that are ALWAYS denied via sync regardless of permission — these
 // are credentials / auth material, never editable through the generic write path.
-const USERS_ALWAYS_DENY = new Set(['pin_hash', 'pin_set', 'enrollment_code_hash']);
+// is_test/enrollment_code_public are server-owned demo-account markers: letting
+// any caller set them would either sandbox a real account or plant a public
+// login code on one.
+const USERS_ALWAYS_DENY = new Set(['pin_hash', 'pin_set', 'enrollment_code_hash', 'is_test', 'enrollment_code_public']);
 
 // users columns that require manage_roles_permissions specifically — a caller
 // with only manage_users (e.g. an hr_manager editing name/active/expires_at via
@@ -359,7 +362,9 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
 // columns on jobs are gated behind view_financial_data.
 const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
-const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id';
+// enrollment_code_public is public BY DESIGN, but only for demo rows — the CASE
+// guarantees a real user's row can never carry a code even if one were planted.
+const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
