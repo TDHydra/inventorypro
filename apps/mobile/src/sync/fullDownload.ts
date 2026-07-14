@@ -71,6 +71,12 @@ export async function runFullDownload(
       page++;
     }
   }
+
+  // Pin the thumbnail-prefetch watermark past the freshly downloaded history so
+  // the sync engine never tries to warm every thumbnail ever uploaded. Also
+  // overwrites any partial watermark a heartbeat set mid-download.
+  const { initMediaPrefetchWatermark } = await import('./mediaPrefetch');
+  initMediaPrefetchWatermark();
 }
 
 async function applyRows(table: string, rows: unknown[]): Promise<void> {

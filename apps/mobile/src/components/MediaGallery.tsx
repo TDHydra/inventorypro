@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, ActivityIndicator } from 'react-native';
+import { useDataVersion } from '../hooks/useDataVersion';
 import { Alert } from '../lib/themedAlert';
 import { colors } from '../theme';
 import * as ImagePicker from 'expo-image-picker';
@@ -44,6 +45,13 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   const { user } = useSession();
   const canDelete = usePermission('delete_media');
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
+  // Re-query when a background pull lands new rows (dataVersion bumps) so media
+  // from other devices appears without a remount. Safe mid-interaction: the
+  // lightbox holds its own MediaRecord, and upload state lives separately.
+  const dataVersion = useDataVersion();
+  useEffect(() => {
+    setMedia(getMediaForEntity(entityType, entityId));
+  }, [dataVersion, entityType, entityId]);
   const primary = media.find(m => m.is_primary === 1) ?? media[0] ?? null;
   const [lightbox, setLightbox] = useState<MediaRecord | null>(null);
   const [uploading, setUploading] = useState(false);

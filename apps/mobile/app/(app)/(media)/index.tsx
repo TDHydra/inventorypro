@@ -11,6 +11,7 @@ import { MediaDetailSheet } from '../../../src/components/MediaDetailSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { getMediaHubPage, MediaHubRow, MediaHubFilter } from '../../../src/db/queries/media';
 import { syncNow } from '../../../src/sync/engine';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 const { width } = Dimensions.get('window');
 // 3-up grid: 12px outer padding both sides + 2×12px gutters = 48 (matches MediaGallery).
@@ -91,6 +92,17 @@ export default function MediaHubScreen() {
     runSearch(filter, query, 0);
     setRefreshing(false);
   }, [refreshing, runSearch, filter, query]);
+
+  // Re-query when a background pull lands new rows so media from other devices
+  // appears without pull-to-refresh. Via a ref because reloadWindow's identity
+  // changes on every reload (it depends on offset, which it mutates itself).
+  const dataVersion = useDataVersion();
+  const reloadWindowRef = useRef(reloadWindow);
+  reloadWindowRef.current = reloadWindow;
+  useEffect(() => {
+    if (loaded) reloadWindowRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion]);
 
   const emptyTitle = query
     ? `No media matching "${query}"`
