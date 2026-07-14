@@ -15,6 +15,7 @@ import { fetchRoster, RosterUser } from '../../src/auth/roster';
 import { getPendingCount } from '../../src/sync/outbox';
 import { pushPendingLogs } from '../../src/sync/engine';
 import { prepareForDemoLogin } from '../../src/sync/demoHandoff';
+import { getAppConfig } from '../../src/db/appConfig';
 import { Alert } from '../../src/lib/themedAlert';
 
 type Screen = 'pick' | 'pin' | 'setpin';
@@ -53,18 +54,25 @@ export default function LoginScreen() {
   const loadRoster = useCallback(() => {
     setRosterLoading(true);
     setRosterError(null);
+    // Demo kill switch (#32 S5): synced app_config.demo_mode === '0' hides
+    // demo/test accounts from the picker. Missing key or '1' → show (default
+    // ON, matching the server-side gate in apps/api/src/lib/demoMode.ts).
+    const demoHidden = getAppConfig('demo_mode') === '0';
+    const hideDemo = (rows: RosterUser[]) => (demoHidden ? rows.filter(u => !u.is_test) : rows);
     const local = getAllActiveUsers();
     if (local.length > 0) {
       // Local rows carry the demo code as enrollment_code_public; the roster
       // endpoint calls it test_code — normalize so the picker reads one field.
-      setUsers(local.map(u => ({ ...u, test_code: u.is_test ? u.enrollment_code_public ?? null : null })));
+      setUsers(hideDemo(local.map(u => ({ ...u, test_code: u.is_test ? u.enrollment_code_public ?? null : null }))));
       setNeedsFullSync(false);
       setRosterLoading(false);
       return;
     }
-    // Empty local DB → new device. Pull the public roster to populate the picker.
+    // Empty local DB → new device. Pull the public roster to populate the
+    // picker. /auth/roster already omits demo rows when the switch is off, but
+    // filter here too so a stale cached response can't resurface them.
     fetchRoster()
-      .then(r => { setUsers(r); setNeedsFullSync(true); })
+      .then(r => { setUsers(hideDemo(r)); setNeedsFullSync(true); })
       .catch(e => setRosterError((e as Error).message || 'Could not reach the server. Connect to the internet to set up this device.'))
       .finally(() => setRosterLoading(false));
   }, []);
