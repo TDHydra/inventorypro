@@ -1,16 +1,19 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Image, ActivityIndicator,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import {
   getMessages, sendMessage, editMessage, deleteMessage, getConversation,
-  getParticipants, getMyParticipant,
+  getParticipants, getMyParticipant, getMessageMedia,
   conversationTitle, markConversationRead, setNotifyPref, addParticipant,
   removeParticipant, leaveConversation,
   type MessageRow, type ParticipantRow, type NotifyPref, type MessageUrgency,
 } from '../../../src/db/queries/chat';
+import { uploadMediaAsset } from '../../../src/media/upload';
+import { Alert } from '../../../src/lib/themedAlert';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { loadChatCache } from '../../../src/chat/store';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
@@ -54,6 +57,9 @@ export default function ChatThreadScreen() {
     [conversationId, userId, reloadKey, dataVersion],
   );
   const messages = useMemo(() => getMessages(conversationId), [conversationId, reloadKey, dataVersion]);
+  // Image attachments (#29-H), keyed by message id — synced media rows, so this
+  // refreshes on the same dataVersion bumps as the messages themselves.
+  const mediaByMsg = useMemo(() => getMessageMedia(conversationId), [conversationId, reloadKey, dataVersion]);
   // Inverted list renders data[0] at the bottom → newest first in the array.
   const inverted = useMemo(() => [...messages].reverse(), [messages]);
 
@@ -115,6 +121,53 @@ export default function ChatThreadScreen() {
     reload();
     void syncNow().catch(() => { /* offline — outbox syncs later */ });
   }, [draft, userId, conversationId, urgency, editingId, prevDraft, reload]);
+
+  // ── image attachments (#29-H) ───────────────────────────────────────────────
+  // Pick an image → create the message row first (draft as optional caption) →
+  // upload keyed to that message id (media entity_type='message'). Uploads need
+  // connectivity (presigned PUT), unlike plain text sends.
+  const [attaching, setAttaching] = useState(false);
+
+  const attachImage = useCallback(async () => {
+    if (!userId) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Allow photo library access to send images.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.85,
+      allowsEditing: false,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+    const asset = result.assets[0];
+    // Server allows short alphanumeric extensions only; fall back to jpg.
+    const rawExt = (asset.fileName?.split('.').pop() ?? asset.mimeType?.split('/').pop() ?? 'jpg').toLowerCase();
+    const ext = /^[a-z0-9]{2,5}$/.test(rawExt) ? rawExt : 'jpg';
+
+    const caption = draft.trim();
+    const msg = sendMessage(conversationId, userId, caption, urgency);
+    setDraft('');
+    setAttaching(true);
+    try {
+      await uploadMediaAsset({
+        entityType: 'message', entityId: msg.id,
+        mediaType: 'image', ext,
+        uri: asset.uri, file: asset.file ?? undefined, size: asset.fileSize ?? undefined,
+        userId,
+      });
+    } catch (err) {
+      // A caption-less message has nothing left to say without its image —
+      // soft-delete it; a captioned one stays as plain text.
+      if (!caption) deleteMessage(msg.id);
+      Alert.alert('Upload Failed', (err as Error).message);
+    } finally {
+      setAttaching(false);
+      reload();
+      void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    }
+  }, [userId, conversationId, draft, urgency, reload]);
 
   // ── read receipts (Step E) ──────────────────────────────────────────────────
   // Rendered under the caller's LATEST own (non-deleted) message only, from the
@@ -191,6 +244,7 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
+    const images = mediaByMsg.get(item.id);
     return (
       <View>
         <View style={[s.msgRow, mine ? s.msgRowMine : s.msgRowTheirs]}>
@@ -203,7 +257,10 @@ export default function ChatThreadScreen() {
             {isGroup && !mine && item.sender_name ? (
               <Text style={s.sender}>{item.sender_name}</Text>
             ) : null}
-            <Text style={[s.msgText, mine && s.msgTextMine]}>{item.body}</Text>
+            {images?.map(url => (
+              <Image key={url} source={{ uri: url }} style={s.msgImage} resizeMode="cover" />
+            ))}
+            {item.body ? <Text style={[s.msgText, mine && s.msgTextMine]}>{item.body}</Text> : null}
             <View style={s.metaRow}>
               {item.urgency === 'urgent' && <Text style={[s.urgentTag, mine && s.urgentTagMine]}>URGENT</Text>}
               {item.edited_at ? <Text style={[s.msgTime, mine && s.msgTimeMine]}>(edited)</Text> : null}
@@ -218,7 +275,7 @@ export default function ChatThreadScreen() {
         ) : null}
       </View>
     );
-  }, [userId, isGroup, lastOwn?.id, receipt]);
+  }, [userId, isGroup, lastOwn?.id, receipt, mediaByMsg]);
 
   // The conversation row disappeared while open (removed-member purge / deletion)
   // — render a graceful dead-end instead of an empty shell that can still write.
@@ -290,6 +347,18 @@ export default function ChatThreadScreen() {
             </View>
           )}
           <View style={s.inputRow}>
+            {!editingId && (
+              <TouchableOpacity
+                style={s.attachBtn}
+                onPress={() => { void attachImage(); }}
+                disabled={attaching}
+                hitSlop={4}
+              >
+                {attaching
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <Text style={s.attachIcon}>🖼️</Text>}
+              </TouchableOpacity>
+            )}
             <TextInput
               style={s.input}
               placeholder="Message…"
@@ -392,6 +461,7 @@ const s = StyleSheet.create({
   sender: { fontSize: fontSizes.xs, fontWeight: '800', color: colors.primaryText, marginBottom: 2 },
   msgText: { fontSize: fontSizes.body, color: colors.textPrimary },
   msgTextMine: { color: '#fff' },
+  msgImage: { width: 200, height: 200, borderRadius: radii.md, backgroundColor: colors.border, marginBottom: 4 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginTop: 2 },
   urgentTag: { fontSize: fontSizes.xs, fontWeight: '800', color: colors.accent },
   urgentTagMine: { color: '#FFE0C2' },
@@ -417,6 +487,8 @@ const s = StyleSheet.create({
   uToggleText: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary },
   uToggleTextOn: { color: colors.accent },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  attachBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  attachIcon: { fontSize: 22 },
   input: {
     flex: 1, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: spacing.base, paddingTop: 10, paddingBottom: 10, maxHeight: 120,

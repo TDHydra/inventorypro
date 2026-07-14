@@ -36,6 +36,30 @@ interface SaveMediaBody {
   is_primary?: boolean;
 }
 
+// #29-H: message attachments are conversation-private. Any media access keyed
+// to a message — presigning an upload, saving the row, listing — must come from
+// a participant of that message's conversation, or a caller could attach to /
+// read attachments of chats they cannot see (the sync pull path enforces the
+// same boundary via mediaScopeSql). Fails closed: a missing message or a
+// malformed uuid (the cast throws) both come back as "not a participant".
+async function callerInMessageConversation(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  messageId: string,
+  callerId: string,
+): Promise<boolean> {
+  try {
+    const { rows } = await pg.query(
+      `SELECT 1 FROM messages m
+         JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
+        WHERE m.id = $1 AND cp.user_id = $2`,
+      [messageId, callerId],
+    );
+    return !!rows[0];
+  } catch {
+    return false;
+  }
+}
+
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = { preHandler: [(fastify as any).authenticate] };
 
@@ -68,6 +92,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
     }
     if (!entity_id || entity_id.length > 64 || /[^a-zA-Z0-9_-]/.test(entity_id)) {
       return reply.status(400).send({ error: 'Invalid entity_id' });
+    }
+    if (entity_type === 'message') {
+      const callerId = (request.user as { sub: string }).sub;
+      if (!(await callerInMessageConversation(fastify.pg, entity_id, callerId))) {
+        return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
+      }
     }
     // Only validate the size when the client declared one (optional field).
     if (content_length !== undefined &&
@@ -116,6 +146,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const userId = (request.user as { sub: string }).sub;
     if (!MEDIA_ENTITY_TYPES.has(entity_type)) {
       return reply.status(400).send({ error: 'Invalid entity_type' });
+    }
+    if (entity_type === 'message' && !(await callerInMessageConversation(fastify.pg, entity_id, userId))) {
+      return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
     }
     // Bind the save to a key WE generated in /upload-url — never trust a
     // client-supplied URL (that was an SSRF/DB-pollution sink: a client could
@@ -175,6 +208,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
       const { entityType, entityId } = request.params;
       if (!MEDIA_ENTITY_TYPES.has(entityType)) {
         return reply.status(400).send({ error: 'Invalid entity_type' });
+      }
+      // Reads of message attachments are participant-gated too — the sync pull
+      // scopes them (mediaScopeSql); this REST list must not bypass that.
+      if (entityType === 'message') {
+        const callerId = (request.user as { sub: string }).sub;
+        if (!(await callerInMessageConversation(fastify.pg, entityId, callerId))) {
+          return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
+        }
       }
       const { rows } = await fastify.pg.query(
         `SELECT * FROM media

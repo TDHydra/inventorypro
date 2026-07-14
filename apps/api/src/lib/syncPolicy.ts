@@ -204,7 +204,9 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // permission required) — distinct from an ABSENT op, which fails closed to DENY.
 // Entities media may attach to. Deliberately excludes users/teams/role_settings/
 // app_config (a fixed IDOR sink — see routes/media.ts, which imports this).
-export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log']);
+// 'message' (#29-H chat attachments) is additionally participant-gated: writes
+// in routes/media.ts, pulls via mediaScopeSql in routes/sync.ts.
+export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log', 'message']);
 
 // Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors any
 // media URL/delete to a key WE generated in /upload-url, never a client path.

@@ -195,6 +195,30 @@ export function deleteMessage(id: string): void {
   appendOutbox('UPDATE', 'messages', { id, deleted_at: now, body: '' });
 }
 
+// Image attachments (#29-H) for a conversation's messages: media rows keyed to
+// entity_type='message', grouped by message id. Images only — other mime types
+// are never attached by the composer and are not rendered. Deleted messages'
+// rows may still exist locally; the render path checks deleted_at first.
+export function getMessageMedia(conversationId: string): Map<string, string[]> {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT md.entity_id, md.url
+       FROM media md
+       JOIN messages m ON m.id = md.entity_id
+      WHERE md.entity_type = 'message' AND md.media_type = 'image'
+        AND m.conversation_id = ?
+      ORDER BY md.created_at ASC`,
+    [conversationId],
+  );
+  const byMessage = new Map<string, string[]>();
+  for (const r of rowsAs<{ entity_id: string; url: string }>(result.rows)) {
+    const urls = byMessage.get(r.entity_id);
+    if (urls) urls.push(r.url);
+    else byMessage.set(r.entity_id, [r.url]);
+  }
+  return byMessage;
+}
+
 // Messages for a conversation, oldest first (ascending) — capped. Joins the
 // sender's name for display (LEFT JOIN so an unknown sender still renders).
 export function getMessages(conversationId: string, limit = 500): MessageRow[] {
