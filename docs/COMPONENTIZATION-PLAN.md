@@ -180,16 +180,47 @@ and re-tapping a selected option still clears it.
 
 ## Wave 2 — Compositions (2 agents, after Wave 1 is green)
 
+> **Premise correction (2026-07-14).** Wave 1 did not ship `TaxonomyPicker` as specced above — it was
+> deleted in favor of `TaxonomyChips`, which is what the converted screens actually use (e.g.
+> `(jobs)/[id].tsx`, `(teams)/[id].tsx`). `TaxonomyPicker` references above are historical.
+
 Higher risk; each replaces real logic, not just markup.
 
 | Agent | Owns | Task |
 | --- | --- | --- |
-| W2-list | `src/components/ui/ListScreenShell.tsx` (new) | Extract the `search TextInput + FilterChip row + FlatList + BulkActionBar` shape shared by `(inventory)/index.tsx`, `(jobs)/index.tsx`, `(teams)/index.tsx`, `(repairs)/index.tsx`. **Do not convert the screens yet** — land the component + a story/example, then convert in a follow-up wave. |
-| W2-sheet | `src/components/ui/EntityEditSheet.tsx` (new) | Extract the `ModalSheet` + fields + `updateXFields()` → `appendOutbox` shape used by the entity edit modals. Same rule: land the component, convert later. |
+| W2-list | `src/components/ui/ListScreenShell.tsx` (new) | Extract the `search row + FilterChip row + FlatList + RefreshControl(sync) + BulkActionBar/FAB` shape shared by `(inventory)/index.tsx`, `(jobs)/index.tsx` (**all-tab only** — the "my" tab is a custom sectioned layout), and `(repairs)/index.tsx`. **`(teams)/index.tsx` is EXCLUDED**: it is a sectioned `ScrollView` with no search box, no filter chips, no bulk select, and no `FlatList` — forcing it into the shell would be a rewrite, not an extraction. **Do not convert the screens yet** — land the component, then convert in a follow-up wave. |
+| W2-sheet | `src/components/ui/EntityEditSheet.tsx`, `src/components/ui/FormActions.tsx`, `src/components/ui/TextField.tsx` (all new) | Extract the `ModalSheet` + title + fields + Cancel/Save row shape used by the entity edit modals (the only true sheet edit today is `(teams)/[id].tsx:556-589`; jobs/inventory edit inline). The sheet is **persistence-agnostic** — see the landmine table below. Same rule: land the components, convert later. |
 
 Splitting "create the component" from "convert the screens" is deliberate. Wave 1 proved the pattern on
 the low-risk pickers; the list/sheet shells carry state and side effects, and a bad extraction there
 breaks four screens at once.
+
+### Landmine — the three `updateXFields` persistence contracts diverge
+
+`EntityEditSheet` must NOT own persistence (no outbox / activity log / transactions). Each converted
+screen keeps its own save handler, because the query-layer contracts are inconsistent:
+
+| Entity | Updater | Outbox contract |
+| --- | --- | --- |
+| jobs | `updateJobFields` (`src/db/queries/jobs.ts:212`) | **Self-appends** the outbox entry (incl. the resolved `type_id`); the caller does nothing. |
+| items | `updateItemFields` (`src/db/queries/items.ts:230`) | **Returns** the written column map and the **CALLER appends** it — and `(inventory)/[id].tsx` re-attaches `returnable` as a real boolean before appending (Postgres column is BOOLEAN). |
+| repairs | `updateRepairFields` (`src/db/queries/repairs.ts:143`) | **Self-appends**; returns the new `updated_at` string. |
+| teams | — | No field updater exists; `(teams)/[id].tsx` writes + appends by hand. |
+
+A generic "sheet calls `updateXFields` then `appendOutbox`" abstraction would double-push jobs and
+repairs and drop the items `returnable` boolean fix. Save logic stays in the screen; the sheet only
+sequences `busy` → `await onSave()` → close-on-success.
+
+### Follow-up-wave notes (for the conversion wave, NOT Wave 2)
+
+- **`(jobs)/index.tsx:51-52` staleness bug (pre-existing — do NOT fix in Wave 2).** The screen reloads
+  via a local `reloadKey` counter only and never subscribes to `useDataVersion`, so a background sync
+  pull doesn't refresh an already-open list (inventory and repairs handle this). Fix it when converting
+  the screen to `ListScreenShell` — it belongs in the screen's `onReload` wiring, not in the shell.
+- **Dedupe the local `Field` components.** `(inventory)/[id].tsx:466-484` and `(equipment)/[id].tsx:927`
+  each define an identical file-local `Field` (FieldLabel + AppInput with
+  multiline/keyboardType/autoCapitalize/autoFocus). `ui/TextField.tsx` covers that API surface (only
+  `onChange` renames to `onChangeText`); delete both dupes in the conversion wave.
 
 ---
 
@@ -197,7 +228,12 @@ breaks four screens at once.
 
 - **`SearchablePicker` is inside a `ScrollView` on several screens.** Wrapping it must not change gesture
   handling. If the scroll audit lands a `scrollEnabled` / `keyboardShouldPersistTaps` fix in the
-  primitive, `TaxonomyPicker` inherits it — do not re-implement it in the wrapper.
+  primitive, the taxonomy wrapper (shipped as `TaxonomyChips`, not `TaxonomyPicker`) inherits it — do
+  not re-implement it in the wrapper.
+- **`(teams)/index.tsx` is not a list screen.** Sectioned `ScrollView`, no search/chips/bulk/FlatList —
+  excluded from `ListScreenShell`; do not "convert" it in the follow-up wave.
+- **`EntityEditSheet` never persists.** The `updateXFields` outbox contracts diverge per entity (see the
+  Wave-2 landmine table); a converted screen keeps its own save handler and error alerts.
 - **`(inventory)/index.tsx` filter chips carry `t.id`, not `t.label`** (post-#74). Preserve that.
 - **`manage-types.tsx`** guards four protected location labels (`Shelf`/`Vehicle`/`Shop`/`Office`) and
   must **not** be converted — it edits the taxonomy rather than consuming it. Excluded from every wave.
