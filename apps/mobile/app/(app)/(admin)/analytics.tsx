@@ -124,7 +124,7 @@ export default function AnalyticsScreen() {
             <TrendChart title="Error trend" data={data.errorTrend} />
             <BarList title="Top errors" items={data.topErrors} accent={colors.danger} emptyGood />
 
-            <BarList title="Business actions" items={data.topAuditActions ?? []} emptyGood={false} />
+            <BarList title="Business actions" items={data.topAuditActions ?? []} />
             <TrendChart title="Active devices" data={data.deviceTrend ?? []} accentColor={colors.primary} />
 
             <BarList

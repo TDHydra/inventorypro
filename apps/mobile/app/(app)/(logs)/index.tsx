@@ -124,22 +124,23 @@ function serverRowToLog(r: ServerLogRow): LogEntry {
  * entities that may not be in the local DB (e.g. deleted items or off-device data).
  */
 function serverRowNameMaps(base: LogNameMaps, r: ServerLogRow): LogNameMaps {
-  const users = r.user_id && r.user_name ? { ...base.users, [r.user_id]: r.user_name } : base.users;
-  const jobs = r.job_id && r.job_name ? { ...base.jobs, [r.job_id]: r.job_name } : base.jobs;
+  /** Return `baseMap` unchanged if id/name are absent, otherwise merge one entry. */
+  const merge = (baseMap: Record<string, string>, id: string | null | undefined, name: string | null | undefined) =>
+    id && name ? { ...baseMap, [id]: name } : baseMap;
+
   const locations =
     (r.from_location_id && r.from_location_name) || (r.to_location_id && r.to_location_name)
-      ? {
-          ...base.locations,
-          ...(r.from_location_id && r.from_location_name ? { [r.from_location_id]: r.from_location_name } : {}),
-          ...(r.to_location_id && r.to_location_name ? { [r.to_location_id]: r.to_location_name } : {}),
-        }
+      ? merge(merge(base.locations, r.from_location_id, r.from_location_name), r.to_location_id, r.to_location_name)
       : base.locations;
   // For entity_type='item' the server returns item_name via the inventory_items join
-  const items =
-    r.entity_type === 'item' && r.entity_id && r.item_name
-      ? { ...base.items, [r.entity_id]: r.item_name }
-      : base.items;
-  return { users, teams: base.teams, jobs, locations, items };
+  const items = r.entity_type === 'item' ? merge(base.items, r.entity_id, r.item_name) : base.items;
+  return {
+    users: merge(base.users, r.user_id, r.user_name),
+    teams: base.teams,
+    jobs: merge(base.jobs, r.job_id, r.job_name),
+    locations,
+    items,
+  };
 }
 
 export default function LogsScreen() {
