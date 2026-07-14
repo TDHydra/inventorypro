@@ -19,6 +19,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { track } from '../../telemetry';
+import { parseStockQuantity } from '../../lib/validation';
 import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
@@ -26,6 +27,11 @@ interface Props {
 }
 
 type Mode = 'delta' | 'set';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add', props: { field, rule } });
+}
 
 export default function StockQuickAdd({ onSaved }: Props) {
   const router = useRouter();
@@ -66,26 +72,32 @@ export default function StockQuickAdd({ onSaved }: Props) {
   function handleSave() {
     track('action', 'quickadd_save_stock', { screen: 'quick_add' });
     if (!selectedLocation) {
+      trackReject('stock.location', 'required');
       setError('Select a location.');
       return;
     }
     if (!selectedItemOpt) {
+      trackReject('stock.item', 'required');
       setError('Select an item.');
       return;
     }
     // Guard the recount path even if `mode` is somehow stale — the server rejects
     // the INSERT without `checkin_inventory`, so never let it save silently.
     if (mode === 'set' && !canRecount) {
+      trackReject('stock.mode', 'forbidden');
       setError('Recount requires check-in permission.');
       return;
     }
-    const parsedQty = parseFloat(qty);
     // Delta must be a positive addition; Set is an absolute recount, so 0 is a
-    // valid "nothing here" reading — only reject NaN / negative.
-    if (!qty.trim() || isNaN(parsedQty) || (mode === 'delta' ? parsedQty <= 0 : parsedQty < 0)) {
-      setError(mode === 'delta' ? 'Quantity must be greater than 0.' : 'Quantity must be 0 or greater.');
+    // valid "nothing here" reading. parseStockQuantity keeps the historical
+    // parseFloat + copy, adding the overflow bound.
+    const qtyResult = parseStockQuantity(qty, mode);
+    if (!qtyResult.ok) {
+      trackReject('stock.qty', qtyResult.rule);
+      setError(qtyResult.error);
       return;
     }
+    const parsedQty = qtyResult.value;
     setError('');
 
     const itemId = selectedItemOpt.id;

@@ -9,6 +9,9 @@ export const TELEMETRY_PROP_ALLOWLIST = new Set([
   'itemId', 'unitId', 'locationId', 'jobId', 'teamId', 'repairId', 'userId',
   'count', 'qty', 'durationMs', 'ms', 'code', 'status', 'httpStatus', 'ok',
   'reason', 'table', 'operation', 'attempts', 'kind', 'mode', 'from', 'to', 'tab',
+  // validation_reject metadata: the FIELD PATH and RULE NAME only — never the
+  // entered value (which must not appear anywhere in telemetry).
+  'field', 'rule',
 ]);
 
 export interface CleanEvent {

@@ -20,6 +20,8 @@ import { AppInput } from '../ui/AppInput';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { colors, spacing, fontSizes } from '../../theme';
+import { track } from '../../telemetry';
+import { validateText } from '../../lib/validation';
 
 interface Props {
   onSaved: (label: string, createdId?: string) => void;
@@ -32,6 +34,11 @@ const ENTITY_TYPES: { type: Repair['entity_type']; label: string }[] = [
   { type: 'equipment_unit', label: 'Equipment Unit' },
   { type: 'location', label: 'Vehicle' },
 ];
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add', props: { field, rule } });
+}
 
 export default function RepairQuickAdd({ onSaved }: Props) {
   const { user } = useSession();
@@ -48,7 +55,9 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   const [target, setTarget] = useState<PickerOption | null>(null); // chosen entity
   const [targetError, setTargetError] = useState('');
   const [notes, setNotes] = useState('');
+  const [notesError, setNotesError] = useState('');
   const [parts, setParts] = useState('');
+  const [partsError, setPartsError] = useState('');
   const [assigneeOpt, setAssigneeOpt] = useState<PickerOption | null>(null);
 
   const assigneeOptions = useMemo<PickerOption[]>(
@@ -94,17 +103,35 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   function handleSave() {
     if (isWriteBlocked()) return;
     if (!target) {
+      trackReject('repair.target', 'required');
       setTargetError('Choose what to repair.');
       return;
     }
     setTargetError('');
 
+    // Optional free text, bounded + control-char-rejecting, checked BEFORE any
+    // local write. Blank stays fine (→ null below, as before).
+    const notesResult = validateText(notes, { label: 'Notes' });
+    if (!notesResult.ok) {
+      trackReject('repair.notes', notesResult.rule);
+      setNotesError(notesResult.error);
+      return;
+    }
+    setNotesError('');
+    const partsResult = validateText(parts, { label: 'Parts needed' });
+    if (!partsResult.ok) {
+      trackReject('repair.parts_needed', partsResult.rule);
+      setPartsError(partsResult.error);
+      return;
+    }
+    setPartsError('');
+
     const repair = createRepair({
       entity_type: entityType,
       entity_id: target.id,
       entity_label: target.label,
-      notes: notes.trim() || null,
-      parts_needed: parts.trim() || null,
+      notes: notesResult.value || null,
+      parts_needed: partsResult.value || null,
       status,
       created_by: user?.id ?? null,
       assignee_id: assigneeOpt?.id ?? null,
@@ -222,10 +249,11 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         <AppInput
           style={s.multiline}
           value={notes}
-          onChangeText={setNotes}
+          onChangeText={t => { setNotes(t); if (notesError) setNotesError(''); }}
           placeholder="What's wrong / what needs doing?"
           multiline
         />
+        {!!notesError && <Text style={s.errorText}>{notesError}</Text>}
       </View>
 
       {/* ── Parts needed ────────────────────────────────────────────── */}
@@ -234,10 +262,11 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         <AppInput
           style={s.multiline}
           value={parts}
-          onChangeText={setParts}
+          onChangeText={t => { setParts(t); if (partsError) setPartsError(''); }}
           placeholder="Parts required (free text)"
           multiline
         />
+        {!!partsError && <Text style={s.errorText}>{partsError}</Text>}
       </View>
 
       <PrimaryButton

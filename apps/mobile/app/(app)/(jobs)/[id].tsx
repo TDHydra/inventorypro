@@ -27,8 +27,15 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { track } from '../../../src/telemetry';
+import { validateName, validateText } from '../../../src/lib/validation';
 
 type LogWithUser = LogEntry & { user_name?: string };
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'job_detail', props: { field, rule } });
+}
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -137,9 +144,26 @@ export default function JobDetailScreen() {
   }
 
   function saveEdit() {
-    const trimmed = editName.trim();
-    if (!trimmed) { Alert.alert('Required', 'Job name is required.'); return; }
+    // Bounded, control-char-free name (same 'Job name is required.' copy as
+    // before for the blank case).
+    const nameResult = validateName(editName, { label: 'Job name' });
+    if (!nameResult.ok) { trackReject('job.name', nameResult.rule); Alert.alert('Required', nameResult.error); return; }
+    const trimmed = nameResult.value;
     if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
+
+    // Optional free text: bounded + control-char-rejecting, checked BEFORE any
+    // local write. Blank stays fine (→ null below, as before).
+    const textChecks = [
+      { field: 'job.customer_name', value: editCustomerName, label: 'Customer name', max: 200 },
+      { field: 'job.site_address', value: editSiteAddress, label: 'Site address', max: 500 },
+      { field: 'job.reference_number', value: editReferenceNumber, label: 'Reference #', max: 100 },
+      { field: 'job.insurance_carrier', value: editInsuranceCarrier, label: 'Insurance carrier', max: 200 },
+      { field: 'job.description', value: editDescription, label: 'Description', max: 2000 },
+    ] as const;
+    for (const c of textChecks) {
+      const r = validateText(c.value, { label: c.label, max: c.max });
+      if (!r.ok) { trackReject(c.field, r.rule); Alert.alert(`Check ${c.label.toLowerCase()}`, r.error); return; }
+    }
 
     const fields = {
       name: trimmed,

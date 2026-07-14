@@ -23,9 +23,15 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { track } from '../../telemetry';
+import { validateName, validateText } from '../../lib/validation';
 
 interface Props {
   onSaved: (label: string, createdId?: string) => void;
+}
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add', props: { field, rule } });
 }
 
 export default function JobQuickAdd({ onSaved }: Props) {
@@ -87,16 +93,38 @@ export default function JobQuickAdd({ onSaved }: Props) {
   function handleSave() {
     track('action', 'quickadd_save_job', { screen: 'quick_add' });
     if (isWriteBlocked()) return;
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNameError('Job name is required.');
+    // Bounded, control-char-free name (same 'Job name is required.' copy as
+    // before for the blank case).
+    const nameResult = validateName(name, { label: 'Job name' });
+    if (!nameResult.ok) {
+      trackReject('job.name', nameResult.rule);
+      setNameError(nameResult.error);
       return;
     }
+    const trimmedName = nameResult.value;
     if (!user) {
       Alert.alert('Error', 'Not logged in.');
       return;
     }
     setNameError('');
+
+    // Optional free-text fields: bounded + control-char-rejecting, checked
+    // BEFORE any local write. Blank stays fine (→ null below, as before).
+    const textChecks = [
+      { field: 'job.customer_name', value: customerName, label: 'Customer name', max: 200 },
+      { field: 'job.site_address', value: siteAddress, label: 'Site address', max: 500 },
+      { field: 'job.reference_number', value: referenceNumber, label: 'Reference #', max: 100 },
+      { field: 'job.insurance_carrier', value: insuranceCarrier, label: 'Insurance carrier', max: 200 },
+      { field: 'job.description', value: description, label: 'Description', max: 2000 },
+    ] as const;
+    for (const c of textChecks) {
+      const r = validateText(c.value, { label: c.label, max: c.max });
+      if (!r.ok) {
+        trackReject(c.field, r.rule);
+        Alert.alert(`Check ${c.label.toLowerCase()}`, r.error);
+        return;
+      }
+    }
 
     const now = new Date().toISOString();
     const id = generateUUID();

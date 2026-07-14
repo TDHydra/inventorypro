@@ -17,6 +17,12 @@ import { appendOutbox } from '../sync/outbox';
 import { useSession } from '../hooks/useSession';
 import { SearchablePicker, PickerOption } from './SearchablePicker';
 import { LocationShelfPicker } from './pickers';
+import { track } from '../telemetry';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'move_stock', props: { field, rule } });
+}
 
 interface Props {
   visible: boolean;
@@ -79,15 +85,18 @@ export default function MoveStockModal({
 
   function handleConfirm() {
     if (!selectedItem) {
+      trackReject('stock.item', 'required');
       Alert.alert('Required', 'Select an item to move.');
       return;
     }
     if (!destLoc) {
+      trackReject('stock.destination', 'required');
       Alert.alert('Required', 'Select a destination location.');
       return;
     }
     const qtyResult = parseQuantity(qtyText, 'Quantity');
     if (!qtyResult.ok) {
+      trackReject('stock.qty', qtyResult.rule);
       Alert.alert('Invalid quantity', qtyResult.error);
       return;
     }
@@ -98,6 +107,7 @@ export default function MoveStockModal({
     const currentOnHand = getStockQuantity(itemId, fromLocationId);
 
     if (qty > currentOnHand) {
+      trackReject('stock.qty', 'exceeds_on_hand');
       Alert.alert('Not enough stock', `Only ${currentOnHand} on hand at this location.`);
       return;
     }

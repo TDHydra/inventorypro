@@ -44,6 +44,15 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { track } from '../../../src/telemetry';
+import {
+  parseOptionalCount, parseOptionalDate, parseOptionalNonNegative, validateName, validateText,
+} from '../../../src/lib/validation';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'equipment_detail', props: { field, rule } });
+}
 
 // Build a unit-id → maintenance-events (newest first) map for a set of units.
 function buildMaintMap(units: EquipmentUnit[]): Map<string, MaintenanceEvent[]> {
@@ -57,26 +66,6 @@ const DEPRECIATION_METHODS = [
   { value: 'straight_line', label: 'Straight line' },
   { value: 'declining_balance', label: 'Declining balance' },
 ] as const;
-
-// Lenient form parsers — blank/unparseable input becomes null, mirroring saveMaint.
-function isoDateOrNull(v: string): string | null {
-  const t = v.trim();
-  if (!t) return null;
-  const d = new Date(t);
-  return isNaN(d.getTime()) ? null : d.toISOString();
-}
-function numOrNull(v: string): number | null {
-  const t = v.trim();
-  if (!t) return null;
-  const n = parseFloat(t);
-  return isNaN(n) ? null : n;
-}
-function intOrNull(v: string): number | null {
-  const t = v.trim();
-  if (!t) return null;
-  const n = parseInt(t, 10);
-  return isNaN(n) ? null : n;
-}
 
 export default function EquipmentModelDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -226,7 +215,24 @@ export default function EquipmentModelDetailScreen() {
   function saveEdit() {
     if (!item) return;
     if (isWriteBlocked()) return;
-    if (!form.name?.trim()) { Alert.alert('Required', 'Model name is required.'); return; }
+    // Bounded, control-char-free name (same 'Model name is required.' copy as
+    // before for the blank case).
+    const nameResult = validateName(form.name ?? '', { label: 'Model name' });
+    if (!nameResult.ok) { trackReject('item.name', nameResult.rule); Alert.alert('Required', nameResult.error); return; }
+    // Optional free text: bounded + control-char-rejecting, checked BEFORE any
+    // local write. Blank stays fine (→ null below, as before).
+    const textChecks = [
+      { field: 'item.model', value: form.model ?? '', label: 'Color / Model', max: 200 },
+      { field: 'item.description', value: form.description ?? '', label: 'Description', max: 2000 },
+      { field: 'item.barcode', value: form.barcode ?? '', label: 'Barcode', max: 512 },
+      { field: 'item.sku', value: form.sku ?? '', label: 'SKU / Part #', max: 100 },
+      { field: 'item.supplier', value: form.supplier ?? '', label: 'Supplier / Vendor', max: 200 },
+      { field: 'item.tag_prefix', value: editTagPrefix, label: 'Tag prefix', max: 20 },
+    ] as const;
+    for (const c of textChecks) {
+      const r = validateText(c.value, { label: c.label, max: c.max });
+      if (!r.ok) { trackReject(c.field, r.rule); Alert.alert(`Invalid ${c.label.toLowerCase()}`, r.error); return; }
+    }
     const fields = {
       name: form.name.trim(),
       model: form.model.trim() || null,
@@ -299,11 +305,13 @@ export default function EquipmentModelDetailScreen() {
   function saveUnits() {
     if (isWriteBlocked()) return;
     if (!addUnitsLoc) {
+      trackReject('equipment_unit.location', 'required');
       Alert.alert('Required', 'Please select a location.');
       return;
     }
     const filledRows = unitRows.filter(r => r.tag.trim());
     if (filledRows.length === 0) {
+      trackReject('equipment_unit.asset_tag', 'required');
       Alert.alert('Required', 'Enter at least one asset tag.');
       return;
     }
@@ -316,9 +324,21 @@ export default function EquipmentModelDetailScreen() {
       if (err) errors[i] = err;
     }
     if (Object.keys(errors).length > 0) {
+      trackReject('equipment_unit.asset_tag', 'duplicate');
       setTagErrors(errors);
       Alert.alert('Duplicate Tags', 'Fix duplicate asset tags before saving.');
       return;
+    }
+    // Serials are optional free text — bound them BEFORE the row writes below
+    // start (they aren't wrapped in a single transaction).
+    for (const row of unitRows) {
+      if (!row.tag.trim()) continue;
+      const serialResult = validateText(row.serial, { label: 'Serial number', max: 200 });
+      if (!serialResult.ok) {
+        trackReject('equipment_unit.serial_number', serialResult.rule);
+        Alert.alert('Invalid serial number', serialResult.error);
+        return;
+      }
     }
     if (!user || !item) return;
 
@@ -439,25 +459,45 @@ export default function EquipmentModelDetailScreen() {
   function saveEditUnit() {
     if (!editUnit || !user) return;
     if (isWriteBlocked()) return;
-    if (!editUnitTag.trim()) { Alert.alert('Required', 'Asset tag is required.'); return; }
+    // Same 'Asset tag is required.' copy as before for the blank case. All
+    // checks run BEFORE any local write; invalid dates/numbers are rejected
+    // with a message instead of silently coerced to null (the old *OrNull trap).
+    const tagResult = validateName(editUnitTag, { label: 'Asset tag' });
+    if (!tagResult.ok) { trackReject('equipment_unit.asset_tag', tagResult.rule); Alert.alert('Required', tagResult.error); return; }
+    const serialResult = validateText(editUnitSerial, { label: 'Serial number', max: 200 });
+    if (!serialResult.ok) { trackReject('equipment_unit.serial_number', serialResult.rule); Alert.alert('Invalid serial number', serialResult.error); return; }
+    const notesResult = validateText(editUnitNotes, { label: 'Notes' });
+    if (!notesResult.ok) { trackReject('equipment_unit.notes', notesResult.rule); Alert.alert('Invalid notes', notesResult.error); return; }
+    const acquiredResult = parseOptionalDate(editUnitAcquired, 'Acquired date');
+    if (!acquiredResult.ok) { trackReject('equipment_unit.acquired_at', acquiredResult.rule); Alert.alert('Invalid date', acquiredResult.error); return; }
+    const lifeResult = parseOptionalCount(editUnitLife, 'Useful life (months)');
+    if (!lifeResult.ok) { trackReject('equipment_unit.useful_life_months', lifeResult.rule); Alert.alert('Invalid useful life', lifeResult.error); return; }
+    const nextServiceResult = parseOptionalDate(editUnitNextService, 'Next service date');
+    if (!nextServiceResult.ok) { trackReject('equipment_unit.next_service_at', nextServiceResult.rule); Alert.alert('Invalid date', nextServiceResult.error); return; }
+    const intervalResult = parseOptionalCount(editUnitInterval, 'Service interval (months)');
+    if (!intervalResult.ok) { trackReject('equipment_unit.service_interval_months', intervalResult.rule); Alert.alert('Invalid service interval', intervalResult.error); return; }
     const now = new Date().toISOString();
     const changes: Partial<EquipmentUnit> = {
-      asset_tag: editUnitTag.trim(),
-      serial_number: editUnitSerial.trim() || null,
-      notes: editUnitNotes.trim() || null,
-      acquired_at: isoDateOrNull(editUnitAcquired),
-      useful_life_months: intOrNull(editUnitLife),
+      asset_tag: tagResult.value,
+      serial_number: serialResult.value || null,
+      notes: notesResult.value || null,
+      acquired_at: acquiredResult.value,
+      useful_life_months: lifeResult.value,
       depreciation_method: editUnitMethod || null,
-      next_service_at: isoDateOrNull(editUnitNextService),
-      service_interval_months: intOrNull(editUnitInterval),
+      next_service_at: nextServiceResult.value,
+      service_interval_months: intervalResult.value,
     };
     // purchase_price / salvage_value arrive null on non-financial devices (the
     // server strips them from pull), so only write them back when this device
     // can actually see them — otherwise an edit here would push nulls over the
     // server's real values.
     if (canViewFinancial) {
-      changes.purchase_price = numOrNull(editUnitPrice);
-      changes.salvage_value = numOrNull(editUnitSalvage);
+      const priceResult = parseOptionalNonNegative(editUnitPrice, 'Purchase price');
+      if (!priceResult.ok) { trackReject('equipment_unit.purchase_price', priceResult.rule); Alert.alert('Invalid purchase price', priceResult.error); return; }
+      const salvageResult = parseOptionalNonNegative(editUnitSalvage, 'Salvage value');
+      if (!salvageResult.ok) { trackReject('equipment_unit.salvage_value', salvageResult.rule); Alert.alert('Invalid salvage value', salvageResult.error); return; }
+      changes.purchase_price = priceResult.value;
+      changes.salvage_value = salvageResult.value;
     }
     upsertUnit({ ...editUnit, ...changes, updated_at: now });
     appendOutbox('UPDATE', 'equipment_units', { id: editUnit.id, ...changes, updated_at: now });
@@ -512,22 +552,36 @@ export default function EquipmentModelDetailScreen() {
   function saveMaint() {
     if (!maintUnit || !user) return;
     if (isWriteBlocked()) return;
-    if (!maintType.trim()) { Alert.alert('Required', 'Enter a maintenance type.'); return; }
-    // Turn the YYYY-MM-DD input back into an ISO instant; fall back to now if
-    // the field was cleared or is unparseable.
-    const parsed = maintDate.trim() ? new Date(maintDate.trim()) : null;
-    const eventDate = parsed && !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
-    // Cost is only offered to financial users; parse leniently, null when blank.
+    // Same 'Enter a maintenance type.' copy as before for the blank case; also
+    // bounds the type/notes and rejects garbage dates/costs instead of the old
+    // silent coercion — all BEFORE the local write.
+    if (!maintType.trim()) {
+      trackReject('maintenance.type', 'required');
+      Alert.alert('Required', 'Enter a maintenance type.');
+      return;
+    }
+    const typeResult = validateText(maintType, { label: 'Maintenance type', max: 100 });
+    if (!typeResult.ok) { trackReject('maintenance.type', typeResult.rule); Alert.alert('Invalid maintenance type', typeResult.error); return; }
+    const notesResult = validateText(maintNotes, { label: 'Notes' });
+    if (!notesResult.ok) { trackReject('maintenance.notes', notesResult.rule); Alert.alert('Invalid notes', notesResult.error); return; }
+    // Turn the YYYY-MM-DD input back into an ISO instant; blank falls back to
+    // now (as before), unparseable input is rejected instead of silently
+    // becoming "now".
+    const dateResult = parseOptionalDate(maintDate, 'Date');
+    if (!dateResult.ok) { trackReject('maintenance.event_date', dateResult.rule); Alert.alert('Invalid date', dateResult.error); return; }
+    const eventDate = dateResult.value ?? new Date().toISOString();
+    // Cost is only offered to financial users; blank → null.
     let cost: number | null = null;
-    if (canViewFinancial && maintCost.trim()) {
-      const n = parseFloat(maintCost.trim());
-      cost = isNaN(n) ? null : n;
+    if (canViewFinancial) {
+      const costResult = parseOptionalNonNegative(maintCost, 'Cost');
+      if (!costResult.ok) { trackReject('maintenance.cost', costResult.rule); Alert.alert('Invalid cost', costResult.error); return; }
+      cost = costResult.value;
     }
     createMaintenanceEvent({
       unitId: maintUnit.id,
       eventDate,
-      type: maintType.trim(),
-      notes: maintNotes.trim() || null,
+      type: typeResult.value,
+      notes: notesResult.value || null,
       cost,
       userId: user.id,
     });
@@ -786,7 +840,7 @@ export default function EquipmentModelDetailScreen() {
             <PrimaryButton
               label="Confirm Return"
               onPress={() => {
-                if (!repairInLoc) { Alert.alert('Required', 'Please select a location.'); return; }
+                if (!repairInLoc) { trackReject('equipment_unit.location', 'required'); Alert.alert('Required', 'Please select a location.'); return; }
                 if (repairInUnit) doRepairIn(repairInUnit, repairInLoc.id);
               }}
               disabled={locked}

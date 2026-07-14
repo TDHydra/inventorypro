@@ -27,6 +27,7 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { ModalSheet } from '../ui/ModalSheet';
 import { track } from '../../telemetry';
+import { validateName } from '../../lib/validation';
 
 interface Props {
   onSaved: (label: string, createdId?: string) => void;
@@ -131,11 +132,15 @@ export default function TeamQuickAdd({ onSaved }: Props) {
 
   function handleSave() {
     track('action', 'quickadd_save_team', { screen: 'quick_add' });
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNameError('Name is required.');
+    // Bounded, control-char-free name (same 'Name is required.' copy as before
+    // for the blank case).
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      track('audit', 'validation_reject', { screen: 'quick_add', props: { field: 'team.name', rule: nameResult.rule } });
+      setNameError(nameResult.error);
       return;
     }
+    const trimmedName = nameResult.value;
     setNameError('');
 
     const now = new Date().toISOString();

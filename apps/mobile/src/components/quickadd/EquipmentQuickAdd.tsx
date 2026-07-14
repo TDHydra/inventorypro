@@ -25,10 +25,16 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { track } from '../../telemetry';
+import { validateText } from '../../lib/validation';
 import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
   onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
+}
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add', props: { field, rule } });
 }
 
 // One row of the batch: an asset tag with its own (optional) nested serial.
@@ -88,6 +94,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   function handleSave() {
     track('action', 'quickadd_save_equipment', { screen: 'quick_add' });
     if (!selectedItem) {
+      trackReject('equipment_unit.item', 'required');
       setFormError('Select an item first.');
       return;
     }
@@ -104,28 +111,40 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       const rawTag = row.assetTag.trim();
       if (!rawTag) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'required');
         updateRow(row.key, { error: 'Asset tag is required.' });
         break;
       }
       const tag = sanitizeScan(rawTag);
       if (!tag) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'invalid');
         updateRow(row.key, { error: 'Asset tag is too long or contains invalid characters.' });
         break;
       }
       const tagKey = tag.toLowerCase();
       if (seenTags.has(tagKey)) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'duplicate_batch');
         updateRow(row.key, { error: 'Duplicate tag in this batch.' });
         break;
       }
       if (getUnitByTag(tag) !== null) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'duplicate');
         updateRow(row.key, { error: 'Tag already used.' });
         break;
       }
+      // Serial is optional free text — bound it before it reaches the outbox.
+      const serialResult = validateText(row.serial, { label: 'Serial number', max: 200 });
+      if (!serialResult.ok) {
+        badKey = row.key;
+        trackReject('equipment_unit.serial_number', serialResult.rule);
+        updateRow(row.key, { error: serialResult.error });
+        break;
+      }
       seenTags.add(tagKey);
-      cleaned.push({ key: row.key, tag, serial: row.serial.trim() || null });
+      cleaned.push({ key: row.key, tag, serial: serialResult.value || null });
     }
 
     if (badKey) {

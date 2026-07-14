@@ -16,7 +16,7 @@ import { resolveTypeColor } from '../../constants/typeColors';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { runInTransaction } from '../../db/tx';
-import { parsePackSize, parseQuantity } from '../../lib/validation';
+import { parsePackSize, parseQuantity, validateBarcode, validateName, validateText } from '../../lib/validation';
 import { MediaGallery } from '../MediaGallery';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -36,6 +36,11 @@ const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
 interface Props {
   onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
+}
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add', props: { field, rule } });
 }
 
 export default function ItemQuickAdd({ onSaved }: Props) {
@@ -146,17 +151,37 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
   function handleSave() {
     track('action', 'quickadd_save_item', { screen: 'quick_add' });
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNameError('Name is required.');
+    // Bounded, control-char-free name (same 'Name is required.' copy as before
+    // for the blank case) — this form is the only pre-server gate when offline.
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      trackReject('item.name', nameResult.rule);
+      setNameError(nameResult.error);
       return;
     }
+    const trimmedName = nameResult.value;
     setNameError('');
+
+    // Optional free-text fields: bounded + control-char-rejecting, checked
+    // BEFORE any local write. Blank stays fine (→ null below, as before).
+    const skuResult = validateText(sku, { label: 'Item # / Part #', max: 100 });
+    if (!skuResult.ok) { trackReject('item.sku', skuResult.rule); Alert.alert('Check item #', skuResult.error); return; }
+    const descResult = validateText(description, { label: 'Description' });
+    if (!descResult.ok) { trackReject('item.description', descResult.rule); Alert.alert('Check description', descResult.error); return; }
+    const unitResult = validateText(unit, { label: 'Unit', max: 40 });
+    if (!unitResult.ok) { trackReject('item.unit', unitResult.rule); Alert.alert('Check unit', unitResult.error); return; }
+    let barcodeValue: string | null = null;
+    if (barcode.trim()) {
+      const bc = validateBarcode(barcode);
+      if (!bc.ok) { trackReject('item.barcode', bc.rule); Alert.alert('Check barcode', bc.error); return; }
+      barcodeValue = bc.value;
+    }
 
     // Validate the optional pack size up front (rejects negatives / fractions /
     // a pack of 1). Empty → null (no pack). Stop before any writes on bad input.
     const packResult = parsePackSize(packSize);
     if (!packResult.ok) {
+      trackReject('item.pack_size', packResult.rule);
       Alert.alert('Check pack size', packResult.error);
       return;
     }
@@ -166,7 +191,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     let stockQty = 0;
     if (currentStock.trim()) {
       const q = parseQuantity(currentStock, 'Current stock');
-      if (!q.ok) { Alert.alert('Check current stock', q.error); return; }
+      if (!q.ok) { trackReject('item.current_stock', q.rule); Alert.alert('Check current stock', q.error); return; }
       stockQty = q.value;
     }
 
@@ -189,6 +214,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     // Current stock must attach to a location — use the home location. Require
     // one rather than silently dropping the entered quantity.
     if (stockQty > 0 && !homeLocationId) {
+      trackReject('item.home_location', 'required');
       Alert.alert(
         'Set a home location',
         'To record current stock, pick or add a home location below so we know where it lives.',
@@ -199,9 +225,9 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     const item: InventoryItem = {
       id,
       name: trimmedName,
-      barcode: barcode.trim() || null,
-      description: description.trim() || null,
-      sku: sku.trim() || null,
+      barcode: barcodeValue,
+      description: descResult.value || null,
+      sku: skuResult.value || null,
       supplier: null,
       model: null,
       kind: 'product',

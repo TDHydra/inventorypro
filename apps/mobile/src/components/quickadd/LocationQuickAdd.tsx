@@ -18,6 +18,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { track } from '../../telemetry';
+import { validateName } from '../../lib/validation';
 
 const DEFAULT_COLOR = colors.brand;
 const DEFAULT_ICON = '📦';
@@ -46,11 +47,15 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 
   function handleSave() {
     track('action', 'quickadd_save_location', { screen: 'quick_add' });
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNameError('Name is required.');
+    // Bounded, control-char-free name (same 'Name is required.' copy as before
+    // for the blank case).
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      track('audit', 'validation_reject', { screen: 'quick_add', props: { field: 'location.name', rule: nameResult.rule } });
+      setNameError(nameResult.error);
       return;
     }
+    const trimmedName = nameResult.value;
     setNameError('');
 
     const now = new Date().toISOString();

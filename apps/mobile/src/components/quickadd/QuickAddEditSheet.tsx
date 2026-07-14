@@ -14,7 +14,14 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { colors, spacing, fontSizes } from '../../theme';
+import { track } from '../../telemetry';
+import { parseStockQuantity, validateName, validateText } from '../../lib/validation';
 import type { JustAddedRef } from './justAdded';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add_edit', props: { field, rule } });
+}
 
 interface Props {
   visible: boolean;
@@ -79,15 +86,22 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   // delete screen, so we reuse the same raw active=0 + outbox + log shape). ──────
   function saveItem(ref: Extract<JustAddedRef, { kind: 'item' }>) {
     if (!canEdit) return;
-    const trimmed = name.trim();
-    if (!trimmed) { setError('Name is required.'); return; }
+    // Bounded, control-char-free fields (same 'Name is required.' copy as
+    // before for the blank case) — validated before any local write.
+    const nameResult = validateName(name);
+    if (!nameResult.ok) { trackReject('item.name', nameResult.rule); setError(nameResult.error); return; }
+    const trimmed = nameResult.value;
+    const skuResult = validateText(sku, { label: 'Item # / SKU', max: 100 });
+    if (!skuResult.ok) { trackReject('item.sku', skuResult.rule); setError(skuResult.error); return; }
+    const catResult = validateText(category, { label: 'Category', max: 200 });
+    if (!catResult.ok) { trackReject('item.category', catResult.rule); setError(catResult.error); return; }
     setError('');
     try {
       runInTransaction(() => {
         const synced = updateItemFields(ref.id, {
           name: trimmed,
-          sku: sku.trim() || null,
-          category: category.trim() || null,
+          sku: skuResult.value || null,
+          category: catResult.value || null,
         });
         appendOutbox('UPDATE', 'inventory_items', synced);
         appendLog({
@@ -134,13 +148,17 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   // doRetireUnit in (equipment)/[id].tsx exactly). ────────────────────────────────
   function saveUnit(ref: Extract<JustAddedRef, { kind: 'equipment_unit' }>) {
     if (!canEdit) return;
-    const trimmedTag = tag.trim();
-    if (!trimmedTag) { setError('Asset tag is required.'); return; }
+    // Same 'Asset tag is required.' copy as before for the blank case.
+    const tagResult = validateName(tag, { label: 'Asset tag' });
+    if (!tagResult.ok) { trackReject('equipment_unit.asset_tag', tagResult.rule); setError(tagResult.error); return; }
+    const trimmedTag = tagResult.value;
+    const serialResult = validateText(serial, { label: 'Serial number', max: 200 });
+    if (!serialResult.ok) { trackReject('equipment_unit.serial_number', serialResult.rule); setError(serialResult.error); return; }
     const cur = getUnitById(ref.id);
     if (!cur) { setError('Unit not found.'); return; }
     setError('');
     const now = new Date().toISOString();
-    const changes = { asset_tag: trimmedTag, serial_number: serial.trim() || null };
+    const changes = { asset_tag: trimmedTag, serial_number: serialResult.value || null };
     try {
       runInTransaction(() => {
         upsertUnit({ ...cur, ...changes, updated_at: now });
@@ -192,12 +210,15 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   // only offered for "delta" adds. ────────────────────────────────────────────────
   function saveStock(ref: Extract<JustAddedRef, { kind: 'stock' }>) {
     if (!canAdjustStock) return;
-    const parsed = parseFloat(qty);
-    const invalid = !qty.trim() || isNaN(parsed) || (ref.mode === 'delta' ? parsed <= 0 : parsed < 0);
-    if (invalid) {
-      setError(ref.mode === 'delta' ? 'Quantity must be greater than 0.' : 'Quantity must be 0 or greater.');
+    // parseStockQuantity keeps the historical parseFloat + copy ('delta' > 0,
+    // 'set' recount may be 0), adding the overflow bound.
+    const qtyResult = parseStockQuantity(qty, ref.mode);
+    if (!qtyResult.ok) {
+      trackReject('stock.qty', qtyResult.rule);
+      setError(qtyResult.error);
       return;
     }
+    const parsed = qtyResult.value;
     setError('');
     const now = new Date().toISOString();
     try {

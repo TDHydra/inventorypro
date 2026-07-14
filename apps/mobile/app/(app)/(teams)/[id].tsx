@@ -31,6 +31,13 @@ import { EntityEditSheet } from '../../../src/components/ui/EntityEditSheet';
 import { QuickCreateSheet } from '../../../src/components/quickadd/QuickCreateSheet';
 import { createDmConversation } from '../../../src/db/queries/chat';
 import { syncNow } from '../../../src/sync/engine';
+import { track } from '../../../src/telemetry';
+import { validateName } from '../../../src/lib/validation';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'team_detail', props: { field, rule } });
+}
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -130,8 +137,16 @@ export default function TeamDetailScreen() {
     if (!team || isWriteBlocked()) throw new Error('write blocked');
     const trimmed = editName.trim();
     if (!trimmed) {
+      trackReject('team.name', 'required');
       Alert.alert('Required', 'Enter a team name.');
       throw new Error('validation: name required');
+    }
+    // Bounded + control-char-free (the blank case above keeps its original copy).
+    const nameResult = validateName(trimmed, { label: 'Team name' });
+    if (!nameResult.ok) {
+      trackReject('team.name', nameResult.rule);
+      Alert.alert('Invalid name', nameResult.error);
+      throw new Error('validation: name invalid');
     }
     const now = new Date().toISOString();
     // manager_id is deprecated/legacy (managers are now flagged is_manager on
