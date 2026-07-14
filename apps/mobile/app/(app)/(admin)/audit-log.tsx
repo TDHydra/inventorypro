@@ -20,7 +20,7 @@ const PAGE_SIZE = 40;
 
 // ── Wire types (mirror GET /audit) ──────────────────────────────────────────
 
-type Outcome = 'success' | 'denied' | 'rate_limited' | 'client_error' | 'server_error';
+type Outcome = 'success' | 'denied' | 'rate_limited' | 'validation_reject' | 'client_error' | 'server_error';
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 interface AuditRow {
@@ -108,6 +108,7 @@ const OUTCOMES: { label: string; value: Outcome | null }[] = [
   { label: 'Success', value: 'success' },
   { label: 'Denied', value: 'denied' },
   { label: 'Rate limited', value: 'rate_limited' },
+  { label: 'Validation reject', value: 'validation_reject' },
   { label: 'Client error', value: 'client_error' },
   { label: 'Server error', value: 'server_error' },
 ];
@@ -116,16 +117,22 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
   success: 'Success',
   denied: 'Denied',
   rate_limited: 'Rate limited',
+  validation_reject: 'Validation reject',
   client_error: 'Client error',
   server_error: 'Server error',
 };
 
-// Pill color per the spec: success=green, denied/rate_limited=amber, errors=red.
+// Pill color per the spec: success=green, denied/rate_limited=amber,
+// validation_reject=dark amber (warning-ish but distinct — the theme's only
+// warning tone is already taken by denied/rate_limited), errors=red.
+const VALIDATION_REJECT_COLOR = '#B45309';
+
 function outcomeColor(o: Outcome): string {
   switch (o) {
     case 'success': return colors.success;
     case 'denied':
     case 'rate_limited': return colors.warning;
+    case 'validation_reject': return VALIDATION_REJECT_COLOR;
     case 'client_error':
     case 'server_error': return colors.danger;
   }
