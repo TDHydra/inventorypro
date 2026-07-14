@@ -257,6 +257,8 @@ export interface LogNameMaps {
   teams: Record<string, string>;
   jobs: Record<string, string>;
   locations: Record<string, string>;
+  /** inventory_items id → name; enables entity_type='item' resolution in the log detail. */
+  items: Record<string, string>;
 }
 
 function idNameMap(table: string): Record<string, string> {
@@ -275,12 +277,13 @@ export function getLogNameMaps(): LogNameMaps {
     teams: idNameMap('teams'),
     jobs: idNameMap('jobs'),
     locations: idNameMap('locations'),
+    items: idNameMap('inventory_items'),
   };
 }
 
 // Resolve a log row's entity_id to a display name when entity_type names a table
-// we hold an id→name map for (user/team/job/location + their plural forms). Falls
-// back to null so the caller can hide the field rather than show a raw uuid.
+// we hold an id→name map for (user/team/job/location/item + their plural forms).
+// Falls back to null so the caller can hide the field rather than show a raw uuid.
 export function resolveEntityName(
   maps: LogNameMaps,
   entityType: string | null | undefined,
@@ -300,6 +303,9 @@ export function resolveEntityName(
     case 'location':
     case 'locations':
       return maps.locations[entityId] ?? null;
+    case 'item':
+    case 'items':
+      return maps.items[entityId] ?? null;
     default:
       return null;
   }

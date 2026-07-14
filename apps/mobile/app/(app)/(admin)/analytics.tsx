@@ -21,6 +21,8 @@ interface Summary {
   topActions: NameCount[];
   topErrors: NameCount[];
   errorTrend: DayCount[];
+  topAuditActions: NameCount[];
+  deviceTrend: DayCount[];
   byUser: UserActivity[];
   byRole: NameCount[];
   byTeam: NameCount[];
@@ -122,6 +124,9 @@ export default function AnalyticsScreen() {
             <TrendChart title="Error trend" data={data.errorTrend} />
             <BarList title="Top errors" items={data.topErrors} accent={colors.danger} emptyGood />
 
+            <BarList title="Business actions" items={data.topAuditActions ?? []} emptyGood={false} />
+            <TrendChart title="Active devices" data={data.deviceTrend ?? []} accentColor={colors.primary} />
+
             <BarList
               title="Top users"
               items={data.byUser.map(u => ({ name: u.name, count: u.count }))}
@@ -181,7 +186,8 @@ function BarList({ title, items, accent, emptyGood }: {
 // needs no legend (the title names it), thin marks with rounded data-ends
 // anchored to the baseline, a recessive track, and selective direct labels
 // (peak value + first/last day only, never a number on every column).
-function TrendChart({ title, data }: { title: string; data: DayCount[] }) {
+function TrendChart({ title, data, accentColor }: { title: string; data: DayCount[]; accentColor?: string }) {
+  const barColor = accentColor ?? colors.danger;
   const max = data.reduce((m, d) => Math.max(m, d.count), 0);
   const total = data.reduce((sum, d) => sum + d.count, 0);
   const peakIdx = max > 0 ? data.findIndex(d => d.count === max) : -1;
@@ -202,13 +208,13 @@ function TrendChart({ title, data }: { title: string; data: DayCount[] }) {
           <View style={s.trendPlot}>
             {data.map((d, idx) => (
               <View key={d.day} style={s.trendCol}>
-                {idx === peakIdx ? <Text style={s.trendPeak}>{d.count}</Text> : <View style={s.trendPeakSpacer} />}
+                {idx === peakIdx ? <Text style={[s.trendPeak, { color: barColor }]}>{d.count}</Text> : <View style={s.trendPeakSpacer} />}
                 <View
                   style={[
                     s.trendBar,
                     {
                       height: `${max > 0 ? Math.max(d.count > 0 ? 6 : 0, (d.count / max) * 100) : 0}%`,
-                      backgroundColor: d.count > 0 ? colors.danger : 'transparent',
+                      backgroundColor: d.count > 0 ? barColor : 'transparent',
                     },
                   ]}
                 />

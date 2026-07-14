@@ -80,6 +80,10 @@ export interface TelemetrySummary {
   topActions: NameCount[];
   topErrors: NameCount[];
   errorTrend: DayCount[];         // error-event count bucketed by day, zero-filled
+  /** Business operations (checkout/checkin/transfer…) from audit-type events. */
+  topAuditActions: NameCount[];
+  /** Daily unique device count, zero-filled across the window. */
+  deviceTrend: DayCount[];
   byUser: UserActivity[];         // top-N authenticated users by event count
   byRole: NameCount[];            // event count grouped by users.role
   byTeam: NameCount[];            // event count grouped by team (team_members join)
@@ -138,6 +142,8 @@ export function shapeTelemetrySummary(row: any, days: number, now: Date = new Da
     topActions: arr<NameCount>(row?.actions),
     topErrors: arr<NameCount>(row?.errors),
     errorTrend: zeroFillDailyTrend(arr<DayCount>(row?.err_trend), days, now),
+    topAuditActions: arr<NameCount>(row?.audit_actions),
+    deviceTrend: zeroFillDailyTrend(arr<DayCount>(row?.device_trend), days, now),
     byUser: arr<UserActivity>(row?.by_user),
     byRole: arr<NameCount>(row?.by_role),
     byTeam: arr<NameCount>(row?.by_team),
@@ -201,6 +207,18 @@ export async function getTelemetrySummary(
           FROM win WHERE type = 'error'
          GROUP BY 1) x
     ),
+    audit_actions AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT name, COUNT(*)::int AS count FROM win WHERE type = 'audit'
+         GROUP BY name ORDER BY count DESC, name LIMIT 15) x
+    ),
+    device_trend AS (
+      SELECT json_agg(x) AS j FROM (
+        SELECT to_char(date_trunc('day', received_at), 'YYYY-MM-DD') AS day,
+               COUNT(DISTINCT device_id)::int AS count
+          FROM win WHERE device_id IS NOT NULL
+         GROUP BY 1) x
+    ),
     by_user AS (
       SELECT json_agg(x) AS j FROM (
         SELECT w.user_id::text AS "userId",
@@ -237,15 +255,17 @@ export async function getTelemetrySummary(
           FROM win GROUP BY app_version ORDER BY count DESC LIMIT 10) x
     )
     SELECT (SELECT row_to_json(totals) FROM totals) AS totals,
-           (SELECT j FROM screens)   AS screens,
-           (SELECT j FROM actions)   AS actions,
-           (SELECT j FROM errors)    AS errors,
-           (SELECT j FROM err_trend) AS err_trend,
-           (SELECT j FROM by_user)   AS by_user,
-           (SELECT j FROM by_role)   AS by_role,
-           (SELECT j FROM by_team)   AS by_team,
-           (SELECT j FROM plat)      AS platforms,
-           (SELECT j FROM ver)       AS versions`;
+           (SELECT j FROM screens)        AS screens,
+           (SELECT j FROM actions)        AS actions,
+           (SELECT j FROM errors)         AS errors,
+           (SELECT j FROM err_trend)      AS err_trend,
+           (SELECT j FROM audit_actions)  AS audit_actions,
+           (SELECT j FROM device_trend)   AS device_trend,
+           (SELECT j FROM by_user)        AS by_user,
+           (SELECT j FROM by_role)        AS by_role,
+           (SELECT j FROM by_team)        AS by_team,
+           (SELECT j FROM plat)           AS platforms,
+           (SELECT j FROM ver)            AS versions`;
 
   const res = await pg.query(sql, [days]);
   return shapeTelemetrySummary(res.rows[0] ?? {}, days);

@@ -73,6 +73,8 @@ const SUMMARY_ROW = {
   actions: [{ name: 'checkout_confirm', count: 15 }],
   errors: [{ name: 'render_crash', count: 2 }],
   err_trend: [{ day: '2026-07-04', count: 2 }, { day: '2026-07-06', count: 1 }],
+  audit_actions: [{ name: 'checkout', count: 30 }, { name: 'checkin', count: 18 }, { name: 'transfer', count: 7 }],
+  device_trend: [{ day: '2026-07-04', count: 5 }, { day: '2026-07-06', count: 7 }],
   by_user: [{ userId: 'u1', name: 'Alice', role: 'full_admin', count: 30 }],
   by_role: [{ name: 'full_admin', count: 30 }, { name: 'contents_crew', count: 12 }],
   by_team: [{ name: 'North Crew', count: 22 }],
@@ -90,11 +92,16 @@ test('getTelemetrySummary runs ONE query, binds the day window, shapes the repor
   assert.equal(seen.length, 1);                       // single round-trip
   assert.equal(seen[0].params[0], 30);                // parameterized window ($1)
   assert.ok(seen[0].sql.includes('make_interval'));   // never string-interpolated
+  assert.ok(seen[0].sql.includes('audit_actions'));   // new: business op CTE present
+  assert.ok(seen[0].sql.includes('device_trend'));    // new: device trend CTE present
   assert.equal(s.windowDays, 30);
   assert.deepEqual(s.totals, { events: 100, sessions: 12, users: 8, devices: 9, errors: 3 });
   assert.deepEqual(s.active, { users: 8, devices: 9, sessions: 12, anonSessions: 4 });
   assert.equal(s.topScreens[0].name, 'inventory');
   assert.equal(s.topActions[0].name, 'checkout_confirm');
+  assert.equal(s.topAuditActions[0].name, 'checkout');   // new
+  assert.equal(s.topAuditActions[1].name, 'checkin');    // new
+  assert.equal(s.deviceTrend.length, 30);                // new: zero-filled to window
   assert.equal(s.byUser[0].name, 'Alice');
   assert.equal(s.byRole[0].name, 'full_admin');
   assert.equal(s.byTeam[0].name, 'North Crew');
@@ -108,17 +115,21 @@ test('shapeTelemetrySummary defaults everything on an empty window (no throws, n
   const s = shapeTelemetrySummary(empty, 7, new Date('2026-07-06T12:00:00Z'));
   assert.deepEqual(s.totals, { events: 0, sessions: 0, users: 0, devices: 0, errors: 0 });
   assert.deepEqual(s.active, { users: 0, devices: 0, sessions: 0, anonSessions: 0 });
-  for (const list of [s.topScreens, s.topActions, s.topErrors, s.byUser, s.byRole, s.byTeam, s.byPlatform, s.byVersion]) {
+  for (const list of [s.topScreens, s.topActions, s.topErrors, s.topAuditActions, s.byUser, s.byRole, s.byTeam, s.byPlatform, s.byVersion]) {
     assert.deepEqual(list, []);
   }
   assert.equal(s.errorTrend.length, 7);
   assert.ok(s.errorTrend.every(d => d.count === 0));
+  assert.equal(s.deviceTrend.length, 7);
+  assert.ok(s.deviceTrend.every(d => d.count === 0));
 });
 
 test('shapeTelemetrySummary tolerates a totally empty/undefined row', () => {
   const s = shapeTelemetrySummary({}, 1, new Date('2026-07-06T12:00:00Z'));
   assert.equal(s.totals.events, 0);
   assert.equal(s.errorTrend.length, 1);
+  assert.equal(s.deviceTrend.length, 1);
+  assert.deepEqual(s.topAuditActions, []);
   assert.deepEqual(s.byUser, []);
 });
 

@@ -34,21 +34,37 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 /**
  * Shape of rows returned by GET /logs (server-side joins included).
- * The API selects `al.*`, so move-stamped coordinates ride along even though
- * most columns aren't otherwise surfaced in this screen — declared here so
- * the map affordance below can read them.
+ * The API selects `al.*` plus four resolved-name columns, so we capture the
+ * full row so ActivityLogDetail can render rich detail without falling back
+ * on a potentially stale local nameMaps.
  */
 interface ServerLogRow {
   id: string;
   action: string;
-  user_name: string | null;
+  // al.* columns
+  user_id: string | null;
+  team_id: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  from_location_id: string | null;
+  to_location_id: string | null;
   quantity: number | null;
   unit: string | null;
+  job_id: string | null;
   note: string | null;
+  metadata: string | null;
+  device_id: string | null;
   created_at: string;
+  synced_at: string | null;
   latitude?: number | null;
   longitude?: number | null;
   location_accuracy?: number | null;
+  // Server-resolved human names (via LEFT JOINs in /logs)
+  user_name: string | null;
+  item_name: string | null;
+  job_name: string | null;
+  from_location_name: string | null;
+  to_location_name: string | null;
 }
 
 type Filter = 'mine' | 'unsynced' | 'all' | 'my_teams';
@@ -74,31 +90,56 @@ interface MapModalData {
 }
 
 /** Adapt a server log row into the LogEntry shape ActivityLogDetail expects.
- * Server rows only surface a subset of columns, so the rest are nulled — the
- * detail view hides fields it can't resolve. */
+ * All `al.*` columns are now carried on ServerLogRow, so we can give the
+ * detail view the same fidelity as local log entries. */
 function serverRowToLog(r: ServerLogRow): LogEntry {
   return {
     id: r.id,
-    user_id: null,
-    team_id: null,
+    user_id: r.user_id,
+    team_id: r.team_id,
     action: r.action,
-    entity_type: '',
-    entity_id: null,
-    from_location_id: null,
-    to_location_id: null,
+    entity_type: r.entity_type ?? '',
+    entity_id: r.entity_id,
+    from_location_id: r.from_location_id,
+    to_location_id: r.to_location_id,
     quantity: r.quantity,
     unit: r.unit,
-    job_id: null,
+    job_id: r.job_id,
     note: r.note,
-    metadata: null,
-    device_id: null,
+    metadata: r.metadata,
+    device_id: r.device_id,
     created_at: r.created_at,
-    synced_at: null,
+    synced_at: r.synced_at,
     latitude: r.latitude ?? null,
     longitude: r.longitude ?? null,
     location_accuracy: r.location_accuracy ?? null,
     user_name: r.user_name,
   };
+}
+
+/**
+ * Build a nameMaps overlay for a server log row: merges the global local maps
+ * (already loaded from the synced DB) with the server-resolved names for this
+ * specific row. This ensures the ActivityLogDetail can resolve names even for
+ * entities that may not be in the local DB (e.g. deleted items or off-device data).
+ */
+function serverRowNameMaps(base: LogNameMaps, r: ServerLogRow): LogNameMaps {
+  const users = r.user_id && r.user_name ? { ...base.users, [r.user_id]: r.user_name } : base.users;
+  const jobs = r.job_id && r.job_name ? { ...base.jobs, [r.job_id]: r.job_name } : base.jobs;
+  const locations =
+    (r.from_location_id && r.from_location_name) || (r.to_location_id && r.to_location_name)
+      ? {
+          ...base.locations,
+          ...(r.from_location_id && r.from_location_name ? { [r.from_location_id]: r.from_location_name } : {}),
+          ...(r.to_location_id && r.to_location_name ? { [r.to_location_id]: r.to_location_name } : {}),
+        }
+      : base.locations;
+  // For entity_type='item' the server returns item_name via the inventory_items join
+  const items =
+    r.entity_type === 'item' && r.entity_id && r.item_name
+      ? { ...base.items, [r.entity_id]: r.item_name }
+      : base.items;
+  return { users, teams: base.teams, jobs, locations, items };
 }
 
 export default function LogsScreen() {
@@ -236,12 +277,15 @@ export default function LogsScreen() {
     });
   }, [logs, search, nameMaps]);
 
-  // In-memory text search for the server list (rows carry note + user_name only).
+  // In-memory text search for the server list — matches note, user_name, and
+  // the server-resolved entity/job/location names so "shelf-A" or "Job Alpha"
+  // finds the right rows even without local DB resolution.
   const filteredServerLogs = useMemo<ServerLogRow[]>(() => {
     const q = search.trim().toLowerCase();
     if (!q) return serverLogs;
     return serverLogs.filter(l =>
-      [l.note, l.user_name].filter(Boolean).join(' ').toLowerCase().includes(q),
+      [l.note, l.user_name, l.item_name, l.job_name, l.from_location_name, l.to_location_name]
+        .filter(Boolean).join(' ').toLowerCase().includes(q),
     );
   }, [serverLogs, search]);
 
@@ -270,6 +314,7 @@ export default function LogsScreen() {
         if (filter === 'my_teams') params.set('scope', 'my_teams');
         if (filterUser?.id) params.set('user_id', filterUser.id);
         if (filterAction?.id) params.set('action', filterAction.id);
+        if (filterEntity?.id) params.set('entity_type', filterEntity.id);
         if (sinceVal) params.set('after', `${sinceVal}T00:00:00.000Z`);
         if (untilVal) params.set('before', untilVal);
 
@@ -300,7 +345,7 @@ export default function LogsScreen() {
     })();
 
     return () => { cancelled = true; };
-  }, [filter, serverMode, filterUser, filterAction, sinceVal, untilVal, refetchKey]);
+  }, [filter, serverMode, filterUser, filterAction, filterEntity, sinceVal, untilVal, refetchKey]);
 
   function clearAllFilters() {
     setFilterUser(null);
@@ -367,8 +412,9 @@ export default function LogsScreen() {
         {/* ── Filter controls ───────────────────────────────────────── */}
         {/* Shown on every tab except the tiny Pending-Sync list. The user
             picker only makes sense on the server tabs (the My-Activity tab is
-            already scoped to you); entity/team filters only apply to the local
-            list (server rows don't carry those columns). */}
+            already scoped to you); entity/team filters don't apply to the
+            Pending-Sync list. Entity-type filtering is supported on all tabs
+            (the server /logs endpoint accepts entity_type). */}
         {filter !== 'unsynced' && (
           <View style={s.filterControls}>
             <TextInput
@@ -398,25 +444,25 @@ export default function LogsScreen() {
                 setFilterAction(prev => (prev?.id === opt.id ? null : opt))
               }
             />
+            {/* Entity-type filter works on both local and server tabs */}
+            <SearchablePicker
+              placeholder="Filter by entity type…"
+              options={entityOptions}
+              value={filterEntity}
+              onSelect={opt =>
+                setFilterEntity(prev => (prev?.id === opt.id ? null : opt))
+              }
+            />
+            {/* Team filter only applies to the local list (server uses scope= param) */}
             {!serverMode && (
-              <>
-                <SearchablePicker
-                  placeholder="Filter by entity type…"
-                  options={entityOptions}
-                  value={filterEntity}
-                  onSelect={opt =>
-                    setFilterEntity(prev => (prev?.id === opt.id ? null : opt))
-                  }
-                />
-                <SearchablePicker
-                  placeholder="Filter by team…"
-                  options={teamOptions}
-                  value={filterTeam}
-                  onSelect={opt =>
-                    setFilterTeam(prev => (prev?.id === opt.id ? null : opt))
-                  }
-                />
-              </>
+              <SearchablePicker
+                placeholder="Filter by team…"
+                options={teamOptions}
+                value={filterTeam}
+                onSelect={opt =>
+                  setFilterTeam(prev => (prev?.id === opt.id ? null : opt))
+                }
+              />
             )}
             <View style={s.dateRow}>
               <TextInput
@@ -474,6 +520,16 @@ export default function LogsScreen() {
               renderItem={({ item: log }) => {
                 const isOpen = expanded.has(log.id);
                 const hasCoords = log.latitude != null && log.longitude != null;
+                // Compact context subtitle for the collapsed row: most specific
+                // server-resolved reference (item → job → destination location).
+                const subtitle =
+                  log.item_name ??
+                  log.job_name ??
+                  log.to_location_name ??
+                  log.from_location_name;
+                // Augment the global nameMaps with server-resolved names so
+                // ActivityLogDetail shows the right labels even for deleted entities.
+                const rowMaps = serverRowNameMaps(nameMaps, log);
                 return (
                   <View style={s.card}>
                     <TouchableOpacity
@@ -485,6 +541,7 @@ export default function LogsScreen() {
                       <View style={s.middle}>
                         <Text style={s.action}>{actionLabel(log.action)}</Text>
                         {log.user_name ? <Text style={[s.user, { color: roleColor(userRoleByName[log.user_name] ?? '', roleColors) }]}>{log.user_name}</Text> : null}
+                        {subtitle ? <Text style={s.subtitle} numberOfLines={1}>{subtitle}</Text> : null}
                         {log.quantity != null && log.unit && (
                           <Text style={s.qty}>
                             {log.quantity} {log.unit}
@@ -501,7 +558,7 @@ export default function LogsScreen() {
                     {isOpen && (
                       <ActivityLogDetail
                         log={serverRowToLog(log)}
-                        nameMaps={nameMaps}
+                        nameMaps={rowMaps}
                         onViewMap={hasCoords ? () => setMapLog({
                           latitude: log.latitude!,
                           longitude: log.longitude!,
