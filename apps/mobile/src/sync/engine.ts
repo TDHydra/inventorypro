@@ -1,6 +1,6 @@
 import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
-import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxEntry, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
+import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxEntry, retryFailedOutbox, getPendingLogCount, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
 import { pullChanges } from './pull';
 import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
@@ -67,6 +67,72 @@ function isPermanentRejection(error?: string): boolean {
   return !!error && PERMANENT_REJECTION.test(error);
 }
 
+// POSTs one batch and applies the server's verdict to the outbox. Shared by the
+// regular drain and the activity_log-only drain (pushPendingLogs), so the
+// permanent-vs-transient conflict rules below hold identically for both.
+// Returns how many entries the server accepted.
+async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number> {
+  const res = await fetch(`${API_BASE}/sync/push`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify({ entries }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    entries.forEach(e => {
+      incrementOutboxAttempt(e.id, `HTTP ${res.status}: ${errText}`);
+      trackIfNewlyDead(e);
+    });
+    return 0;
+  }
+
+  const result = await res.json() as {
+    ok: string[];
+    conflicts: Array<{ id: string; error?: string }>;
+  };
+
+  markOutboxSynced(result.ok);
+
+  // The server returns entries it could NOT apply in `conflicts`. Two kinds:
+  //  - PERMANENT (an authorization denial): retrying can never help. Drop the
+  //    entry now instead of dead-lettering it — a dead-lettered authz reject
+  //    stays pending and pins the sync indicator on a write that will never be
+  //    accepted (the known "stuck on N pending" symptom).
+  //  - TRANSIENT (a bad column, an FK to a not-yet-synced row, a maintenance
+  //    freeze): count the attempt and record the error so it's bounded by
+  //    MAX_ATTEMPTS and visible. This preserves the prior behavior for these.
+  // "reason" is the server's own short rejection message (already non-PII —
+  // e.g. "Table not allowed", "Forbidden: teams requires manage_teams") — never
+  // the synced row's field content.
+  const entryById = new Map(entries.map(e => [e.id, e]));
+  for (const c of result.conflicts ?? []) {
+    const e = entryById.get(c.id);
+    if (isPermanentRejection(c.error)) {
+      dropOutboxEntry(c.id);
+      if (e) {
+        track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server', permanent: true } });
+      }
+      continue;
+    }
+    incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
+    if (e) {
+      track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server' } });
+      trackIfNewlyDead(e);
+    }
+  }
+
+  // activity_log is push-only (never pulled back), so its rows' synced_at is
+  // only cleared here. Reconcile against the outbox so pushed rows stop
+  // showing "↑ pending" — and so rows stranded by older builds self-heal.
+  reconcileLogSyncState();
+
+  return result.ok?.length ?? 0;
+}
+
 async function drainOutbox(): Promise<void> {
   if (running) return;
   running = true;
@@ -78,69 +144,54 @@ async function drainOutbox(): Promise<void> {
     const entries = getPendingOutbox(50).filter(e => e.attempts < MAX_ATTEMPTS);
     if (entries.length === 0) return;
 
-    const res = await fetch(`${API_BASE}/sync/push`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${jwt}`,
-      },
-      body: JSON.stringify({ entries }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      entries.forEach(e => {
-        incrementOutboxAttempt(e.id, `HTTP ${res.status}: ${errText}`);
-        trackIfNewlyDead(e);
-      });
-      return;
-    }
-
-    const result = await res.json() as {
-      ok: string[];
-      conflicts: Array<{ id: string; error?: string }>;
-    };
-
-    markOutboxSynced(result.ok);
-
-    // The server returns entries it could NOT apply in `conflicts`. Two kinds:
-    //  - PERMANENT (an authorization denial): retrying can never help. Drop the
-    //    entry now instead of dead-lettering it — a dead-lettered authz reject
-    //    stays pending and pins the sync indicator on a write that will never be
-    //    accepted (the known "stuck on N pending" symptom).
-    //  - TRANSIENT (a bad column, an FK to a not-yet-synced row, a maintenance
-    //    freeze): count the attempt and record the error so it's bounded by
-    //    MAX_ATTEMPTS and visible. This preserves the prior behavior for these.
-    // "reason" is the server's own short rejection message (already non-PII —
-    // e.g. "Table not allowed", "Forbidden: teams requires manage_teams") — never
-    // the synced row's field content.
-    const entryById = new Map(entries.map(e => [e.id, e]));
-    for (const c of result.conflicts ?? []) {
-      const e = entryById.get(c.id);
-      if (isPermanentRejection(c.error)) {
-        dropOutboxEntry(c.id);
-        if (e) {
-          track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server', permanent: true } });
-        }
-        continue;
-      }
-      incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
-      if (e) {
-        track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server' } });
-        trackIfNewlyDead(e);
-      }
-    }
-
-    // activity_log is push-only (never pulled back), so its rows' synced_at is
-    // only cleared here. Reconcile against the outbox so pushed rows stop
-    // showing "↑ pending" — and so rows stranded by older builds self-heal.
-    reconcileLogSyncState();
+    await pushEntries(entries, jwt);
   } catch (err) {
     // Network errors — will retry on next tick
     console.warn('[Sync] Outbox drain failed:', (err as Error).message);
   } finally {
     running = false;
   }
+}
+
+/**
+ * Drains ONLY the pending activity_log rows and returns how many are still
+ * undelivered (0 = the audit trail is safely on the server).
+ *
+ * Used by the demo-session handoff: entering a sandbox eventually wipes the local
+ * DB, so the audit trail has to be pushed before the outgoing user's other pending
+ * work is discarded. Callers MUST invoke this while the OUTGOING user's JWT is
+ * still current — the API rejects writes from test accounts, so once the demo PIN
+ * has replaced the session it is too late.
+ *
+ * Deliberately not routed through runDrainAndPull(): that path is gated on
+ * isSandboxActive() (a guard for a LIVE demo session) and also pulls, which we
+ * don't want here.
+ */
+export async function pushPendingLogs(): Promise<number> {
+  // Re-arm dead log rows: without this, one entry that exhausted its retries
+  // would block demo sign-in forever. A genuinely un-pushable row (an authz
+  // rejection) is dropped by pushEntries, so this cannot loop indefinitely.
+  retryFailedOutbox('activity_log');
+
+  try {
+    const jwt = await getValidJwt();
+    // Fully signed out (rather than switching) — the logs cannot be pushed as
+    // anyone. Report them as stuck; the caller tells the user to sign in first.
+    if (!jwt) return getPendingLogCount();
+
+    // Batch until the server stops accepting: a batch that delivers nothing new
+    // means the rest are dead-lettered or rejected, so stop rather than spin.
+    for (;;) {
+      const entries = getPendingOutbox(50, 'activity_log').filter(e => e.attempts < MAX_ATTEMPTS);
+      if (entries.length === 0) break;
+      const delivered = await pushEntries(entries, jwt);
+      if (delivered === 0) break;
+    }
+  } catch (err) {
+    console.warn('[Sync] Activity log push failed:', (err as Error).message);
+  }
+
+  return getPendingLogCount();
 }
 
 async function syncCycle(): Promise<void> {

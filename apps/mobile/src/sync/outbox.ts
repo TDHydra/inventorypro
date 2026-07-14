@@ -34,12 +34,20 @@ export function appendOutbox(
   );
 }
 
-export function getPendingOutbox(limit = 50): OutboxEntry[] {
+// `tableName` scopes the batch to one table — used to drain activity_log on its
+// own before a demo session discards everything else (see demoHandoff.ts).
+export function getPendingOutbox(limit = 50, tableName?: string): OutboxEntry[] {
   const db = getDb();
-  const result = db.executeSync(
-    `SELECT * FROM outbox WHERE synced_at IS NULL ORDER BY created_at ASC LIMIT ?`,
-    [limit]
-  );
+  const result = tableName
+    ? db.executeSync(
+        `SELECT * FROM outbox WHERE synced_at IS NULL AND table_name = ?
+         ORDER BY created_at ASC LIMIT ?`,
+        [tableName, limit]
+      )
+    : db.executeSync(
+        `SELECT * FROM outbox WHERE synced_at IS NULL ORDER BY created_at ASC LIMIT ?`,
+        [limit]
+      );
   return (result.rows as unknown as OutboxEntry[]).map(row => ({
     ...row,
     payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
@@ -114,17 +122,50 @@ export function getFailedOutbox(limit = 50): OutboxEntry[] {
 
 // Re-arm every failed entry (attempts → 0) so the next sync cycle retries it.
 // Use after the underlying cause is fixed (e.g. a migration deployed). Returns
-// how many were reset.
-export function retryFailedOutbox(): number {
+// how many were reset. `tableName` scopes the re-arm to one table — the demo
+// handoff uses it to give dead activity_log rows one more shot rather than let a
+// single stuck entry block demo sign-in forever.
+export function retryFailedOutbox(tableName?: string): number {
   const db = getDb();
-  const { failed } = getOutboxCounts();
+  const failed = ((db.executeSync(
+    `SELECT COUNT(*) AS cnt FROM outbox
+     WHERE synced_at IS NULL AND attempts >= ?${tableName ? ' AND table_name = ?' : ''}`,
+    tableName ? [MAX_OUTBOX_ATTEMPTS, tableName] : [MAX_OUTBOX_ATTEMPTS]
+  ).rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
   if (failed === 0) return 0;
   db.executeSync(
     `UPDATE outbox SET attempts = 0, last_error = NULL
-     WHERE synced_at IS NULL AND attempts >= ?`,
-    [MAX_OUTBOX_ATTEMPTS]
+     WHERE synced_at IS NULL AND attempts >= ?${tableName ? ' AND table_name = ?' : ''}`,
+    tableName ? [MAX_OUTBOX_ATTEMPTS, tableName] : [MAX_OUTBOX_ATTEMPTS]
   );
   return failed;
+}
+
+// activity_log rows still awaiting a push. They are ordinary outbox rows
+// (table_name = 'activity_log'), so this is the audit trail's undelivered count.
+export function getPendingLogCount(): number {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT COUNT(*) as cnt FROM outbox
+     WHERE synced_at IS NULL AND table_name = 'activity_log'`
+  );
+  return ((result.rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+}
+
+// Drop EVERY pending entry — the demo-session handoff, where the outgoing user's
+// un-synced work is thrown away rather than pushed to the server under the demo
+// user's JWT. Returns how many were discarded.
+//
+// PRECONDITION: the caller must have already pushed the pending activity_log rows
+// (getPendingLogCount() === 0). reconcileLogSyncState() treats a vanished outbox
+// row as delivered, so discarding an un-pushed activity_log row would mark it
+// synced and silently forge the audit trail.
+export function discardPendingOutbox(): number {
+  const db = getDb();
+  const pending = getPendingCount();
+  if (pending === 0) return 0;
+  db.executeSync(`DELETE FROM outbox WHERE synced_at IS NULL`);
+  return pending;
 }
 
 // Permanently drop failed entries (give up on un-deliverable changes). Returns
