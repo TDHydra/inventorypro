@@ -157,7 +157,7 @@ export default function ChatThreadScreen() {
           data={inverted}
           keyExtractor={m => m.id}
           renderItem={renderMessage}
-          inverted
+          inverted={inverted.length > 0}
           contentContainerStyle={s.list}
           ListEmptyComponent={
             <View style={s.emptyWrap}>
@@ -255,7 +255,7 @@ export default function ChatThreadScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   list: { padding: spacing.md, gap: 6, flexGrow: 1 },
-  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60, transform: [{ scaleY: -1 }] },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
   emptyText: { color: colors.textMuted, fontSize: fontSizes.body },
   msgRow: { flexDirection: 'row', marginVertical: 2 },
   msgRowMine: { justifyContent: 'flex-end' },
