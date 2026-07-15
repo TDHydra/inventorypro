@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { Stack, useLocalSearchParams, useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
   setMemberManagerOnline, setMemberPermissionOverridesOnline,
@@ -33,6 +33,7 @@ import { createDmConversation } from '../../../src/db/queries/chat';
 import { syncNow } from '../../../src/sync/engine';
 import { track } from '../../../src/telemetry';
 import { validateName } from '../../../src/lib/validation';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -48,19 +49,20 @@ export default function TeamDetailScreen() {
   const [team, setTeam] = useState<Team | null>(() => getTeamById(id));
   const [members, setMembers] = useState<TeamMember[]>(() => getTeamMembers(id));
 
-  // Re-read team + roster on focus so a stale foreign team (still held before
-  // teamPurge.reconcileTeams runs) or a server-side manager demotion self-corrects
-  // once the next pull applies — the disables below are courtesy, not enforcement.
-  useFocusEffect(
-    useCallback(() => {
-      setTeam(getTeamById(id));
-      setMembers(getTeamMembers(id));
-    }, [id]),
-  );
+  // Re-read team + roster on focus or sync pull so a stale foreign team (still held
+  // before teamPurge.reconcileTeams runs) or a server-side manager demotion
+  // self-corrects once the next pull applies — the disables below are courtesy,
+  // not enforcement.
+  const refreshKey = useFocusOrDataRefresh();
+  useEffect(() => {
+    setTeam(getTeamById(id));
+    setMembers(getTeamMembers(id));
+  }, [id, refreshKey]);
 
   // Membership resolved from the AUTHENTICATED caller's own team_members row, never
   // the payload. is_manager here can lag the server: a manager demoted server-side
-  // keeps is_manager=1 locally until the next pull (we re-read on focus, above).
+  // keeps is_manager=1 locally until the next pull (we re-read on focus or sync
+  // pull, above).
   const myMembership = useMemo(
     () => members.find(m => m.user_id === user?.id) ?? null,
     [members, user?.id],

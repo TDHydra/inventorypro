@@ -14,6 +14,7 @@ import { colors } from '../../../src/theme';
 import { useDashboardLayout } from '../../../src/dashboard/store';
 import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 function timeGreeting(): string {
   const hour = new Date().getHours();
@@ -34,7 +35,10 @@ export default function DashboardScreen() {
   const { user } = useSession();
   const router = useRouter();
   const [reshow, setReshow] = useState<(() => void) | null>(null);
-  const all = useMemo(() => getLowStockItems(), []);
+  // Keyed on dataVersion so the low-stock widget updates live after a sync pull
+  // (the layout is already reactive via useDashboardLayout; the DATA wasn't) (#61).
+  const dataVersion = useDataVersion();
+  const all = useMemo(() => getLowStockItems(), [dataVersion]);
   const shown = all.slice(0, 3);
 
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,

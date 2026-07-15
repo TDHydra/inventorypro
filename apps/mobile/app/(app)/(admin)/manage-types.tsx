@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Animated, PanResponder } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -37,6 +37,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 // System location types whose LABEL is matched by hardcoded structural filters in
 // queries/locations.ts (WHERE type='Shelf' / IN('Shop','Office') / 'Vehicle') that
@@ -352,6 +353,23 @@ export default function ManageTypesScreen() {
   const [equipmentTypes, setEquipmentTypes] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('equipment', { includeInactive: true }),
   );
+
+  // Re-read all seven lists on sync pull so a taxonomy value created on another
+  // device appears while this screen is open. Skipped mid-drag so a pull can't
+  // yank rows out from under the gesture; deps include `dragging`, so the
+  // re-read catches up as soon as the drag ends (#61).
+  const dataVersion = useDataVersion();
+  useEffect(() => {
+    if (dragging) return;
+    setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
+    setJobTypes(getTaxonomyTypes('job', { includeInactive: true }));
+    setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
+    setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
+    setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
+    setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
+    setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
+    setEquipmentTypes(getTaxonomyTypes('equipment', { includeInactive: true }));
+  }, [dataVersion, dragging]);
 
   // Add modal
   const [addCategory, setAddCategory] = useState<string | null>(null);

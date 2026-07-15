@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -28,6 +28,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -168,6 +169,11 @@ export default function AdminUsersScreen() {
   const { locked } = useMaintenanceMode();
   const sel = useMultiSelect<User>();
   const [users, setUsers] = useState<User[]>(() => getAllUsers());
+  // Re-read on sync pull so a user added/edited on another device shows while
+  // this screen is open. The edit sheet holds its own editUser object, so a
+  // background re-read can't clobber an in-progress edit (#61).
+  const dataVersion = useDataVersion();
+  useEffect(() => { setUsers(getAllUsers()); }, [dataVersion]);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkRolePicker, setShowBulkRolePicker] = useState(false);
