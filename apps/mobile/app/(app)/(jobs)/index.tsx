@@ -7,6 +7,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import {
   getAllJobs, getActiveCheckoutsForUser, updateJobFields, archiveJob, Job,
 } from '../../../src/db/queries/jobs';
@@ -49,6 +50,9 @@ export default function JobsScreen() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [showArchived, setShowArchived] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // Re-run the DB reads below when a background sync pull applies changes, so a
+  // job/type created on another device appears while this screen is open (#60).
+  const dataVersion = useDataVersion();
   const reloadLocalData = useCallback(() => setReloadKey(k => k + 1), []);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -63,7 +67,7 @@ export default function JobsScreen() {
   const myCheckouts = useMemo(() => {
     if (!user) return [];
     return rowsAs<Checkout>(getActiveCheckoutsForUser(user.id));
-  }, [user, reloadKey]);
+  }, [user, reloadKey, dataVersion]);
 
   const allJobs = useMemo((): Job[] => {
     const jobs = getAllJobs(showArchived);
@@ -73,10 +77,10 @@ export default function JobsScreen() {
     if (!search.trim()) return byStatus;
     const q = search.trim().toLowerCase();
     return byStatus.filter(j => j.name.toLowerCase().includes(q));
-  }, [search, statusFilter, showArchived, reloadKey]);
+  }, [search, statusFilter, showArchived, reloadKey, dataVersion]);
 
   // --- Bulk multi-select ---
-  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), [dataVersion]);
   const typeOptions = useMemo<PickerOption[]>(
     () => jobTypes.map(t => ({ id: t.label, label: t.label })),
     [jobTypes],
