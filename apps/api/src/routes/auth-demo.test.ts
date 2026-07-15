@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
+import bcrypt from 'bcrypt';
 import authRoutes from './auth';
 import type { DemoModeGate } from '../lib/demoMode';
 
@@ -104,5 +105,82 @@ test('set-pin for a demo account issues a session when demo mode is ON', async (
   const body = res.json() as { jwt?: string; userId?: string };
   assert.ok(body.jwt, 'jwt issued');
   assert.equal(body.userId, DEMO_ID);
+  await app.close();
+});
+
+// #45 — one-time enrollment codes now carry a hard expiry (migration 051).
+// /auth/set-pin refuses a code whose enrollment_code_expires_at is NULL or in the
+// past (403 'Enrollment code expired'), and honours an unexpired one.
+const ENROLL_ID = '7b2e3c4d-5f60-4a71-8b9c-0d1e2f3a4b5c';
+const ENROLL_CODE = '112233';
+
+// Fake pg for a REAL (non-test) user mid-enrollment: it returns the set-pin user
+// row with the new enrollment_code_expires_at column, and no-ops the success-path
+// UPDATE + activity_log INSERT so a valid code reaches the 200.
+function fakePgEnroll(opts: { expiresAt: string | null; hash: string }) {
+  return {
+    query: async (sql: string, _params: unknown[]) => {
+      if (sql.trimStart().startsWith('SELECT') && sql.includes('enrollment_code_hash')) {
+        return {
+          rows: [{
+            id: ENROLL_ID, name: 'Bob', role: 'employee',
+            pin_set: false, active: true, expires_at: null,
+            enrollment_code_hash: opts.hash,
+            enrollment_code_expires_at: opts.expiresAt,
+            is_test: false, enrollment_code_public: null,
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+}
+
+async function buildEnrollApp(opts: { expiresAt: string | null; hash: string }) {
+  const app = Fastify();
+  app.decorate('pg', fakePgEnroll(opts) as never);
+  await app.register(fastifyJwt, { secret: SECRET });
+  await app.register(authRoutes, { prefix: '/auth', demoGate: stubGate(true) });
+  await app.ready();
+  return app;
+}
+
+test('set-pin with an EXPIRED enrollment code is 403 (before the code is even compared)', async () => {
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const hash = await bcrypt.hash(ENROLL_CODE, 10);
+  const app = await buildEnrollApp({ expiresAt: past, hash });
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: ENROLL_ID, pin: '4321', enrollment_code: ENROLL_CODE },
+  });
+  assert.equal(res.statusCode, 403);
+  assert.equal((res.json() as { error: string }).error, 'Enrollment code expired');
+  await app.close();
+});
+
+test('set-pin with a NULL expiry (never stamped) is treated as expired → 403', async () => {
+  const hash = await bcrypt.hash(ENROLL_CODE, 10);
+  const app = await buildEnrollApp({ expiresAt: null, hash });
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: ENROLL_ID, pin: '4321', enrollment_code: ENROLL_CODE },
+  });
+  assert.equal(res.statusCode, 403);
+  assert.equal((res.json() as { error: string }).error, 'Enrollment code expired');
+  await app.close();
+});
+
+test('set-pin with a valid UNEXPIRED enrollment code succeeds', async () => {
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString();
+  const hash = await bcrypt.hash(ENROLL_CODE, 10);
+  const app = await buildEnrollApp({ expiresAt: future, hash });
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: ENROLL_ID, pin: '4321', enrollment_code: ENROLL_CODE },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { jwt?: string; userId?: string };
+  assert.ok(body.jwt, 'jwt issued');
+  assert.equal(body.userId, ENROLL_ID);
   await app.close();
 });

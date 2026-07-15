@@ -297,10 +297,10 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
       pin_set: boolean; active: boolean; expires_at: string | null;
-      enrollment_code_hash: string | null;
+      enrollment_code_hash: string | null; enrollment_code_expires_at: string | null;
       is_test: boolean; enrollment_code_public: string | null;
     }>(
-      `SELECT id, name, role, pin_set, active, expires_at, enrollment_code_hash, is_test, enrollment_code_public FROM users WHERE id = $1`,
+      `SELECT id, name, role, pin_set, active, expires_at, enrollment_code_hash, enrollment_code_expires_at, is_test, enrollment_code_public FROM users WHERE id = $1`,
       [user_id]
     );
     const user = rows[0];
@@ -351,6 +351,13 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       recordFail(lockKey);
       return reply.status(403).send({ error: 'Enrollment not available for this account' });
     }
+    // One-time codes now carry a hard expiry (migration 051). A NULL or past
+    // enrollment_code_expires_at means no active code — refuse BEFORE the bcrypt
+    // compare so a leaked/forgotten code can't be redeemed after its window.
+    if (!user.enrollment_code_expires_at || new Date(user.enrollment_code_expires_at) < new Date()) {
+      recordFail(lockKey);
+      return reply.status(403).send({ error: 'Enrollment code expired' });
+    }
     const codeOk = await bcrypt.compare(request.body.enrollment_code, user.enrollment_code_hash);
     if (!codeOk) {
       recordFail(lockKey);
@@ -359,7 +366,7 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
 
     const pinHash = await bcrypt.hash(pin, 10);
     await fastify.pg.query(
-      `UPDATE users SET pin_hash = $1, pin_length_required = $2, pin_set = TRUE, enrollment_code_hash = NULL, updated_at = NOW()
+      `UPDATE users SET pin_hash = $1, pin_length_required = $2, pin_set = TRUE, enrollment_code_hash = NULL, enrollment_code_expires_at = NULL, updated_at = NOW()
        WHERE id = $3`,
       [pinHash, pin.length, user.id]
     );
