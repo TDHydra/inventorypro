@@ -22,7 +22,7 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { getDeployedUnitsForUser, getUnitByTag, setUnitStatus } from '../../../src/db/queries/equipmentUnits';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
 import { colors } from '../../../src/theme';
@@ -49,7 +49,7 @@ export default function CheckinScreen() {
   const { user } = useSession();
   const router = useRouter();
   const { locked } = useMaintenanceMode();
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
 
   // --- Count-based checkout state ---
   const [selected, setSelected] = useState<Set<string>>(new Set());

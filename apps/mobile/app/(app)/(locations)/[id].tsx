@@ -12,7 +12,7 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
@@ -45,7 +45,7 @@ export default function LocationDetailScreen() {
   const canAddStock = usePermission('edit_inventory');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));

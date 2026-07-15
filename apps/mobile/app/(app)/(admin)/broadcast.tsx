@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, ActivityI
 import { Stack, useRouter } from 'expo-router';
 import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { useSession } from '../../../src/hooks/useSession';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
@@ -47,7 +47,7 @@ export default function BroadcastScreen() {
   const router = useRouter();
   const canSend = usePermission('send_notifications');
   const { user } = useSession();
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
 
   const [everyone, setEveryone] = useState(false);
   const [roles, setRoles] = useState<Set<string>>(() => new Set());

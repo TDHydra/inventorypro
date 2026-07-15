@@ -5,7 +5,7 @@ import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
@@ -114,7 +114,7 @@ export default function SettingsScreen() {
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   // Demo-accounts kill switch is apex-only — full_admin exactly, NOT tier-4 peers.
   const isApex = user?.role === 'full_admin';
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
 
   const [lastSync, setLastSync] = useState('Never');
   const [pending, setPending] = useState(0);

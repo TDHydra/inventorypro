@@ -24,7 +24,7 @@ import {
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -60,7 +60,7 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
   const params = useLocalSearchParams<{ itemId?: string }>();
 
   const [step, setStep] = useState<Step>('find');

@@ -12,7 +12,7 @@ import {
 import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
 import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
 import { resolveTypeColor } from '../../../src/constants/typeColors';
@@ -39,7 +39,7 @@ export default function ItemDetailScreen() {
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 

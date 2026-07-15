@@ -15,7 +15,7 @@ import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queri
 import { ROLE_TIER } from '../../../src/constants/roles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
@@ -44,7 +44,7 @@ export default function JobDetailScreen() {
   const canEdit = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
   const canUpload = usePermission('upload_media');
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
   const [editing, setEditing] = useState(false);
