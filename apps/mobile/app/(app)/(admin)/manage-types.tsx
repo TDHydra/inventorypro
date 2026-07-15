@@ -361,14 +361,7 @@ export default function ManageTypesScreen() {
   const dataVersion = useDataVersion();
   useEffect(() => {
     if (dragging) return;
-    setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
-    setJobTypes(getTaxonomyTypes('job', { includeInactive: true }));
-    setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
-    setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
-    setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
-    setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
-    setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
-    setEquipmentTypes(getTaxonomyTypes('equipment', { includeInactive: true }));
+    refresh();
   }, [dataVersion, dragging]);
 
   // Add modal
