@@ -87,12 +87,37 @@ export async function deliver(
   } catch { /* never disrupt callers */ }
 }
 
+// Recipient-resolution context: the primary subject (userId — e.g. the assignee
+// or requester) and, where relevant, the acting caller (actorId) used to gate a
+// channel against fan-out to unrelated users.
+type RecipientCtx = { userId?: string; actorId?: string };
+
+// Do `actorId` and `otherId` share at least one team? Gates the assignment
+// channel: without it, any caller who can UPDATE a repair could aim a
+// notification at an ARBITRARY user id. Returns false when either is teamless.
+export async function sharesTeam(pg: Pg, actorId: string, otherId: string): Promise<boolean> {
+  const { rows } = await pg.query(
+    `SELECT 1 FROM team_members a
+       JOIN team_members b ON b.team_id = a.team_id
+      WHERE a.user_id = $1 AND b.user_id = $2 LIMIT 1`,
+    [actorId, otherId]);
+  return rows.length > 0;
+}
+
 // Per-channel intrinsic recipients — the recipients a channel always notifies
 // regardless of admin routing config (e.g. the assignee themself, the manager
 // roles for low-stock). Admin-configured routes (notify_route_<channel>) are
 // unioned on top by resolveRecipients.
-const INTRINSIC: Record<string, (pg: Pg, ctx: { userId?: string }) => Promise<string[]>> = {
-  assignment:    async (_pg, ctx) => ctx.userId ? [ctx.userId] : [],
+const INTRINSIC: Record<string, (pg: Pg, ctx: RecipientCtx) => Promise<string[]>> = {
+  assignment:    async (pg, ctx) => {
+    if (!ctx.userId) return [];
+    // The assignee must be reachable by the actor (they share a team) before we
+    // notify — self-assignment is always allowed, and a missing actor (system
+    // trigger) falls back to the assignee alone. This closes the arbitrary-user
+    // spam via a crafted repair UPDATE.
+    if (ctx.actorId != null && ctx.actorId !== ctx.userId && !(await sharesTeam(pg, ctx.actorId, ctx.userId))) return [];
+    return [ctx.userId];
+  },
   low_stock:     async (pg) => resolveRoleRecipients(pg, ['full_admin', 'franchise_manager']),
   checkout_idle: async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   approvals:     async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
@@ -106,7 +131,7 @@ const INTRINSIC: Record<string, (pg: Pg, ctx: { userId?: string }) => Promise<st
 export async function resolveRecipients(
   pg: Pg,
   channel: keyof typeof INTRINSIC,
-  ctx: { userId?: string } = {},
+  ctx: RecipientCtx = {},
 ): Promise<string[]> {
   const intrinsic = await INTRINSIC[channel](pg, ctx);
   let configured: string[] = [];

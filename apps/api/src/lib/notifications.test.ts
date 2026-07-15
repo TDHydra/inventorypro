@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupKeys, getNotifyConfig, deliver, resolveRecipients } from './notifications';
+import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent } from './notifications';
 
 test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.assign('r1', 'u1'), 'assign:repair:r1:u1');
@@ -68,6 +68,49 @@ test('resolveRecipients assignment channel always includes the assignee', async 
     return { rows: [] as any[] };
   } };
   assert.deepEqual(await resolveRecipients(pg as any, 'assignment', { userId: 'u1' }), ['u1']);
+});
+
+// #48: the assignment channel must not fan out to a user the actor can't reach.
+test('resolveRecipients assignment drops an assignee who shares NO team with the actor', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM team_members a')) return { rows: [] as any[] }; // no shared team
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  // A crafted repair UPDATE by `actor` targeting an unrelated `stranger` yields no recipient.
+  assert.deepEqual(await resolveRecipients(pg as any, 'assignment', { userId: 'stranger', actorId: 'actor' }), []);
+});
+
+test('resolveRecipients assignment keeps an assignee who shares a team with the actor', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM team_members a')) return { rows: [{ '?column?': 1 }] }; // shared team
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual(await resolveRecipients(pg as any, 'assignment', { userId: 'teammate', actorId: 'actor' }), ['teammate']);
+});
+
+// #48: repeated identical assignments are deduped via the claimEvent ledger — the
+// first (repair, assignee) claim wins and notifies; a duplicate within the window
+// (the key still present) is suppressed. Mirrors the ON CONFLICT DO NOTHING ledger.
+test('assignment dedup: an identical (repair, assignee) claim is suppressed on repeat', async () => {
+  const claimed = new Set<string>();
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('INSERT INTO notification_dedup')) {
+      const key = params[0] as string;
+      if (claimed.has(key)) return { rows: [] as any[] }; // ON CONFLICT DO NOTHING → no row
+      claimed.add(key);
+      return { rows: [{ event_key: key }] };
+    }
+    return { rows: [] as any[] };
+  } };
+  const key = dedupKeys.assign('r1', 'u1');
+  assert.equal(await claimEvent(pg as any, key), true);  // first assignment: claim won → notify
+  assert.equal(await claimEvent(pg as any, key), false); // duplicate: key present → suppressed
 });
 test('getNotifyConfig applies defaults + parses + clamps + disable flag', async () => {
   const pgEmpty = { query: async () => ({ rows: [] }) };

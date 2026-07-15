@@ -16,7 +16,7 @@ import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
 import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
-import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
+import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, releaseEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
 import { sendPush, messageRecipients } from '../lib/push';
@@ -431,7 +431,14 @@ async function applyEntry(
       void (async () => {
         try {
           if (!(await getNotifyConfig(pg)).enabled) return;
-          await deliver(pg, await resolveRecipients(pg, 'assignment', { userId: assignee }), { type: 'assignment', title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs', id: repairId } });
+          // Dedup identical (repair, assignee) assignments so a retried push (or a
+          // reassign-back to the same person still open) can't re-notify. resolveRecipients
+          // additionally gates the assignee to someone the actor shares a team with, so a
+          // crafted repair UPDATE can't spam an arbitrary user id.
+          if (!(await claimEvent(pg, dedupKeys.assign(repairId, assignee)))) return;
+          const recipients = await resolveRecipients(pg, 'assignment', { userId: assignee, actorId: callerUserId });
+          if (!recipients.length) { await releaseEvent(pg, dedupKeys.assign(repairId, assignee)); return; }
+          await deliver(pg, recipients, { type: 'assignment', title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs', id: repairId } });
         } catch { /* never disrupt sync */ }
       })();
     }
@@ -927,6 +934,19 @@ const routes: FastifyPluginAsync = async (fastify) => {
               conflicts.push({ id: entry.id, error: 'Forbidden: cannot deactivate the last active full_admin' });
               continue;
             }
+          }
+        } else if (entry.operation === 'INSERT') {
+          // No existing row (fresh UUID INSERT): the `if (target)` checks above
+          // were all skipped, so the role-assignment tier guard never ran — a
+          // manage_users-only caller could otherwise mint an apex full_admin by
+          // INSERTing a brand-new users row. Enforce the assign-tier check here.
+          if (entry.payload.role != null && !canAssignRole(caller.role, String(entry.payload.role))) {
+            request.log.warn(
+              { userId, role: caller.role, targetId, newRole: entry.payload.role },
+              'sync push users insert role-assign denied (tier guard)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level' });
+            continue;
           }
         }
       }

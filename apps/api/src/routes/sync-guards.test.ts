@@ -45,7 +45,7 @@ const COLUMNS: Record<string, string[]> = {
 // tests can assert what SQL actually ran. The media stub HONORS the scope built
 // into the query TEXT — an unscoped media query returns everything, so a
 // missing mediaScopeSql would surface as a leak in the assertions.
-function fakePg(opts: { messageSender?: string } = {}) {
+function fakePg(opts: { messageSender?: string; callerRole?: string } = {}) {
   const queries: Array<{ sql: string; params: unknown[] }> = [];
   return {
     queries,
@@ -60,7 +60,7 @@ function fakePg(opts: { messageSender?: string } = {}) {
       }
       // resolveCaller — the only query that selects u.is_test.
       if (sql.includes('u.is_test')) {
-        return { rows: [{ role: 'full_admin', permission_overrides: null, role_overrides: null, is_test: false }] };
+        return { rows: [{ role: opts.callerRole ?? 'full_admin', permission_overrides: null, role_overrides: null, is_test: false }] };
       }
       if (sql.includes(`key = 'maintenance_mode'`)) return { rows: [] };
       // messages-UPDATE sender guard lookup.
@@ -148,6 +148,48 @@ test('push: other app_config keys still write (the guard is key-scoped, not tabl
   assert.deepEqual(body.ok, ['e1']);
   assert.deepEqual(body.conflicts, []);
   assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO app_config')), 'a non-demo_mode key must apply');
+  await app.close();
+});
+
+// ── #38: users INSERT enforces the role-assign tier guard (no existing row) ──
+
+test('push: a users INSERT minting a role above the caller is a permanent rejection and never runs SQL', async () => {
+  // office_manager holds manage_users but NOT manage_roles_permissions and sits
+  // at tier 3 — it must not be able to INSERT a fresh full_admin (tier 5 apex).
+  const pg = fakePg({ callerRole: 'office_manager' });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([
+      { operation: 'INSERT', table_name: 'users', payload: { id: 'brand-new-uuid', role: 'full_admin', active: true } },
+    ]),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { ok: string[]; conflicts: Array<{ id: string; error: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 1);
+  // Must read as permanent to the mobile engine, or the entry wedges the outbox.
+  assert.match(body.conflicts[0].error, PERMANENT);
+  // The guard rejected BEFORE applyEntry — no apex admin was ever minted.
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO users')), 'a forbidden role INSERT must never reach SQL');
+  await app.close();
+});
+
+test('push: a users INSERT at or below the caller\'s tier is allowed past the role-assign guard', async () => {
+  // office_manager (tier 3) INSERTing a tier-1 crew member is within its authority;
+  // the role-assign guard must NOT reject it (it reaches the write path).
+  const pg = fakePg({ callerRole: 'office_manager' });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([
+      { operation: 'INSERT', table_name: 'users', payload: { id: 'brand-new-uuid', role: 'construction_crew', active: true } },
+    ]),
+  });
+  const body = res.json() as { conflicts: Array<{ id: string; error: string }> };
+  // No role-assign rejection for an at-or-below role.
+  assert.ok(!body.conflicts.some(c => /cannot assign a role/i.test(c.error)),
+    'a role at or below the caller\'s tier must clear the assign guard');
   await app.close();
 });
 
