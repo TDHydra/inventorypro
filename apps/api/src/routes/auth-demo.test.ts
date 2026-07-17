@@ -27,7 +27,7 @@ function fakePg() {
   return {
     query: async (sql: string, params: unknown[]) => {
       if (sql.includes('pin_hash IS NOT NULL')) {
-        const rows = sql.includes('AND NOT is_test')
+        const rows = sql.includes('AND NOT u.is_test')
           ? ROSTER_ROWS.filter(r => !r.is_test)
           : ROSTER_ROWS;
         return { rows };
@@ -117,7 +117,7 @@ const ENROLL_CODE = '112233';
 // Fake pg for a REAL (non-test) user mid-enrollment: it returns the set-pin user
 // row with the new enrollment_code_expires_at column, and no-ops the success-path
 // UPDATE + activity_log INSERT so a valid code reaches the 200.
-function fakePgEnroll(opts: { expiresAt: string | null; hash: string }) {
+function fakePgEnroll(opts: { expiresAt: string | null; hash: string; minPin?: number }) {
   return {
     query: async (sql: string, _params: unknown[]) => {
       if (sql.trimStart().startsWith('SELECT') && sql.includes('enrollment_code_hash')) {
@@ -128,6 +128,7 @@ function fakePgEnroll(opts: { expiresAt: string | null; hash: string }) {
             enrollment_code_hash: opts.hash,
             enrollment_code_expires_at: opts.expiresAt,
             is_test: false, enrollment_code_public: null,
+            min_pin_length: opts.minPin ?? 4,
           }],
         };
       }
@@ -136,7 +137,7 @@ function fakePgEnroll(opts: { expiresAt: string | null; hash: string }) {
   };
 }
 
-async function buildEnrollApp(opts: { expiresAt: string | null; hash: string }) {
+async function buildEnrollApp(opts: { expiresAt: string | null; hash: string; minPin?: number }) {
   const app = Fastify();
   app.decorate('pg', fakePgEnroll(opts) as never);
   await app.register(fastifyJwt, { secret: SECRET });
@@ -182,5 +183,33 @@ test('set-pin with a valid UNEXPIRED enrollment code succeeds', async () => {
   const body = res.json() as { jwt?: string; userId?: string };
   assert.ok(body.jwt, 'jwt issued');
   assert.equal(body.userId, ENROLL_ID);
+  await app.close();
+});
+
+// #88 — the role's min_pin_length is enforced at set-pin, even though the schema
+// floor is a static 4. A valid code + a PIN shorter than the role minimum is a 400.
+test('set-pin rejects a PIN shorter than the role minimum (valid code, role min 8)', async () => {
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString();
+  const hash = await bcrypt.hash(ENROLL_CODE, 10);
+  const app = await buildEnrollApp({ expiresAt: future, hash, minPin: 8 });
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: ENROLL_ID, pin: '4321', enrollment_code: ENROLL_CODE },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match((res.json() as { error: string }).error, /at least 8 digits/);
+  await app.close();
+});
+
+test('set-pin accepts a PIN that meets the role minimum (role min 8, 8-digit PIN)', async () => {
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString();
+  const hash = await bcrypt.hash(ENROLL_CODE, 10);
+  const app = await buildEnrollApp({ expiresAt: future, hash, minPin: 8 });
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: ENROLL_ID, pin: '12345678', enrollment_code: ENROLL_CODE },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.ok((res.json() as { jwt?: string }).jwt, 'jwt issued');
   await app.close();
 });
