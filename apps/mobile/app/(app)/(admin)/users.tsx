@@ -28,7 +28,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useReactiveRows } from '../../../src/hooks/useReactiveRows';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -168,12 +168,12 @@ export default function AdminUsersScreen() {
   const canManageUsers = usePermission('manage_users');
   const { locked } = useMaintenanceMode();
   const sel = useMultiSelect<User>();
-  const [users, setUsers] = useState<User[]>(() => getAllUsers());
   // Re-read on sync pull so a user added/edited on another device shows while
-  // this screen is open. The edit sheet holds its own editUser object, so a
-  // background re-read can't clobber an in-progress edit (#61).
-  const dataVersion = useDataVersion();
-  useEffect(() => { setUsers(getAllUsers()); }, [dataVersion]);
+  // this screen is open (#61), but stay referentially stable across no-op bumps
+  // so the list never re-renders mid-scroll and freezes (#91). The edit sheet
+  // holds its own editUser object, so a background re-read can't clobber an
+  // in-progress edit. `refresh` re-reads after a local write.
+  const [users, refresh] = useReactiveRows<User>(getAllUsers);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkRolePicker, setShowBulkRolePicker] = useState(false);
@@ -210,8 +210,6 @@ export default function AdminUsersScreen() {
     ],
     [users],
   );
-
-  function refresh() { setUsers(getAllUsers()); }
 
   // Find-or-create a DM with this user and open the thread (mirrors the team
   // roster's Message action; createDmConversation reuses an existing 1:1).
