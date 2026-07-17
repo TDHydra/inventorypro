@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/theme';
 import { PINPad } from '../../src/components/PINPad';
-import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap } from '../../src/db/queries/users';
+import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
 import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/auth/pin';
 import { saveSession } from '../../src/auth/session';
@@ -61,9 +61,21 @@ export default function LoginScreen() {
     const hideDemo = (rows: RosterUser[]) => (demoHidden ? rows.filter(u => !u.is_test) : rows);
     const local = getAllActiveUsers();
     if (local.length > 0) {
+      // A user who hasn't set a PIN yet must be prompted for the role's MINIMUM
+      // length (#88), not the placeholder stored on the row. The server roster
+      // applies this too, but a synced device uses this local path — mirror it
+      // via the synced role_settings map. Users who've already set a PIN keep
+      // their own length so the enter-PIN screen still matches their real PIN.
+      const roleMins = getRoleSettings();
       // Local rows carry the demo code as enrollment_code_public; the roster
       // endpoint calls it test_code — normalize so the picker reads one field.
-      setUsers(hideDemo(local.map(u => ({ ...u, test_code: u.is_test ? u.enrollment_code_public ?? null : null }))));
+      setUsers(hideDemo(local.map(u => ({
+        ...u,
+        pin_length_required: u.pin_set === 0
+          ? Math.max(u.pin_length_required, roleMins[u.role] ?? 0)
+          : u.pin_length_required,
+        test_code: u.is_test ? u.enrollment_code_public ?? null : null,
+      }))));
       setNeedsFullSync(false);
       setRosterLoading(false);
       return;
