@@ -5,7 +5,7 @@ description: Build and deploy the InventoryPro Android app — a local debug dev
 
 # Deploy InventoryPro — Android
 
-Working dir: `~/inventorypro/apps/mobile`. Device id (Pixel): `58060DLCQ001ZR`. Env in `~/.bashrc` (JAVA_HOME=~/jdk Temurin 21, ANDROID_HOME=~/Android/Sdk).
+Working dir: `~/inventorypro/apps/mobile`. Target device: **Samsung S24 Ultra** (`R5CXA06AQQM`) — always deploy/test on this one. (The Pixel `58060DLCQ001ZR` screen is broken; do NOT use it.) Env in `~/.bashrc` (JAVA_HOME=~/jdk Temurin 21, ANDROID_HOME=~/Android/Sdk).
 
 ## Gotchas (always)
 - **Gradle pinned to 8.13** in `android/gradle/wrapper/gradle-wrapper.properties`. `npx expo prebuild --clean` resets it to 9.3.1 → re-pin afterward (`sed -i 's#gradle-9.3.1-bin.zip#gradle-8.13-bin.zip#' android/gradle/wrapper/gradle-wrapper.properties`).
