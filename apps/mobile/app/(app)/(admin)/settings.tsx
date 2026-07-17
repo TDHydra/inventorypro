@@ -23,13 +23,6 @@ import {
   getFormModeOverride,
   setFormModeOverride,
 } from '../../../src/db/formMode';
-import {
-  getHiddenFields,
-  toggleHiddenField,
-  notifyHiddenFieldsChanged,
-} from '../../../src/db/hiddenFields';
-import { FormFieldId, ALL_FORM_FIELD_IDS, FORM_FIELD_LABELS } from '../../../src/constants/formFields';
-import { runInTransaction } from '../../../src/db/tx';
 import { getMainStorageLocationId, setMainStorageLocation } from '../../../src/db/mainStorage';
 import { getNonShelfLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
 import { getValidJwt } from '../../../src/auth/session';
@@ -134,8 +127,6 @@ export default function SettingsScreen() {
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
-  // Hidden optional fields (admin-controlled, synced via app_config).
-  const [hiddenFieldsState, setHiddenFieldsState] = useState<Set<FormFieldId>>(() => getHiddenFields());
 
   // Main storage area (app-wide default stock location). Two-stage like Quick Add:
   // a location, plus a shelf when that location has shelves. Stored as a single id
@@ -190,7 +181,6 @@ export default function SettingsScreen() {
     const st = resolveLocationShelf(getMainStorageLocationId());
     setStorageLoc(st.location);
     setStorageShelf(st.shelf);
-    setHiddenFieldsState(getHiddenFields());
   }, []);
 
   // Re-read DB values every time the screen gains focus
@@ -326,25 +316,6 @@ export default function SettingsScreen() {
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to toggle notify_enabled:', err);
     }
-  };
-
-  // Toggle a single optional field's hidden state. Wraps the write + activity
-  // log in a transaction (mirrors roles.tsx togglePerm) then notifies subscribers
-  // so HidableField components re-render immediately without waiting for a sync.
-  const handleToggleHiddenField = (id: FormFieldId, hidden: boolean) => {
-    try {
-      runInTransaction(() => {
-        toggleHiddenField(id, hidden, user?.id ?? null);
-      });
-    } catch (e) {
-      Alert.alert(
-        'Could not update field visibility',
-        e instanceof Error ? e.message : 'The change was not saved. Please try again.',
-      );
-      return;
-    }
-    notifyHiddenFieldsChanged();
-    setHiddenFieldsState(getHiddenFields());
   };
 
   // Commits a numeric app_config field on blur: parses to an integer in
@@ -782,26 +753,18 @@ export default function SettingsScreen() {
         {/* ── Hidden Fields (admin only — synced via app_config) ───────── */}
         {isAdmin && (
           <View>
-            <Text style={s.sectionTitle}>Hidden Optional Fields</Text>
+            <Text style={s.sectionTitle}>Hidden Fields</Text>
             <View style={s.card}>
-              <View style={s.infoBlock}>
-                <Text style={s.rowSub}>
-                  Fields toggled on below are hidden for all users on all devices. Only optional fields can be hidden.
-                </Text>
-              </View>
-              {ALL_FORM_FIELD_IDS.map((id, idx) => (
-                <View key={id}>
-                  {idx > 0 && <View style={s.divider} />}
-                  <View style={s.row}>
-                    <Text style={s.rowLabel}>{FORM_FIELD_LABELS[id]}</Text>
-                    <Switch
-                      value={hiddenFieldsState.has(id)}
-                      onValueChange={(v) => handleToggleHiddenField(id, v)}
-                      trackColor={{ true: colors.primary, false: colors.border }}
-                    />
-                  </View>
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/hidden-fields')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🙈 Hidden Fields</Text>
+                  <Text style={s.rowSub}>Hide optional fields for all users on all devices.</Text>
                 </View>
-              ))}
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
