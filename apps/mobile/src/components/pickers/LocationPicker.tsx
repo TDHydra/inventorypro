@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { getAllLocations, Location } from '../../db/queries/locations';
+import { getNonShelfLocations, Location } from '../../db/queries/locations';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { Field } from '../ui/Field';
 
-// The getAllLocations() → PickerOption[] wiring the location fields hand-roll (see
-// (jobs)/create.tsx's locationOptions useMemo), extracted once. Selection is held
+// The locations → PickerOption[] wiring the location fields hand-roll (see
+// (jobs)/create.tsx's locationOptions useMemo), extracted once. Options come from
+// getNonShelfLocations() — shelves are never first-class options here; they're
+// only reachable via LocationShelfPicker's Shelf sub-field. Selection is held
 // by the caller as a PickerOption; re-tapping the selection clears it, matching
 // today's `onSelect={opt => setX(prev => prev?.id === opt.id ? null : opt)}`.
 export function LocationPicker({
@@ -26,8 +28,14 @@ export function LocationPicker({
   disabled?: boolean;
 }) {
   const options = useMemo<PickerOption[]>(() => {
-    const locs = filter ? getAllLocations().filter(filter) : getAllLocations();
-    return locs.map(l => ({ id: l.id, label: l.name }));
+    const all = getNonShelfLocations();
+    const byId = new Map(all.map(l => [l.id, l]));
+    const locs = filter ? all.filter(filter) : all;
+    // Parent shown as sublabel (same wiring as ItemQuickAdd's locationOptions).
+    return locs.map(l => {
+      const parentName = l.parent_id ? byId.get(l.parent_id)?.name : undefined;
+      return { id: l.id, label: l.name, sublabel: parentName };
+    });
     // `filter` is expected stable (defined inline is fine — options only recompute
     // on mount today, matching the screens' `[]`-dep useMemo).
     // eslint-disable-next-line react-hooks/exhaustive-deps

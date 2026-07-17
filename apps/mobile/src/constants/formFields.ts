@@ -20,7 +20,15 @@ export type FormFieldId =
   | 'jobs.site_location'
   | 'jobs.reference_number'
   | 'jobs.insurance_carrier'
-  | 'jobs.description';
+  | 'jobs.description'
+  | 'equipment.type'
+  | 'equipment.tag_prefix'
+  | 'equipment.serial_number'
+  | 'equipment.notes'
+  | 'equipment.purchase_price'
+  | 'equipment.acquired_at'
+  | 'equipment.depreciation'
+  | 'equipment.service_schedule';
 
 /** Human-readable label for each hideable field, used in the admin UI. */
 export const FORM_FIELD_LABELS: Record<FormFieldId, string> = {
@@ -38,6 +46,14 @@ export const FORM_FIELD_LABELS: Record<FormFieldId, string> = {
   'jobs.reference_number':  'Reference #',
   'jobs.insurance_carrier': 'Insurance carrier',
   'jobs.description':       'Job description',
+  'equipment.type':         'Equipment type',
+  'equipment.tag_prefix':   'Tag prefix',
+  'equipment.serial_number':'Serial number',
+  'equipment.notes':        'Notes',
+  'equipment.purchase_price':'Purchase price',
+  'equipment.acquired_at':  'Acquired date',
+  'equipment.depreciation': 'Depreciation fields',
+  'equipment.service_schedule':'Service schedule',
 };
 
 /** Ordered list of all hideable field IDs. */

@@ -12,9 +12,11 @@ import {
   validateMediaWrite,
 } from '../lib/syncPolicy';
 import { cleanupMediaObjects } from '../lib/mediaCleanup';
+import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
+import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
-import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, dedupKeys } from '../lib/notifications';
+import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, releaseEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
 import { sendPush, messageRecipients } from '../lib/push';
@@ -112,6 +114,16 @@ function chatScopeSql(table: string, callerParam: string): string | null {
   }
 }
 
+// Media pull scoping (#29-H): message attachments are private to the message's
+// conversation — a media row linked to a message the caller cannot see must not
+// sync down to their device. Non-message media (items, jobs, locations, …) stays
+// unscoped: that is the normal shared media surface. Same subquery shape as
+// chatScopeSql, parameterized on the caller id via `callerParam`.
+function mediaScopeSql(callerParam: string): string {
+  const mine = `SELECT conversation_id FROM conversation_participants WHERE user_id = ${callerParam}`;
+  return `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
+}
+
 // Resolve the caller's relationship to a conversation for the chat write guards
 // (lib/chatPolicy.ts decides; this only gathers facts). Fails closed: a missing
 // row, a null id, or a malformed uuid (the cast throws) all come back as
@@ -191,12 +203,17 @@ const FULL_TABLES = [
 // Entity tables whose taxonomy reference is being migrated from a label column to
 // a durable FK id (#74, migration 035). label = the human string column, id = the
 // soft-FK column resolved from it, category = the taxonomy_types.category to match.
-const TAXONOMY_FK_COLUMNS: Record<string, { label: string; id: string; category: string }> = {
-  teams: { label: 'type', id: 'type_id', category: 'team' },
-  jobs: { label: 'type', id: 'type_id', category: 'job' },
-  inventory_items: { label: 'category', id: 'category_id', category: 'item_category' },
-  locations: { label: 'type', id: 'type_id', category: 'location_type' },
-  repairs: { label: 'status', id: 'status_id', category: 'repair_status' }, // #74 Phase 3b
+// A table may carry more than one such pair (inventory_items: item category +
+// equipment type, #28/migration 048).
+const TAXONOMY_FK_COLUMNS: Record<string, Array<{ label: string; id: string; category: string }>> = {
+  teams: [{ label: 'type', id: 'type_id', category: 'team' }],
+  jobs: [{ label: 'type', id: 'type_id', category: 'job' }],
+  inventory_items: [
+    { label: 'category', id: 'category_id', category: 'item_category' },
+    { label: 'type', id: 'type_id', category: 'equipment' }, // #28
+  ],
+  locations: [{ label: 'type', id: 'type_id', category: 'location_type' }],
+  repairs: [{ label: 'status', id: 'status_id', category: 'repair_status' }], // #74 Phase 3b
 };
 
 async function applyEntry(
@@ -227,6 +244,15 @@ async function applyEntry(
     // days earlier while offline, and merely happen to be carried by THIS push —
     // correlating them to it would assert a causal link that does not exist. Only
     // server-written activity correlates to the request that produced it.
+    // A reference the server doesn't have must never cost us the audit row (#56).
+    // The commonest cause is authorization: the user lacked the permission for the
+    // underlying write, so that entity's INSERT was permanently rejected and the
+    // client dropped it — leaving this row pointing at a job/team/location that
+    // exists nowhere on the server. Left alone, the FK (or a non-uuid entity_id)
+    // raises, applyEntry throws, and the generic 'write rejected' sends the client
+    // into a retry-to-dead-letter loop that silently erases the entry. So: null the
+    // unresolvable column, keep the id under metadata.orphaned_refs, record the row.
+    const { values: refs, orphaned } = await resolveActivityRefs(pg, payload);
     await pg.query(
       `INSERT INTO activity_log
          (id, user_id, team_id, action, entity_type, entity_id,
@@ -236,12 +262,12 @@ async function applyEntry(
        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),$16,$17,$18
        WHERE NOT EXISTS (SELECT 1 FROM activity_log WHERE id = $1)`,
       [
-        payload.id, callerUserId, payload.team_id ?? null,
-        payload.action, payload.entity_type, payload.entity_id ?? null,
-        payload.from_location_id ?? null, payload.to_location_id ?? null,
+        payload.id, callerUserId, refs.team_id,
+        payload.action, payload.entity_type, refs.entity_id,
+        refs.from_location_id, refs.to_location_id,
         payload.quantity ?? null, payload.unit ?? null,
-        payload.job_id ?? null, payload.note ?? null,
-        payload.metadata ? JSON.stringify(payload.metadata) : null,
+        refs.job_id, payload.note ?? null,
+        buildActivityMetadata(payload.metadata, orphaned),
         payload.device_id ?? null, payload.created_at,
         payload.latitude ?? null, payload.longitude ?? null, payload.location_accuracy ?? null,
       ]
@@ -302,8 +328,8 @@ async function applyEntry(
   // client already resolved). Deterministic when duplicate labels exist (matches
   // migration 035's backfill: active first, then sort_order, then id). This runs
   // for INSERT and UPDATE — ADJUST/DELETE already returned above.
-  const taxoFk = TAXONOMY_FK_COLUMNS[table_name];
-  if (taxoFk && payload[taxoFk.label] != null && payload[taxoFk.id] == null) {
+  for (const taxoFk of TAXONOMY_FK_COLUMNS[table_name] ?? []) {
+    if (payload[taxoFk.label] == null || payload[taxoFk.id] != null) continue;
     const { rows: fkRows } = await pg.query(
       `SELECT id FROM taxonomy_types WHERE category = $1 AND label = $2
        ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1`,
@@ -321,6 +347,11 @@ async function applyEntry(
     // reassignment, and reject the whole entry if it touched a sensitive column.
     const { row, rejected } = applyWritePolicy(table_name, 'UPDATE', payload, callerUserId, realColumns, can);
     if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
+    // media: a client may not mint a SECOND primary for an entity (bug #50) —
+    // a losing claim is coerced to false. Today's only client UPDATE touching
+    // is_primary is the move feature, which always clears it, so this is a no-op
+    // for current flows; it closes the path rather than trusting them to stay so.
+    if (table_name === 'media') await resolvePrimaryClaim(pg, row, payload.id);
     const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
     // Real partial update — only the columns the device actually changed.
     // updated_at is server-authoritative (never trust the client clock) — strip
@@ -400,7 +431,14 @@ async function applyEntry(
       void (async () => {
         try {
           if (!(await getNotifyConfig(pg)).enabled) return;
-          await deliver(pg, await resolveRecipients(pg, 'assignment', { userId: assignee }), { type: 'assignment', title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs', id: repairId } });
+          // Dedup identical (repair, assignee) assignments so a retried push (or a
+          // reassign-back to the same person still open) can't re-notify. resolveRecipients
+          // additionally gates the assignee to someone the actor shares a team with, so a
+          // crafted repair UPDATE can't spam an arbitrary user id.
+          if (!(await claimEvent(pg, dedupKeys.assign(repairId, assignee)))) return;
+          const recipients = await resolveRecipients(pg, 'assignment', { userId: assignee, actorId: callerUserId });
+          if (!recipients.length) { await releaseEvent(pg, dedupKeys.assign(repairId, assignee)); return; }
+          await deliver(pg, recipients, { type: 'assignment', title: 'New assignment', body: 'You have been assigned a repair.', data: { screen: 'repairs', id: repairId } });
         } catch { /* never disrupt sync */ }
       })();
     }
@@ -443,6 +481,12 @@ async function applyEntry(
     row.status = 'open';
     delete row.decided_by; delete row.decided_at; delete row.decision_note;
   }
+  // media: "first photo becomes primary" is elected on the CLIENT from its local
+  // replica, so two devices uploading to the same empty entity both claim it and
+  // both rows land (distinct UUIDs → they never collide on the conflict target).
+  // The server arbitrates: first claim wins, a later one is coerced to false and
+  // flows back on the next pull (updated_at = NOW() below). Bug #50.
+  if (table_name === 'media') await resolvePrimaryClaim(pg, row, row.id);
   const target = conflictTarget(table_name);
   const targetCols = new Set(keys);
   const hasUpdatedAt = realColumns.get(table_name)?.has('updated_at') ?? false;
@@ -474,7 +518,17 @@ async function applyEntry(
     : `INSERT INTO ${table_name} (${cols}) VALUES (${vals})
        ON CONFLICT (${target}) DO NOTHING`;
 
-  await pg.query(sql, allKeys.map(k => row[k] ?? null));
+  try {
+    await pg.query(sql, allKeys.map(k => row[k] ?? null));
+  } catch (err) {
+    // Another device won the primary between our existence check above and this
+    // write (migration 050's partial unique index caught it). Retry as non-primary
+    // instead of stranding the entry as a permanent conflict — an unsynced photo is
+    // worse than an unstarred one.
+    if (!isPrimaryConflict(err)) throw err;
+    row.is_primary = false;
+    await pg.query(sql, allKeys.map(k => row[k] ?? null));
+  }
 
   // New approval request → notify the approvers once (deduped on request id so a
   // retried push doesn't re-notify). Fire-and-forget; never blocks the sync write.
@@ -565,11 +619,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
     // NOTE the caller id is $3 here ($1 = limit, $2 = offset) but $2 in /sync/pull.
     const scopeCol = SCOPED_TABLES[table];
     const chatScope = chatScopeSql(table, '$3');
+    const mediaScope = table === 'media' ? mediaScopeSql('$3') : null;
     const teamScope = canSeeAllTeams(caller) ? null : teamScopeSql(table, '$3');
     const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3`
       : chatScope ? ` WHERE ${chatScope}`
+      : mediaScope ? ` WHERE ${mediaScope}`
       : teamScope ? ` WHERE ${teamScope}` : '';
-    const scoped = !!scopeCol || !!chatScope || !!teamScope;
+    const scoped = !!scopeCol || !!chatScope || !!mediaScope || !!teamScope;
     const { rows } = await fastify.pg.query(
       `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
       scoped ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
@@ -619,11 +675,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
       // NOTE the caller id is $2 here ($1 = since) but $3 in /sync/full.
       const scopeCol = SCOPED_TABLES[table];
       const chatScope = chatScopeSql(table, '$2');
+      const mediaScope = table === 'media' ? mediaScopeSql('$2') : null;
       const teamScope = canSeeAllTeams(caller) ? null : teamScopeSql(table, '$2');
       const scopeSql = scopeCol ? ` AND ${scopeCol} = $2`
         : chatScope ? ` AND ${chatScope}`
+        : mediaScope ? ` AND ${mediaScope}`
         : teamScope ? ` AND ${teamScope}` : '';
-      const scoped = !!scopeCol || !!chatScope || !!teamScope;
+      const scoped = !!scopeCol || !!chatScope || !!mediaScope || !!teamScope;
       const { rows } = await fastify.pg.query(
         `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
         scoped ? [since, userId] : [since]
@@ -698,6 +756,20 @@ const routes: FastifyPluginAsync = async (fastify) => {
           'sync push entry denied (authz)',
         );
         conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} requires ${reqPerm}` });
+        continue;
+      }
+
+      // demo_mode (#32 S3) is the apex-only demo-account kill switch — it is
+      // toggled only through its dedicated guarded path, never via generic
+      // app_config sync (system_settings alone must not flip it). "Forbidden"
+      // wording marks the rejection permanent to the mobile sync engine
+      // (matches /forbidden|cannot|not allowed/i — see TEST_ACCOUNT_WRITE_ERROR).
+      if (entry.table_name === 'app_config' && entry.payload.key === 'demo_mode') {
+        request.log.warn(
+          { userId, role: caller.role, operation: entry.operation },
+          'sync push app_config demo_mode denied',
+        );
+        conflicts.push({ id: entry.id, error: 'Forbidden: demo_mode cannot be changed via sync' });
         continue;
       }
 
@@ -863,6 +935,19 @@ const routes: FastifyPluginAsync = async (fastify) => {
               continue;
             }
           }
+        } else if (entry.operation === 'INSERT') {
+          // No existing row (fresh UUID INSERT): the `if (target)` checks above
+          // were all skipped, so the role-assignment tier guard never ran — a
+          // manage_users-only caller could otherwise mint an apex full_admin by
+          // INSERTing a brand-new users row. Enforce the assign-tier check here.
+          if (entry.payload.role != null && !canAssignRole(caller.role, String(entry.payload.role))) {
+            request.log.warn(
+              { userId, role: caller.role, targetId, newRole: entry.payload.role },
+              'sync push users insert role-assign denied (tier guard)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level' });
+            continue;
+          }
         }
       }
 
@@ -960,6 +1045,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
           conflicts.push({ id: entry.id, error: 'Forbidden: only the sender can edit a message' });
           continue;
         }
+        // Soft-delete (#29): a deleted message must never retain its content —
+        // force the body blank server-side rather than trusting the client to
+        // have cleared it.
+        if (entry.payload.deleted_at != null) entry.payload.body = '';
       }
 
       // conversation_participants: an INSERT is how a user BECOMES a member, so

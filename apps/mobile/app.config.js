@@ -17,12 +17,30 @@ module.exports = ({ config }) => ({
   },
   // Local config plugins (in ./plugins) are appended to the plugins declared in
   // app.json so their prebuild mods survive `expo prebuild --clean`:
+  //  - expo-build-properties: enables R8 code shrinking + resource shrinking on
+  //    release builds. Must run BEFORE withReleaseSigning so the signingConfig
+  //    injection sees the final buildTypes block. Keep rules are minimal:
+  //    expo-modules-core / react-native ship their own consumer rules;
+  //    op-sqlite does not, and Hermes is kept defensively (JNI-reflected).
   //  - withReleaseSigning: re-injects the release keystore signingConfig into
   //    android/app/build.gradle (sourced from gitignored android/keystore.properties,
   //    debug fallback when absent).
   //  - withReleaseFlagSecure: sets app-wide Android FLAG_SECURE on release builds.
   plugins: [
     ...(config.plugins ?? []),
+    [
+      'expo-build-properties',
+      {
+        android: {
+          enableProguardInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
+          extraProguardRules: [
+            '-keep class com.op.sqlite.** { *; }',
+            '-keep class com.facebook.hermes.** { *; }',
+          ].join('\n'),
+        },
+      },
+    ],
     './plugins/withReleaseSigning',
     './plugins/withReleaseFlagSecure',
   ],

@@ -1,11 +1,11 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
@@ -31,7 +31,8 @@ import {
 import { FormFieldId, ALL_FORM_FIELD_IDS, FORM_FIELD_LABELS } from '../../../src/constants/formFields';
 import { runInTransaction } from '../../../src/db/tx';
 import { getMainStorageLocationId, setMainStorageLocation } from '../../../src/db/mainStorage';
-import { getAllLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
+import { getNonShelfLocations, getShelvesForParent, resolveLocationShelf } from '../../../src/db/queries/locations';
+import { getValidJwt } from '../../../src/auth/session';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { QrSigningSection } from '../../../src/components/QrSigningSection';
@@ -111,7 +112,9 @@ export default function SettingsScreen() {
   const canViewAudit = usePermission('view_audit_log');
   const { user, logout } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
-  const refreshKey = useFocusRefresh();
+  // Demo-accounts kill switch is apex-only — full_admin exactly, NOT tier-4 peers.
+  const isApex = user?.role === 'full_admin';
+  const refreshKey = useFocusOrDataRefresh();
 
   const [lastSync, setLastSync] = useState('Never');
   const [pending, setPending] = useState(0);
@@ -121,6 +124,8 @@ export default function SettingsScreen() {
   // Default ON when the pref is unset.
   const [notifEnabled, setNotifEnabled] = useState<boolean>(() => getAppSetting('notifications_enabled') !== 'false');
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
+  // Demo accounts master switch (server-side, live): null until GET /audit/demo-mode resolves.
+  const [demoOn, setDemoOn] = useState<boolean | null>(null);
   // Notification trigger config (admin, synced) — defaults mirror getNotifyConfig() on the API.
   const [notifyTriggersOn, setNotifyTriggersOn] = useState<boolean>(() => getAppConfig(NOTIFY_ENABLED_KEY) !== '0');
   const [pollMinInput, setPollMinInput] = useState<string>(() => getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
@@ -137,7 +142,9 @@ export default function SettingsScreen() {
   // (the shelf id when a shelf is chosen, else the location id).
   const [storageLoc, setStorageLoc] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).location);
   const [storageShelf, setStorageShelf] = useState<PickerOption | null>(() => resolveLocationShelf(getMainStorageLocationId()).shelf);
-  const allLocations = useMemo(() => getAllLocations(), [refreshKey]);
+  // Shelves are only reachable through the shelf sub-picker of their parent,
+  // never as a first-class storage location (#70).
+  const allLocations = useMemo(() => getNonShelfLocations(), [refreshKey]);
   const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
   const locationOptions = useMemo<PickerOption[]>(
     () => allLocations.map(l => ({ id: l.id, label: l.name, sublabel: l.parent_id ? locationById.get(l.parent_id)?.name : undefined })),
@@ -258,6 +265,57 @@ export default function SettingsScreen() {
       setFormResolvedState(getFormMode());
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to save form mode override:', err);
+    }
+  };
+
+  // Load the server-side demo-mode flag once (apex only). Live data, not
+  // synced: the switch stays disabled (null) while offline or unauthorized.
+  useEffect(() => {
+    if (!isApex) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const jwt = await getValidJwt();
+        if (!jwt) return;
+        const res = await fetch(`${apiUrl}/audit/demo-mode`, {
+          headers: { Authorization: `Bearer ${jwt}` },
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as { enabled: boolean };
+        if (!cancelled) setDemoOn(body.enabled);
+      } catch {
+        // Offline — leave the switch disabled.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isApex]);
+
+  const handleToggleDemoMode = async (enabled: boolean) => {
+    const prev = demoOn;
+    setDemoOn(enabled); // optimistic — reverted below on failure
+    try {
+      const jwt = await getValidJwt();
+      if (!jwt) throw new Error('Sign in required.');
+      const res = await fetch(`${apiUrl}/audit/demo-mode`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) {
+        throw new Error(
+          res.status === 403
+            ? 'Only a full admin can change demo mode.'
+            : 'The server rejected the change. Please try again.'
+        );
+      }
+      const body = (await res.json()) as { enabled: boolean };
+      setDemoOn(body.enabled);
+    } catch (err) {
+      setDemoOn(prev);
+      Alert.alert(
+        'Could not update demo accounts',
+        err instanceof Error ? err.message : 'Check your connection and try again.',
+      );
     }
   };
 
@@ -491,6 +549,24 @@ export default function SettingsScreen() {
                   onValueChange={(v) => { try { setMaintenanceMode(v); setMaintOn(v); } catch { /* blocked write — ignore */ } }}
                 />
               </View>
+              {isApex && (
+                <>
+                  <View style={s.divider} />
+                  <View style={s.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowLabel}>🎭 Demo accounts</Text>
+                      <Text style={s.rowSub}>
+                        When off, demo logins are hidden from the login screen and can't enroll new devices.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={demoOn === true}
+                      disabled={demoOn === null}
+                      onValueChange={(v) => { void handleToggleDemoMode(v); }}
+                    />
+                  </View>
+                </>
+              )}
               <View style={s.divider} />
               <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.base }}>
                 <Text style={s.rowLabel}>Default form mode</Text>
@@ -544,7 +620,7 @@ export default function SettingsScreen() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={s.rowLabel}>⚙️ Manage Types</Text>
-                  <Text style={s.rowSub}>Edit team & job types (label + icon), synced to all devices.</Text>
+                  <Text style={s.rowSub}>Edit job, team, location & equipment types (label + icon), synced to all devices.</Text>
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>

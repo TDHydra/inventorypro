@@ -2,7 +2,8 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { parseOptionalCount, parsePackSize } from '../../../src/lib/validation';
+import { parseOptionalCount, parsePackSize, validateName, validateText } from '../../../src/lib/validation';
+import { track } from '../../../src/telemetry';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
@@ -11,7 +12,7 @@ import {
 import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
 import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
 import { resolveTypeColor } from '../../../src/constants/typeColors';
@@ -28,12 +29,17 @@ import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'item_detail', props: { field, rule } });
+}
+
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -179,16 +185,35 @@ export default function ItemDetailScreen() {
 
   function saveEdit() {
     if (!item) return;
-    if (!form.name?.trim()) { Alert.alert('Required', 'Item name is required.'); return; }
+    // Bounded, control-char-free name (same 'Item name is required.' copy as
+    // before for the blank case).
+    const nameResult = validateName(form.name ?? '', { label: 'Item name' });
+    if (!nameResult.ok) { trackReject('item.name', nameResult.rule); Alert.alert('Required', nameResult.error); return; }
+
+    // Optional free text: bounded + control-char-rejecting, checked BEFORE any
+    // local write. Blank stays fine (→ null below, as before).
+    const textChecks = [
+      { field: 'item.model', value: form.model ?? '', label: 'Color / Model', max: 200 },
+      { field: 'item.description', value: form.description ?? '', label: 'Description', max: 2000 },
+      { field: 'item.barcode', value: form.barcode ?? '', label: 'Barcode', max: 512 },
+      { field: 'item.sku', value: form.sku ?? '', label: 'SKU / Part #', max: 100 },
+      { field: 'item.supplier', value: form.supplier ?? '', label: 'Supplier / Vendor', max: 200 },
+      { field: 'item.category', value: editCategory, label: 'Category', max: 200 },
+      { field: 'item.unit', value: editUnit, label: 'Unit', max: 40 },
+    ] as const;
+    for (const c of textChecks) {
+      const r = validateText(c.value, { label: c.label, max: c.max });
+      if (!r.ok) { trackReject(c.field, r.rule); Alert.alert(`Invalid ${c.label.toLowerCase()}`, r.error); return; }
+    }
 
     // Validate numeric fields up front with clear, fixable messages (mirrors the
     // add/quick-add screens) instead of silently coercing bad input.
     const minAlert = parseOptionalCount(form.min_qty_alert, 'Low-stock alert');
-    if (!minAlert.ok) { Alert.alert('Invalid low-stock alert', minAlert.error); return; }
+    if (!minAlert.ok) { trackReject('item.min_qty_alert', minAlert.rule); Alert.alert('Invalid low-stock alert', minAlert.error); return; }
     const reorder = parseOptionalCount(form.reorder_to, 'Reorder up to');
-    if (!reorder.ok) { Alert.alert('Invalid reorder amount', reorder.error); return; }
+    if (!reorder.ok) { trackReject('item.reorder_to', reorder.rule); Alert.alert('Invalid reorder amount', reorder.error); return; }
     const pack = parsePackSize(form.pack_size ?? '');
-    if (!pack.ok) { Alert.alert('Invalid pack size', pack.error); return; }
+    if (!pack.ok) { trackReject('item.pack_size', pack.rule); Alert.alert('Invalid pack size', pack.error); return; }
 
     // Resolve the home location BEFORE building the update so a failed shelf
     // create (findOrCreateShelfByName returns null on write failure) can't

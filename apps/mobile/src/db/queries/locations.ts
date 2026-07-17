@@ -50,14 +50,23 @@ export function getAllLocations(): Location[] {
 // are a sub-level of a has_shelves location (created via findOrCreateShelf), not
 // first-class locations: they're excluded from the Locations browser tree/list
 // and from parent choices (a shelf can't itself contain sub-areas). The
-// item-assign two-stage pickers (ItemQuickAdd, inventory/add) intentionally keep
-// using getAllLocations() so shelves stay reachable there.
+// item-assign pickers (LocationPicker, LocationShelfPicker) must NOT use
+// getAllLocations(): they build options from getNonShelfLocations() so shelves
+// only appear via the dedicated Shelf sub-field.
 export function getBrowsableLocations(): Location[] {
   // Hide shelves that belong to a parent location (they're managed inside that
   // location's detail). Keep TOP-LEVEL shelves (parent_id null) — e.g. ones a
   // findOrCreateShelfByName home-location quick-create made — visible, or they'd
   // become unreachable/unmanageable anywhere in the Locations UI.
   return getAllLocations().filter(l => !(l.type === 'Shelf' && l.parent_id != null));
+}
+
+// Locations with NO shelves at all — stricter than getBrowsableLocations (which
+// deliberately keeps top-level shelves visible for the Locations browser). Backs
+// the item-assign pickers, where a shelf is only ever reached through the Shelf
+// sub-field of its has_shelves parent, never as a first-class option.
+export function getNonShelfLocations(): Location[] {
+  return getAllLocations().filter(l => l.type !== 'Shelf');
 }
 
 export interface LocationShelfPick {
@@ -292,6 +301,34 @@ export function findOrCreateShelf(parentId: string, name: string): string | null
     return null;
   }
   return id;
+}
+
+// Resolve the two-stage picker's (location, shelf) selection into the single
+// location id stock should be tracked against. Handles the '__new__' typed-in
+// shelf sentinel by creating the shelf via findOrCreateShelf.
+//
+// CONTRACT: never throws. Returns { ok: true, id } with the id to store —
+//   • null location → { ok: true, id: null } (nothing picked);
+//   • location without has_shelves (checked via getLocationById), or no shelf
+//     picked → { ok: true, id: location.id };
+//   • existing shelf → { ok: true, id: shelf.id }.
+// Returns { ok: false, shelfLabel } ONLY when a '__new__' shelf could not be
+// created (findOrCreateShelf returned null). Callers MUST check ok and surface
+// a "couldn't create shelf" message instead of tracking stock against a missing
+// location.
+export function resolveLocationShelfSelection(
+  location: { id: string; label: string } | null,
+  shelf: { id: string; label: string } | null,
+): { ok: true; id: string | null } | { ok: false; shelfLabel: string } {
+  if (!location) return { ok: true, id: null };
+  const full = getLocationById(location.id);
+  if (full?.has_shelves !== 1 || !shelf) return { ok: true, id: location.id };
+  if (shelf.id === '__new__') {
+    const createdId = findOrCreateShelf(location.id, shelf.label);
+    if (createdId === null) return { ok: false, shelfLabel: shelf.label };
+    return { ok: true, id: createdId };
+  }
+  return { ok: true, id: shelf.id };
 }
 
 // Set (or clear, with null) a shelf's optional display color — reuses the same

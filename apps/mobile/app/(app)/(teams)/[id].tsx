@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
   setMemberManagerOnline, setMemberPermissionOverridesOnline,
@@ -27,29 +27,42 @@ import { TaxonomyChips } from '../../../src/components/pickers';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { EntityEditSheet } from '../../../src/components/ui/EntityEditSheet';
 import { QuickCreateSheet } from '../../../src/components/quickadd/QuickCreateSheet';
+import { createDmConversation } from '../../../src/db/queries/chat';
+import { syncNow } from '../../../src/sync/engine';
+import { track } from '../../../src/telemetry';
+import { validateName } from '../../../src/lib/validation';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'team_detail', props: { field, rule } });
+}
 
 export default function TeamDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  const router = useRouter();
 
   const [team, setTeam] = useState<Team | null>(() => getTeamById(id));
   const [members, setMembers] = useState<TeamMember[]>(() => getTeamMembers(id));
 
-  // Re-read team + roster on focus so a stale foreign team (still held before
-  // teamPurge.reconcileTeams runs) or a server-side manager demotion self-corrects
-  // once the next pull applies — the disables below are courtesy, not enforcement.
-  useFocusEffect(
-    useCallback(() => {
-      setTeam(getTeamById(id));
-      setMembers(getTeamMembers(id));
-    }, [id]),
-  );
+  // Re-read team + roster on focus or sync pull so a stale foreign team (still held
+  // before teamPurge.reconcileTeams runs) or a server-side manager demotion
+  // self-corrects once the next pull applies — the disables below are courtesy,
+  // not enforcement.
+  const refreshKey = useFocusOrDataRefresh();
+  useEffect(() => {
+    setTeam(getTeamById(id));
+    setMembers(getTeamMembers(id));
+  }, [id, refreshKey]);
 
   // Membership resolved from the AUTHENTICATED caller's own team_members row, never
   // the payload. is_manager here can lag the server: a manager demoted server-side
-  // keeps is_manager=1 locally until the next pull (we re-read on focus, above).
+  // keeps is_manager=1 locally until the next pull (we re-read on focus or sync
+  // pull, above).
   const myMembership = useMemo(
     () => members.find(m => m.user_id === user?.id) ?? null,
     [members, user?.id],
@@ -120,13 +133,22 @@ export default function TeamDetailScreen() {
     setShowEdit(true);
   }
 
+  // EntityEditSheet contract: throw on any failure so the sheet stays open;
+  // returning normally closes it.
   function handleSaveEdit() {
-    if (!team) return;
-    if (isWriteBlocked()) return;
+    if (!team || isWriteBlocked()) throw new Error('write blocked');
     const trimmed = editName.trim();
     if (!trimmed) {
+      trackReject('team.name', 'required');
       Alert.alert('Required', 'Enter a team name.');
-      return;
+      throw new Error('validation: name required');
+    }
+    // Bounded + control-char-free (the blank case above keeps its original copy).
+    const nameResult = validateName(trimmed, { label: 'Team name' });
+    if (!nameResult.ok) {
+      trackReject('team.name', nameResult.rule);
+      Alert.alert('Invalid name', nameResult.error);
+      throw new Error('validation: name invalid');
     }
     const now = new Date().toISOString();
     // manager_id is deprecated/legacy (managers are now flagged is_manager on
@@ -165,11 +187,10 @@ export default function TeamDetailScreen() {
       });
     } catch (e) {
       Alert.alert('Could not save team', 'The changes were not saved. Please try again.');
-      return;
+      throw e;
     }
-    // Success side-effects only after the write committed.
+    // Success side-effects only after the write committed; the sheet closes itself.
     setTeam(updated);
-    setShowEdit(false);
   }
 
   // ── Add member ─────────────────────────────────────────────────────────────
@@ -312,6 +333,22 @@ export default function TeamDetailScreen() {
     }
     // Refresh only after the server confirmed + local row updated.
     setMembers(getTeamMembers(team.id));
+  }
+
+  // ── Message a member (find-or-create DM → open the thread) ─────────────────
+
+  function handleMessageMember(memberUserId: string) {
+    if (!user) return;
+    let convId: string;
+    try {
+      // createDmConversation reuses an existing 1:1 before creating (queries/chat.ts).
+      convId = createDmConversation(user.id, memberUserId);
+    } catch {
+      Alert.alert('Could not start chat', 'Please try again.');
+      return;
+    }
+    void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    router.push({ pathname: '/(app)/(chat)/[id]', params: { id: convId } });
   }
 
   // ── Per-member permission overrides ─────────────────────────────────────────
@@ -499,6 +536,16 @@ export default function TeamDetailScreen() {
                     </Text>
                   )}
                 </View>
+                {m.user_id !== user?.id && (
+                  <TouchableOpacity
+                    onPress={() => handleMessageMember(m.user_id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={s.msgBtn}
+                    accessibilityLabel={`Message ${m.user_name ?? 'member'}`}
+                  >
+                    <Text style={s.msgText}>💬</Text>
+                  </TouchableOpacity>
+                )}
                 {canManageRoster ? (
                   <TouchableOpacity
                     onPress={() => handleToggleManager(m)}
@@ -553,40 +600,33 @@ export default function TeamDetailScreen() {
       </ScrollView>
 
       {/* Edit team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
-      <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
-          <Text style={s.modalTitle}>Edit Team</Text>
-          {/* flexShrink:1 lets this ScrollView shrink within ModalSheet's maxHeight cap so it actually scrolls (RN defaults flexShrink:0). */}
-          <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
-            <AppInput
-              placeholder="Team name *"
-              value={editName}
-              onChangeText={setEditName}
-              autoFocus
-            />
+      <EntityEditSheet
+        visible={showEdit}
+        onClose={() => setShowEdit(false)}
+        title="Edit Team"
+        onSave={handleSaveEdit}
+        saveLabel="Save Changes"
+        disabled={locked}
+      >
+        <View style={{ gap: 12 }}>
+          <AppInput
+            placeholder="Team name *"
+            value={editName}
+            onChangeText={setEditName}
+            autoFocus
+          />
 
-            <TaxonomyChips
-              category="team"
-              label="Type"
-              withFallback
-              valueLabel={editType}
-              onChange={v => setEditType(v.label ?? '')}
-            />
+          <TaxonomyChips
+            category="team"
+            label="Type"
+            withFallback
+            valueLabel={editType}
+            onChange={v => setEditType(v.label ?? '')}
+          />
 
-            <PrimaryButton
-              label="Save Changes"
-              onPress={handleSaveEdit}
-              disabled={locked}
-              style={{ marginTop: 8 }}
-            />
-            {locked && <MaintenanceBanner />}
-            <TouchableOpacity
-              style={s.cancelRow}
-              onPress={() => setShowEdit(false)}
-            >
-              <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-            </TouchableOpacity>
-          </ScrollView>
-      </ModalSheet>
+          {locked && <MaintenanceBanner />}
+        </View>
+      </EntityEditSheet>
 
       {/* Add member modal — onClose only hides; selection preserved on outside-tap dismiss */}
       <ModalSheet visible={showAddMember} onClose={() => setShowAddMember(false)}>
@@ -753,6 +793,11 @@ const s = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4,
   },
   permsText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
+  msgBtn: {
+    marginLeft: 10, borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  msgText: { color: colors.primary, fontSize: 12, fontWeight: '700' },
 
   permsIntro: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: 8 },
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },

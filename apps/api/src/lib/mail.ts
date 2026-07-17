@@ -5,11 +5,17 @@
 // ever throws into a request handler.
 import nodemailer, { type Transporter } from 'nodemailer';
 
+// Message type used to prefix the final subject (#66), e.g. 'Account: …'. Lets a
+// recipient triage InventoryPro mail by kind at a glance. Optional — omit it and
+// the subject is sent verbatim (backward compatible).
+export type MailCategory = 'Notification' | 'Alert' | 'Stock' | 'Account';
+
 export interface SendMailInput {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  category?: MailCategory;
 }
 
 export interface SendMailResult {
@@ -63,11 +69,14 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
     console.warn('[mail] SMTP not configured (set SMTP_HOST/SMTP_USER/SMTP_PASS/SMTP_FROM) — skipping send to', input.to);
     return { sent: false, reason: 'smtp-not-configured' };
   }
+  // Prefix the subject with the message type when a category is present (#66);
+  // otherwise send the subject unchanged.
+  const subject = input.category ? `${input.category}: ${input.subject}` : input.subject;
   try {
     const info = await getTransport(cfg).sendMail({
       from: cfg.from,
       to: input.to,
-      subject: input.subject,
+      subject,
       text: input.text,
       ...(input.html ? { html: input.html } : {}),
     });
@@ -100,7 +109,7 @@ export async function sendEnrollmentCodeEmail(
     `<p>Open the InventoryPro app, choose your name, and enter this code to set your PIN. ` +
     `The code can only be used once.</p>` +
     `<p style="color:#888;font-size:12px;">If you didn't expect this, contact your administrator.</p>`;
-  return sendMail({ to, subject, text, html });
+  return sendMail({ to, subject, text, html, category: 'Account' });
 }
 
 function escapeHtml(s: string): string {

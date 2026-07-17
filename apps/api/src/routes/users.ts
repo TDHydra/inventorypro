@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { randomInt } from 'node:crypto';
 import { requirePermission, userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import { sendEnrollmentCodeEmail } from '../lib/mail';
+import { EMAIL_SCHEMA } from '../lib/schemaShapes';
 
 // Resolve the caller's effective permissions (role default + role/user overrides),
 // same source requirePermission uses. Returns null when the caller is unknown.
@@ -121,8 +122,8 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const { code: enrollmentCode, hash: enrollmentCodeHash } = await issueEnrollmentCode();
 
     const { rows } = await fastify.pg.query(
-      `INSERT INTO users (name, role, pin_hash, pin_length_required, pin_set, permission_overrides, expires_at, enrollment_code_hash)
-       VALUES ($1, $2::user_role, $3, $4, $5, $6::jsonb, $7, $8)
+      `INSERT INTO users (name, role, pin_hash, pin_length_required, pin_set, permission_overrides, expires_at, enrollment_code_hash, enrollment_code_expires_at)
+       VALUES ($1, $2::user_role, $3, $4, $5, $6::jsonb, $7, $8, NOW() + INTERVAL '7 days')
        RETURNING id, name, role, pin_length_required, pin_set, active, created_at`,
       [name, role, pinHash, pinLength, pinSet, JSON.stringify(permission_overrides), expires_at ?? null, enrollmentCodeHash]
     );
@@ -242,7 +243,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       // path (pinLengthMismatch) — a same-length role change does NOT wipe it.
       const issued = await issueEnrollmentCode();
       newEnrollmentCode = issued.code;
-      updates.push(`pin_hash = NULL`, `pin_set = FALSE`, `enrollment_code_hash = $${i++}`);
+      updates.push(`pin_hash = NULL`, `pin_set = FALSE`, `enrollment_code_hash = $${i++}`, `enrollment_code_expires_at = NOW() + INTERVAL '7 days'`);
       values.push(issued.hash);
     } else if (pin !== undefined) {
       const hash = await bcrypt.hash(pin, 10);
@@ -282,7 +283,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
         type: 'object',
         properties: {
           // Optional recipient override; falls back to the stored users.email.
-          email: { type: 'string', minLength: 3, maxLength: 320 },
+          email: EMAIL_SCHEMA,
         },
       },
     },
@@ -323,7 +324,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     const { code, hash } = await issueEnrollmentCode();
     await fastify.pg.query(
-      `UPDATE users SET enrollment_code_hash = $1, updated_at = NOW() WHERE id = $2`,
+      `UPDATE users SET enrollment_code_hash = $1, enrollment_code_expires_at = NOW() + INTERVAL '7 days', updated_at = NOW() WHERE id = $2`,
       [hash, targetId],
     );
 

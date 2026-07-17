@@ -18,7 +18,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
@@ -54,7 +54,7 @@ export default function InventoryScreen() {
   const canDelete = usePermission('delete_inventory');
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<Item>();
-  const refreshKey = useFocusRefresh();
+  const refreshKey = useFocusOrDataRefresh();
   const dataVersion = useDataVersion();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);

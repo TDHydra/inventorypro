@@ -30,6 +30,7 @@ const PRODUCT_CLASS_CATEGORY = 'product_class';
 export const ITEM_CATEGORY = 'item_category';
 export const JOB_CATEGORY = 'job';
 export const TEAM_CATEGORY = 'team';
+export const EQUIPMENT_CATEGORY = 'equipment';
 
 // Resolve a taxonomy row id from its (category, label) — the write-time bridge for
 // the label→FK cutover (#74). Deterministic when duplicate labels exist (active
@@ -384,6 +385,16 @@ export function getTaxonomyTypesWithFallback(
 
 export function getLocationTypesWithFallback(): TaxonomyType[] {
   return getTaxonomyTypesWithFallback(LOCATION_TYPE);
+}
+
+// Active equipment types (Ladder, Dehumidifier, Air Mover, …) for the equipment
+// forms + section filters.
+export function getEquipmentTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(EQUIPMENT_CATEGORY, opts);
+}
+
+export function getEquipmentTypesWithFallback(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(EQUIPMENT_CATEGORY, opts);
 }
 
 export function getLocationSubtypesWithFallback(): TaxonomyType[] {

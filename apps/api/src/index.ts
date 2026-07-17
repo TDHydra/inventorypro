@@ -7,10 +7,11 @@ import fastifyPostgres from '@fastify/postgres';
 import fastifyCors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { runMigrations } from './db/migrate';
-import { overRateLimit, sweepBuckets } from './lib/rateLimit';
+import { overRateLimit, overLimit, peekOverLimit, sweepBuckets } from './lib/rateLimit';
 import { startNotificationTimer } from './lib/notificationTimer';
 import { recordAudit, startAuditPruneTimer } from './lib/auditWriter';
 import { createTestAccountGate } from './lib/testAccounts';
+import { createDemoModeGate } from './lib/demoMode';
 import { sanitizeErrorMessage } from './lib/audit';
 
 import authRoutes, { isRefreshToken, sweepAttempts } from './routes/auth';
@@ -136,6 +137,21 @@ async function build() {
     reply.header('X-Request-Id', request.id);
   });
 
+  // Generous global per-IP ceiling for UNAUTHENTICATED traffic (300/min). A
+  // caller with a valid JWT is skipped — authenticated users have their own
+  // per-user buckets, and one office NAT must never rate-limit a whole crew
+  // because of shared-IP volume. This only throttles anonymous scanners/
+  // scrapers hammering the public surface (/health, /auth/roster, 404 probes).
+  fastify.addHook('onRequest', async (request: any, reply: any) => {
+    try {
+      await request.jwtVerify();
+      return; // valid JWT (access or refresh) → not anonymous traffic
+    } catch { /* unauthenticated — fall through to the IP bucket */ }
+    if (overLimit(`anon:${request.ip}`, 300)) {
+      return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
+    }
+  });
+
   // API access/audit trail (migration 042). Runs AFTER the response is sent, so
   // it adds no latency to the request; the write is fire-and-forget and can
   // never fail a request. Reads nothing but method/url/status/timing/ip and the
@@ -152,7 +168,20 @@ async function build() {
     query: (sql, params) => fastify.pg.query(sql, params as any[]),
   });
 
+  // Demo-mode kill switch (app_config.demo_mode, migration 047). ONE shared
+  // instance: PATCH /audit/demo-mode invalidates the same cache the /auth
+  // roster/set-pin checks read.
+  const demoGate = createDemoModeGate({
+    query: (sql, params) => fastify.pg.query(sql, params as any[]),
+  });
+
   fastify.addHook('preHandler', async (request: any, reply: any) => {
+    // An IP that keeps sending schema-invalid requests (see the vreject bucket
+    // fed by setErrorHandler below) is probing, not typo-ing — cut it off
+    // early. peek only: this hook must not consume quota the error handler owns.
+    if (peekOverLimit(`vreject:${request.ip}`, 30)) {
+      return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
+    }
     const m = request.method;
     if (m !== 'POST' && m !== 'PATCH' && m !== 'DELETE') return;
     if (request.url.startsWith('/auth')) return;
@@ -180,7 +209,7 @@ async function build() {
   });
 
   // Routes
-  await fastify.register(authRoutes, { prefix: '/auth' });
+  await fastify.register(authRoutes, { prefix: '/auth', demoGate });
   await fastify.register(syncRoutes, { prefix: '/sync' });
   await fastify.register(itemRoutes, { prefix: '/items' });
   await fastify.register(locationRoutes, { prefix: '/locations' });
@@ -193,7 +222,7 @@ async function build() {
   await fastify.register(telemetryRoutes, { prefix: '/telemetry' });
   await fastify.register(pushRoutes, { prefix: '/push' });
   await fastify.register(notificationsRoutes, { prefix: '/notifications' });
-  await fastify.register(auditRoutes, { prefix: '/audit' });
+  await fastify.register(auditRoutes, { prefix: '/audit', demoGate });
 
   // Health check — includes uptime and version for ops dashboards.
   //
@@ -215,6 +244,14 @@ async function build() {
   fastify.setErrorHandler((err, request, reply) => {
     request.log.error({ err }, 'request error');
     const status = (err as any).statusCode ?? 500;
+    // Schema-validation rejects are flagged for the audit trail (outcome
+    // 'validation_reject' — a boolean, never the offending body) and counted
+    // per-IP: a burst of malformed requests is fuzzing, and the preHandler
+    // peek 429s the IP once this bucket is over.
+    if ((err as any).validation) {
+      (request as any).auditValidationReject = true;
+      overLimit(`vreject:${request.ip}`, 30);
+    }
     // Stash a sanitized reason for the onResponse audit hook. For 5xx this is
     // the error's class name only — never the message, stack, or SQL/driver
     // text, matching what we refuse to send the client below. sanitizeErrorMessage

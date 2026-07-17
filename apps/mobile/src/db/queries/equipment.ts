@@ -1,4 +1,5 @@
 import { getDb, rowsAs } from '../schema';
+import { resolveLabels } from './taxonomy';
 import { InventoryItem } from './items';
 import { countUnitsByStatus } from './equipmentUnits';
 
@@ -13,7 +14,13 @@ export function getEquipmentModels(q?: string): EquipmentModel[] {
     ? `SELECT * FROM inventory_items WHERE kind='equipment' AND active=1 AND name LIKE '%'||?||'%' ORDER BY name`
     : `SELECT * FROM inventory_items WHERE kind='equipment' AND active=1 ORDER BY name`;
   const params = hasQuery ? [q] : [];
-  const items = rowsAs<InventoryItem>(db.executeSync(sql, params).rows);
+  // Resolve `type` from type_id so a taxonomy rename shows immediately (#28,
+  // mirrors items.ts's category_id → category resolution).
+  const items = resolveLabels(
+    rowsAs<InventoryItem>(db.executeSync(sql, params).rows),
+    'type_id',
+    'type',
+  );
   return items.map(item => ({ ...item, counts: countUnitsByStatus(item.id) }));
 }
 

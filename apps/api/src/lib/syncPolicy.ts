@@ -204,7 +204,9 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // permission required) — distinct from an ABSENT op, which fails closed to DENY.
 // Entities media may attach to. Deliberately excludes users/teams/role_settings/
 // app_config (a fixed IDOR sink — see routes/media.ts, which imports this).
-export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log']);
+// 'message' (#29-H chat attachments) is additionally participant-gated: writes
+// in routes/media.ts, pulls via mediaScopeSql in routes/sync.ts.
+export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log', 'message']);
 
 // Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors any
 // media URL/delete to a key WE generated in /upload-url, never a client path.
@@ -349,9 +351,15 @@ export const ACTIVITY_ACTIONS = new Set([
   'user_permission_changed', 'user_pin_reset', 'user_role_changed', 'recount',
   // equipment lifecycle (migration 033): logged on maintenance_events insert.
   'maintenance_event',
+  // Settings → form-field show/hide (db/hiddenFields.ts). The only client action
+  // still missing from this allowlist — every one was rejected and lost (#56).
+  'hidden_field_changed',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
+  // db/hiddenFields.ts logs form-field show/hide against the app_config row that
+  // stores them. Missing here, every such row was rejected and retried to death (#56).
+  'app_config',
 ]);
 export function isAllowedActivity(action: unknown, entityType: unknown): boolean {
   return typeof action === 'string' && ACTIVITY_ACTIONS.has(action)
@@ -391,7 +399,7 @@ const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
 // pull is scoped to the caller's own conversations in sync.ts.
 const CONVERSATIONS_COLS = 'id, kind, title, created_by, created_at, updated_at';
 const CONVERSATION_PARTICIPANTS_COLS = 'conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at';
-const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at';
+const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;

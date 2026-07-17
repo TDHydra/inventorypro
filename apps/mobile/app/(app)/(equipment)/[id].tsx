@@ -14,7 +14,9 @@ import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { getAllLocations } from '../../../src/db/queries/locations';
 import { PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker } from '../../../src/components/pickers';
+import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
+import { HidableField } from '../../../src/components/ui/HidableField';
+import { FilterChip } from '../../../src/components/ui/FilterChip';
 import {
   getUnitByTag, upsertUnit, getUnitsForItem, countUnitsByStatus,
   setUnitStatus, EquipmentUnit,
@@ -42,6 +44,15 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { track } from '../../../src/telemetry';
+import {
+  parseOptionalCount, parseOptionalDate, parseOptionalNonNegative, validateName, validateText,
+} from '../../../src/lib/validation';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'equipment_detail', props: { field, rule } });
+}
 
 // Build a unit-id → maintenance-events (newest first) map for a set of units.
 function buildMaintMap(units: EquipmentUnit[]): Map<string, MaintenanceEvent[]> {
@@ -49,6 +60,12 @@ function buildMaintMap(units: EquipmentUnit[]): Map<string, MaintenanceEvent[]> 
   for (const u of units) map.set(u.id, getMaintenanceEventsForUnit(u.id));
   return map;
 }
+
+// The methods computeBookValue understands; deselecting the active chip = none.
+const DEPRECIATION_METHODS = [
+  { value: 'straight_line', label: 'Straight line' },
+  { value: 'declining_balance', label: 'Declining balance' },
+] as const;
 
 export default function EquipmentModelDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -66,13 +83,16 @@ export default function EquipmentModelDetailScreen() {
   const [item, setItem] = useState<InventoryItem | null>(() => getItemById(id));
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [editCategory, setEditCategory] = useState('');
+  // Equipment type (taxonomy category 'equipment', #28): label cache + durable id.
+  // Replaced the free-text category autocomplete — stored category data is left
+  // untouched, it's just no longer edited here.
+  const [editType, setEditType] = useState<string | null>(null);
+  const [editTypeId, setEditTypeId] = useState<string | null>(null);
   const [editReturnable, setEditReturnable] = useState(false);
   const [editTagPrefix, setEditTagPrefix] = useState('');
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
   const modelOptions = useMemo(() => getDistinctValues('model'), []);
-  const categoryOptions = useMemo(() => getDistinctValues('category'), []);
 
   // Add Units modal state
   const [addUnitsOpen, setAddUnitsOpen] = useState(false);
@@ -108,6 +128,13 @@ export default function EquipmentModelDetailScreen() {
   const [editUnitTag, setEditUnitTag] = useState('');
   const [editUnitSerial, setEditUnitSerial] = useState('');
   const [editUnitNotes, setEditUnitNotes] = useState('');
+  const [editUnitAcquired, setEditUnitAcquired] = useState('');
+  const [editUnitPrice, setEditUnitPrice] = useState('');
+  const [editUnitLife, setEditUnitLife] = useState('');
+  const [editUnitSalvage, setEditUnitSalvage] = useState('');
+  const [editUnitMethod, setEditUnitMethod] = useState('');
+  const [editUnitNextService, setEditUnitNextService] = useState('');
+  const [editUnitInterval, setEditUnitInterval] = useState('');
 
   // Unit history modal state
   const [historyUnit, setHistoryUnit] = useState<EquipmentUnit | null>(null);
@@ -178,7 +205,8 @@ export default function EquipmentModelDetailScreen() {
       sku: item.sku ?? '',
       supplier: item.supplier ?? '',
     });
-    setEditCategory(item.category ?? '');
+    setEditType(item.type ?? null);
+    setEditTypeId(item.type_id ?? null);
     setEditReturnable(item.returnable === 1);
     setEditTagPrefix(item.tag_prefix ?? '');
     setEditing(true);
@@ -187,7 +215,24 @@ export default function EquipmentModelDetailScreen() {
   function saveEdit() {
     if (!item) return;
     if (isWriteBlocked()) return;
-    if (!form.name?.trim()) { Alert.alert('Required', 'Model name is required.'); return; }
+    // Bounded, control-char-free name (same 'Model name is required.' copy as
+    // before for the blank case).
+    const nameResult = validateName(form.name ?? '', { label: 'Model name' });
+    if (!nameResult.ok) { trackReject('item.name', nameResult.rule); Alert.alert('Required', nameResult.error); return; }
+    // Optional free text: bounded + control-char-rejecting, checked BEFORE any
+    // local write. Blank stays fine (→ null below, as before).
+    const textChecks = [
+      { field: 'item.model', value: form.model ?? '', label: 'Color / Model', max: 200 },
+      { field: 'item.description', value: form.description ?? '', label: 'Description', max: 2000 },
+      { field: 'item.barcode', value: form.barcode ?? '', label: 'Barcode', max: 512 },
+      { field: 'item.sku', value: form.sku ?? '', label: 'SKU / Part #', max: 100 },
+      { field: 'item.supplier', value: form.supplier ?? '', label: 'Supplier / Vendor', max: 200 },
+      { field: 'item.tag_prefix', value: editTagPrefix, label: 'Tag prefix', max: 20 },
+    ] as const;
+    for (const c of textChecks) {
+      const r = validateText(c.value, { label: c.label, max: c.max });
+      if (!r.ok) { trackReject(c.field, r.rule); Alert.alert(`Invalid ${c.label.toLowerCase()}`, r.error); return; }
+    }
     const fields = {
       name: form.name.trim(),
       model: form.model.trim() || null,
@@ -195,7 +240,9 @@ export default function EquipmentModelDetailScreen() {
       barcode: form.barcode.trim() || null,
       sku: form.sku.trim() || null,
       supplier: form.supplier.trim() || null,
-      category: editCategory.trim() || null,
+      // type_id is dual-written by updateItemFields (resolveTypeId); stored
+      // `category` is intentionally no longer edited on equipment screens.
+      type: editType,
       returnable: (editReturnable ? 1 : 0) as number,
       tag_prefix: editTagPrefix.trim() || null,
     };
@@ -258,11 +305,13 @@ export default function EquipmentModelDetailScreen() {
   function saveUnits() {
     if (isWriteBlocked()) return;
     if (!addUnitsLoc) {
+      trackReject('equipment_unit.location', 'required');
       Alert.alert('Required', 'Please select a location.');
       return;
     }
     const filledRows = unitRows.filter(r => r.tag.trim());
     if (filledRows.length === 0) {
+      trackReject('equipment_unit.asset_tag', 'required');
       Alert.alert('Required', 'Enter at least one asset tag.');
       return;
     }
@@ -275,9 +324,21 @@ export default function EquipmentModelDetailScreen() {
       if (err) errors[i] = err;
     }
     if (Object.keys(errors).length > 0) {
+      trackReject('equipment_unit.asset_tag', 'duplicate');
       setTagErrors(errors);
       Alert.alert('Duplicate Tags', 'Fix duplicate asset tags before saving.');
       return;
+    }
+    // Serials are optional free text — bound them BEFORE the row writes below
+    // start (they aren't wrapped in a single transaction).
+    for (const row of unitRows) {
+      if (!row.tag.trim()) continue;
+      const serialResult = validateText(row.serial, { label: 'Serial number', max: 200 });
+      if (!serialResult.ok) {
+        trackReject('equipment_unit.serial_number', serialResult.rule);
+        Alert.alert('Invalid serial number', serialResult.error);
+        return;
+      }
     }
     if (!user || !item) return;
 
@@ -386,18 +447,58 @@ export default function EquipmentModelDetailScreen() {
     setEditUnitTag(unit.asset_tag);
     setEditUnitSerial(unit.serial_number ?? '');
     setEditUnitNotes(unit.notes ?? '');
+    setEditUnitAcquired(unit.acquired_at ? unit.acquired_at.slice(0, 10) : '');
+    setEditUnitPrice(unit.purchase_price != null ? String(unit.purchase_price) : '');
+    setEditUnitLife(unit.useful_life_months != null ? String(unit.useful_life_months) : '');
+    setEditUnitSalvage(unit.salvage_value != null ? String(unit.salvage_value) : '');
+    setEditUnitMethod(unit.depreciation_method ?? '');
+    setEditUnitNextService(unit.next_service_at ? unit.next_service_at.slice(0, 10) : '');
+    setEditUnitInterval(unit.service_interval_months != null ? String(unit.service_interval_months) : '');
   }
 
   function saveEditUnit() {
     if (!editUnit || !user) return;
     if (isWriteBlocked()) return;
-    if (!editUnitTag.trim()) { Alert.alert('Required', 'Asset tag is required.'); return; }
+    // Same 'Asset tag is required.' copy as before for the blank case. All
+    // checks run BEFORE any local write; invalid dates/numbers are rejected
+    // with a message instead of silently coerced to null (the old *OrNull trap).
+    const tagResult = validateName(editUnitTag, { label: 'Asset tag' });
+    if (!tagResult.ok) { trackReject('equipment_unit.asset_tag', tagResult.rule); Alert.alert('Required', tagResult.error); return; }
+    const serialResult = validateText(editUnitSerial, { label: 'Serial number', max: 200 });
+    if (!serialResult.ok) { trackReject('equipment_unit.serial_number', serialResult.rule); Alert.alert('Invalid serial number', serialResult.error); return; }
+    const notesResult = validateText(editUnitNotes, { label: 'Notes' });
+    if (!notesResult.ok) { trackReject('equipment_unit.notes', notesResult.rule); Alert.alert('Invalid notes', notesResult.error); return; }
+    const acquiredResult = parseOptionalDate(editUnitAcquired, 'Acquired date');
+    if (!acquiredResult.ok) { trackReject('equipment_unit.acquired_at', acquiredResult.rule); Alert.alert('Invalid date', acquiredResult.error); return; }
+    const lifeResult = parseOptionalCount(editUnitLife, 'Useful life (months)');
+    if (!lifeResult.ok) { trackReject('equipment_unit.useful_life_months', lifeResult.rule); Alert.alert('Invalid useful life', lifeResult.error); return; }
+    const nextServiceResult = parseOptionalDate(editUnitNextService, 'Next service date');
+    if (!nextServiceResult.ok) { trackReject('equipment_unit.next_service_at', nextServiceResult.rule); Alert.alert('Invalid date', nextServiceResult.error); return; }
+    const intervalResult = parseOptionalCount(editUnitInterval, 'Service interval (months)');
+    if (!intervalResult.ok) { trackReject('equipment_unit.service_interval_months', intervalResult.rule); Alert.alert('Invalid service interval', intervalResult.error); return; }
     const now = new Date().toISOString();
-    const changes = {
-      asset_tag: editUnitTag.trim(),
-      serial_number: editUnitSerial.trim() || null,
-      notes: editUnitNotes.trim() || null,
+    const changes: Partial<EquipmentUnit> = {
+      asset_tag: tagResult.value,
+      serial_number: serialResult.value || null,
+      notes: notesResult.value || null,
+      acquired_at: acquiredResult.value,
+      useful_life_months: lifeResult.value,
+      depreciation_method: editUnitMethod || null,
+      next_service_at: nextServiceResult.value,
+      service_interval_months: intervalResult.value,
     };
+    // purchase_price / salvage_value arrive null on non-financial devices (the
+    // server strips them from pull), so only write them back when this device
+    // can actually see them — otherwise an edit here would push nulls over the
+    // server's real values.
+    if (canViewFinancial) {
+      const priceResult = parseOptionalNonNegative(editUnitPrice, 'Purchase price');
+      if (!priceResult.ok) { trackReject('equipment_unit.purchase_price', priceResult.rule); Alert.alert('Invalid purchase price', priceResult.error); return; }
+      const salvageResult = parseOptionalNonNegative(editUnitSalvage, 'Salvage value');
+      if (!salvageResult.ok) { trackReject('equipment_unit.salvage_value', salvageResult.rule); Alert.alert('Invalid salvage value', salvageResult.error); return; }
+      changes.purchase_price = priceResult.value;
+      changes.salvage_value = salvageResult.value;
+    }
     upsertUnit({ ...editUnit, ...changes, updated_at: now });
     appendOutbox('UPDATE', 'equipment_units', { id: editUnit.id, ...changes, updated_at: now });
     appendLog({
@@ -451,22 +552,36 @@ export default function EquipmentModelDetailScreen() {
   function saveMaint() {
     if (!maintUnit || !user) return;
     if (isWriteBlocked()) return;
-    if (!maintType.trim()) { Alert.alert('Required', 'Enter a maintenance type.'); return; }
-    // Turn the YYYY-MM-DD input back into an ISO instant; fall back to now if
-    // the field was cleared or is unparseable.
-    const parsed = maintDate.trim() ? new Date(maintDate.trim()) : null;
-    const eventDate = parsed && !isNaN(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
-    // Cost is only offered to financial users; parse leniently, null when blank.
+    // Same 'Enter a maintenance type.' copy as before for the blank case; also
+    // bounds the type/notes and rejects garbage dates/costs instead of the old
+    // silent coercion — all BEFORE the local write.
+    if (!maintType.trim()) {
+      trackReject('maintenance.type', 'required');
+      Alert.alert('Required', 'Enter a maintenance type.');
+      return;
+    }
+    const typeResult = validateText(maintType, { label: 'Maintenance type', max: 100 });
+    if (!typeResult.ok) { trackReject('maintenance.type', typeResult.rule); Alert.alert('Invalid maintenance type', typeResult.error); return; }
+    const notesResult = validateText(maintNotes, { label: 'Notes' });
+    if (!notesResult.ok) { trackReject('maintenance.notes', notesResult.rule); Alert.alert('Invalid notes', notesResult.error); return; }
+    // Turn the YYYY-MM-DD input back into an ISO instant; blank falls back to
+    // now (as before), unparseable input is rejected instead of silently
+    // becoming "now".
+    const dateResult = parseOptionalDate(maintDate, 'Date');
+    if (!dateResult.ok) { trackReject('maintenance.event_date', dateResult.rule); Alert.alert('Invalid date', dateResult.error); return; }
+    const eventDate = dateResult.value ?? new Date().toISOString();
+    // Cost is only offered to financial users; blank → null.
     let cost: number | null = null;
-    if (canViewFinancial && maintCost.trim()) {
-      const n = parseFloat(maintCost.trim());
-      cost = isNaN(n) ? null : n;
+    if (canViewFinancial) {
+      const costResult = parseOptionalNonNegative(maintCost, 'Cost');
+      if (!costResult.ok) { trackReject('maintenance.cost', costResult.rule); Alert.alert('Invalid cost', costResult.error); return; }
+      cost = costResult.value;
     }
     createMaintenanceEvent({
       unitId: maintUnit.id,
       eventDate,
-      type: maintType.trim(),
-      notes: maintNotes.trim() || null,
+      type: typeResult.value,
+      notes: notesResult.value || null,
       cost,
       userId: user.id,
     });
@@ -487,13 +602,19 @@ export default function EquipmentModelDetailScreen() {
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
               <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
               <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
-              <SuggestInput
-                label="Category"
-                value={editCategory}
-                onChange={setEditCategory}
-                suggestions={categoryOptions}
-                placeholder="Air Movers, Dehumidifiers…"
-              />
+              <HidableField fieldId="equipment.type">
+                <View style={s.fieldWrap}>
+                  <TaxonomyChips
+                    category="equipment"
+                    label="Type"
+                    withFallback
+                    deselectable
+                    valueId={editTypeId}
+                    valueLabel={editType}
+                    onChange={v => { setEditType(v.label); setEditTypeId(v.id); }}
+                  />
+                </View>
+              </HidableField>
               <View style={s.fieldWrap}>
                 <FieldLabel>Tag Prefix</FieldLabel>
                 <AppInput
@@ -719,7 +840,7 @@ export default function EquipmentModelDetailScreen() {
             <PrimaryButton
               label="Confirm Return"
               onPress={() => {
-                if (!repairInLoc) { Alert.alert('Required', 'Please select a location.'); return; }
+                if (!repairInLoc) { trackReject('equipment_unit.location', 'required'); Alert.alert('Required', 'Please select a location.'); return; }
                 if (repairInUnit) doRepairIn(repairInUnit, repairInLoc.id);
               }}
               disabled={locked}
@@ -742,22 +863,97 @@ export default function EquipmentModelDetailScreen() {
           autoCorrect={false}
         />
         <AdvancedFields>
-          <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
-          <AppInput
-            value={editUnitSerial}
-            onChangeText={setEditUnitSerial}
-            placeholder="Serial number"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
-          <AppInput
-            style={s.multiline}
-            value={editUnitNotes}
-            onChangeText={setEditUnitNotes}
-            placeholder="Notes"
-            multiline
-          />
+          <HidableField fieldId="equipment.serial_number">
+            <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
+            <AppInput
+              value={editUnitSerial}
+              onChangeText={setEditUnitSerial}
+              placeholder="Serial number"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </HidableField>
+          <HidableField fieldId="equipment.notes">
+            <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
+            <AppInput
+              style={s.multiline}
+              value={editUnitNotes}
+              onChangeText={setEditUnitNotes}
+              placeholder="Notes"
+              multiline
+            />
+          </HidableField>
+          <HidableField fieldId="equipment.acquired_at">
+            <FieldLabel style={{ marginTop: 10 }}>Acquired date (optional)</FieldLabel>
+            <AppInput
+              value={editUnitAcquired}
+              onChangeText={setEditUnitAcquired}
+              placeholder="YYYY-MM-DD"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </HidableField>
+          {/* Financial fields: view_financial_data gate AND the hidable-field
+              gate must both pass (mirrors the book-value display gating). */}
+          {canViewFinancial && (
+            <HidableField fieldId="equipment.purchase_price">
+              <FieldLabel style={{ marginTop: 10 }}>Purchase price (optional)</FieldLabel>
+              <AppInput
+                value={editUnitPrice}
+                onChangeText={setEditUnitPrice}
+                placeholder="0.00"
+                keyboardType="numeric"
+              />
+            </HidableField>
+          )}
+          <HidableField fieldId="equipment.depreciation">
+            <FieldLabel style={{ marginTop: 10 }}>Useful life (months)</FieldLabel>
+            <AppInput
+              value={editUnitLife}
+              onChangeText={setEditUnitLife}
+              placeholder="e.g. 60"
+              keyboardType="numeric"
+            />
+            {canViewFinancial && (
+              <>
+                <FieldLabel style={{ marginTop: 10 }}>Salvage value (optional)</FieldLabel>
+                <AppInput
+                  value={editUnitSalvage}
+                  onChangeText={setEditUnitSalvage}
+                  placeholder="0.00"
+                  keyboardType="numeric"
+                />
+              </>
+            )}
+            <FieldLabel style={{ marginTop: 10 }}>Depreciation method</FieldLabel>
+            <View style={s.methodRow}>
+              {DEPRECIATION_METHODS.map(m => (
+                <FilterChip
+                  key={m.value}
+                  label={m.label}
+                  active={editUnitMethod === m.value}
+                  onPress={() => setEditUnitMethod(prev => (prev === m.value ? '' : m.value))}
+                />
+              ))}
+            </View>
+          </HidableField>
+          <HidableField fieldId="equipment.service_schedule">
+            <FieldLabel style={{ marginTop: 10 }}>Next service date (optional)</FieldLabel>
+            <AppInput
+              value={editUnitNextService}
+              onChangeText={setEditUnitNextService}
+              placeholder="YYYY-MM-DD"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FieldLabel style={{ marginTop: 10 }}>Service interval (months)</FieldLabel>
+            <AppInput
+              value={editUnitInterval}
+              onChangeText={setEditUnitInterval}
+              placeholder="e.g. 6"
+              keyboardType="numeric"
+            />
+          </HidableField>
         </AdvancedFields>
         <View style={[s.row, { marginTop: 16 }]}>
           <TouchableOpacity
@@ -964,6 +1160,7 @@ const s = StyleSheet.create({
   stockLoc: { fontSize: 15, color: colors.textPrimary, fontWeight: '600', flex: 1 },
   stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
   fieldWrap: { gap: 6 },
+  methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },

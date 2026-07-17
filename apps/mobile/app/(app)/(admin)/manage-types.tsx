@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Animated, PanResponder } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -37,6 +37,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 // System location types whose LABEL is matched by hardcoded structural filters in
 // queries/locations.ts (WHERE type='Shelf' / IN('Shop','Office') / 'Vehicle') that
@@ -316,6 +317,7 @@ const CATEGORY_NOUN: Record<string, string> = {
   location_type: 'Location Type',
   location_subtype: 'Location Sub-Type',
   repair_status: 'Repair Status',
+  equipment: 'Equipment Type',
 };
 
 export default function ManageTypesScreen() {
@@ -348,6 +350,19 @@ export default function ManageTypesScreen() {
   const [repairStatuses, setRepairStatuses] = useState<TaxonomyType[]>(() =>
     getTaxonomyTypes('repair_status', { includeInactive: true }),
   );
+  const [equipmentTypes, setEquipmentTypes] = useState<TaxonomyType[]>(() =>
+    getTaxonomyTypes('equipment', { includeInactive: true }),
+  );
+
+  // Re-read all seven lists on sync pull so a taxonomy value created on another
+  // device appears while this screen is open. Skipped mid-drag so a pull can't
+  // yank rows out from under the gesture; deps include `dragging`, so the
+  // re-read catches up as soon as the drag ends (#61).
+  const dataVersion = useDataVersion();
+  useEffect(() => {
+    if (dragging) return;
+    refresh();
+  }, [dataVersion, dragging]);
 
   // Add modal
   const [addCategory, setAddCategory] = useState<string | null>(null);
@@ -384,6 +399,7 @@ export default function ManageTypesScreen() {
     setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
     setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
     setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
+    setEquipmentTypes(getTaxonomyTypes('equipment', { includeInactive: true }));
   }
 
   // ── Add handlers ────────────────────────────────────────────────────────────
@@ -752,6 +768,7 @@ export default function ManageTypesScreen() {
           {renderSection('Location Types', 'location_type', locTypes, '+ Add Location Type')}
           {renderSection('Location Sub-Types', 'location_subtype', locSubtypes, '+ Add Location Sub-Type')}
           {renderSection('Repair Statuses', 'repair_status', repairStatuses, '+ Add Repair Status')}
+          {renderSection('Equipment Types', 'equipment', equipmentTypes, '+ Add Equipment Type')}
         </ScrollView>
       )}
 

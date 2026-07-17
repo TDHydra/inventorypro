@@ -57,14 +57,17 @@ export function recordAudit(
   statusCode: number,
   elapsedMs: number,
 ): void {
-  const outcome = outcomeFor(statusCode);
+  // Stashed by the global error handler — a boolean, never the offending body.
+  const validationReject =
+    !!(request as unknown as { auditValidationReject?: boolean }).auditValidationReject;
+  const outcome = outcomeFor(statusCode, validationReject);
   if (!shouldAudit(request.method, request.url, outcome)) return;
 
   void (async () => {
     try {
       const actor = await resolveActor(fastify, request);
       const err = (request as unknown as { auditError?: string | null }).auditError ?? null;
-      const r = buildAuditRow(request, statusCode, elapsedMs, actor, err);
+      const r = buildAuditRow(request, statusCode, elapsedMs, actor, err, validationReject);
       await fastify.pg.query(
         `INSERT INTO api_request_audit
            (request_id, user_id, actor_name, actor_role, method, route, path,

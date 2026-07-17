@@ -31,6 +31,16 @@ export function overLimit(key: string, max: number, windowMs = WINDOW_MS): boole
   return b.count > max;
 }
 
+// Read-only peek: is `key` currently over `max`, WITHOUT consuming quota?
+// Lets a hot-path hook check a bucket that is only ever filled elsewhere
+// (e.g. the `vreject:` bucket fed by the error handler) — a peek must never
+// count as a hit, or the check itself would push callers over the limit.
+export function peekOverLimit(key: string, max: number): boolean {
+  const b = buckets.get(key);
+  if (!b || Date.now() > b.reset) return false; // no bucket / window ended
+  return b.count > max;
+}
+
 // Periodic garbage collection: nothing above ever DELETES a bucket — an expired
 // one is only replaced when the same key comes back, so one-off keys (e.g. a
 // user's `mut:`/`refresh:` bucket after they stop calling) accumulate forever.

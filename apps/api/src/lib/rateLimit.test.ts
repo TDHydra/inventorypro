@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { overLimit, overRateLimit, sweepBuckets } from './rateLimit';
+import { overLimit, overRateLimit, peekOverLimit, sweepBuckets } from './rateLimit';
 
 test('overLimit allows up to `max` within the window, then blocks', () => {
   const k = `unit-test:allow:${process.pid}:${Date.now()}`;
@@ -22,6 +22,19 @@ test('overRateLimit uses the default 120/min ceiling', () => {
   const k = `unit-test:default:${Date.now()}`;
   for (let i = 0; i < 120; i++) assert.equal(overRateLimit(k), false);
   assert.equal(overRateLimit(k), true); // 121st blocked
+});
+
+test('peekOverLimit reflects the bucket state without consuming quota', () => {
+  const k = `unit-test:peek:${process.pid}:${Date.now()}`;
+  // No bucket yet — under, and however often we peek, still no bucket created.
+  for (let i = 0; i < 50; i++) assert.equal(peekOverLimit(k, 2), false);
+  assert.equal(overLimit(k, 2), false);      // count 1 — peeks above didn't count
+  assert.equal(peekOverLimit(k, 2), false);  // 1 ≤ 2
+  assert.equal(overLimit(k, 2), false);      // count 2
+  assert.equal(peekOverLimit(k, 2), false);  // exactly at max is not over
+  assert.equal(overLimit(k, 2), true);       // count 3 → over
+  assert.equal(peekOverLimit(k, 2), true);   // peek sees it…
+  assert.equal(peekOverLimit(k, 2), true);   // …and repeated peeks stay read-only
 });
 
 test('sweepBuckets deletes only buckets whose window has ended', () => {

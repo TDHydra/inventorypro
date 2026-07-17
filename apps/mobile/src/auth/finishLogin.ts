@@ -4,6 +4,7 @@ import { setMaintenanceRole } from '../db/maintenance';
 import { appendLog } from '../db/queries/log';
 import { registerForPush } from '../push/register';
 import { setSandboxActive } from '../sync/sandbox';
+import { discardPendingOutbox } from '../sync/outbox';
 import { setAppSetting, deleteAppSetting } from '../db/appSettings';
 
 /** app_settings flag: a test session is (or was) live on this device. Read at
@@ -31,6 +32,25 @@ export function finishLogin(userId: string, setUser: (s: UserSession) => void): 
   // pull) and the crash flag makes a killed demo wipe on next launch. Real
   // logins clear both, in case a prior test session's state lingers.
   const isTestSession = !!session.is_test;
+
+  // The demo session's logout wipes the whole local DB, so the outgoing user's
+  // un-synced work cannot survive it either way. Drop it from the outbox NOW —
+  // before the sandbox goes up — so no sync cycle can push those rows to the
+  // server under the demo user's JWT. The picker (login.tsx) has already pushed
+  // the pending activity_log rows and refuses to get here if any are undelivered,
+  // which is what makes this delete safe: reconcileLogSyncState() reads a vanished
+  // outbox row as "delivered".
+  if (isTestSession) {
+    try {
+      const dropped = discardPendingOutbox();
+      if (dropped > 0) console.log(`[Sync] demo entry: discarded ${dropped} unsynced change(s)`);
+    } catch (err) {
+      // Best-effort — the logout wipe still clears them; it just means the rows
+      // linger for the duration of the demo.
+      console.warn('[Sync] demo entry: outbox discard failed:', (err as Error).message);
+    }
+  }
+
   setSandboxActive(isTestSession);
   try {
     if (isTestSession) setAppSetting(TEST_SESSION_FLAG, '1');
@@ -39,9 +59,14 @@ export function finishLogin(userId: string, setUser: (s: UserSession) => void): 
 
   // Authentication is never a data mutation — signing in must NEVER be blocked by
   // maintenance mode. The login audit is best-effort: if the write-guard (or
-  // anything) throws, swallow it so the user still gets in. Test sessions skip
-  // it entirely — their audit rows would only ever be throwaway sandbox data.
-  if (!isTestSession) try {
+  // anything) throws, swallow it so the user still gets in.
+  //
+  // Demo sessions are logged too — appendLog stamps every row from a sandbox
+  // session with `demo: true` (and they never leave the device), so the Activity
+  // Logs screen works for someone exploring the app as a test account without
+  // any of it passing for real activity. setSandboxActive() above must therefore
+  // run BEFORE this call.
+  try {
     appendLog({
       user_id: session.id,
       team_id: null,

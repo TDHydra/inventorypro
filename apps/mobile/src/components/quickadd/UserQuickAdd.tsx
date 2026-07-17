@@ -12,6 +12,8 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { track } from '../../telemetry';
+import { validateName } from '../../lib/validation';
 
 const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
 const DEFAULT_ROLE: UserRole = 'mitigation_technician';
@@ -47,11 +49,15 @@ export default function UserQuickAdd({ onSaved }: Props) {
   }, [name]);
 
   async function handleSave() {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNameError('Name is required.');
+    // Bounded, control-char-free name (same 'Name is required.' copy as before
+    // for the blank case).
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      track('audit', 'validation_reject', { screen: 'quick_add', props: { field: 'user.name', rule: nameResult.rule } });
+      setNameError(nameResult.error);
       return;
     }
+    const trimmedName = nameResult.value;
     setNameError('');
     setSaving(true);
     try {

@@ -19,6 +19,8 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { track } from '../../telemetry';
+import { validateName } from '../../lib/validation';
 
 // A vehicle is just a location tagged type='Vehicle' (no separate table). This
 // mirrors LocationQuickAdd but locks the type and offers an optional Owner instead
@@ -46,11 +48,15 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
   );
 
   function handleSave() {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setNameError('Name is required.');
+    // Bounded, control-char-free name (same 'Name is required.' copy as before
+    // for the blank case).
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      track('audit', 'validation_reject', { screen: 'quick_add', props: { field: 'vehicle.name', rule: nameResult.rule } });
+      setNameError(nameResult.error);
       return;
     }
+    const trimmedName = nameResult.value;
     setNameError('');
 
     const now = new Date().toISOString();

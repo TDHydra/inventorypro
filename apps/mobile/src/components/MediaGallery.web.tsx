@@ -5,10 +5,7 @@ import { colors } from '../theme';
 import { Alert } from '../lib/themedAlert';
 import { useSession } from '../hooks/useSession';
 import { usePermission } from '../hooks/usePermission';
-import { getDb } from '../db/schema';
-import { appendOutbox } from '../sync/outbox';
-import { generateUUID } from '../utils/uuid';
-import { getValidJwt } from '../auth/session';
+import { uploadMediaAsset, MAX_UPLOAD_BYTES } from '../media/upload';
 import { MediaRecord, getMediaForEntity, getLocationNoteSuggestions, deleteMedia } from '../db/queries/media';
 
 interface Props {
@@ -19,12 +16,6 @@ interface Props {
   // thumbnail (Quick Add) that reuses the same upload flow.
   variant?: 'grid' | 'thumb';
 }
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-
-// Server rejects uploads whose declared content_length exceeds this; skipping
-// client-side saves the doomed round-trip.
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 interface PendingUpload {
   file: File;
@@ -47,6 +38,11 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   useEffect(() => {
     setMedia(getMediaForEntity(entityType, entityId));
   }, [dataVersion, entityType, entityId]);
+  // The hero falls back to the first photo when nothing is flagged; the star does
+  // NOT (an unstarred gallery must stay unstarred). Both resolve to a SINGLE row,
+  // so a transient duplicate (two devices each electing a primary offline, before
+  // the server's correction pulls back — bug #50) shows one star, not two.
+  const primaryId = media.find(m => m.is_primary === 1)?.id ?? null;
   const primary = media.find(m => m.is_primary === 1) ?? media[0] ?? null;
   const [lightbox, setLightbox] = useState<MediaRecord | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -139,72 +135,15 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
     }
   }
 
+  // Shared presign→PUT→local-row+outbox flow lives in src/media/upload.web.ts
+  // (also used by the chat composer); this just binds it to this gallery.
   async function uploadOne(item: PendingUpload, locationNote: string | null) {
     if (!user) return;
-
-    // Uploads require online connectivity (presigned URL + direct PUT). The
-    // /media/upload-url route is JWT-protected, so attach a fresh token.
-    const jwt = await getValidJwt();
-    if (!jwt) throw new Error('Connect to the server to upload media.');
-
-    // Get signed upload URL. content_length lets the server enforce the size cap.
-    const urlRes = await fetch(`${API_BASE}/media/upload-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({
-        entity_type: entityType, entity_id: entityId, media_type: item.mediaType,
-        file_extension: item.ext, content_length: item.file.size,
-      }),
+    await uploadMediaAsset({
+      entityType, entityId,
+      mediaType: item.mediaType, ext: item.ext, file: item.file, size: item.file.size,
+      userId: user.id, locationNote,
     });
-
-    if (!urlRes.ok) throw new Error(`Could not get upload URL (${urlRes.status}).`);
-    const { uploadUrl, publicUrl, contentType } = await urlRes.json() as {
-      uploadUrl: string; publicUrl: string; contentType: string;
-    };
-
-    // Upload directly to MinIO by streaming the File (a Blob) — the browser's
-    // fetch handles the body natively (no expo-file-system). The Content-Type
-    // MUST equal the value the server signed (contentType), or MinIO rejects
-    // with SignatureDoesNotMatch.
-    const uploadRes = await fetch(uploadUrl, {
-      method: 'PUT',
-      body: item.file,
-      headers: { 'Content-Type': contentType },
-    });
-    if (!uploadRes.ok) {
-      throw new Error(`Upload failed (${uploadRes.status}).`);
-    }
-
-    // First image for an entity becomes its primary photo. Read fresh from the
-    // DB (not the stale `media` closure) so concurrent adds don't both claim
-    // it — within a batch this also means only the first SUCCESSFUL upload can
-    // become primary, and only if the entity had none before.
-    const existing = getMediaForEntity(entityType, entityId);
-    const isPrimary = existing.length === 0;
-    const id = generateUUID();
-    const now = new Date().toISOString();
-
-    const db = getDb();
-    // updated_at is set locally for immediate ordering; the server stamps its
-    // own authoritative NOW() on apply (so it's not in the outbox payload).
-    db.executeSync(
-      `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, location_note, is_primary, uploaded_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
-      [id, entityType, entityId, item.mediaType, publicUrl, locationNote, isPrimary ? 1 : 0, user.id, now, now]
-    );
-
-    appendOutbox('INSERT', 'media', {
-      id,
-      entity_type: entityType,
-      entity_id: entityId,
-      media_type: item.mediaType,
-      url: publicUrl,
-      location_note: locationNote,
-      is_primary: isPrimary, // boolean — server column is BOOLEAN
-      uploaded_by: user.id,
-      created_at: now,
-    });
-
     setMedia(getMediaForEntity(entityType, entityId));
   }
 
@@ -280,9 +219,9 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
               <img
                 src={m.thumbnail_url ?? m.url}
                 alt=""
-                style={{ ...styles.thumb, ...(m.is_primary === 1 ? styles.thumbPrimary : null) }}
+                style={{ ...styles.thumb, ...(m.id === primaryId ? styles.thumbPrimary : null) }}
               />
-              {m.is_primary === 1 && <span style={styles.primaryBadge}>★</span>}
+              {m.id === primaryId && <span style={styles.primaryBadge}>★</span>}
               {m.media_type === 'video' && <span style={styles.videoBadge}>▶</span>}
             </button>
           ))}

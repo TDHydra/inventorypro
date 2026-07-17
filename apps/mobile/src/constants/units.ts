@@ -37,9 +37,28 @@ export const ALLOWS_DECIMALS: Record<UnitCategory, boolean> = {
 // signature instead of hitting the DB on every render.
 let classDecimalsCache: Record<string, boolean> = {};
 
+// Reactive cache of per-class decimals policy, mirroring the role-permission
+// cache in src/auth/permissions.ts and the dashboard cache in
+// src/dashboard/store.ts. A version counter + listeners let a future
+// useSyncExternalStore hook re-read + re-render when a sync pull reloads the
+// cache. KEEP synced config that SHAPES the UI reactive — a decimals-policy edit
+// that lands after a pull must show immediately without a remount.
+let cacheVersion = 0;
+const listeners = new Set<() => void>();
+
+export function subscribeClassConfig(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+}
+
+export function getClassConfigVersion(): number {
+  return cacheVersion;
+}
+
 // Refresh classDecimalsCache from the configurable product classes. Safe to
 // call before the DB is ready (or before migration 012) — failures leave the
-// existing cache in place so callers fall back to the legacy maps.
+// existing cache in place so callers fall back to the legacy maps. Always bumps
+// the version + notifies so any subscribed UI re-reads the latest config.
 export function loadClassConfigCache(): void {
   try {
     const next: Record<string, boolean> = {};
@@ -52,6 +71,8 @@ export function loadClassConfigCache(): void {
   } catch {
     // DB not initialized / table missing — keep whatever we have.
   }
+  cacheVersion++;
+  listeners.forEach(l => l());
 }
 
 // Curated units for a class id. Resolves the configurable class first, falling

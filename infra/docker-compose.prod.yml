@@ -95,6 +95,14 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       # Trusted proxy subnet (NPM/Docker bridge) for correct request.ip behind the proxy.
       TRUST_PROXY: ${TRUST_PROXY:-}
+      # Outbound mail. All four are required or mail.ts degrades to a no-op
+      # (logs a warning, returns { sent: false }) — it never throws. Port 465 =
+      # implicit TLS; anything else is treated as STARTTLS.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       PORT: "3000"
       HOST: "0.0.0.0"
     ports:

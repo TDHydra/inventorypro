@@ -30,6 +30,13 @@ import { MediaGallery } from '../../../src/components/MediaGallery';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { track } from '../../../src/telemetry';
+import { MAX_QUANTITY, parseStockQuantity, validateText } from '../../../src/lib/validation';
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'repair_detail', props: { field, rule } });
+}
 
 const ENTITY_TYPE_LABEL: Record<Repair['entity_type'], string> = {
   equipment_unit: 'Equipment unit',
@@ -155,20 +162,28 @@ export default function RepairDetailScreen() {
     let costValue: number | null = null;
     if (costText.trim() !== '') {
       const parsed = parseFloat(costText);
-      if (Number.isNaN(parsed) || parsed < 0) {
+      // > MAX_QUANTITY also catches Infinity ('1e999'), which the old NaN
+      // check let through.
+      if (Number.isNaN(parsed) || parsed < 0 || parsed > MAX_QUANTITY) {
+        trackReject('repair.cost', Number.isNaN(parsed) ? 'nan' : parsed < 0 ? 'negative' : 'max');
         Alert.alert('Invalid cost', 'Enter a valid, non-negative cost.');
         return;
       }
       costValue = parsed;
     }
+    // Bounded, control-char-free free text, checked BEFORE any local write.
+    const notesResult = validateText(notes, { label: 'Notes' });
+    if (!notesResult.ok) { trackReject('repair.notes', notesResult.rule); Alert.alert('Check notes', notesResult.error); return; }
+    const partsResult = validateText(parts, { label: 'Parts needed' });
+    if (!partsResult.ok) { trackReject('repair.parts_needed', partsResult.rule); Alert.alert('Check parts needed', partsResult.error); return; }
     // updateRepairFields already queues its own outbox UPDATE for 'repairs'
     // (synced_at stripped), so the edit syncs. Wrap in a transaction + guard so
     // a failed write can't false-succeed (clear dirty / refresh the form).
     try {
       runInTransaction(() => {
         updateRepairFields(repair.id, {
-          notes: notes.trim() || null,
-          parts_needed: parts.trim() || null,
+          notes: notesResult.value || null,
+          parts_needed: partsResult.value || null,
           assignee_id: assigneeOpt?.id ?? null,
           cost: costValue,
           due_at: dueAt ?? null,
@@ -215,18 +230,24 @@ export default function RepairDetailScreen() {
   function confirmUseParts() {
     if (!repair || isWriteBlocked() || !canUseParts) return;
     if (!partItem) {
+      trackReject('repair_part.item', 'required');
       setPartError('Choose an item.');
       return;
     }
     if (!partLocation) {
+      trackReject('repair_part.location', 'required');
       setPartError('Choose a location.');
       return;
     }
-    const qty = parseFloat(partQty);
-    if (!partQty.trim() || Number.isNaN(qty) || qty <= 0) {
-      setPartError('Quantity must be greater than 0.');
+    // parseStockQuantity keeps the historical parseFloat + copy ('Quantity
+    // must be greater than 0.'), adding the overflow bound.
+    const qtyResult = parseStockQuantity(partQty, 'delta');
+    if (!qtyResult.ok) {
+      trackReject('repair_part.qty', qtyResult.rule);
+      setPartError(qtyResult.error);
       return;
     }
+    const qty = qtyResult.value;
     setPartError('');
     const full = getItemById(partItem.id);
     const unit = full?.unit ?? 'each';

@@ -16,8 +16,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
-import { useFocusRefresh } from '../../../src/hooks/useFocusRefresh';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
@@ -36,8 +35,7 @@ export default function EquipmentScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<EquipmentModel>();
-  const refreshKey = useFocusRefresh();
-  const dataVersion = useDataVersion();
+  const refreshKey = useFocusOrDataRefresh();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
@@ -137,7 +135,7 @@ export default function EquipmentScreen() {
   useFocusEffect(
     useCallback(() => {
       load(queryRef.current.trim() || undefined);
-    }, [load, dataVersion]),
+    }, [load, refreshKey]),
   );
 
   const handleSearch = (text: string) => {

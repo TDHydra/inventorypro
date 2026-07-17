@@ -36,6 +36,12 @@ function navigateToPayload(router: Router, data: Record<string, unknown> | undef
       if (id) router.push({ pathname: '/(app)/(repairs)/[id]', params: { id } });
       else router.push('/(app)/(repairs)');
       return;
+    case 'chat': {
+      const conversationId = typeof data?.conversationId === 'string' ? data.conversationId : id;
+      if (conversationId) router.push({ pathname: '/(app)/(chat)/[id]', params: { id: conversationId } });
+      else router.push('/(app)/(chat)');
+      return;
+    }
     case 'notifications':
       // broadcast / approval / checkout-idle pushes open the in-app inbox
       router.push('/(app)/(notifications)');

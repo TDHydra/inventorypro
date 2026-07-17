@@ -10,12 +10,13 @@ import { sanitizeScan } from '../../scan/sanitize';
 import { searchItems } from '../../db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../db/queries/equipmentUnits';
-import { getAllLocations, getShelvesForParent, findOrCreateShelf } from '../../db/queries/locations';
+import { resolveLocationShelfSelection } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
+import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, fontSizes, radii } from '../../theme';
@@ -24,10 +25,16 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { track } from '../../telemetry';
+import { validateText } from '../../lib/validation';
 import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
   onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void;
+}
+
+// Audit a validation rejection — field path + rule name ONLY, never the value.
+function trackReject(field: string, rule: string) {
+  track('audit', 'validation_reject', { screen: 'quick_add', props: { field, rule } });
 }
 
 // One row of the batch: an asset tag with its own (optional) nested serial.
@@ -70,32 +77,6 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
     [],
   );
 
-  const allLocations = useMemo(() => getAllLocations(), []);
-  const locationById = useMemo(() => new Map(allLocations.map(l => [l.id, l])), [allLocations]);
-  const locationOptions = useMemo<PickerOption[]>(
-    () => allLocations.map(l => {
-      const parentName = l.parent_id ? locationById.get(l.parent_id)?.name : undefined;
-      return { id: l.id, label: l.name, sublabel: parentName };
-    }),
-    [allLocations, locationById],
-  );
-
-  // The selected location's has_shelves flag drives the Shelf field.
-  const selectedLocFull = selectedLocation ? locationById.get(selectedLocation.id) : undefined;
-  const locationHasShelves = selectedLocFull?.has_shelves === 1;
-  const shelfOptions = useMemo<PickerOption[]>(
-    () => (locationHasShelves && selectedLocation)
-      ? getShelvesForParent(selectedLocation.id).map(s => ({ id: s.id, label: s.name }))
-      : [],
-    [locationHasShelves, selectedLocation],
-  );
-
-  // Selecting a location resets the shelf (shelf is per-location); tap again to clear.
-  function handleLocationSelect(opt: PickerOption) {
-    setShelfValue(null);
-    setSelectedLocation(prev => (prev?.id === opt.id ? null : opt));
-  }
-
   function updateRow(key: string, patch: Partial<UnitRow>) {
     setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
   }
@@ -113,6 +94,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   function handleSave() {
     track('action', 'quickadd_save_equipment', { screen: 'quick_add' });
     if (!selectedItem) {
+      trackReject('equipment_unit.item', 'required');
       setFormError('Select an item first.');
       return;
     }
@@ -129,28 +111,40 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       const rawTag = row.assetTag.trim();
       if (!rawTag) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'required');
         updateRow(row.key, { error: 'Asset tag is required.' });
         break;
       }
       const tag = sanitizeScan(rawTag);
       if (!tag) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'invalid');
         updateRow(row.key, { error: 'Asset tag is too long or contains invalid characters.' });
         break;
       }
       const tagKey = tag.toLowerCase();
       if (seenTags.has(tagKey)) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'duplicate_batch');
         updateRow(row.key, { error: 'Duplicate tag in this batch.' });
         break;
       }
       if (getUnitByTag(tag) !== null) {
         badKey = row.key;
+        trackReject('equipment_unit.asset_tag', 'duplicate');
         updateRow(row.key, { error: 'Tag already used.' });
         break;
       }
+      // Serial is optional free text — bound it before it reaches the outbox.
+      const serialResult = validateText(row.serial, { label: 'Serial number', max: 200 });
+      if (!serialResult.ok) {
+        badKey = row.key;
+        trackReject('equipment_unit.serial_number', serialResult.rule);
+        updateRow(row.key, { error: serialResult.error });
+        break;
+      }
       seenTags.add(tagKey);
-      cleaned.push({ key: row.key, tag, serial: row.serial.trim() || null });
+      cleaned.push({ key: row.key, tag, serial: serialResult.value || null });
     }
 
     if (badKey) {
@@ -162,28 +156,13 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
 
     // Resolve the shared batch location the same way ItemQuickAdd resolves its
     // home location: shelf (creating it if new) wins over the bare location.
-    let resolvedLocationId: string | null = null;
-    if (selectedLocation) {
-      if (locationHasShelves && shelfValue?.label) {
-        if (shelfValue.id === '__new__') {
-          let resolved: string | null = null;
-          try {
-            resolved = findOrCreateShelf(selectedLocation.id, shelfValue.label);
-          } catch {
-            resolved = null;
-          }
-          if (!resolved) {
-            setFormError(`We couldn’t create the shelf “${shelfValue.label}”. Pick an existing shelf or try again.`);
-            return;
-          }
-          resolvedLocationId = resolved;
-        } else {
-          resolvedLocationId = shelfValue.id;
-        }
-      } else {
-        resolvedLocationId = selectedLocation.id;
-      }
+    // Location is optional here — no selection resolves to a null id.
+    const dest = resolveLocationShelfSelection(selectedLocation, shelfValue);
+    if (!dest.ok) {
+      setFormError(`We couldn’t create the shelf “${dest.shelfLabel}”. Pick an existing shelf or try again.`);
+      return;
     }
+    const resolvedLocationId = dest.id;
 
     setFormError('');
     setRows(prev => prev.map(r => ({ ...r, error: '' })));
@@ -330,24 +309,12 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       </TouchableOpacity>
 
       <FieldLabel>Location for this batch (optional)</FieldLabel>
-      <SearchablePicker
-        placeholder="Search locations…"
-        options={locationOptions}
-        value={selectedLocation}
-        onSelect={handleLocationSelect}
+      <LocationShelfPicker
+        locationValue={selectedLocation}
+        shelfValue={shelfValue}
+        onChangeLocation={setSelectedLocation}
+        onChangeShelf={setShelfValue}
       />
-      {locationHasShelves && (
-        <>
-          <FieldLabel>Shelf</FieldLabel>
-          <SearchablePicker
-            placeholder="Type or pick a shelf (e.g. A1)…"
-            options={shelfOptions}
-            value={shelfValue}
-            onSelect={(opt) => setShelfValue(prev => (prev?.id === opt.id ? null : opt))}
-            onCreate={(text) => setShelfValue({ id: '__new__', label: text })}
-          />
-        </>
-      )}
 
       {!!formError && <Text style={s.errorText}>{formError}</Text>}
 

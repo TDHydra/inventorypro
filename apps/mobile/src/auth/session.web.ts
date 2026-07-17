@@ -256,5 +256,8 @@ export function buildUserSession(userId: string): UserSession | null {
     active: user.active,
     expires_at: user.expires_at,
     team_contexts: buildTeamContexts(user.id),
+    // Must mirror session.ts — without it a demo session on web looks like a
+    // normal one: no sandbox, no wipe on logout, no 15-min idle cap.
+    is_test: user.is_test ?? 0,
   };
 }

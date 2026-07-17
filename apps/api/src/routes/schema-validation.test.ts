@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import teamRoutes from './teams';
 import userRoutes from './users';
 import authRoutes from './auth';
+import auditRoutes from './audit';
 
 // Schema validation runs in the Fastify lifecycle BEFORE preHandler (auth), so a
 // malformed body/params is rejected with 400 without ever touching the DB. These
@@ -22,6 +23,7 @@ async function buildApp() {
   await app.register(teamRoutes, { prefix: '/teams' });
   await app.register(userRoutes, { prefix: '/users' });
   await app.register(authRoutes, { prefix: '/auth' });
+  await app.register(auditRoutes, { prefix: '/audit' });
   // sync's import chain pulls in lib/s3.ts, which fails closed at import time
   // without MinIO credentials — set dummies before a DYNAMIC import (a static
   // import would hoist above the env assignment; same pattern as mediaCleanup.test).
@@ -95,6 +97,59 @@ test('POST /auth/set-pin accepts a well-formed 6-digit enrollment_code (schema p
     payload: { user_id: '3f0e8a52-9c4d-4b6e-8f1a-2d7c5e9b0a41', pin: '1234', enrollment_code: '123456' },
   });
   assert.notEqual(res.statusCode, 400); // passes validation; fails later (no DB) with 5xx
+  await app.close();
+});
+
+// Shared schema shapes (lib/schemaShapes.ts): the default Ajv silently ignores
+// `format:'uuid'`/`format:'email'`, so these routes carry pattern-based shapes
+// that must actually reject junk.
+
+test('GET /audit rejects a non-UUID user_id filter (schema)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({ method: 'GET', url: '/audit?user_id=not-a-uuid' });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('GET /audit accepts a well-formed UUID user_id and the validation_reject outcome', async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: 'GET',
+    url: '/audit?user_id=3f0e8a52-9c4d-4b6e-8f1a-2d7c5e9b0a41&outcome=validation_reject',
+  });
+  assert.notEqual(res.statusCode, 400); // passes validation; fails later (stub auth/pg)
+  await app.close();
+});
+
+test('GET /audit/:requestId/activity rejects a non-UUID requestId (schema)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({ method: 'GET', url: '/audit/nope/activity' });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('PATCH /audit/demo-mode rejects a non-boolean enabled (schema)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({ method: 'PATCH', url: '/audit/demo-mode', payload: { enabled: 'yes' } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST /users/:id/reset-enrollment-code rejects a junk email (schema)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: 'POST', url: '/users/u1/reset-enrollment-code', payload: { email: 'not-an-email' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST /users/:id/reset-enrollment-code accepts a plausible email (schema passes → not 400)', async () => {
+  const app = await buildApp();
+  const res = await app.inject({
+    method: 'POST', url: '/users/u1/reset-enrollment-code', payload: { email: 'matt@example.com' },
+  });
+  assert.notEqual(res.statusCode, 400); // passes validation; fails later (stub auth/pg)
   await app.close();
 });
 
