@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   getTaxonomyTypes,
   getTaxonomyTypesWithFallback,
@@ -73,31 +73,70 @@ export function TaxonomyChips({
     onChange({ id: t.id, label: t.label });
   }
 
+  // Discoverability for the horizontal overflow (board #85): the chip row often
+  // runs off-screen with no cue. Compare rendered content width against the
+  // visible container width; when the chips overflow, paint a subtle right-edge
+  // fade so it's obvious there's more to scroll to. The wrapper below is
+  // box-neutral (relative, zero padding/margin) so it doesn't disturb the
+  // parent-gap spacing the four call sites depend on (see header note).
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  const overflowing = contentWidth > containerWidth + 1;
+
   return (
     <>
       {!!label && <FieldLabel>{label}</FieldLabel>}
-      {/* No call site disables this today; pointerEvents+opacity is additive only. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.chipRow}
-        pointerEvents={disabled ? 'none' : 'auto'}
-        style={disabled ? s.disabled : undefined}
+      <View
+        style={s.scrollWrap}
+        onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}
       >
-        {types.map(t => (
-          <FilterChip
-            key={t.label}
-            label={`${renderIcon(t.icon)} ${t.label}`}
-            active={isActive(t)}
-            onPress={() => handlePress(t)}
-          />
-        ))}
-      </ScrollView>
+        {/* No call site disables this today; pointerEvents+opacity is additive only. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          contentContainerStyle={s.chipRow}
+          pointerEvents={disabled ? 'none' : 'auto'}
+          style={disabled ? s.disabled : undefined}
+          onContentSizeChange={w => setContentWidth(w)}
+        >
+          {types.map(t => (
+            <FilterChip
+              key={t.label}
+              label={`${renderIcon(t.icon)} ${t.label}`}
+              active={isActive(t)}
+              onPress={() => handlePress(t)}
+            />
+          ))}
+        </ScrollView>
+        {overflowing && (
+          // Stacked translucent slabs approximate a fade toward the surface
+          // colour (no expo-linear-gradient dependency in this app). Purely a
+          // visual cue — never intercepts touches.
+          <View pointerEvents="none" style={s.fade}>
+            <View style={[s.fadeLayer, s.fadeLayer1]} />
+            <View style={[s.fadeLayer, s.fadeLayer2]} />
+            <View style={[s.fadeLayer, s.fadeLayer3]} />
+          </View>
+        )}
+      </View>
     </>
   );
 }
 
 const s = StyleSheet.create({
+  scrollWrap: { position: 'relative' },
   chipRow: { gap: 8, paddingRight: 8 },
   disabled: { opacity: 0.5 },
+  fade: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 28,
+    flexDirection: 'row',
+  },
+  fadeLayer: { height: '100%' },
+  fadeLayer1: { flex: 1, backgroundColor: 'rgba(255,255,255,0.25)' },
+  fadeLayer2: { flex: 1, backgroundColor: 'rgba(255,255,255,0.55)' },
+  fadeLayer3: { flex: 1, backgroundColor: 'rgba(255,255,255,0.85)' },
 });
