@@ -26,6 +26,7 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
+import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { track } from '../../../src/telemetry';
 import { validateName, validateText } from '../../../src/lib/validation';
@@ -372,23 +373,23 @@ export default function JobDetailScreen() {
                 </View>
               )}
 
-              <View style={s.fieldWrap}>
-                <FieldLabel>Customer Name</FieldLabel>
-                <AppInput
-                  value={editCustomerName}
-                  onChangeText={setEditCustomerName}
-                  placeholder="Customer or company name"
-                />
-              </View>
+              <AutofillTextField
+                label="Customer Name"
+                table="jobs"
+                column="customer_name"
+                value={editCustomerName}
+                onChangeText={setEditCustomerName}
+                placeholder="Customer or company name"
+              />
 
-              <View style={s.fieldWrap}>
-                <FieldLabel>Site Address</FieldLabel>
-                <AppInput
-                  value={editSiteAddress}
-                  onChangeText={setEditSiteAddress}
-                  placeholder="Street address or description"
-                />
-              </View>
+              <AutofillTextField
+                label="Site Address"
+                table="jobs"
+                column="site_address"
+                value={editSiteAddress}
+                onChangeText={setEditSiteAddress}
+                placeholder="Street address or description"
+              />
 
               <LocationShelfPicker
                 locationValue={editSiteLocation}
@@ -407,14 +408,14 @@ export default function JobDetailScreen() {
                 />
               </View>
 
-              <View style={s.fieldWrap}>
-                <FieldLabel>Insurance carrier</FieldLabel>
-                <AppInput
-                  value={editInsuranceCarrier}
-                  onChangeText={setEditInsuranceCarrier}
-                  placeholder="Insurance company"
-                />
-              </View>
+              <AutofillTextField
+                label="Insurance carrier"
+                table="jobs"
+                column="insurance_carrier"
+                value={editInsuranceCarrier}
+                onChangeText={setEditInsuranceCarrier}
+                placeholder="Insurance company"
+              />
 
               <View style={s.fieldWrap}>
                 <FieldLabel>Description</FieldLabel>

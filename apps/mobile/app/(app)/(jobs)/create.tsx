@@ -9,8 +9,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import {
   upsertJob, Job,
-  getDistinctCustomerNames, getDistinctInsuranceCarriers, getDistinctSiteAddresses,
-  getLatestJobByCustomer,
+  getCustomersWithLatestJobDetails, CustomerAutofillRecord,
 } from '../../../src/db/queries/jobs';
 import { appendLog } from '../../../src/db/queries/log';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -19,7 +18,6 @@ import { getAllTeams } from '../../../src/db/queries/teams';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
-import { SuggestInput } from '../../../src/components/SuggestInput';
 import { generateUUID } from '../../../src/utils/uuid';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
@@ -28,6 +26,8 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { HidableField } from '../../../src/components/ui/HidableField';
+import { RecordAutofillInput, RecordOption } from '../../../src/components/ui/RecordAutofillInput';
+import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 
 export default function CreateJobScreen() {
   const { user } = useSession();
@@ -57,39 +57,28 @@ export default function CreateJobScreen() {
     return ts[0]?.label ?? null;
   });
 
-  // Prior values for the typeahead dropdowns.
-  const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
-  const carrierOptions = useMemo(() => getDistinctInsuranceCarriers(), []);
-  const addressOptions = useMemo(() => getDistinctSiteAddresses(), []);
+  // Every prior customer, each paired with the full details of their last job —
+  // feeds RecordAutofillInput below. Computed once on mount (matches the old
+  // customerOptions' `useMemo(..., [])`, itself never live-reactive to new
+  // syncs mid-session).
+  const customerOptions = useMemo((): RecordOption<CustomerAutofillRecord>[] =>
+    getCustomersWithLatestJobDetails().map(c => ({
+      label: c.customer_name,
+      sublabel: c.site_address ?? undefined,
+      record: c,
+    })), []);
 
-  // When an existing customer is picked, offer (with confirmation) to fill that
-  // customer's last-job details — only fields that are still empty.
-  function offerCrossFill(picked: string) {
-    const d = getLatestJobByCustomer(picked);
-    if (!d) return;
-    const willAddr = !siteAddress.trim() && !!d.site_address;
-    const willCarrier = !insuranceCarrier.trim() && !!d.insurance_carrier;
-    const willLoc = !siteLocation && !!d.site_location_id;
-    if (!willAddr && !willCarrier && !willLoc) return;
-    const lines: string[] = [];
-    if (willAddr) lines.push(`Address: ${d.site_address}`);
-    if (willCarrier) lines.push(`Carrier: ${d.insurance_carrier}`);
-    if (willLoc) lines.push(`Site: ${d.site_location_label ?? '—'}`);
-    Alert.alert(
-      `Use ${picked}'s details from their last job?`,
-      lines.join('\n'),
-      [
-        { text: 'Skip', style: 'cancel' },
-        {
-          text: 'Fill them in',
-          onPress: () => {
-            if (willAddr) setSiteAddress(d.site_address!);
-            if (willCarrier) setInsuranceCarrier(d.insurance_carrier!);
-            if (willLoc) setSiteLocation({ id: d.site_location_id!, label: d.site_location_label ?? d.site_location_id! });
-          },
-        },
-      ],
-    );
+  // When an existing customer is picked and confirmed, fill that customer's
+  // last-job details — only fields that are still empty. Mirrors the old
+  // hand-rolled `offerCrossFill`, minus its skip-the-confirm-entirely case:
+  // RecordAutofillInput always confirms on a pick, even when (rarely) there'd
+  // be nothing left to fill.
+  function fillFromCustomer(d: CustomerAutofillRecord) {
+    if (!siteAddress.trim() && d.site_address) setSiteAddress(d.site_address);
+    if (!insuranceCarrier.trim() && d.insurance_carrier) setInsuranceCarrier(d.insurance_carrier);
+    if (!siteLocation && d.site_location_id) {
+      setSiteLocation({ id: d.site_location_id, label: d.site_location_label ?? d.site_location_id });
+    }
   }
 
   function handleSave() {
@@ -240,28 +229,26 @@ export default function CreateJobScreen() {
 
           <AdvancedFields>
             <HidableField fieldId="jobs.customer_name">
-              <View style={s.fieldWrap}>
-                <FieldLabel>Customer Name</FieldLabel>
-                <SuggestInput
-                  value={customerName}
-                  onChange={setCustomerName}
-                  onPick={offerCrossFill}
-                  suggestions={customerOptions}
-                  placeholder="Customer or company name"
-                />
-              </View>
+              <RecordAutofillInput
+                label="Customer Name"
+                value={customerName}
+                onChangeText={setCustomerName}
+                options={customerOptions}
+                onAutofill={fillFromCustomer}
+                confirmTitle="Use this customer's details from their last job?"
+                placeholder="Customer or company name"
+              />
             </HidableField>
 
             <HidableField fieldId="jobs.site_address">
-              <View style={s.fieldWrap}>
-                <FieldLabel>Site Address</FieldLabel>
-                <SuggestInput
-                  value={siteAddress}
-                  onChange={setSiteAddress}
-                  suggestions={addressOptions}
-                  placeholder="Street address or description"
-                />
-              </View>
+              <AutofillTextField
+                label="Site Address"
+                table="jobs"
+                column="site_address"
+                value={siteAddress}
+                onChangeText={setSiteAddress}
+                placeholder="Street address or description"
+              />
             </HidableField>
 
             <HidableField fieldId="jobs.site_location">
@@ -286,15 +273,14 @@ export default function CreateJobScreen() {
             </HidableField>
 
             <HidableField fieldId="jobs.insurance_carrier">
-              <View style={s.fieldWrap}>
-                <FieldLabel>Insurance carrier</FieldLabel>
-                <SuggestInput
-                  value={insuranceCarrier}
-                  onChange={setInsuranceCarrier}
-                  suggestions={carrierOptions}
-                  placeholder="Insurance company"
-                />
-              </View>
+              <AutofillTextField
+                label="Insurance carrier"
+                table="jobs"
+                column="insurance_carrier"
+                value={insuranceCarrier}
+                onChangeText={setInsuranceCarrier}
+                placeholder="Insurance company"
+              />
             </HidableField>
 
             <HidableField fieldId="jobs.description">

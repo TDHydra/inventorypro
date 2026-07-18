@@ -98,6 +98,42 @@ export function getLatestJobByCustomer(name: string): CustomerJobDetails | null 
   return row ?? null;
 }
 
+// Every distinct customer paired with the details from their single most
+// recent job (by updated_at) — feeds `RecordAutofillInput` on the job create
+// screen ("pick a previous customer → autofill the rest of the form"),
+// generalizing the one-name-at-a-time `getLatestJobByCustomer` above into a
+// single query the picker can list up front. Case-insensitive grouping
+// mirrors `getLatestJobByCustomer`; the `j.updated_at = MAX(...)` correlated
+// subquery narrows to each customer's newest row(s), and the trailing
+// `GROUP BY` collapses an exact-timestamp tie down to one row (SQLite picks
+// an arbitrary-but-deterministic row per group, same as any other tie-break
+// here — there's no "more correct" answer between two rows saved in the same
+// instant).
+export interface CustomerAutofillRecord {
+  customer_name: string;
+  site_address: string | null;
+  insurance_carrier: string | null;
+  site_location_id: string | null;
+  site_location_label: string | null;
+}
+export function getCustomersWithLatestJobDetails(): CustomerAutofillRecord[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT j.customer_name, j.site_address, j.insurance_carrier, j.site_location_id,
+            l.name AS site_location_label
+     FROM jobs j
+     LEFT JOIN locations l ON l.id = j.site_location_id
+     WHERE j.customer_name IS NOT NULL AND TRIM(j.customer_name) != ''
+       AND j.updated_at = (
+         SELECT MAX(j2.updated_at) FROM jobs j2
+         WHERE LOWER(TRIM(j2.customer_name)) = LOWER(TRIM(j.customer_name))
+       )
+     GROUP BY LOWER(TRIM(j.customer_name))
+     ORDER BY j.customer_name COLLATE NOCASE`,
+  );
+  return rowsAs<CustomerAutofillRecord>(result.rows);
+}
+
 export function upsertJob(job: Job): void {
   const db = getDb();
   // Dual-write the taxonomy FK (#74): prefer an explicit type_id (present on rows

@@ -26,12 +26,15 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
+import { QuantityStepper } from '../../../src/components/ui/QuantityStepper';
+import { DateField } from '../../../src/components/ui/DateField';
+import { toIsoDateString } from '../../../src/components/ui/dateFieldLogic';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import { track } from '../../../src/telemetry';
-import { MAX_QUANTITY, parseStockQuantity, validateText } from '../../../src/lib/validation';
+import { MAX_QUANTITY, validateText } from '../../../src/lib/validation';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -51,6 +54,19 @@ function isoFromNowDays(days: number): string {
 function formatDate(iso: string | null): string {
   if (!iso) return 'No due date';
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Local-end-of-day convention: DateField's manual entry only yields a bare
+// 'YYYY-MM-DD' (date, no time), while the +Nd chips above write full ISO
+// instants via isoFromNowDays. `new Date('YYYY-MM-DD')` parses as UTC
+// midnight, which is already in the past for any timezone behind UTC —
+// so a repair "due today" would read as Overdue the instant it's saved.
+// Anchoring manual entries to 23:59:59 LOCAL time keeps them consistent
+// with the chips (full ISO instants) and due today stays not-overdue
+// until the end of the user's actual day.
+function localEndOfDayIso(dateOnly: string): string {
+  const [y, m, d] = dateOnly.split('-').map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59).toISOString();
 }
 
 export default function RepairDetailScreen() {
@@ -122,7 +138,7 @@ export default function RepairDetailScreen() {
   // "Use parts" modal state (consume inventory against this repair)
   const [showUseParts, setShowUseParts] = useState(false);
   const [partItem, setPartItem] = useState<PickerOption | null>(null);
-  const [partQty, setPartQty] = useState('');
+  const [partQty, setPartQty] = useState(0);
   const [partLocation, setPartLocation] = useState<PickerOption | null>(null);
   const [partShelf, setPartShelf] = useState<PickerOption | null>(null);
   const [partError, setPartError] = useState('');
@@ -211,7 +227,7 @@ export default function RepairDetailScreen() {
   // consumption in one atomic transaction (mirrors MoveStockModal's pattern).
   function openUseParts() {
     setPartItem(null);
-    setPartQty('');
+    setPartQty(0);
     setPartLocation(null);
     setPartShelf(null);
     setPartError('');
@@ -244,15 +260,17 @@ export default function RepairDetailScreen() {
       setPartError('Choose a location.');
       return;
     }
-    // parseStockQuantity keeps the historical parseFloat + copy ('Quantity
-    // must be greater than 0.'), adding the overflow bound.
-    const qtyResult = parseStockQuantity(partQty, 'delta');
-    if (!qtyResult.ok) {
-      trackReject('repair_part.qty', qtyResult.rule);
-      setPartError(qtyResult.error);
+    // QuantityStepper already clamps to [0, MAX_QUANTITY] live, so only the
+    // ">0" floor (same copy as the old parseStockQuantity('delta') check) can
+    // actually be hit here — kept as a real guard rather than trusting the
+    // stepper, same as every other field on this screen re-validates before
+    // the transaction opens.
+    if (partQty <= 0) {
+      trackReject('repair_part.qty', 'min');
+      setPartError('Quantity must be greater than 0.');
       return;
     }
-    const qty = qtyResult.value;
+    const qty = partQty;
     // Resolve the (location, shelf) pair into the id stock is deducted from — a
     // typed-in shelf is find-or-created here. partLocation is non-null (checked
     // above), so ok:true carries a non-null id.
@@ -516,26 +534,46 @@ export default function RepairDetailScreen() {
           </>
         )}
 
-        {/* Due date (SLA target) */}
-        <FieldLabel style={{ marginTop: 12 }}>Due date</FieldLabel>
-        <View style={s.expiryRow}>
-          <View style={s.expiryCurrent}>
-            <Text style={[s.expiryText, isOverdue && s.overdueText]}>{formatDate(dueAt)}</Text>
+        {/* Due date (SLA target) — the +Nd chips remain the quick path; DateField
+            (quickPicks off, its Today/Yesterday chips don't fit a forward-looking
+            due date) adds manual entry, which this field never had before. */}
+        {canEdit ? (
+          <View style={{ marginTop: 12 }}>
+            <DateField
+              label="Due date"
+              // Extract the LOCAL calendar date via getters (toIsoDateString),
+              // not by slicing the UTC ISO string: dueAt is stored as local
+              // end-of-day (see localEndOfDayIso above), whose UTC-instant
+              // date portion can be a day off from the local date in either
+              // direction depending on timezone. This is the inverse of
+              // localEndOfDayIso and round-trips stably when untouched.
+              value={dueAt ? toIsoDateString(new Date(dueAt)) : ''}
+              onChange={(iso) => setDueAt(iso ? localEndOfDayIso(iso) : null)}
+              quickPicks={false}
+              hint={isOverdue ? 'Overdue' : undefined}
+            />
+            <View style={s.chipWrap}>
+              {[1, 3, 7, 14].map(days => (
+                <TouchableOpacity key={days} style={s.expiryChip} onPress={() => setDueAt(isoFromNowDays(days))}>
+                  <Text style={s.expiryChipText}>+{days}d</Text>
+                </TouchableOpacity>
+              ))}
+              {!!dueAt && (
+                <TouchableOpacity style={s.expiryChip} onPress={() => setDueAt(null)}>
+                  <Text style={[s.expiryChipText, { color: colors.danger }]}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-          {canEdit && dueAt && (
-            <TouchableOpacity onPress={() => setDueAt(null)}>
-              <Text style={s.expiryClear}>Clear</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {canEdit && (
-          <View style={s.chipWrap}>
-            {[1, 3, 7, 14].map(days => (
-              <TouchableOpacity key={days} style={s.expiryChip} onPress={() => setDueAt(isoFromNowDays(days))}>
-                <Text style={s.expiryChipText}>+{days}d</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        ) : (
+          <>
+            <FieldLabel style={{ marginTop: 12 }}>Due date</FieldLabel>
+            <View style={s.expiryRow}>
+              <View style={s.expiryCurrent}>
+                <Text style={[s.expiryText, isOverdue && s.overdueText]}>{formatDate(dueAt)}</Text>
+              </View>
+            </View>
+          </>
         )}
 
         {canEdit && dirty && (
@@ -636,11 +674,13 @@ export default function RepairDetailScreen() {
           />
 
           <FieldLabel style={{ marginTop: 12 }}>Quantity</FieldLabel>
-          <AppInput
+          <QuantityStepper
             value={partQty}
-            onChangeText={setPartQty}
-            placeholder="Quantity *"
-            keyboardType="numeric"
+            onChange={setPartQty}
+            min={0}
+            max={MAX_QUANTITY}
+            allowDecimal
+            unit={partItem ? (getItemById(partItem.id)?.unit ?? undefined) : undefined}
           />
           {!!partError && <Text style={s.errorText}>{partError}</Text>}
 
