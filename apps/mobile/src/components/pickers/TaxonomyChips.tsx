@@ -5,7 +5,7 @@ import {
   getTaxonomyTypes,
   getTaxonomyTypesWithFallback,
 } from '../../db/queries/taxonomy';
-import { renderIcon } from '../../constants/locationStyles';
+import { renderIcon, CATEGORY_DEFAULT_ICON } from '../../constants/locationStyles';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { resolveTaxonomyValue } from './resolveTaxonomyValue';
@@ -103,7 +103,10 @@ export function TaxonomyChips({
           {types.map(t => (
             <FilterChip
               key={t.label}
-              label={`${renderIcon(t.icon)} ${t.label}`}
+              // Fall back to the per-category default (matches getTypeIcon) so a
+              // row with no icon shows a distinct category glyph, not the generic
+              // 📍 pin (#80). `category` is the single category these chips render.
+              label={`${renderIcon(t.icon || CATEGORY_DEFAULT_ICON[category])} ${t.label}`}
               active={isActive(t)}
               onPress={() => handlePress(t)}
             />
