@@ -3,6 +3,8 @@ import { generateUUID } from '../../utils/uuid';
 import { appendOutbox } from '../../sync/outbox';
 import { isSandboxActive } from '../../sync/sandbox';
 import { track } from '../../telemetry';
+import { getCachedPosition } from '../../location/positionCache';
+import { resolveLogCoords } from '../../location/logCoords';
 
 /** Metadata is a JSON string (or null); tolerate malformed values rather than throwing. */
 function safeParseMetadata(raw: string | null | undefined): Record<string, unknown> {
@@ -54,14 +56,18 @@ export function appendLog(
   const db = getDb();
   const id = entry.id ?? generateUUID();
   const created_at = new Date().toISOString();
-  const latitude = entry.latitude ?? null;
-  const longitude = entry.longitude ?? null;
-  const location_accuracy = entry.location_accuracy ?? null;
+  const sandbox = isSandboxActive();
+  // Location is built into the log layer (#33): when a caller doesn't pass
+  // coords, fall back to the best-effort cached foreground fix so EVERY action
+  // auto-stamps with zero per-call code. Demo/test sessions never capture
+  // location — pass a null cache so their rows stay coord-free.
+  const { latitude, longitude, location_accuracy } =
+    resolveLogCoords(entry, sandbox ? null : getCachedPosition());
   // Demo sessions ARE logged — the Activity Logs screen is part of what a test
   // account is there to show — but every row is stamped so it can never be
   // mistaken for real activity. These rows stay on-device (the sandbox never
   // pushes; the server rejects test-account writes) and die with the logout wipe.
-  const entryMetadata = isSandboxActive()
+  const entryMetadata = sandbox
     ? JSON.stringify({ ...safeParseMetadata(entry.metadata), demo: true })
     : entry.metadata;
   db.executeSync(

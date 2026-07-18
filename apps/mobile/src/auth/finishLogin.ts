@@ -3,6 +3,7 @@ import type { UserSession } from './permissions';
 import { setMaintenanceRole } from '../db/maintenance';
 import { appendLog } from '../db/queries/log';
 import { registerForPush } from '../push/register';
+import { primeLocation } from '../location/positionCache';
 import { setSandboxActive } from '../sync/sandbox';
 import { discardPendingOutbox } from '../sync/outbox';
 import { setAppSetting, deleteAppSetting } from '../db/appSettings';
@@ -94,6 +95,11 @@ export function finishLogin(userId: string, setUser: (s: UserSession) => void): 
   // Test sessions skip it: registration is a server write (403 for them) and a
   // shared demo device must never receive a real user's pushes.
   if (!isTestSession) registerForPush().catch(() => {});
+
+  // Start best-effort foreground location caching so subsequent actions
+  // auto-stamp coords (#33). Fire-and-forget; never blocks or affects login.
+  // Test/demo sessions never capture location.
+  if (!isTestSession) primeLocation().catch(() => {});
 
   return true;
 }
