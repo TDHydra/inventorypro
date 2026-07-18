@@ -4,6 +4,7 @@ import { resolveTypeId, resolveLabels, LOCATION_TYPE } from './taxonomy';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../tx';
 import { appendLog } from './log';
+import { ensureVehicleRow } from './vehicles';
 
 export interface Location {
   id: string;
@@ -433,12 +434,23 @@ export function findOrCreateVehicleByName(name: string): string | null {
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Vehicle', has_shelves: 0,
   };
-  upsertLocation(vehicle);
-  appendOutbox('INSERT', 'locations', {
-    id, name: trimmed, parent_id: null, color: null, icon: '🚐',
-    owner_user_id: null, active: true, updated_at: now,
-    latitude: null, longitude: null, subareas_require_owner: false, type: 'Vehicle', has_shelves: false,
-  });
+  try {
+    // Atomic (mirrors findOrCreateShelfByName), and every Vehicle-typed
+    // location gets its 1:1 `vehicles` extension row at creation (#125) so
+    // VehiclePanel/state writes have a base row to converge on.
+    runInTransaction(() => {
+      upsertLocation(vehicle);
+      appendOutbox('INSERT', 'locations', {
+        id, name: trimmed, parent_id: null, color: null, icon: '🚐',
+        owner_user_id: null, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Vehicle', has_shelves: false,
+      });
+      ensureVehicleRow(id);
+    });
+  } catch (err) {
+    console.warn('findOrCreateVehicleByName: failed to create vehicle', err);
+    return null;
+  }
   return id;
 }
 

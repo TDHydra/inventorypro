@@ -6,7 +6,10 @@ import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertLocation } from '../../db/queries/locations';
 import type { Location } from '../../db/queries/locations';
+import { ensureVehicleRow, VEHICLE_MODEL_CATEGORY } from '../../db/queries/vehicles';
+import { runInTransaction } from '../../db/tx';
 import { getAllActiveUsers } from '../../db/queries/users';
+import { TaxonomyChips } from '../pickers';
 import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -44,6 +47,9 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
 
   const [name, setName] = useState('');
   const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null); // optional, sticky
+  // vehicle_model taxonomy (#81) — optional, sticky like owner (fleets are
+  // usually added a model at a time). id + label both kept (dual-write, #74).
+  const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
   const [nameError, setNameError] = useState('');
 
   const ownerOptions = useMemo<PickerOption[]>(
@@ -79,24 +85,29 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
       type: 'Vehicle',
     };
 
-    upsertLocation(loc);
-    // synced_at is local-only — strip from the outbox payload (server has no such column).
-    const { synced_at: _s, ...locRow } = loc;
-    appendOutbox('INSERT', 'locations', { ...locRow, active: true });
-    appendLog({
-      action: 'location_created',
-      entity_type: 'location',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: trimmedName,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: null,
-      device_id: null,
+    // Atomic (#125): the location, its vehicles extension row (state/model),
+    // both outbox entries, and the log land together or not at all.
+    runInTransaction(() => {
+      upsertLocation(loc);
+      // synced_at is local-only — strip from the outbox payload (server has no such column).
+      const { synced_at: _s, ...locRow } = loc;
+      appendOutbox('INSERT', 'locations', { ...locRow, active: true });
+      ensureVehicleRow(id, { model: model.label, model_id: model.id });
+      appendLog({
+        action: 'location_created',
+        entity_type: 'location',
+        entity_id: id,
+        user_id: user?.id ?? null,
+        team_id: null,
+        job_id: null,
+        note: trimmedName,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
     });
 
     onSaved(trimmedName, id);
@@ -118,6 +129,15 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
         onSubmitEditing={handleSave}
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
+
+      <TaxonomyChips
+        category={VEHICLE_MODEL_CATEGORY}
+        label="Model (optional)"
+        deselectable
+        valueId={model.id}
+        valueLabel={model.label}
+        onChange={setModel}
+      />
 
       <AdvancedFields>
         <FieldLabel>Owner (optional)</FieldLabel>

@@ -8,6 +8,12 @@ import {
   setMemberManagerOnline, setMemberPermissionOverridesOnline,
   TEAM_OVERRIDABLE_PERMISSIONS, TEAM_PERMISSION_LABELS, Team, TeamMember,
 } from '../../../src/db/queries/teams';
+import {
+  getSubteamsForTeam, createSubteam, renameSubteam, deleteSubteam,
+  setSubteamMembership, clearSubteamMembership, Crew,
+} from '../../../src/db/queries/subteams';
+import { CrewCard } from '../../../src/components/crew/CrewCard';
+import { CrewEditor, CrewDraft } from '../../../src/components/crew/CrewEditor';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
@@ -54,6 +60,7 @@ export default function TeamDetailScreen() {
 
   const [team, setTeam] = useState<Team | null>(() => getTeamById(id));
   const [members, setMembers] = useState<TeamMember[]>(() => getTeamMembers(id));
+  const [crews, setCrews] = useState<Crew[]>(() => getSubteamsForTeam(id));
 
   // Re-read team + roster on focus or sync pull so a stale foreign team (still held
   // before teamPurge.reconcileTeams runs) or a server-side manager demotion
@@ -63,6 +70,7 @@ export default function TeamDetailScreen() {
   useEffect(() => {
     setTeam(getTeamById(id));
     setMembers(getTeamMembers(id));
+    setCrews(getSubteamsForTeam(id));
   }, [id, refreshKey]);
 
   // Membership resolved from the AUTHENTICATED caller's own team_members row, never
@@ -102,6 +110,10 @@ export default function TeamDetailScreen() {
   // Inline user-create from the member picker
   const [showUserCreate, setShowUserCreate] = useState(false);
   const [userCreateInitial, setUserCreateInitial] = useState('');
+
+  // Crew (subteam) editor — `crew` null = create, set = edit (#123)
+  const [showCrewEditor, setShowCrewEditor] = useState(false);
+  const [editingCrew, setEditingCrew] = useState<Crew | null>(null);
 
   // Per-member permission override editor
   const [permMember, setPermMember] = useState<TeamMember | null>(null);
@@ -415,6 +427,93 @@ export default function TeamDetailScreen() {
     setPermMember(null);
   }
 
+  // ── Crews (subteams, #123) ─────────────────────────────────────────────────
+
+  // Assignable people = this team's roster (CrewEditor candidates).
+  const crewCandidates = useMemo<PickerOption[]>(
+    () => members.map(m => ({
+      id: m.user_id,
+      label: m.user_name ?? m.user_id,
+      sublabel: m.user_role ? (ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role) : undefined,
+    })),
+    [members],
+  );
+
+  function openCrewCreate() {
+    setEditingCrew(null);
+    setShowCrewEditor(true);
+  }
+
+  function openCrewEdit(crew: Crew) {
+    setEditingCrew(crew);
+    setShowCrewEditor(true);
+  }
+
+  // CrewEditor/EntityEditSheet contract: throw on failure so the sheet stays
+  // open. Create + every membership assignment commit as ONE transaction
+  // (runInTransaction is reentrant, so the query-layer calls join it).
+  function handleSaveCrew(draft: CrewDraft) {
+    if (!team || isWriteBlocked()) throw new Error('write blocked');
+    const actorId = user?.id ?? null;
+    try {
+      runInTransaction(() => {
+        if (editingCrew) {
+          if (draft.name !== editingCrew.name) {
+            renameSubteam(editingCrew.id, draft.name, actorId);
+          }
+          // Diff memberships: clear people who left, (re)assign only changes —
+          // unchanged members get no outbox/log churn.
+          const beforeLead = editingCrew.lead?.id ?? null;
+          const beforeHelpers = new Set(editingCrew.helpers.map(h => h.id));
+          const after = new Set([draft.leadId, ...draft.helperIds]);
+          for (const uid of [...(beforeLead ? [beforeLead] : []), ...beforeHelpers]) {
+            if (!after.has(uid)) clearSubteamMembership(uid, team.id, actorId);
+          }
+          if (beforeLead !== draft.leadId) {
+            setSubteamMembership(editingCrew.id, draft.leadId, 'lead', actorId);
+          }
+          for (const uid of draft.helperIds) {
+            if (!beforeHelpers.has(uid)) {
+              setSubteamMembership(editingCrew.id, uid, 'helper', actorId);
+            }
+          }
+        } else {
+          const subteamId = createSubteam(team.id, draft.name, actorId);
+          setSubteamMembership(subteamId, draft.leadId, 'lead', actorId);
+          for (const uid of draft.helperIds) {
+            setSubteamMembership(subteamId, uid, 'helper', actorId);
+          }
+        }
+      });
+    } catch (e) {
+      Alert.alert('Could not save crew', 'The crew was not saved. Please try again.');
+      throw e;
+    }
+    // Success side-effects only after the write committed; the sheet closes itself.
+    setCrews(getSubteamsForTeam(team.id));
+    setMembers(getTeamMembers(team.id));
+  }
+
+  async function handleDeleteCrew(crew: Crew) {
+    if (!team) return;
+    if (isWriteBlocked()) return;
+    const ok = await confirmSheet({
+      title: 'Delete Crew',
+      message: `Delete ${crew.name}? Its members stay on the team.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      deleteSubteam(crew.id, user?.id ?? null);
+    } catch (e) {
+      Alert.alert('Could not delete crew', `${crew.name} was not deleted. Please try again.`);
+      return;
+    }
+    setCrews(getSubteamsForTeam(team.id));
+    setMembers(getTeamMembers(team.id));
+  }
+
   // ── Not found ──────────────────────────────────────────────────────────────
 
   if (!team) {
@@ -597,6 +696,54 @@ export default function TeamDetailScreen() {
           )}
         </Card>
 
+        {/* Crews (subteams, #123) — lead + helpers inside this team. Create/edit/
+            delete follow the roster's manage gate (canManageRoster = org authority
+            OR this team's managers); the server's manage_teams + per-team authority
+            guard on /sync/push is the enforcement of record. */}
+        <View style={s.sectionHeader}>
+          <Text style={s.sectionLabel}>Crews ({crews.length})</Text>
+          {canManageRoster && (
+            <TouchableOpacity onPress={openCrewCreate} disabled={locked}>
+              <Text style={[s.addLink, locked && s.mgrToggleDisabled]}>+ Add</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {crews.length === 0 ? (
+          <Card variant="detail">
+            <Text style={s.muted}>
+              No crews yet{canManageRoster ? '. Tap "+ Add" to pair a lead with helpers.' : '.'}
+            </Text>
+          </Card>
+        ) : (
+          crews.map(crew => (
+            <CrewCard
+              key={crew.id}
+              crew={crew}
+              right={canManageRoster ? (
+                <View style={s.crewActions}>
+                  <TouchableOpacity
+                    onPress={() => openCrewEdit(crew)}
+                    disabled={locked}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={[s.permsBtn, locked && s.mgrToggleDisabled]}
+                  >
+                    <Text style={s.permsText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleDeleteCrew(crew)}
+                    disabled={locked}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={[s.crewDeleteBtn, locked && s.mgrToggleDisabled]}
+                  >
+                    <Text style={s.removeText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : undefined}
+            />
+          ))
+        )}
+
       </ScrollView>
 
       {/* Edit team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
@@ -666,6 +813,17 @@ export default function TeamDetailScreen() {
             </TouchableOpacity>
           </ScrollView>
       </ModalSheet>
+
+      {/* Crew create/edit — validation + draft shape live in CrewEditor; this
+          screen's handleSaveCrew owns persistence (one transaction). */}
+      <CrewEditor
+        visible={showCrewEditor}
+        onClose={() => setShowCrewEditor(false)}
+        crew={editingCrew}
+        candidates={crewCandidates}
+        onSave={handleSaveCrew}
+        disabled={locked}
+      />
 
       {/* Inline create-user from the member picker — on create, select the new
           user just as picking an existing one would (then tap "Add to Team"). */}
@@ -789,6 +947,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   removeBtn: { marginLeft: 12 },
   removeText: { color: t.colors.danger, fontSize: 13, fontWeight: '600' },
   permsBtn: {
+    marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  crewActions: { flexDirection: 'row', alignItems: 'center' },
+  crewDeleteBtn: {
     marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
