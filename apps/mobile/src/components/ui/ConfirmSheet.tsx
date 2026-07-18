@@ -16,8 +16,8 @@ import { PrimaryButton } from './PrimaryButton';
  * Mount `<ConfirmSheetHost />` once at the app root (alongside `<AlertHost />`)
  * — it renders whatever `confirmSheet()` pushes. Wired the same way as
  * `themedAlert.tsx`/`alertBus.ts`: a framework-free module-level queue
- * (`createConfirmQueue`, unit-tested in `ConfirmSheet.test.ts`) holds the
- * queue/showing state; this file only adds the React rendering on top.
+ * (`createConfirmQueue`, exported for testability) holds the queue/showing
+ * state; this file only adds the React rendering on top.
  *
  * Resolves `false` on Cancel tap AND on backdrop/Android-back dismiss — a
  * pending promise is never left hanging. A second `confirmSheet()` call while

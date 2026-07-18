@@ -21,6 +21,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { AutofillTextField } from '../ui/AutofillTextField';
+import { TextField } from '../ui/TextField';
 import { track } from '../../telemetry';
 import { validateName, validateText } from '../../lib/validation';
 
@@ -250,10 +251,9 @@ export default function JobQuickAdd({ onSaved }: Props) {
           onChange={setSiteLocation}
         />
 
-        <AutofillTextField
+        {/* Reference numbers are per-job unique — never suggest other jobs' values. */}
+        <TextField
           label="Reference # (external)"
-          table="jobs"
-          column="reference_number"
           value={referenceNumber}
           onChangeText={setReferenceNumber}
           placeholder="Insurance claim / customer PO #"
