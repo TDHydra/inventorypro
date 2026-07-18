@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -38,6 +38,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
@@ -606,8 +607,7 @@ export default function EquipmentModelDetailScreen() {
   return (
     <>
       <Stack.Screen options={{ title: editing ? 'Edit Model' : item.name, headerShown: true }} />
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
           {editing ? (
             <>
               <Field label="Name *" value={form.name} onChange={setField('name')} autoFocus />
@@ -830,8 +830,7 @@ export default function EquipmentModelDetailScreen() {
               )}
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
 
       {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
       {/* onClose only hides — repairInLoc is preserved on outside-tap dismiss */}
@@ -1163,7 +1162,6 @@ function Field(props: {
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   muted: { fontSize: 14, color: t.colors.textMuted },

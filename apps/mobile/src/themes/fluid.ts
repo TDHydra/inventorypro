@@ -65,4 +65,7 @@ export const fluid = createTheme(original, {
     card: { borderWidth: 0, divided: false },
     chip: { variant: 'pill' },
   },
+  // Roomier: Fluid is the soft, airy skin — give the focused field extra breathing
+  // room above the keyboard to match its generous spacing.
+  keyboard: { focusExtraOffset: 24 },
 });

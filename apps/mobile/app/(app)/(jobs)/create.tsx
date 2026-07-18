@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -25,6 +25,7 @@ import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
@@ -190,11 +191,7 @@ export default function CreateJobScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'New Job', headerShown: true }} />
-      <KeyboardAvoidingView
-        style={s.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
 
           <View style={s.hint}>
             <Text style={s.hintText}>
@@ -328,14 +325,12 @@ export default function CreateJobScreen() {
           </View>
           {locked && <MaintenanceBanner />}
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
     </>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   muted: { fontSize: 14, color: t.colors.textMuted, textAlign: 'center' },

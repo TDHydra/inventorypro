@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import * as Location from 'expo-location';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -25,6 +25,7 @@ import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
@@ -334,8 +335,7 @@ export default function JobDetailScreen() {
   return (
     <>
       <Stack.Screen options={{ title: editing ? 'Edit Job' : job.name, headerShown: true }} />
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
 
           {editing ? (
             <>
@@ -623,8 +623,7 @@ export default function JobDetailScreen() {
               )}
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
 
       {/* ── Request Approval (job) ─────────────────────────────────────── */}
       <RequestApprovalSheet
@@ -639,7 +638,6 @@ export default function JobDetailScreen() {
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   muted: { fontSize: 14, color: t.colors.textMuted },

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
@@ -17,6 +17,7 @@ import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/mainten
 import { getAppConfig, setAppConfigLocal } from '../../../src/db/appConfig';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import {
   FormMode,
   getFormMode,
@@ -413,7 +414,7 @@ export default function SettingsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Settings', headerShown: true }} />
-      <ScrollView style={s.container} contentContainerStyle={s.content}>
+      <FormScreen contentContainerStyle={s.content}>
 
         {/* ── Account ──────────────────────────────────────────────────── */}
         <View>
@@ -870,7 +871,7 @@ export default function SettingsScreen() {
           </View>
         )}
 
-      </ScrollView>
+      </FormScreen>
     </>
   );
 }
@@ -878,7 +879,6 @@ export default function SettingsScreen() {
 // ── Styles ───────────────────────────────────────────────────────────────────
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
   sectionTitle: {

@@ -65,4 +65,7 @@ export const classic = createTheme(original, {
     card: { borderWidth: 1, divided: true },
     chip: { variant: 'square-tag' },
   },
+  // Tighter: Classic is the dense, conservative skin — keep the focused field
+  // snug against the keyboard to match its compressed spacing.
+  keyboard: { focusExtraOffset: 8 },
 });

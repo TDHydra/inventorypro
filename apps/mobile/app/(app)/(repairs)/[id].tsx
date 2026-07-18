@@ -25,6 +25,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { MediaGallery } from '../../../src/components/MediaGallery';
@@ -417,7 +418,7 @@ export default function RepairDetailScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Repair', headerShown: true }} />
-      <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
         {/* Header */}
         <View style={s.header}>
           <TouchableOpacity disabled={!linkable} onPress={openEntity}>
@@ -579,7 +580,7 @@ export default function RepairDetailScreen() {
         {/* History */}
         <Text style={s.sectionTitle}>History</Text>
         <ActivityFeed entityType="repair" entityId={repair.id} />
-      </ScrollView>
+      </FormScreen>
 
       {/* Return-from-repair location picker (equipment completion) */}
       <ModalSheet visible={returnUnitId !== null} onClose={() => confirmReturn(returnLoc)}>

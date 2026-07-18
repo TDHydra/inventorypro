@@ -33,6 +33,7 @@
     "react-dom": "^19.2.3",
     "react-native": "0.85.3",
     "react-native-get-random-values": "~1.11.0",
+    "react-native-keyboard-controller": "1.22.1",
     "react-native-web": "^0.21.2",
     "react-native-webview": "13.16.1",
     "sql.js": "^1.14.1",

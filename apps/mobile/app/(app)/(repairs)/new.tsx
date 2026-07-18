@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -21,6 +20,7 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
@@ -135,8 +135,7 @@ export default function NewRepairScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Report Repair', headerShown: true }} />
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
           {/* ── Entity (read-only) ──────────────────────────────────────── */}
           <View style={s.card}>
             <Text style={s.entityKind}>{ENTITY_TYPE_LABEL[entityType] ?? entityType}</Text>
@@ -190,14 +189,12 @@ export default function NewRepairScreen() {
             disabled={locked}
             style={{ marginTop: 8 }}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
     </>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   card: { backgroundColor: t.colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: t.colors.borderDetail },

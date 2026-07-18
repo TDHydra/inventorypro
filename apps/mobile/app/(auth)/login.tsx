@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
+  StyleSheet, Platform, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Theme } from '../../src/themes/types';
 import { useTheme } from '../../src/hooks/useTheme';
 import { useThemedStyles } from '../../src/hooks/useThemedStyles';
+import { FormScreen } from '../../src/components/ui/FormScreen';
 import { PINPad } from '../../src/components/PINPad';
 import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
@@ -293,14 +294,7 @@ export default function LoginScreen() {
 
   if (screen === 'setpin' && selectedUser) {
     return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1 }}
-          keyboardShouldPersistTaps="handled"
-        >
+      <FormScreen contentContainerStyle={styles.setpinContent}>
         <TouchableOpacity style={styles.back} onPress={stepBack}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
@@ -362,17 +356,13 @@ export default function LoginScreen() {
         )}
 
         {loading && <Text style={styles.loading}>Setting up…</Text>}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
     );
   }
 
   if (screen === 'pin' && selectedUser) {
     return (
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <FormScreen contentContainerStyle={styles.pinContent}>
         <TouchableOpacity style={styles.back} onPress={() => setScreen('pick')}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
@@ -391,7 +381,7 @@ export default function LoginScreen() {
         </View>
 
         {loading && <Text style={styles.loading}>Verifying...</Text>}
-      </KeyboardAvoidingView>
+      </FormScreen>
     );
   }
 
@@ -470,6 +460,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
   },
+  // FormScreen paints the themed flex:1 background itself, so the padding the
+  // old KeyboardAvoidingView carried via `container` moves onto the scroll
+  // content here. setpin keeps the old ScrollView's flexGrow so the wizard
+  // fills the viewport; the PIN pad screen just needs top/side insets.
+  setpinContent: { flexGrow: 1, paddingTop: 60, paddingHorizontal: 20 },
+  pinContent: { paddingTop: 60, paddingHorizontal: 20 },
   appName: { fontSize: 20, fontWeight: '700', color: t.colors.primaryText, marginBottom: 4 },
   heading: { fontSize: 26, fontWeight: '700', color: t.colors.brand, marginBottom: 16 },
   searchBox: {
