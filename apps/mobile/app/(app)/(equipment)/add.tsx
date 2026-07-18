@@ -296,7 +296,7 @@ export default function AddEquipmentScreen() {
           <HidableField fieldId="equipment.serial_number">
             <TextField
               label="Serial number (optional)"
-              placeholder="Serial number (optional)"
+              placeholder="e.g. SN-12345"
               value={serial}
               onChangeText={setSerial}
             />

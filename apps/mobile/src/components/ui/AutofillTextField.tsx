@@ -1,4 +1,5 @@
-import { TextInputProps } from 'react-native';
+import type { Ref } from 'react';
+import { TextInput, TextInputProps } from 'react-native';
 import { Field } from './Field';
 import { SuggestInput } from '../SuggestInput';
 import { useSuggestions } from '../../hooks/useSuggestions';
@@ -17,6 +18,11 @@ interface Props<T extends SuggestibleTable> {
   maxSuggestions?: number;
   autoCapitalize?: TextInputProps['autoCapitalize'];
   onPick?: (v: string) => void;
+  autoFocus?: boolean;
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
+  returnKeyType?: TextInputProps['returnKeyType'];
+  /** Reaches the underlying native TextInput (focus/blur). */
+  inputRef?: Ref<TextInput>;
 }
 
 /**
@@ -52,6 +58,10 @@ export function AutofillTextField<T extends SuggestibleTable>({
   maxSuggestions,
   autoCapitalize,
   onPick,
+  autoFocus,
+  onSubmitEditing,
+  returnKeyType,
+  inputRef,
 }: Props<T>) {
   const suggestions = useSuggestions(table, column);
 
@@ -69,6 +79,10 @@ export function AutofillTextField<T extends SuggestibleTable>({
         autoCapitalize={autoCapitalize as 'none' | 'words' | 'characters' | undefined}
         maxSuggestions={maxSuggestions}
         onPick={onPick}
+        autoFocus={autoFocus}
+        onSubmitEditing={onSubmitEditing}
+        returnKeyType={returnKeyType}
+        inputRef={inputRef}
       />
     </Field>
   );

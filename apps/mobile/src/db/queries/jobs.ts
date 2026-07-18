@@ -60,20 +60,6 @@ export function getJobById(id: string): Job | null {
   return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type')[0] ?? null;
 }
 
-// Distinct prior values for the job typeahead fields (mirrors getDistinctValues in
-// items.ts). Column names are literals (no injection risk) and the set is small.
-function distinctJobValues(column: 'customer_name' | 'insurance_carrier' | 'site_address'): string[] {
-  const db = getDb();
-  const result = db.executeSync(
-    `SELECT DISTINCT ${column} AS v FROM jobs
-     WHERE ${column} IS NOT NULL AND TRIM(${column}) != '' ORDER BY v COLLATE NOCASE`
-  );
-  return (result.rows as unknown as { v: string }[]).map(r => r.v);
-}
-export const getDistinctCustomerNames = (): string[] => distinctJobValues('customer_name');
-export const getDistinctInsuranceCarriers = (): string[] => distinctJobValues('insurance_carrier');
-export const getDistinctSiteAddresses = (): string[] => distinctJobValues('site_address');
-
 // Most recent job for a customer (case-insensitive), used to offer cross-fill of
 // that customer's usual details. LEFT JOINs the site location so the caller gets a
 // ready-to-display label without a second query.

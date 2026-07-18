@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, Ref, useState } from 'react';
 import { View, TextInput, TextInputProps, StyleSheet } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
@@ -7,6 +7,8 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 interface Props extends TextInputProps {
   /** Optional trailing adornment (clear button, chevron, …), overlaid on the right edge. */
   right?: ReactNode;
+  /** React 19 ref-as-prop: reaches the native TextInput (focus/blur/clear). */
+  ref?: Ref<TextInput>;
 }
 
 const makeStyles = (t: Theme) => {
@@ -46,7 +48,7 @@ const makeStyles = (t: Theme) => {
   });
 };
 
-export function AppInput({ style, placeholderTextColor, onFocus, onBlur, right, ...rest }: Props) {
+export function AppInput({ style, placeholderTextColor, onFocus, onBlur, right, ref, ...rest }: Props) {
   const t = useTheme();
   const s = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
@@ -57,6 +59,7 @@ export function AppInput({ style, placeholderTextColor, onFocus, onBlur, right, 
     : s.outlined;
   const input = (
     <TextInput
+      ref={ref}
       style={[variantStyle, right != null && s.inputWithRight, style]}
       placeholderTextColor={placeholderTextColor ?? t.colors.placeholder}
       onFocus={(e) => { setFocused(true); onFocus?.(e); }}

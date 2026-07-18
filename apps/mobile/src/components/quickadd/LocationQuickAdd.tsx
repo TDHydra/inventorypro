@@ -20,6 +20,7 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { AutofillTextField } from '../ui/AutofillTextField';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
 
@@ -106,18 +107,20 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 
   return (
     <View style={s.container}>
-      <TextInput
-        ref={nameRef}
-        style={[s.input, !!nameError && s.inputError]}
-        placeholder="Location name *"
-        placeholderTextColor={t.colors.textMuted}
+      <AutofillTextField
+        label="Location name"
+        required
+        table="locations"
+        column="name"
+        placeholder="Enter location name"
         value={name}
         onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
+        error={nameError}
         autoFocus
         returnKeyType="done"
         onSubmitEditing={handleSave}
+        inputRef={nameRef}
       />
-      {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
 
       <AdvancedFields>
         <FieldLabel>Parent location (optional)</FieldLabel>
@@ -145,12 +148,6 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
-  input: {
-    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
-    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
-  },
-  inputError: { borderColor: t.colors.danger },
-  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
   doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
   doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

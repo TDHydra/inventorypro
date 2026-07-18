@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View, StyleSheet } from 'react-native';
+import { Pressable, Text, TextInput, View, StyleSheet, type ReturnKeyTypeOptions } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
@@ -24,6 +24,10 @@ interface Props {
   label?: string; // optional Field wrapper when provided
   allowDecimal?: boolean; // default false
   size?: 'sm' | 'md'; // default 'md' (md = 44px row height, matches AppInput)
+  // Fired on the keyboard submit key with the just-committed (clamped/parsed)
+  // value — parent state set via onChange is still stale at this point.
+  onSubmitEditing?: (committed: number) => void;
+  returnKeyType?: ReturnKeyTypeOptions;
 }
 
 const REPEAT_INTERVAL_MS = 120;
@@ -42,6 +46,8 @@ export function QuantityStepper({
   label,
   allowDecimal = false,
   size = 'md',
+  onSubmitEditing,
+  returnKeyType,
 }: Props) {
   const s = useThemedStyles(makeStyles);
   const [text, setText] = useState(formatQuantity(value));
@@ -90,12 +96,17 @@ export function QuantityStepper({
     }, REPEAT_INTERVAL_MS);
   };
 
-  const commitText = () => {
+  // Returns the committed value so submit handlers can use it directly —
+  // parent state updated via onChange is still the pre-commit value when a
+  // submit callback fires in the same event. Idempotent: RN fires endEditing
+  // after submit, and re-committing the same text is a no-op change-wise.
+  const commitText = (): number => {
     editingRef.current = false;
     const parsed = parseQuantityInput(text, min, max, allowDecimal);
     const next = parsed ?? value;
     onChange(next);
     setText(formatQuantity(next));
+    return next;
   };
 
   const atMin = value <= min;
@@ -126,6 +137,11 @@ export function QuantityStepper({
           }}
           onBlur={commitText}
           onEndEditing={commitText}
+          onSubmitEditing={() => {
+            const next = commitText();
+            onSubmitEditing?.(next);
+          }}
+          returnKeyType={returnKeyType}
           keyboardType={allowDecimal ? 'decimal-pad' : 'number-pad'}
           textAlign="center"
         />
