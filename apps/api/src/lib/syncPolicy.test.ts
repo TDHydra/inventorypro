@@ -358,6 +358,105 @@ test('applyWritePolicy always rejects is_test + enrollment_code_public on users,
   assert.ok(rejected.includes('enrollment_code_public'));
 });
 
+// ── Field-crew epic (#122): new-table policy ─────────────────────────────────
+
+test('field-crew op perms: vehicles state is open, DELETE fails closed', () => {
+  assert.equal(requiredOperationPerm('vehicles', 'INSERT'), null);
+  assert.equal(requiredOperationPerm('vehicles', 'UPDATE'), null);
+  assert.equal(requiredOperationPerm('vehicles', 'DELETE'), 'DENY');
+});
+
+test('field-crew op perms: service records are maintenance data (edit_inventory)', () => {
+  assert.equal(requiredOperationPerm('vehicle_service_records', 'INSERT'), 'edit_inventory');
+  assert.equal(requiredOperationPerm('vehicle_service_records', 'UPDATE'), 'edit_inventory');
+  assert.equal(requiredOperationPerm('vehicle_service_records', 'DELETE'), 'edit_inventory');
+});
+
+test('field-crew op perms: checkout sessions ride checkout_inventory; DELETE fails closed (sessions close, never vanish)', () => {
+  assert.equal(requiredOperationPerm('vehicle_checkouts', 'INSERT'), 'checkout_inventory');
+  assert.equal(requiredOperationPerm('vehicle_checkouts', 'UPDATE'), 'checkout_inventory');
+  assert.equal(requiredOperationPerm('vehicle_checkouts', 'DELETE'), 'DENY');
+});
+
+test('field-crew op perms: locker_access is null here (real gate = per-row owner guard in routes/sync.ts)', () => {
+  assert.equal(requiredOperationPerm('locker_access', 'INSERT'), null);
+  assert.equal(requiredOperationPerm('locker_access', 'UPDATE'), null);
+  assert.equal(requiredOperationPerm('locker_access', 'DELETE'), null);
+});
+
+test('field-crew op perms: on_call_shifts is roster shaping (manage_teams, all ops)', () => {
+  assert.equal(requiredOperationPerm('on_call_shifts', 'INSERT'), 'manage_teams');
+  assert.equal(requiredOperationPerm('on_call_shifts', 'UPDATE'), 'manage_teams');
+  assert.equal(requiredOperationPerm('on_call_shifts', 'DELETE'), 'manage_teams');
+});
+
+test('subteams is op-perm exempt (gated by PRIVILEGED_TABLE_PERM + per-row team authority)', () => {
+  assert.equal(requiredOperationPerm('subteams', 'INSERT'), null);
+  assert.equal(requiredOperationPerm('subteams', 'DELETE'), null);
+});
+
+test('vehicle_checkouts attribution: user_id forced to the caller on INSERT, dropped on UPDATE (takeover cannot steal the row)', () => {
+  const realVc = new Map([
+    ['vehicle_checkouts', new Set(['id', 'vehicle_location_id', 'user_id', 'job_id', 'checked_out_at', 'checked_in_at', 'updated_at'])],
+  ]);
+  const ins = applyWritePolicy(
+    'vehicle_checkouts', 'INSERT',
+    { id: 'vc1', vehicle_location_id: 'loc1', user_id: 'someone-else' },
+    'caller', realVc, () => true,
+  );
+  assert.equal(ins.row.user_id, 'caller');
+  const upd = applyWritePolicy(
+    'vehicle_checkouts', 'UPDATE',
+    { id: 'vc1', checked_in_at: '2026-07-18T00:00:00.000Z', user_id: 'someone-else' },
+    'caller', realVc, () => true,
+  );
+  assert.ok(!('user_id' in upd.row), 'UPDATE must not carry user_id');
+});
+
+test('locker_access / service records / on_call attribution forced to the caller on INSERT', () => {
+  const realTables = new Map([
+    ['locker_access', new Set(['location_id', 'user_id', 'granted_by', 'updated_at'])],
+    ['vehicle_service_records', new Set(['id', 'vehicle_location_id', 'type', 'created_by', 'updated_at'])],
+    ['on_call_shifts', new Set(['id', 'subteam_id', 'week_start', 'created_by', 'updated_at'])],
+  ]);
+  const la = applyWritePolicy('locker_access', 'INSERT',
+    { location_id: 'l1', user_id: 'grantee', granted_by: 'forged' }, 'caller', realTables, () => true);
+  assert.equal(la.row.granted_by, 'caller');
+  assert.equal(la.row.user_id, 'grantee', 'the GRANTEE is data, not attribution');
+  const sr = applyWritePolicy('vehicle_service_records', 'INSERT',
+    { id: 's1', vehicle_location_id: 'l1', type: 'oil', created_by: 'forged' }, 'caller', realTables, () => true);
+  assert.equal(sr.row.created_by, 'caller');
+  const oc = applyWritePolicy('on_call_shifts', 'INSERT',
+    { id: 'o1', subteam_id: 'st1', week_start: '2026-07-20', created_by: 'forged' }, 'caller', realTables, () => true);
+  assert.equal(oc.row.created_by, 'caller');
+});
+
+test('vehicle_service_records hides cost without view_financial_data, exposes it with (maintenance_events pattern)', () => {
+  const restricted = selectColumnsFor('vehicle_service_records', false);
+  assert.ok(!/\bcost\b/.test(restricted));
+  assert.ok(/vehicle_location_id|target|odometer/.test(restricted));
+  const full = selectColumnsFor('vehicle_service_records', true);
+  assert.ok(/\bcost\b/.test(full));
+});
+
+test('field-crew tables have explicit projections (never *)', () => {
+  for (const t of ['subteams', 'vehicles', 'vehicle_checkouts', 'locker_access', 'on_call_shifts']) {
+    assert.notEqual(selectColumnsFor(t, false), '*', `${t} must have an explicit projection`);
+  }
+});
+
+test('field-crew activity actions are allowlisted against existing entity types (#56 rule)', () => {
+  for (const a of ['vehicle_checkout', 'vehicle_checkin', 'vehicle_state_changed', 'vehicle_service_logged',
+    'locker_access_granted', 'locker_access_revoked']) {
+    assert.equal(isAllowedActivity(a, 'location'), true, `${a} on location`);
+  }
+  for (const a of ['subteam_created', 'subteam_updated', 'on_call_assigned']) {
+    assert.equal(isAllowedActivity(a, 'team'), true, `${a} on team`);
+  }
+  // no new entity types were introduced
+  assert.equal(isAllowedActivity('vehicle_checkout', 'vehicle'), false);
+});
+
 test('users exposes enrollment_code_public only through the is_test CASE guard', () => {
   const cols = selectColumnsFor('users', true);
   assert.ok(cols.includes('CASE WHEN is_test THEN enrollment_code_public'));
