@@ -9,20 +9,27 @@ let dirty = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 export let persistenceDisabled = false; // surfaced to UI for the "won't save" banner
 
+// Set true by an idle/logout wipe (markDbWiped). While wiped, ALL snapshot
+// persistence is blocked so a stray debounced flush — or the migration flush
+// inside resetLocalDb() — can't call getOrCreateSnapshotKey(), re-mint a fresh
+// AES key, and re-write a decryptable snapshot, silently undoing the wipe. It is
+// cleared again by clearDbWiped() only on a genuine re-login (saveSession).
+let persistWiped = false;
+
 function isRead(sql: string): boolean {
   const head = sql.trim().slice(0, 8).toUpperCase();
   return head.startsWith('SELECT') || head.startsWith('PRAGMA') || head.startsWith('EXPLAIN');
 }
 
 function scheduleSave() {
-  if (persistenceDisabled || !raw) return;
+  if (persistenceDisabled || persistWiped || !raw) return;
   dirty = true;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { void flush(); }, 500);
 }
 
 async function flush(): Promise<void> {
-  if (!dirty || !raw || persistenceDisabled) return;
+  if (!dirty || !raw || persistenceDisabled || persistWiped) return;
   dirty = false;
   try { await saveDbSnapshot(raw.export()); }
   catch { persistenceDisabled = true; }
@@ -77,6 +84,25 @@ export async function resetLocalDb(): Promise<void> {
   if (raw) { raw.close(); raw = null; wrapped = null; }
   try { await clearDbSnapshot(); } catch { /* ignore */ }
   await initDb();
+}
+
+/**
+ * Block all snapshot persistence until the next genuine re-login. Called at the
+ * START of an idle/logout wipe (before wipeWebSecureState/resetLocalDb) so that a
+ * pending debounced flush of the still-live, data-bearing DB — or the migration
+ * flush that runs inside the subsequent resetLocalDb() — cannot re-mint an AES
+ * key and re-persist a decryptable snapshot. The pending save timer is cancelled
+ * and the dirty flag cleared so nothing already queued slips through.
+ */
+export function markDbWiped(): void {
+  persistWiped = true;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  dirty = false;
+}
+
+/** Re-enable snapshot persistence after a genuine re-login (saveSession). */
+export function clearDbWiped(): void {
+  persistWiped = false;
 }
 
 let hooksInstalled = false;

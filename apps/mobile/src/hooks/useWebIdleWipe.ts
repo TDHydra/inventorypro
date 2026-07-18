@@ -24,6 +24,25 @@ const ACTIVITY_EVENTS: Array<keyof DocumentEventMap> = [
 
 let installed = false;
 
+// Optional handler that flips the in-memory React SessionContext to logged-out
+// (i.e. the provider's own `logout()` = clearSession + setUser(null)). It lives
+// in the app root (app/_layout.tsx), outside this module, so the root registers
+// it once mounted and the idle wipe invokes it to drive an immediate redirect to
+// login instead of waiting for the next route guard. Registering `null` clears
+// it. Kept here (a browser-guarded, native-safe module) so the root can import
+// the setter without pulling web-only session internals into the native bundle.
+let logoutHandler: (() => void | Promise<void>) | null = null;
+
+/** Register (or clear, with null) the React logout handler used by the idle wipe. */
+export function setWebIdleLogoutHandler(fn: (() => void | Promise<void>) | null): void {
+  logoutHandler = fn;
+}
+
+/** The currently-registered React logout handler, or null. */
+export function getWebIdleLogoutHandler(): (() => void | Promise<void>) | null {
+  return logoutHandler;
+}
+
 function isBrowser(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
 }

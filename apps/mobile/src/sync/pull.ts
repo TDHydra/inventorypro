@@ -1,6 +1,6 @@
 import { getDb } from '../db/schema';
 import { getValidJwt } from '../auth/session';
-import { bumpDataVersion } from './dataVersion';
+import { bumpTablesVersion } from './dataVersion';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -85,10 +85,13 @@ export async function pullChanges(): Promise<void> {
   const data = await res.json() as Record<string, { rows: Record<string, unknown>[] }>;
   const db = getDb();
 
-  // Track whether any row was actually applied so open lists (via
-  // useDataVersion) only re-query when a pull genuinely changed local data,
-  // not on every empty-diff heartbeat pull.
-  let changed = false;
+  // Track WHICH tables actually had a row applied (#64) so per-table subscribers
+  // (useTableVersion) only re-query when a table they render changed — a new
+  // chat message no longer re-runs inventory search, the location tree, etc.
+  // bumpTablesVersion also bumps the global counter, so screens still on
+  // useDataVersion() refresh on any change. An empty-diff heartbeat pull adds
+  // nothing to the set and bumps nothing.
+  const changedTables = new Set<string>();
 
   // Suspend FK enforcement while applying the batch. Rows arrive in server
   // order, not dependency order, and locations.parent_id is self-referencing —
@@ -105,7 +108,7 @@ export async function pullChanges(): Promise<void> {
         const values = rowToValues(table, row);
         if (values.length > 0) {
           db.executeSync(sql, values as (string | number | null)[]);
-          changed = true;
+          changedTables.add(table);
         }
       }
     }
@@ -116,5 +119,5 @@ export async function pullChanges(): Promise<void> {
 
   setLastPulledAt(new Date().toISOString());
 
-  if (changed) bumpDataVersion();
+  if (changedTables.size > 0) bumpTablesVersion(changedTables);
 }

@@ -1,10 +1,21 @@
 import { UserSession, TeamContext, parsePermissionOverrides } from './permissions';
 import { getUserById } from '../db/queries/users';
-import { getDb, rowsAs } from '../db/schema';
+import { getDb, rowsAs, resetLocalDb } from '../db/schema';
+// markDbWiped/clearDbWiped are web-only. Import them from the explicit `.web`
+// module: without `moduleSuffixes`, tsc resolves the bare `../db/schema` to the
+// native schema.ts (which lacks these), while Metro resolves BOTH specifiers to
+// schema.web.ts on web — the same module instance, so the persistWiped flag they
+// toggle is the very one flush()/scheduleSave() read.
+import { markDbWiped, clearDbWiped } from '../db/schema.web';
 import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
-import { clearDbSnapshot } from '../db/webPersistence';
+import {
+  clearDbSnapshot,
+  saveSecureValue,
+  loadSecureValue,
+  deleteSecureValue,
+} from '../db/webPersistence';
 import { clearSnapshotKey } from '../db/webCrypto';
-import { installWebIdleWipe } from '../hooks/useWebIdleWipe';
+import { installWebIdleWipe, getWebIdleLogoutHandler } from '../hooks/useWebIdleWipe';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../lib/alertBus';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -20,67 +31,32 @@ const USER_ID_KEY = 'inventorypro_user_id';
 // session from disk. See D4 in the 2026-07-01 security audit remediation plan.
 let inMemoryRefreshToken: string | null = null;
 
-// ── Minimal IndexedDB kv store (web replacement for expo-secure-store) ────────
-// Shares the same DB/store names as the sql.js snapshot persistence so the web
-// build keeps a single IndexedDB database.
-const IDB_NAME = 'inventorypro-web';
-const IDB_STORE = 'kv';
-
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbGet(key: string): Promise<string | null> {
-  const idb = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, 'readonly');
-    const req = tx.objectStore(IDB_STORE).get(key);
-    req.onsuccess = () => resolve(req.result == null ? null : (req.result as string));
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbSet(key: string, value: string): Promise<void> {
-  const idb = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function idbDel(key: string): Promise<void> {
-  const idb = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
+// ── Encrypted kv persistence (web replacement for expo-secure-store) ──────────
+// The JWT and user id are stored in the same IndexedDB database as the sql.js
+// snapshot, but ENCRYPTED at rest with the shared AES-GCM snapshot key (see
+// webPersistence.saveSecureValue / loadSecureValue). A local-disk attacker who
+// can't decrypt the snapshot therefore can't lift a live JWT either. The
+// snapshot key lives only in memory + sessionStorage, so when it's absent
+// (fresh tab, post-logout, post-idle) these reads return null and the user is
+// treated as logged-out — the values are never read back or written in plaintext.
 
 export async function saveSession(jwt: string, refreshToken: string, userId: string): Promise<void> {
   inMemoryRefreshToken = refreshToken;
+  // A genuine re-login: lift the post-wipe persistence block (markDbWiped) so the
+  // fresh session's snapshot + encrypted JWT are written normally again. Done
+  // BEFORE the encrypted writes below so getOrCreateSnapshotKey may mint a key.
+  clearDbWiped();
   await Promise.all([
-    idbSet(JWT_KEY, jwt),
-    idbSet(USER_ID_KEY, userId),
+    saveSecureValue(JWT_KEY, jwt),
+    saveSecureValue(USER_ID_KEY, userId),
     // Purge any refresh token persisted by a pre-D4 build so nothing long-lived
     // is left at rest, even though we no longer write one here.
-    idbDel(REFRESH_KEY),
+    deleteSecureValue(REFRESH_KEY),
   ]);
 }
 
 export async function getJwt(): Promise<string | null> {
-  return idbGet(JWT_KEY);
+  return loadSecureValue(JWT_KEY);
 }
 
 export async function getRefreshToken(): Promise<string | null> {
@@ -126,7 +102,7 @@ export async function getValidJwt(): Promise<string | null> {
     });
     if (!res.ok) return jwt;                            // refresh rejected — keep existing
     const data = await res.json() as { jwt: string };
-    await idbSet(JWT_KEY, data.jwt);
+    await saveSecureValue(JWT_KEY, data.jwt);
     return data.jwt;
   } catch {
     return jwt;                                         // offline — keep existing
@@ -134,7 +110,7 @@ export async function getValidJwt(): Promise<string | null> {
 }
 
 export async function getSavedUserId(): Promise<string | null> {
-  return idbGet(USER_ID_KEY);
+  return loadSecureValue(USER_ID_KEY);
 }
 
 export async function clearSession(): Promise<void> {
@@ -151,9 +127,9 @@ export async function clearSession(): Promise<void> {
 export async function wipeWebSecureState(): Promise<void> {
   inMemoryRefreshToken = null;
   await Promise.all([
-    idbDel(JWT_KEY),
-    idbDel(REFRESH_KEY),
-    idbDel(USER_ID_KEY),
+    deleteSecureValue(JWT_KEY),
+    deleteSecureValue(REFRESH_KEY),
+    deleteSecureValue(USER_ID_KEY),
     // Delete the encrypted snapshot and drop its key. clearDbSnapshot() already
     // calls clearSnapshotKey(); the extra call is a defensive no-op belt-and-braces.
     clearDbSnapshot().catch(() => { /* best-effort */ }),
@@ -161,22 +137,66 @@ export async function wipeWebSecureState(): Promise<void> {
   clearSnapshotKey();
 }
 
+/**
+ * Complete idle/logout wipe for web — the full logout the bare token wipe used to
+ * only half-do. In order:
+ *
+ *  1. markDbWiped() FIRST, so from here on no debounced flush (and no migration
+ *     flush inside resetLocalDb below) can re-mint an AES key and re-persist a
+ *     decryptable snapshot — the re-persist race that used to undo the wipe.
+ *  2. wipeWebSecureState() — drop the refresh token, the persisted JWT / user id,
+ *     the encrypted snapshot, and the AES key (memory + sessionStorage).
+ *  3. resetLocalDb() — CLOSE and clear the in-memory sql.js DB and re-init an
+ *     empty one, so offline reads return nothing after the wipe. The normal
+ *     logout path does NOT do this for a non-test session, which is exactly why a
+ *     walked-away browser could still read everything; we do it explicitly here.
+ *  4. Flip the React SessionContext to logged-out. We reuse the app root's own
+ *     `logout()` (registered via setWebIdleLogoutHandler) rather than reinventing
+ *     it. If none is registered yet (wipe fired before the root mounted), fall
+ *     back to a hard reload so the login screen — not the still-mounted authed
+ *     UI — is shown. persistWiped stays set until the next real re-login clears
+ *     it via saveSession(), so nothing decryptable is written in between.
+ */
+export async function performWebIdleWipe(): Promise<void> {
+  markDbWiped();
+  await wipeWebSecureState();
+  try {
+    await resetLocalDb();
+  } catch {
+    /* best-effort — the token/snapshot/key are already gone */
+  }
+  const handler = getWebIdleLogoutHandler();
+  if (handler) {
+    try {
+      await handler();
+    } catch {
+      /* best-effort */
+    }
+  } else if (typeof window !== 'undefined') {
+    // No React handler registered — reload so index.tsx re-routes to login on a
+    // fresh, empty DB (the snapshot + key are gone, so nothing is decryptable).
+    try {
+      window.location.reload();
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 // ── Web idle auto-wipe ────────────────────────────────────────────────────────
 // Native uses `useIdleLogout` (RN AppState + touch responder). The browser has
 // no equivalent, so we install a document-level idle listener at module load
 // (this module is imported early on web via the shared `../auth/session` path).
-// After ~15 min of no interaction it wipes tokens + the encrypted DB key, so a
-// walked-away session on a shared machine can't be resumed. Guarded to the
-// browser inside installWebIdleWipe(); a no-op during SSR / tests.
+// After ~15 min of no interaction it runs performWebIdleWipe() above: a COMPLETE
+// logout — wipe tokens/snapshot/key, close the in-memory DB, and flip the session
+// to logged-out — so a walked-away session on a shared machine can't be resumed
+// or read offline. Guarded to the browser inside installWebIdleWipe(); a no-op
+// during SSR / tests.
 //
-// NOTE: this wipes secure state but cannot flip the in-memory React session to
-// null on its own (that lives in the SessionContext provider in app/_layout.tsx,
-// outside these editable files). The next authed action / route guard will see
-// the missing token and bounce to login. TODO: for an *immediate* redirect on
-// idle, also drive the provider's `logout()` from the web mount — e.g. call
-// `installWebIdleWipe(logout)` (or add a subscriber) from app/_layout.tsx or a
-// web-only session hook, replacing the token-only wipe wired here.
-installWebIdleWipe(() => { void wipeWebSecureState(); }, undefined, {
+// The immediate React redirect needs the app root to register its logout() via
+// setWebIdleLogoutHandler() (see useWebIdleWipe.ts); until it does, step 4 above
+// falls back to a hard reload, so the security wipe is complete either way.
+installWebIdleWipe(() => { void performWebIdleWipe(); }, undefined, {
   // Same pre-wipe nudge the native app shows; any DOM interaction both re-arms
   // the timer (above) and clears a visible nudge (below).
   onWarn: () => {

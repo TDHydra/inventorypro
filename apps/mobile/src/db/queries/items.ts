@@ -293,6 +293,31 @@ export { _upsertStock as upsertStockRaw };
 // retyping it five slightly-different ways.
 export function getDistinctValues(column: 'supplier' | 'model' | 'unit' | 'category'): string[] {
   const db = getDb();
+  // Category autocomplete is FK-backed (#92): resolve each item's category from
+  // its durable taxonomy FK (category_id) via resolveLabels so a taxonomy rename
+  // reflects immediately in suggestions, instead of reading the (write-time-only,
+  // possibly stale) `category` label cache. Free-typed categories with no taxonomy
+  // row (category_id NULL, or a dangling id) fall back to their stored label so
+  // they still appear — matching the on-screen read paths.
+  if (column === 'category') {
+    const rows = db.executeSync(
+      `SELECT DISTINCT category_id, category FROM inventory_items
+       WHERE category_id IS NOT NULL OR (category IS NOT NULL AND TRIM(category) != '')`
+    ).rows as { category_id: string | null; category: string | null }[];
+    // In-place FK → current-label rewrite (grace-keeps the cache for null/unknown ids).
+    resolveLabels(rows, 'category_id', 'category');
+    const labels = new Set<string>();
+    for (const r of rows) {
+      const v = (r.category ?? '').trim();
+      if (v) labels.add(v);
+    }
+    // Case-insensitive sort, mirroring the COLLATE NOCASE ordering below.
+    return [...labels].sort((a, b) => {
+      const la = a.toLowerCase();
+      const lb = b.toLowerCase();
+      return la < lb ? -1 : la > lb ? 1 : 0;
+    });
+  }
   const result = db.executeSync(
     `SELECT DISTINCT ${column} AS v FROM inventory_items
      WHERE ${column} IS NOT NULL AND TRIM(${column}) != '' ORDER BY v COLLATE NOCASE`

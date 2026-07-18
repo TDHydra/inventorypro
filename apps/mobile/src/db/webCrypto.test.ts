@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encryptBytes, decryptBytes, SnapshotCryptoError } from './webCrypto';
+import {
+  encryptBytes,
+  decryptBytes,
+  encryptStringToBase64,
+  decryptBase64ToString,
+  SnapshotCryptoError,
+} from './webCrypto';
 
 // getOrCreateSnapshotKey()/getSnapshotKey() depend on sessionStorage, which is a
 // browser-only global — so these tests exercise the pure crypto primitives with
@@ -39,4 +45,34 @@ test('decryptBytes with the wrong key throws SnapshotCryptoError', async () => {
 test('decryptBytes on a too-short blob throws SnapshotCryptoError', async () => {
   const key = await freshKey();
   await assert.rejects(() => decryptBytes(key, new Uint8Array([1, 2, 3])), SnapshotCryptoError);
+});
+
+test('encryptStringToBase64 → decryptBase64ToString round-trips JWT-like text', async () => {
+  const key = await freshKey();
+  // A realistic JWT (three dot-separated base64url segments) plus a uuid.
+  const jwt =
+    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.c2lnbmF0dXJl';
+  const b64 = await encryptStringToBase64(key, jwt);
+  // Stored form is opaque base64 — it must NOT contain the plaintext JWT.
+  assert.ok(!b64.includes(jwt));
+  assert.equal(await decryptBase64ToString(key, b64), jwt);
+
+  const uuid = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  assert.equal(await decryptBase64ToString(key, await encryptStringToBase64(key, uuid)), uuid);
+});
+
+test('encryptStringToBase64 preserves multi-byte UTF-8', async () => {
+  const key = await freshKey();
+  const s = 'café — 名前 — 🔐';
+  assert.equal(await decryptBase64ToString(key, await encryptStringToBase64(key, s)), s);
+});
+
+test('decryptBase64ToString with the wrong key throws SnapshotCryptoError', async () => {
+  const k1 = await freshKey();
+  const k2 = await freshKey();
+  const b64 = await encryptStringToBase64(k1, 'secret-token');
+  await assert.rejects(
+    () => decryptBase64ToString(k2, b64),
+    (e: unknown) => e instanceof SnapshotCryptoError,
+  );
 });

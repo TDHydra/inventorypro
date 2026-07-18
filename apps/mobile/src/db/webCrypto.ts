@@ -1,14 +1,31 @@
 // src/db/webCrypto.ts
 //
 // At-rest encryption primitives for the Expo Web build. The sql.js database is
-// exported and persisted to IndexedDB (see webPersistence.ts); on a shared or
-// compromised browser — or via XSS — that plaintext snapshot is a full read of
-// the local dataset. We encrypt it with AES-GCM-256 using a key that lives ONLY
-// in memory + sessionStorage:
+// exported and persisted to IndexedDB (see webPersistence.ts). Left unencrypted,
+// that snapshot is a full, durably-on-disk copy of the local dataset that anyone
+// with filesystem access to the browser profile could read straight off disk. We
+// encrypt it with AES-GCM-256.
 //
-//   • sessionStorage survives a same-tab reload (so a refresh doesn't force a
-//     re-download) but is cleared when the tab or browser closes — the key is
-//     never written to disk the way IndexedDB / localStorage are.
+// THREAT MODEL — read before trusting this. The encryption here defends the
+// AT-REST DISK COPY against an OFFLINE attacker: someone who can read the
+// IndexedDB files on the profile but is NOT executing script in a live, logged-in
+// page. It does NOT defend against XSS or any other same-origin script running in
+// the live page. The AES key is reachable from JS for the whole session (raw
+// base64 in sessionStorage, plus an imported CryptoKey in memory), so injected
+// script can simply decrypt everything — the snapshot AND the encrypted session
+// values in webPersistence. There is no client-only fix for that: a key the page
+// can use, the page's attacker can use too. XSS must be mitigated elsewhere (CSP,
+// output encoding, short-lived JWTs), not by this module.
+//
+// Why the key lives in sessionStorage and not IndexedDB / localStorage:
+//   • sessionStorage is scoped to the tab and cleared when the tab/browser
+//     closes; it is not written durably to disk the way IndexedDB / localStorage
+//     are. Keeping the key OUT of durable on-disk storage is exactly what the
+//     offline-disk defense needs — the key should not sit on disk next to the
+//     ciphertext it unlocks. (Caveat: browsers may still spill sessionStorage to
+//     disk for session-restore, so treat it as "far less durable", not "never on
+//     disk".) It also survives a same-tab reload, so a refresh doesn't force a
+//     full re-download / re-auth.
 //   • On logout / idle we call clearSnapshotKey() to drop the key immediately,
 //     which makes the on-disk ciphertext undecryptable even before IndexedDB is
 //     wiped.
@@ -31,9 +48,19 @@ export class SnapshotCryptoError extends Error {
   }
 }
 
-// In-memory handle to the imported CryptoKey. Non-extractable once imported for
-// use, so it can't be read back out of a live page even if referenced.
+// In-memory handle to the imported CryptoKey. Imported non-extractable, so its
+// raw bytes can't be pulled back out via WebCrypto exportKey() even when the
+// handle is referenced. Note this only raises the bar for grabbing the key object
+// itself — the raw base64 still sits in sessionStorage this session (see the
+// threat-model note above), so it does nothing against same-origin XSS.
 let inMemoryKey: CryptoKey | null = null;
+
+// De-dupes concurrent first-use callers of getOrCreateSnapshotKey (e.g.
+// saveSession encrypting the JWT and user id in parallel, or a snapshot save
+// racing login). Without it two callers can each generate a *different* random
+// key and only the last one gets persisted to sessionStorage — leaving half the
+// values encrypted under a key that's gone on reload.
+let keyInit: Promise<CryptoKey> | null = null;
 
 function subtle(): SubtleCrypto {
   const c = (globalThis as { crypto?: Crypto }).crypto;
@@ -107,30 +134,65 @@ export async function getSnapshotKey(): Promise<CryptoKey | null> {
 /**
  * Return the snapshot key, generating and persisting a fresh random AES-GCM-256
  * key on first use. The raw key is exported to base64 and stashed in
- * sessionStorage so it survives a same-tab reload. Used by save paths.
+ * sessionStorage so it survives a same-tab reload; see the threat-model note at
+ * the top of this file for why sessionStorage (offline-disk defense, NOT XSS).
+ * The in-memory CryptoKey is non-extractable, but the raw base64 in
+ * sessionStorage is readable by any same-origin script, so this provides no
+ * protection against an attacker already executing script in the live page.
+ * Used by save paths.
  */
 export async function getOrCreateSnapshotKey(): Promise<CryptoKey> {
-  const existing = await getSnapshotKey();
-  if (existing) return existing;
+  if (inMemoryKey) return inMemoryKey;
+  // Single-flight the create path so parallel first-use callers share one key.
+  const inFlight = keyInit;
+  if (inFlight) return inFlight;
 
-  // Generate extractable so we can export raw for sessionStorage, then re-import
-  // as non-extractable for actual use.
-  const genKey = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, [
-    'encrypt',
-    'decrypt',
-  ]);
-  const raw = new Uint8Array(await subtle().exportKey('raw', genKey));
-  const store = getSessionStorage();
-  if (store) {
-    try {
-      store.setItem(SESSION_KEY_NAME, bytesToBase64(raw));
-    } catch {
-      // If sessionStorage is full/blocked the key stays memory-only: encryption
-      // still works this session, a reload just forces re-download. Acceptable.
+  const pending = (async (): Promise<CryptoKey> => {
+    const existing = await getSnapshotKey();
+    if (existing) return existing;
+
+    // Generate extractable so we can export raw for sessionStorage, then
+    // re-import as non-extractable for actual use.
+    const genKey = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, [
+      'encrypt',
+      'decrypt',
+    ]);
+    const raw = new Uint8Array(await subtle().exportKey('raw', genKey));
+    const store = getSessionStorage();
+    if (store) {
+      try {
+        store.setItem(SESSION_KEY_NAME, bytesToBase64(raw));
+      } catch {
+        // If sessionStorage is full/blocked the key stays memory-only:
+        // encryption still works this session, a reload just forces
+        // re-download. Acceptable.
+      }
     }
-  }
-  inMemoryKey = await importRawKey(raw);
-  return inMemoryKey;
+    const imported = await importRawKey(raw);
+    // Best-effort hardening: wipe the raw key bytes from this local buffer now
+    // that they're both imported (into a non-extractable CryptoKey) and, if
+    // storage was available, persisted as base64. This only shortens the lifetime
+    // of the *binary* copy in the JS heap — the base64 copy in sessionStorage
+    // necessarily remains for reload survival and is the real XSS exposure.
+    raw.fill(0);
+    inMemoryKey = imported;
+    return imported;
+  })();
+
+  keyInit = pending;
+  // Clear the in-flight handle once settled so a later logout/clear can't be
+  // shadowed by a stale resolved promise. Guarded so a concurrent re-entry that
+  // installed a newer promise isn't clobbered.
+  void pending
+    .finally(() => {
+      if (keyInit === pending) keyInit = null;
+    })
+    .catch(() => {
+      // Rejection is surfaced to the awaiting caller via the returned `pending`;
+      // this side-chain only resets keyInit, so swallow to avoid a duplicate
+      // unhandled-rejection warning.
+    });
+  return pending;
 }
 
 /**
@@ -168,9 +230,30 @@ export async function decryptBytes(key: CryptoKey, blob: Uint8Array): Promise<Ui
   }
 }
 
+// ── string helpers (JWT / user id at rest) ───────────────────────────────────
+// UTF-8 text ⇄ base64 ciphertext, using the same AES-GCM primitives as the
+// snapshot. Kept key-parameterised (rather than fetching the snapshot key
+// internally) so they stay pure and unit-testable in Node like encrypt/decrypt.
+
+/** Encrypt a UTF-8 string to a base64 [IV][ciphertext] blob. */
+export async function encryptStringToBase64(key: CryptoKey, value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  return bytesToBase64(await encryptBytes(key, bytes));
+}
+
+/**
+ * Decrypt a base64 blob produced by encryptStringToBase64 back to its UTF-8
+ * string. Throws SnapshotCryptoError on a wrong key / corrupt data.
+ */
+export async function decryptBase64ToString(key: CryptoKey, b64: string): Promise<string> {
+  const plain = await decryptBytes(key, base64ToBytes(b64));
+  return new TextDecoder().decode(plain);
+}
+
 /** Drop the snapshot key from sessionStorage and memory (logout / idle wipe). */
 export function clearSnapshotKey(): void {
   inMemoryKey = null;
+  keyInit = null;
   const store = getSessionStorage();
   try {
     store?.removeItem(SESSION_KEY_NAME);
