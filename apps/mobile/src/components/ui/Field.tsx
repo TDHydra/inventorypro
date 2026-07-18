@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { FieldLabel } from './FieldLabel';
 
 // The <View style={s.fieldWrap}><FieldLabel>…</FieldLabel>{children}</View> wrapper
@@ -21,6 +22,7 @@ export function Field({
   required?: boolean;
   children: React.ReactNode;
 }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.fieldWrap}>
       <FieldLabel>{required ? `${label} *` : label}</FieldLabel>
@@ -31,8 +33,8 @@ export function Field({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   fieldWrap: { gap: 6 },
-  hint: { fontSize: fontSizes.caption, color: colors.textMuted },
-  error: { fontSize: fontSizes.caption, color: colors.danger },
+  hint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  error: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger },
 });

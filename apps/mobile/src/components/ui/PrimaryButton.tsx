@@ -1,22 +1,65 @@
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { colors, radii, fontSizes } from '../../theme';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TouchableHighlight, TouchableOpacity } from 'react-native';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 interface Props { label: string; onPress: () => void; disabled?: boolean; loading?: boolean; tone?: 'primary' | 'danger'; style?: object; }
 export function PrimaryButton({ label, onPress, disabled, loading, tone = 'primary', style }: Props) {
-  const bg = tone === 'danger' ? colors.danger : colors.primary;
+  const t = useTheme();
+  const s = useThemedStyles(makeStyles);
+  const soft = t.components.button.variant === 'soft';
+  const bg = soft
+    ? (tone === 'danger' ? t.colors.dangerBg : t.colors.primaryBg)
+    : (tone === 'danger' ? t.colors.danger : t.colors.primary);
+  const fg = soft
+    ? (tone === 'danger' ? t.colors.danger : t.colors.primaryText)
+    : t.colors.onPrimary;
+  // Glow = fab shadow recolored to the fill (web helper maps it to a boxShadow glow).
+  const glow = t.components.button.variant === 'filled-glow'
+    ? { borderWidth: 1, borderColor: bg, ...t.shadows.fab, shadowColor: bg, shadowOpacity: 0.6, shadowRadius: 8 }
+    : null;
+  const inactive = disabled || loading;
+  const btnStyle = [s.btn, { backgroundColor: bg }, glow, inactive && s.disabled, style];
+  const content = loading ? <ActivityIndicator color={fg} /> : <Text style={[s.text, { color: fg }]}>{label}</Text>;
+
+  if (t.motion.pressFeedback === 'scale') {
+    return (
+      <Pressable style={({ pressed }) => [...btnStyle, pressed && s.pressed]} onPress={onPress} disabled={inactive}>
+        {content}
+      </Pressable>
+    );
+  }
+  if (t.motion.pressFeedback === 'highlight') {
+    return (
+      <TouchableHighlight
+        style={btnStyle}
+        underlayColor={tone === 'danger' ? t.colors.dangerBg : t.colors.primaryBgStrong}
+        onPress={onPress}
+        disabled={inactive}
+      >
+        {content}
+      </TouchableHighlight>
+    );
+  }
   return (
-    <TouchableOpacity
-      style={[s.btn, { backgroundColor: bg }, (disabled || loading) && s.disabled, style]}
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.85}
-    >
-      {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.text}>{label}</Text>}
+    <TouchableOpacity style={btnStyle} onPress={onPress} disabled={inactive} activeOpacity={0.85}>
+      {content}
     </TouchableOpacity>
   );
 }
-const s = StyleSheet.create({
-  btn: { paddingVertical: 13, borderRadius: radii.lg, alignItems: 'center', justifyContent: 'center', minHeight: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  btn: {
+    paddingVertical: 13, borderRadius: t.radii.button, alignItems: 'center', justifyContent: 'center',
+    minHeight: t.components.button.minHeight,
+  },
+  pressed: { transform: [{ scale: 0.97 }] },
   disabled: { opacity: 0.5 },
-  text: { color: '#fff', fontWeight: '700', fontSize: fontSizes.base },
+  text: {
+    color: t.colors.onPrimary,
+    fontWeight: t.typography.weights.bold,
+    fontSize: t.typography.fontSizes.base,
+    fontFamily: t.typography.fontFamily.bold,
+    letterSpacing: t.typography.letterSpacing,
+    textTransform: t.components.button.textTransform,
+  },
 });

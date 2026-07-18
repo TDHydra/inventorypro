@@ -1,15 +1,19 @@
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 export function LoadingView({ label }: { label?: string }) {
+  const t = useTheme();
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.wrap}>
-      <ActivityIndicator size="large" color={colors.primary} />
+      <ActivityIndicator size="large" color={t.colors.primary} />
       {label ? <Text style={s.label}>{label}</Text> : null}
     </View>
   );
 }
-const s = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center', padding: spacing.xxl, gap: spacing.md },
-  label: { fontSize: fontSizes.body2, color: colors.textMuted },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  wrap: { alignItems: 'center', justifyContent: 'center', padding: t.spacing.xxl, gap: t.spacing.md },
+  label: { fontSize: t.typography.fontSizes.body2, color: t.colors.textMuted },
 });

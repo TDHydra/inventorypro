@@ -1,6 +1,7 @@
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { PrimaryButton } from './PrimaryButton';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 interface Props {
   onCancel: () => void;
@@ -17,6 +18,7 @@ interface Props {
  * swap is visually identical. Pure — no persistence, no alerts.
  */
 export function FormActions({ onCancel, onSave, saveLabel = 'Save', cancelLabel = 'Cancel', busy, disabled }: Props) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.row}>
       <TouchableOpacity style={[s.btnGhost, { flex: 1 }]} onPress={onCancel} disabled={busy}>
@@ -27,11 +29,18 @@ export function FormActions({ onCancel, onSave, saveLabel = 'Save', cancelLabel 
   );
 }
 
-const s = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 12, marginTop: 16 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  row: { flexDirection: 'row', gap: t.spacing.md, marginTop: t.spacing.lg },
   btnGhost: {
-    borderRadius: 12, paddingVertical: 13, alignItems: 'center',
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled,
+    borderRadius: t.radii.button, paddingVertical: 13, alignItems: 'center',
+    backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.textDisabled,
   },
-  btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
+  btnGhostText: {
+    color: t.colors.textStrong,
+    fontWeight: t.typography.weights.semibold,
+    fontSize: t.typography.fontSizes.base,
+    fontFamily: t.typography.fontFamily.medium,
+    letterSpacing: t.typography.letterSpacing,
+    textTransform: t.components.button.textTransform,
+  },
 });

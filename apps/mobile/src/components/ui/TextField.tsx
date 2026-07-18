@@ -1,4 +1,6 @@
 import { TextInputProps, StyleSheet } from 'react-native';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
 import { AppInput } from './AppInput';
 
@@ -21,6 +23,7 @@ interface Props extends Omit<TextInputProps, 'value' | 'onChangeText' | 'style'>
  * copied verbatim from those dupes.
  */
 export function TextField({ label, value, onChangeText, multiline, required, hint, error, ...rest }: Props) {
+  const s = useThemedStyles(makeStyles);
   return (
     <Field label={label} required={required} hint={hint} error={error}>
       <AppInput
@@ -34,6 +37,6 @@ export function TextField({ label, value, onChangeText, multiline, required, hin
   );
 }
 
-const s = StyleSheet.create({
-  multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  multiline: { height: 80, paddingTop: t.spacing.md, textAlignVertical: 'top' },
 });
