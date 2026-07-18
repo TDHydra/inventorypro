@@ -18,6 +18,7 @@ import { getAppSetting } from '../src/db/appSettings';
 // module load (setNotificationHandler).
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 import { AlertHost } from '../src/lib/themedAlert';
+import { ConfirmSheetHost } from '../src/components/ui/ConfirmSheet';
 import { useScreenTracking } from '../src/telemetry/useScreenTracking';
 import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
 import { useNotificationObservers } from '../src/push/handlers';
@@ -106,6 +107,7 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }} />
         <AlertHost />
+        <ConfirmSheetHost />
       </TelemetryErrorBoundary>
     </SessionContext.Provider>
   );
