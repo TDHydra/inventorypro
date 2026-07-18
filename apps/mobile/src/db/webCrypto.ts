@@ -35,6 +35,13 @@ export class SnapshotCryptoError extends Error {
 // use, so it can't be read back out of a live page even if referenced.
 let inMemoryKey: CryptoKey | null = null;
 
+// De-dupes concurrent first-use callers of getOrCreateSnapshotKey (e.g.
+// saveSession encrypting the JWT and user id in parallel, or a snapshot save
+// racing login). Without it two callers can each generate a *different* random
+// key and only the last one gets persisted to sessionStorage — leaving half the
+// values encrypted under a key that's gone on reload.
+let keyInit: Promise<CryptoKey> | null = null;
+
 function subtle(): SubtleCrypto {
   const c = (globalThis as { crypto?: Crypto }).crypto;
   if (!c || !c.subtle) {
@@ -110,27 +117,51 @@ export async function getSnapshotKey(): Promise<CryptoKey | null> {
  * sessionStorage so it survives a same-tab reload. Used by save paths.
  */
 export async function getOrCreateSnapshotKey(): Promise<CryptoKey> {
-  const existing = await getSnapshotKey();
-  if (existing) return existing;
+  if (inMemoryKey) return inMemoryKey;
+  // Single-flight the create path so parallel first-use callers share one key.
+  const inFlight = keyInit;
+  if (inFlight) return inFlight;
 
-  // Generate extractable so we can export raw for sessionStorage, then re-import
-  // as non-extractable for actual use.
-  const genKey = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, [
-    'encrypt',
-    'decrypt',
-  ]);
-  const raw = new Uint8Array(await subtle().exportKey('raw', genKey));
-  const store = getSessionStorage();
-  if (store) {
-    try {
-      store.setItem(SESSION_KEY_NAME, bytesToBase64(raw));
-    } catch {
-      // If sessionStorage is full/blocked the key stays memory-only: encryption
-      // still works this session, a reload just forces re-download. Acceptable.
+  const pending = (async (): Promise<CryptoKey> => {
+    const existing = await getSnapshotKey();
+    if (existing) return existing;
+
+    // Generate extractable so we can export raw for sessionStorage, then
+    // re-import as non-extractable for actual use.
+    const genKey = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, [
+      'encrypt',
+      'decrypt',
+    ]);
+    const raw = new Uint8Array(await subtle().exportKey('raw', genKey));
+    const store = getSessionStorage();
+    if (store) {
+      try {
+        store.setItem(SESSION_KEY_NAME, bytesToBase64(raw));
+      } catch {
+        // If sessionStorage is full/blocked the key stays memory-only:
+        // encryption still works this session, a reload just forces
+        // re-download. Acceptable.
+      }
     }
-  }
-  inMemoryKey = await importRawKey(raw);
-  return inMemoryKey;
+    const imported = await importRawKey(raw);
+    inMemoryKey = imported;
+    return imported;
+  })();
+
+  keyInit = pending;
+  // Clear the in-flight handle once settled so a later logout/clear can't be
+  // shadowed by a stale resolved promise. Guarded so a concurrent re-entry that
+  // installed a newer promise isn't clobbered.
+  void pending
+    .finally(() => {
+      if (keyInit === pending) keyInit = null;
+    })
+    .catch(() => {
+      // Rejection is surfaced to the awaiting caller via the returned `pending`;
+      // this side-chain only resets keyInit, so swallow to avoid a duplicate
+      // unhandled-rejection warning.
+    });
+  return pending;
 }
 
 /**
@@ -168,9 +199,30 @@ export async function decryptBytes(key: CryptoKey, blob: Uint8Array): Promise<Ui
   }
 }
 
+// ── string helpers (JWT / user id at rest) ───────────────────────────────────
+// UTF-8 text ⇄ base64 ciphertext, using the same AES-GCM primitives as the
+// snapshot. Kept key-parameterised (rather than fetching the snapshot key
+// internally) so they stay pure and unit-testable in Node like encrypt/decrypt.
+
+/** Encrypt a UTF-8 string to a base64 [IV][ciphertext] blob. */
+export async function encryptStringToBase64(key: CryptoKey, value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  return bytesToBase64(await encryptBytes(key, bytes));
+}
+
+/**
+ * Decrypt a base64 blob produced by encryptStringToBase64 back to its UTF-8
+ * string. Throws SnapshotCryptoError on a wrong key / corrupt data.
+ */
+export async function decryptBase64ToString(key: CryptoKey, b64: string): Promise<string> {
+  const plain = await decryptBytes(key, base64ToBytes(b64));
+  return new TextDecoder().decode(plain);
+}
+
 /** Drop the snapshot key from sessionStorage and memory (logout / idle wipe). */
 export function clearSnapshotKey(): void {
   inMemoryKey = null;
+  keyInit = null;
   const store = getSessionStorage();
   try {
     store?.removeItem(SESSION_KEY_NAME);

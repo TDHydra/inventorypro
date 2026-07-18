@@ -2,7 +2,12 @@ import { UserSession, TeamContext, parsePermissionOverrides } from './permission
 import { getUserById } from '../db/queries/users';
 import { getDb, rowsAs } from '../db/schema';
 import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
-import { clearDbSnapshot } from '../db/webPersistence';
+import {
+  clearDbSnapshot,
+  saveSecureValue,
+  loadSecureValue,
+  deleteSecureValue,
+} from '../db/webPersistence';
 import { clearSnapshotKey } from '../db/webCrypto';
 import { installWebIdleWipe } from '../hooks/useWebIdleWipe';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../lib/alertBus';
@@ -20,67 +25,28 @@ const USER_ID_KEY = 'inventorypro_user_id';
 // session from disk. See D4 in the 2026-07-01 security audit remediation plan.
 let inMemoryRefreshToken: string | null = null;
 
-// ── Minimal IndexedDB kv store (web replacement for expo-secure-store) ────────
-// Shares the same DB/store names as the sql.js snapshot persistence so the web
-// build keeps a single IndexedDB database.
-const IDB_NAME = 'inventorypro-web';
-const IDB_STORE = 'kv';
-
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbGet(key: string): Promise<string | null> {
-  const idb = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, 'readonly');
-    const req = tx.objectStore(IDB_STORE).get(key);
-    req.onsuccess = () => resolve(req.result == null ? null : (req.result as string));
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbSet(key: string, value: string): Promise<void> {
-  const idb = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function idbDel(key: string): Promise<void> {
-  const idb = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
+// ── Encrypted kv persistence (web replacement for expo-secure-store) ──────────
+// The JWT and user id are stored in the same IndexedDB database as the sql.js
+// snapshot, but ENCRYPTED at rest with the shared AES-GCM snapshot key (see
+// webPersistence.saveSecureValue / loadSecureValue). A local-disk attacker who
+// can't decrypt the snapshot therefore can't lift a live JWT either. The
+// snapshot key lives only in memory + sessionStorage, so when it's absent
+// (fresh tab, post-logout, post-idle) these reads return null and the user is
+// treated as logged-out — the values are never read back or written in plaintext.
 
 export async function saveSession(jwt: string, refreshToken: string, userId: string): Promise<void> {
   inMemoryRefreshToken = refreshToken;
   await Promise.all([
-    idbSet(JWT_KEY, jwt),
-    idbSet(USER_ID_KEY, userId),
+    saveSecureValue(JWT_KEY, jwt),
+    saveSecureValue(USER_ID_KEY, userId),
     // Purge any refresh token persisted by a pre-D4 build so nothing long-lived
     // is left at rest, even though we no longer write one here.
-    idbDel(REFRESH_KEY),
+    deleteSecureValue(REFRESH_KEY),
   ]);
 }
 
 export async function getJwt(): Promise<string | null> {
-  return idbGet(JWT_KEY);
+  return loadSecureValue(JWT_KEY);
 }
 
 export async function getRefreshToken(): Promise<string | null> {
@@ -126,7 +92,7 @@ export async function getValidJwt(): Promise<string | null> {
     });
     if (!res.ok) return jwt;                            // refresh rejected — keep existing
     const data = await res.json() as { jwt: string };
-    await idbSet(JWT_KEY, data.jwt);
+    await saveSecureValue(JWT_KEY, data.jwt);
     return data.jwt;
   } catch {
     return jwt;                                         // offline — keep existing
@@ -134,7 +100,7 @@ export async function getValidJwt(): Promise<string | null> {
 }
 
 export async function getSavedUserId(): Promise<string | null> {
-  return idbGet(USER_ID_KEY);
+  return loadSecureValue(USER_ID_KEY);
 }
 
 export async function clearSession(): Promise<void> {
@@ -151,9 +117,9 @@ export async function clearSession(): Promise<void> {
 export async function wipeWebSecureState(): Promise<void> {
   inMemoryRefreshToken = null;
   await Promise.all([
-    idbDel(JWT_KEY),
-    idbDel(REFRESH_KEY),
-    idbDel(USER_ID_KEY),
+    deleteSecureValue(JWT_KEY),
+    deleteSecureValue(REFRESH_KEY),
+    deleteSecureValue(USER_ID_KEY),
     // Delete the encrypted snapshot and drop its key. clearDbSnapshot() already
     // calls clearSnapshotKey(); the extra call is a defensive no-op belt-and-braces.
     clearDbSnapshot().catch(() => { /* best-effort */ }),

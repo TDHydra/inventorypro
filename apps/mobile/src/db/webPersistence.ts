@@ -11,6 +11,8 @@ import {
   getOrCreateSnapshotKey,
   encryptBytes,
   decryptBytes,
+  encryptStringToBase64,
+  decryptBase64ToString,
   clearSnapshotKey,
 } from './webCrypto';
 
@@ -129,5 +131,109 @@ export async function clearDbSnapshot(): Promise<void> {
     await idbDeleteRaw();
   } finally {
     clearSnapshotKey();
+  }
+}
+
+// ── Encrypted key/value store (JWT + user id at rest) ────────────────────────
+// Small sensitive values (the 15-minute JWT, the user id) used to be written to
+// IndexedDB in plaintext by session.web.ts, so a local-disk attacker who cannot
+// decrypt the snapshot could still lift a live JWT and re-download the dataset.
+// These helpers reuse the SAME AES-GCM snapshot key so those values are only
+// ciphertext at rest. Stored as `SECURE_PREFIX + base64([IV][ciphertext])`; the
+// prefix both marks the value as v1-encrypted and lets a legacy plaintext value
+// (a raw JWT / uuid) be detected and discarded on read.
+//
+// Residual limitation (out of scope, tracked by #42): an attacker with script
+// execution in the live page (XSS) can still read the in-memory key and decrypt
+// these — this only defends the at-rest disk copy.
+const SECURE_PREFIX = 'ipe1:';
+
+function idbGetString(name: string): Promise<string | null> {
+  return openIdb().then(
+    (idb) =>
+      new Promise<string | null>((resolve, reject) => {
+        const tx = idb.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(name);
+        req.onsuccess = () => resolve(req.result == null ? null : (req.result as string));
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+function idbPutString(name: string, value: string): Promise<void> {
+  return openIdb().then(
+    (idb) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = idb.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(value, name);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+function idbDeleteKey(name: string): Promise<void> {
+  return openIdb().then(
+    (idb) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = idb.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(name);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+/**
+ * Encrypt and persist a small string value under `name`. Always encrypts:
+ * getOrCreateSnapshotKey() mints the key if none exists yet, so a value is never
+ * written in plaintext.
+ */
+export async function saveSecureValue(name: string, value: string): Promise<void> {
+  const key = await getOrCreateSnapshotKey();
+  const b64 = await encryptStringToBase64(key, value);
+  await idbPutString(name, SECURE_PREFIX + b64);
+}
+
+/**
+ * Decrypt and return the string value under `name`, or null.
+ *
+ * Returns null (never throws) when there is nothing stored, when the snapshot
+ * key is missing (logout / idle / fresh tab — treated as logged-out), or when
+ * the stored value is a legacy plaintext value from before this change (which is
+ * deleted so it doesn't linger unencrypted at rest).
+ */
+export async function loadSecureValue(name: string): Promise<string | null> {
+  let stored: string | null;
+  try {
+    stored = await idbGetString(name);
+  } catch {
+    return null;
+  }
+  if (stored == null) return null;
+
+  // Legacy plaintext (pre-encryption) value → discard; caller re-auths and the
+  // next saveSecureValue writes it back encrypted.
+  if (!stored.startsWith(SECURE_PREFIX)) {
+    try { await idbDeleteKey(name); } catch { /* ignore */ }
+    return null;
+  }
+
+  try {
+    const key = await getSnapshotKey();
+    if (!key) return null; // key gone → no decryptable value → treat as logged-out
+    return await decryptBase64ToString(key, stored.slice(SECURE_PREFIX.length));
+  } catch {
+    // Wrong key / corrupt ciphertext → no usable value.
+    return null;
+  }
+}
+
+/** Delete the stored value under `name` (logout / wipe / legacy purge). */
+export async function deleteSecureValue(name: string): Promise<void> {
+  try {
+    await idbDeleteKey(name);
+  } catch {
+    /* best-effort */
   }
 }
