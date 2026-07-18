@@ -72,23 +72,28 @@ function Badge({
 export function StatusBadge({ label, tone = 'default', size = 'sm' }: StatusBadgeProps) {
   const t = useTheme();
   const { bg, fg, border } = toneStyles(t)[tone];
+  if (!label?.trim()) return null;
   return <Badge label={label} bg={bg} fg={fg} border={border} size={size} />;
 }
 
 interface TypeBadgeProps {
   type: string;
+  icon?: string;
   size?: 'sm' | 'md';
 }
 
-export function TypeBadge({ type, size = 'sm' }: TypeBadgeProps) {
+export function TypeBadge({ type, icon, size = 'sm' }: TypeBadgeProps) {
   const t = useTheme();
   const trimmed = type?.trim();
   if (!trimmed) {
     const { bg, fg, border } = toneStyles(t).default;
     return <Badge label={type ?? ''} bg={bg} fg={fg} border={border} size={size} />;
   }
+  // Always hash the bare type so the same type gets the same color whether or
+  // not an icon is shown alongside it.
   const accent = autoTypeColor(trimmed);
-  return <Badge label={trimmed} bg={withAlpha(accent, '1A')} fg={accent} size={size} />;
+  const label = icon ? `${icon} ${trimmed}` : trimmed;
+  return <Badge label={label} bg={withAlpha(accent, '1A')} fg={accent} size={size} />;
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({

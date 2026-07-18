@@ -4,7 +4,7 @@ import {
 import { Alert } from '../../lib/themedAlert';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
-import { upsertItem, getItemBySku, searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
+import { upsertItem, getItemBySku, getDistinctValues, searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
 import { resolveLocationShelf, resolveLocationShelfSelection } from '../../db/queries/locations';
 import { getMainStorageLocationId } from '../../db/mainStorage';
@@ -16,7 +16,7 @@ import { resolveTypeColor } from '../../constants/typeColors';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { runInTransaction } from '../../db/tx';
-import { parsePackSize, parseQuantity, validateBarcode, validateName, validateText } from '../../lib/validation';
+import { parsePackSize, parseQuantity, validateBarcode, validateName, validateText, MAX_QUANTITY } from '../../lib/validation';
 import { MediaGallery } from '../MediaGallery';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
@@ -26,8 +26,8 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
-import { AutofillTextField } from '../ui/AutofillTextField';
 import { SelectField } from '../ui/SelectField';
+import { QuantityStepper } from '../ui/QuantityStepper';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
@@ -73,7 +73,9 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const [sku, setSku] = useState(''); // item # / part #
   const [description, setDescription] = useState('');
   const [currentStock, setCurrentStock] = useState(''); // optional starting qty (→ home location)
-  const [packSize, setPackSize] = useState(''); // units per pack (optional)
+  // 0 = no pack tracking (QuantityStepper has no blank state; mirrors the full
+  // Add screen's "0 = off" convention for this field).
+  const [packSize, setPackSize] = useState(0); // units per pack (optional)
   const [itemType, setItemType] = useState<string>(''); // selected item_category label → category
   // unit_category stores a product_class id (drives formatQuantity decimals).
   const [unitCat, setUnitCat] = useState<string>(CLASS_PIECE_ID);
@@ -119,6 +121,17 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const selectedType = itemTypes.find(t => t.label === itemType) ?? null;
   const typeUnits = selectedType ? parseItemTypeMeta(selectedType.meta).units : [];
   const unitOptions = typeUnits.length > 0 ? typeUnits : getUnitsForClass(unitCat);
+  // Unit picker options: the context-appropriate curated list first, plus any
+  // unit ever typed anywhere in the catalog (deduped) so a legacy/custom unit
+  // stays reachable (mirrors the full Add screen).
+  const unitDbOptions = useMemo(() => getDistinctValues('unit'), []);
+  const mergedUnitOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const u of unitOptions) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+    for (const u of unitDbOptions) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+    return merged;
+  }, [unitOptions, unitDbOptions]);
 
   // Pick/clear an item type — selecting one auto-sets the units + unit class to
   // whatever that type allows (the whole point of this screen).
@@ -145,7 +158,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     setDescription('');
     setCurrentStock('');
     setItemId(generateUUID()); // fresh id → the photo thumbnail resets for the next item
-    setPackSize('');
+    setPackSize(0);
     setItemType('');
     setUnitCat(CLASS_PIECE_ID);
     setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
@@ -183,15 +196,6 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       barcodeValue = bc.value;
     }
 
-    // Validate the optional pack size up front (rejects negatives / fractions /
-    // a pack of 1). Empty → null (no pack). Stop before any writes on bad input.
-    const packResult = parsePackSize(packSize);
-    if (!packResult.ok) {
-      trackReject('item.pack_size', packResult.rule);
-      Alert.alert('Check pack size', packResult.error);
-      return;
-    }
-
     // Optional starting quantity. Blank → no stock written. If provided, it must
     // be a valid positive number (parseQuantity guards NaN / ≤0 / overflow).
     let stockQty = 0;
@@ -199,6 +203,17 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       const q = parseQuantity(currentStock, 'Current stock');
       if (!q.ok) { trackReject('item.current_stock', q.rule); Alert.alert('Check current stock', q.error); return; }
       stockQty = q.value;
+    }
+
+    // 0 means "no pack tracking" (QuantityStepper's off state) — skip validation
+    // so it doesn't surface the ≤1 error. Mirrors the full Add screen.
+    if (packSize !== 0) {
+      const packRes = parsePackSize(String(packSize));
+      if (!packRes.ok) {
+        trackReject('item.pack_size', packRes.rule);
+        Alert.alert('Invalid pack size', packRes.error);
+        return;
+      }
     }
 
     const now = new Date().toISOString();
@@ -249,7 +264,9 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       updated_at: now,
       synced_at: null,
       home_location_id: homeLocationId,
-      pack_size: packResult.value,
+      // 0 = no pack tracking (QuantityStepper's off state) → null, mirroring
+      // the full Add screen's save handling.
+      pack_size: packSize > 0 ? packSize : null,
     };
 
     // Atomic write: upsert + outbox + log all-or-nothing so a mid-flow failure
@@ -354,10 +371,10 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </View>
       )}
 
-      <AutofillTextField
-        label="Item # / Part #"
-        table="inventory_items"
-        column="sku"
+      {/* Plain input (no autofill): suggesting existing SKUs directly above the
+          duplicate-SKU warning would invite duplicates. */}
+      <FieldLabel>Item # / Part #</FieldLabel>
+      <AppInput
         placeholder="Recommended"
         value={sku}
         onChangeText={setSku}
@@ -414,11 +431,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </>
       )}
 
-      {unitOptions.length > 0 ? (
+      {mergedUnitOptions.length > 0 ? (
         <SelectField
           label="Unit"
           value={unit}
-          options={unitOptions.map(u => ({ id: u, label: u }))}
+          options={mergedUnitOptions.map(u => ({ id: u, label: u }))}
           onSelect={setUnit}
         />
       ) : (
@@ -432,12 +449,13 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </>
       )}
 
-      <FieldLabel>Pack size (optional)</FieldLabel>
-      <AppInput
-        placeholder={`Units per pack — e.g. 4 = a 4-${unit || 'unit'} pack`}
+      <QuantityStepper
+        label="Pack size (optional, 0 = no pack tracking)"
         value={packSize}
-        onChangeText={setPackSize}
-        keyboardType="decimal-pad"
+        onChange={setPackSize}
+        min={0}
+        max={MAX_QUANTITY}
+        unit={`${unit || 'unit'} per pack`}
       />
 
       <FieldLabel>Home location (where it belongs)</FieldLabel>

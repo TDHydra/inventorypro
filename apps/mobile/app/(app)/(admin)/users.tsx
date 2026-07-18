@@ -268,6 +268,17 @@ export default function AdminUsersScreen() {
     // action. A same-length role change keeps the normal offline-capable path.
     const pinLengthChanged = roleChanged && newPinLength !== editUser.pin_length_required;
 
+    if (roleChanged) {
+      const ok = await confirmSheet({
+        title: `Change ${editUser.name}'s role?`,
+        message: pinLengthChanged
+          ? `${ROLE_DISPLAY_NAMES[editUser.role as UserRole]} → ${ROLE_DISPLAY_NAMES[editRole]}.\n\nThe new role requires a different PIN length, so their current PIN stops working and they'll get a one-time enrollment code to set a new one. This requires a connection to the server.`
+          : `${ROLE_DISPLAY_NAMES[editUser.role as UserRole]} → ${ROLE_DISPLAY_NAMES[editRole]}.`,
+        confirmLabel: 'Change role',
+      });
+      if (!ok) return;
+    }
+
     // name/expiry (and, when same-length, the role itself) travel the existing
     // offline-capable outbox path. When pinLengthChanged, role/pin_length_required
     // are deliberately excluded here — changeRoleOnline owns those below.
@@ -459,47 +470,41 @@ export default function AdminUsersScreen() {
   // Reissue a one-time access code for a user who hasn't set a PIN yet.
   // Only surfaced when pin_set is false (see the edit sheet). The returned code is
   // always shown so the admin can relay it directly; email is sent when available.
-  function resetAccessCode() {
+  async function resetAccessCode() {
     if (!editUser) return;
     const onFile = editUser.email?.trim();
-    Alert.alert(
-      `Reset access code for ${editUser.name}?`,
-      onFile
+    const ok = await confirmSheet({
+      title: `Reset access code for ${editUser.name}?`,
+      message: onFile
         ? `A new one-time code will be sent to ${onFile} so they can set their PIN.`
         : `A new one-time code will be generated for ${editUser.name}. Share it with them directly so they can set their PIN.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: onFile ? 'Reset + email code' : 'Reset code',
-          onPress: async () => {
-            setBusy(true);
-            try {
-              const { emailed, code } = await resetEnrollmentCodeOnline(editUser.id);
-              appendLog({
-                action: 'user_pin_reset',
-                entity_type: 'user',
-                entity_id: editUser.id,
-                user_id: sessionUser?.id ?? null,
-                note: `${editUser.name}: access code reissued${emailed ? ' + emailed' : ' (email not sent)'}`,
-                team_id: null, from_location_id: null, to_location_id: null,
-                quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-              });
-              Alert.alert(
-                emailed ? 'Access code reset + emailed' : 'Access code reset',
-                (emailed
-                  ? `A one-time code was emailed to ${onFile}.`
-                  : `No email was sent. Share this code with ${editUser.name} directly.`) +
-                  `\n\nOne-time code: ${code}\n\nThey enter it in the app to set their PIN.`,
-              );
-            } catch (err) {
-              Alert.alert('Could not reset access code', (err as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          },
-        },
-      ],
-    );
+      confirmLabel: onFile ? 'Reset + email code' : 'Reset code',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const { emailed, code } = await resetEnrollmentCodeOnline(editUser.id);
+      appendLog({
+        action: 'user_pin_reset',
+        entity_type: 'user',
+        entity_id: editUser.id,
+        user_id: sessionUser?.id ?? null,
+        note: `${editUser.name}: access code reissued${emailed ? ' + emailed' : ' (email not sent)'}`,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
+      Alert.alert(
+        emailed ? 'Access code reset + emailed' : 'Access code reset',
+        (emailed
+          ? `A one-time code was emailed to ${onFile}.`
+          : `No email was sent. Share this code with ${editUser.name} directly.`) +
+          `\n\nOne-time code: ${code}\n\nThey enter it in the app to set their PIN.`,
+      );
+    } catch (err) {
+      Alert.alert('Could not reset access code', (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   // ── Bulk multi-select actions (gated on manage_users) ──────────────────────
@@ -513,10 +518,20 @@ export default function AdminUsersScreen() {
     [users],
   );
 
-  function bulkSetActive(active: boolean) {
+  async function bulkSetActive(active: boolean) {
     if (isWriteBlocked()) return;
     const ids = [...sel.selected];
     if (ids.length === 0) return;
+    const verb = active ? 'Reactivate' : 'Deactivate';
+    const ok = await confirmSheet({
+      title: `${verb} ${ids.length} user${ids.length === 1 ? '' : 's'}?`,
+      message: active
+        ? 'They will be able to sign in again.'
+        : 'They will be signed out and hidden from the login picker. You can reactivate them later.',
+      confirmLabel: verb,
+      destructive: !active,
+    });
+    if (!ok) return;
     const adminId = sessionUser?.id ?? null;
     // Whole batch in ONE transaction — if any user fails, the entire set rolls
     // back so we never half-apply a bulk action. The failing user is named.
@@ -570,6 +585,15 @@ export default function AdminUsersScreen() {
       if (u && u.pin_length_required !== pinLen) onlineIds.push(id);
       else offlineIds.push(id);
     }
+
+    const ok0 = await confirmSheet({
+      title: `Change role for ${ids.length} user${ids.length === 1 ? '' : 's'}?`,
+      message: onlineIds.length > 0
+        ? `They will become ${ROLE_DISPLAY_NAMES[role]}.\n\n${onlineIds.length} of them need a different PIN length — their current PINs stop working and each gets a one-time enrollment code to set a new one. This requires a connection to the server.`
+        : `They will become ${ROLE_DISPLAY_NAMES[role]}.`,
+      confirmLabel: 'Change role',
+    });
+    if (!ok0) return;
 
     setBusy(true);
 
@@ -1044,25 +1068,17 @@ export default function AdminUsersScreen() {
                       🔒 This user is at or above your access level — you can't change their role or permissions.
                     </Text>
                   )}
-                  {canActOnUser ? (
-                    <SelectField
-                      label="Role"
-                      value={editRole}
-                      // Only offer roles the caller may assign (at/below their own
-                      // effective tier). The current role stays visible so the
-                      // selection still shows even if it's above what they can grant.
-                      options={ALL_ROLES.filter(r => canAssignRole(callerRole, r) || r === editRole)
-                        .map(r => ({ id: r, label: ROLE_DISPLAY_NAMES[r], sublabel: `Tier ${ROLE_TIER[r]}` }))}
-                      onSelect={id => setEditRole(id as UserRole)}
-                    />
-                  ) : (
-                    <>
-                      <FieldLabel>Role</FieldLabel>
-                      <View style={[s.selectRow, s.rowDisabled]}>
-                        <Text style={s.selectText}>{ROLE_DISPLAY_NAMES[editRole]}</Text>
-                      </View>
-                    </>
-                  )}
+                  <SelectField
+                    label="Role"
+                    value={editRole}
+                    // Only offer roles the caller may assign (at/below their own
+                    // effective tier). The current role stays visible so the
+                    // selection still shows even if it's above what they can grant.
+                    options={ALL_ROLES.filter(r => canAssignRole(callerRole, r) || r === editRole)
+                      .map(r => ({ id: r, label: ROLE_DISPLAY_NAMES[r], sublabel: `Tier ${ROLE_TIER[r]}` }))}
+                    onSelect={id => setEditRole(id as UserRole)}
+                    disabled={!canActOnUser}
+                  />
 
                   {/* Per-user home-screen dashboard assignment (Wave C). null =
                       fall back to the user's role dashboard. */}
@@ -1338,8 +1354,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   infoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: t.colors.background, borderRadius: t.radii.md, padding: t.spacing.md, rowGap: 6 },
   infoRow: { width: '50%', fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
   infoVal: { color: t.colors.textPrimary, fontWeight: '600' },
-  selectRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: t.colors.background, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: t.spacing.base, height: 44 },
-  selectText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
   selectChevron: { fontSize: t.typography.fontSizes.base, color: t.colors.textMuted },
   rolePicker: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, overflow: 'hidden' },
   roleTierHint: { fontSize: t.typography.fontSizes.sm, fontWeight: '700', color: t.colors.textDisabled },

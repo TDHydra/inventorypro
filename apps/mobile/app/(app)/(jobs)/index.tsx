@@ -339,7 +339,7 @@ export default function JobsScreen() {
                           tone={job.status === 'open' ? 'success' : job.status === 'archived' ? 'warning' : 'default'}
                         />
                         {!!job.type && (
-                          <TypeBadge type={typeIcon ? `${typeIcon} ${job.type}` : job.type} />
+                          <TypeBadge type={job.type} icon={typeIcon || undefined} />
                         )}
                         <Text style={s.cardDate}>
                           {new Date(job.created_at).toLocaleDateString()}
