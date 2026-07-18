@@ -1,47 +1,26 @@
-import type { Theme, ThemeOverrides } from './types';
+import type { Theme } from './types';
 import { original } from './original';
+import { modern } from './modern';
+import { classic } from './classic';
+import { fluid } from './fluid';
+import { futuristic } from './futuristic';
+
+export { createTheme } from './createTheme';
 
 /**
- * Deep-merge a base theme with a partial override. Plain objects merge one
- * level per key-group (the Theme shape is at most two levels deep); functions
- * and primitives replace. New themes should diff against `original` (or any
- * other registered theme) so they only state what's different.
- */
-export function createTheme(base: Theme, overrides: ThemeOverrides): Theme {
-  const out = { ...base } as unknown as Record<string, unknown>;
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) continue;
-    const baseVal = (base as unknown as Record<string, unknown>)[key];
-    if (isPlainObject(value) && isPlainObject(baseVal)) {
-      const merged: Record<string, unknown> = { ...baseVal };
-      for (const [k2, v2] of Object.entries(value)) {
-        if (v2 === undefined) continue;
-        const b2 = baseVal[k2];
-        merged[k2] = isPlainObject(v2) && isPlainObject(b2) ? { ...b2, ...v2 } : v2;
-      }
-      out[key] = merged;
-    } else {
-      out[key] = value;
-    }
-  }
-  return out as unknown as Theme;
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) && typeof v !== 'function';
-}
-
-/**
- * Every selectable theme. Adding a theme later = its file + one line here.
- * Dev-only themes (Debug) are appended in registerDevThemes() so they never
- * appear in release pickers.
+ * Every selectable theme. Adding a theme later = its file (createTheme diffs
+ * against original) + one line here. Dev-only themes (Debug) are appended
+ * behind __DEV__ so they never appear in release pickers.
  */
 export const themes: Record<string, Theme> = {
   original,
+  modern,
+  classic,
+  fluid,
+  futuristic,
 };
 
-// Dev-only coverage probe. Safe circular import: debug.ts only calls the
-// hoisted createTheme() above during its module init.
+// Dev-only coverage probe (garish values — unmigrated surfaces scream).
 if (__DEV__) {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   themes.debug = require('./debug').debug;

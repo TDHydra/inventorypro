@@ -1,5 +1,5 @@
 import { Easing } from 'react-native';
-import { createTheme } from './registry';
+import { createTheme } from './createTheme';
 import { original } from './original';
 
 /**
