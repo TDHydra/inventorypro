@@ -64,6 +64,83 @@ export function canAssignRole(callerRole: string | null | undefined, newRole: st
   return newTier <= callerTier;
 }
 
+// Permissions whose GRANT/REVOKE is restricted to full_admin regardless of the
+// caller's tier, because deletion is destructive. KEEP IN SYNC with the
+// role_settings write guard in routes/sync.ts (the `['delete_inventory',
+// 'delete_media']` list) and the client lock in
+// apps/mobile/app/(app)/(admin)/roles.tsx.
+export const FULL_ADMIN_ONLY_GRANT = new Set(['delete_inventory', 'delete_media']);
+
+// Result of the pre-flight editability check for a single role→permission cell.
+// `editable` mirrors exactly what the server would accept on a role_settings
+// write; `reason` is a short human-readable explanation the editor can surface
+// on a disabled toggle when editable === false.
+export type PermissionEditability =
+  | { editable: true; reason: null }
+  | { editable: false; reason: string };
+
+// Aggregate pre-flight preview for one target role's whole permission matrix.
+export interface RolePermissionPreview {
+  role: string;
+  // Tier guard only: may the caller edit ANYTHING on this role's matrix? False
+  // when the target role is at/above the caller's effective tier. When false,
+  // `roleReason` explains why and every entry in `permissions` is non-editable.
+  canEditRole: boolean;
+  roleReason: string | null;
+  // Per-permission editability, keyed by permission id, in the order supplied.
+  permissions: Record<string, PermissionEditability>;
+}
+
+// Pre-flight: may `callerRole` toggle permission `perm` on `targetRole`'s matrix?
+// This is the single source of truth the editor consumes to hide/disable toggles
+// *before* the user tries, instead of failing on the write. It mirrors — in the
+// same order — the three checks the server enforces for a role_settings push
+// (routes/sync.ts): (1) tier guard via canActOnTarget, (2) the full_admin
+// self-lockout floor (those bits are forced ON and non-toggleable for full_admin),
+// (3) the full_admin-only destructive delete grant. Fails closed on unknown roles
+// exactly as canActOnTarget does. Holding `manage_roles_permissions` is a separate
+// precondition to reaching the editor at all and is intentionally NOT re-checked here.
+export function canEditRolePermission(
+  callerRole: string | null | undefined,
+  targetRole: string | null | undefined,
+  perm: string,
+): PermissionEditability {
+  // 1. Tier guard — caller must be at/above the target role's effective tier.
+  if (!canActOnTarget(callerRole, targetRole)) {
+    return { editable: false, reason: 'This role is at or above your access level.' };
+  }
+  // 2. Self-lockout floor — full_admin can never lose these (forced ON).
+  if (targetRole === 'full_admin' && FULL_ADMIN_FLOOR.has(perm)) {
+    return { editable: false, reason: 'Required for full admin.' };
+  }
+  // 3. Destructive grant — only a full_admin may grant/revoke delete permissions.
+  if (FULL_ADMIN_ONLY_GRANT.has(perm) && callerRole !== 'full_admin') {
+    return { editable: false, reason: 'Only a full admin can grant this.' };
+  }
+  return { editable: true, reason: null };
+}
+
+// Aggregate the per-permission preview for a whole role, plus the role-level tier
+// gate. `perms` is the list of permission ids shown in the editor. Pure — safe to
+// call from either the API or (mirrored) the mobile client to drive the UI.
+export function previewRolePermissions(
+  callerRole: string | null | undefined,
+  targetRole: string | null | undefined,
+  perms: readonly string[],
+): RolePermissionPreview {
+  const canEditRole = canActOnTarget(callerRole, targetRole);
+  const permissions: Record<string, PermissionEditability> = {};
+  for (const perm of perms) {
+    permissions[perm] = canEditRolePermission(callerRole, targetRole, perm);
+  }
+  return {
+    role: targetRole ?? '',
+    canEditRole,
+    roleReason: canEditRole ? null : 'This role is at or above your access level.',
+    permissions,
+  };
+}
+
 const tier4: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
