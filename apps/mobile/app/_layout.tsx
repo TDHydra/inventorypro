@@ -22,6 +22,7 @@ import { useScreenTracking } from '../src/telemetry/useScreenTracking';
 import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
 import { useNotificationObservers } from '../src/push/handlers';
 import { unregisterPush } from '../src/push/register';
+import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -85,6 +86,15 @@ export default function RootLayout() {
     }
     setUser(null);
   };
+
+  // The web idle auto-wipe (#43) drives an immediate redirect to login by calling
+  // the session logout() — register it here so the wipe flips SessionContext
+  // without a hard reload. Native-safe: the setter is a plain module fn and the
+  // idle wipe never installs on native. performWebIdleWipe() resets the DB itself.
+  useEffect(() => {
+    setWebIdleLogoutHandler(() => { void logout(); });
+    return () => setWebIdleLogoutHandler(null);
+  }, [logout]);
 
   const sessionValue: SessionContextValue = { user, setUser, logout };
 

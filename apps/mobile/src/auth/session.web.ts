@@ -1,6 +1,12 @@
 import { UserSession, TeamContext, parsePermissionOverrides } from './permissions';
 import { getUserById } from '../db/queries/users';
-import { getDb, rowsAs } from '../db/schema';
+import { getDb, rowsAs, resetLocalDb } from '../db/schema';
+// markDbWiped/clearDbWiped are web-only. Import them from the explicit `.web`
+// module: without `moduleSuffixes`, tsc resolves the bare `../db/schema` to the
+// native schema.ts (which lacks these), while Metro resolves BOTH specifiers to
+// schema.web.ts on web — the same module instance, so the persistWiped flag they
+// toggle is the very one flush()/scheduleSave() read.
+import { markDbWiped, clearDbWiped } from '../db/schema.web';
 import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
 import {
   clearDbSnapshot,
@@ -9,7 +15,7 @@ import {
   deleteSecureValue,
 } from '../db/webPersistence';
 import { clearSnapshotKey } from '../db/webCrypto';
-import { installWebIdleWipe } from '../hooks/useWebIdleWipe';
+import { installWebIdleWipe, getWebIdleLogoutHandler } from '../hooks/useWebIdleWipe';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../lib/alertBus';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -36,6 +42,10 @@ let inMemoryRefreshToken: string | null = null;
 
 export async function saveSession(jwt: string, refreshToken: string, userId: string): Promise<void> {
   inMemoryRefreshToken = refreshToken;
+  // A genuine re-login: lift the post-wipe persistence block (markDbWiped) so the
+  // fresh session's snapshot + encrypted JWT are written normally again. Done
+  // BEFORE the encrypted writes below so getOrCreateSnapshotKey may mint a key.
+  clearDbWiped();
   await Promise.all([
     saveSecureValue(JWT_KEY, jwt),
     saveSecureValue(USER_ID_KEY, userId),
@@ -127,22 +137,66 @@ export async function wipeWebSecureState(): Promise<void> {
   clearSnapshotKey();
 }
 
+/**
+ * Complete idle/logout wipe for web — the full logout the bare token wipe used to
+ * only half-do. In order:
+ *
+ *  1. markDbWiped() FIRST, so from here on no debounced flush (and no migration
+ *     flush inside resetLocalDb below) can re-mint an AES key and re-persist a
+ *     decryptable snapshot — the re-persist race that used to undo the wipe.
+ *  2. wipeWebSecureState() — drop the refresh token, the persisted JWT / user id,
+ *     the encrypted snapshot, and the AES key (memory + sessionStorage).
+ *  3. resetLocalDb() — CLOSE and clear the in-memory sql.js DB and re-init an
+ *     empty one, so offline reads return nothing after the wipe. The normal
+ *     logout path does NOT do this for a non-test session, which is exactly why a
+ *     walked-away browser could still read everything; we do it explicitly here.
+ *  4. Flip the React SessionContext to logged-out. We reuse the app root's own
+ *     `logout()` (registered via setWebIdleLogoutHandler) rather than reinventing
+ *     it. If none is registered yet (wipe fired before the root mounted), fall
+ *     back to a hard reload so the login screen — not the still-mounted authed
+ *     UI — is shown. persistWiped stays set until the next real re-login clears
+ *     it via saveSession(), so nothing decryptable is written in between.
+ */
+export async function performWebIdleWipe(): Promise<void> {
+  markDbWiped();
+  await wipeWebSecureState();
+  try {
+    await resetLocalDb();
+  } catch {
+    /* best-effort — the token/snapshot/key are already gone */
+  }
+  const handler = getWebIdleLogoutHandler();
+  if (handler) {
+    try {
+      await handler();
+    } catch {
+      /* best-effort */
+    }
+  } else if (typeof window !== 'undefined') {
+    // No React handler registered — reload so index.tsx re-routes to login on a
+    // fresh, empty DB (the snapshot + key are gone, so nothing is decryptable).
+    try {
+      window.location.reload();
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 // ── Web idle auto-wipe ────────────────────────────────────────────────────────
 // Native uses `useIdleLogout` (RN AppState + touch responder). The browser has
 // no equivalent, so we install a document-level idle listener at module load
 // (this module is imported early on web via the shared `../auth/session` path).
-// After ~15 min of no interaction it wipes tokens + the encrypted DB key, so a
-// walked-away session on a shared machine can't be resumed. Guarded to the
-// browser inside installWebIdleWipe(); a no-op during SSR / tests.
+// After ~15 min of no interaction it runs performWebIdleWipe() above: a COMPLETE
+// logout — wipe tokens/snapshot/key, close the in-memory DB, and flip the session
+// to logged-out — so a walked-away session on a shared machine can't be resumed
+// or read offline. Guarded to the browser inside installWebIdleWipe(); a no-op
+// during SSR / tests.
 //
-// NOTE: this wipes secure state but cannot flip the in-memory React session to
-// null on its own (that lives in the SessionContext provider in app/_layout.tsx,
-// outside these editable files). The next authed action / route guard will see
-// the missing token and bounce to login. TODO: for an *immediate* redirect on
-// idle, also drive the provider's `logout()` from the web mount — e.g. call
-// `installWebIdleWipe(logout)` (or add a subscriber) from app/_layout.tsx or a
-// web-only session hook, replacing the token-only wipe wired here.
-installWebIdleWipe(() => { void wipeWebSecureState(); }, undefined, {
+// The immediate React redirect needs the app root to register its logout() via
+// setWebIdleLogoutHandler() (see useWebIdleWipe.ts); until it does, step 4 above
+// falls back to a hard reload, so the security wipe is complete either way.
+installWebIdleWipe(() => { void performWebIdleWipe(); }, undefined, {
   // Same pre-wipe nudge the native app shows; any DOM interaction both re-arms
   // the timer (above) and clears a visible nudge (below).
   onWarn: () => {
