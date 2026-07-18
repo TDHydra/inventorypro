@@ -12,9 +12,9 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
-import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
+import { LocationShelfPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { HidableField } from '../../../src/components/ui/HidableField';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import {
@@ -97,6 +97,7 @@ export default function EquipmentModelDetailScreen() {
   // Add Units modal state
   const [addUnitsOpen, setAddUnitsOpen] = useState(false);
   const [addUnitsLoc, setAddUnitsLoc] = useState<PickerOption | null>(null);
+  const [addUnitsShelf, setAddUnitsShelf] = useState<PickerOption | null>(null);
   const [unitRows, setUnitRows] = useState<Array<{ tag: string; serial: string }>>([{ tag: '', serial: '' }]);
   const [tagErrors, setTagErrors] = useState<Record<number, string>>({});
   const [units, setUnits] = useState<EquipmentUnit[]>(() => getUnitsForItem(id));
@@ -122,6 +123,7 @@ export default function EquipmentModelDetailScreen() {
   // Repair-in modal state (location picker)
   const [repairInUnit, setRepairInUnit] = useState<EquipmentUnit | null>(null);
   const [repairInLoc, setRepairInLoc] = useState<PickerOption | null>(null);
+  const [repairInShelf, setRepairInShelf] = useState<PickerOption | null>(null);
 
   // Unit edit modal state
   const [editUnit, setEditUnit] = useState<EquipmentUnit | null>(null);
@@ -259,6 +261,7 @@ export default function EquipmentModelDetailScreen() {
   function openAddUnits() {
     if (!item) return;
     setAddUnitsLoc(null);
+    setAddUnitsShelf(null);
     setUnitRows([{ tag: item.tag_prefix ?? '', serial: '' }]);
     setTagErrors({});
     setAddUnitsOpen(true);
@@ -342,7 +345,15 @@ export default function EquipmentModelDetailScreen() {
     }
     if (!user || !item) return;
 
-    const locationId = addUnitsLoc.id;
+    // Resolve the (location, shelf) pair into the id units are stored against —
+    // a typed-in shelf is find-or-created here. addUnitsLoc is non-null (checked
+    // above), so ok:true always carries a non-null id.
+    const locRes = resolveLocationShelfSelection(addUnitsLoc, addUnitsShelf);
+    if (!locRes.ok) {
+      Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+      return;
+    }
+    const locationId = locRes.id as string;
     const addedTags: string[] = [];
 
     for (const row of unitRows) {
@@ -438,6 +449,7 @@ export default function EquipmentModelDetailScreen() {
     }
     setRepairInUnit(null);
     setRepairInLoc(null);
+    setRepairInShelf(null);
     reload();
   }
 
@@ -772,7 +784,7 @@ export default function EquipmentModelDetailScreen() {
                         {canEdit && u.status === 'in_repair' && (
                           <TouchableOpacity
                             style={s.unitActionBtn}
-                            onPress={() => { setRepairInUnit(u); setRepairInLoc(null); }}
+                            onPress={() => { setRepairInUnit(u); setRepairInLoc(null); setRepairInShelf(null); }}
                           >
                             <Text style={s.unitActionText}>Return from repair</Text>
                           </TouchableOpacity>
@@ -825,15 +837,16 @@ export default function EquipmentModelDetailScreen() {
         <ScrollView keyboardShouldPersistTaps="handled">
           <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
           <FieldLabel style={{ marginTop: 12 }}>Return to Location *</FieldLabel>
-          <LocationPicker
-            placeholder="Search location…"
-            value={repairInLoc}
-            onChange={setRepairInLoc}
+          <LocationShelfPicker
+            locationValue={repairInLoc}
+            shelfValue={repairInShelf}
+            onChangeLocation={setRepairInLoc}
+            onChangeShelf={setRepairInShelf}
           />
           <View style={[s.row, { marginTop: 16 }]}>
             <TouchableOpacity
               style={[s.btn, s.btnGhost]}
-              onPress={() => { setRepairInUnit(null); setRepairInLoc(null); }}
+              onPress={() => { setRepairInUnit(null); setRepairInLoc(null); setRepairInShelf(null); }}
             >
               <Text style={s.btnGhostText}>Cancel</Text>
             </TouchableOpacity>
@@ -841,7 +854,12 @@ export default function EquipmentModelDetailScreen() {
               label="Confirm Return"
               onPress={() => {
                 if (!repairInLoc) { trackReject('equipment_unit.location', 'required'); Alert.alert('Required', 'Please select a location.'); return; }
-                if (repairInUnit) doRepairIn(repairInUnit, repairInLoc.id);
+                // Resolve the (location, shelf) pair — a typed-in shelf is
+                // find-or-created here. repairInLoc is non-null, so ok:true
+                // carries a non-null id.
+                const locRes = resolveLocationShelfSelection(repairInLoc, repairInShelf);
+                if (!locRes.ok) { Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`); return; }
+                if (repairInUnit) doRepairIn(repairInUnit, locRes.id as string);
               }}
               disabled={locked}
               style={{ flex: 1 }}
@@ -1072,10 +1090,11 @@ export default function EquipmentModelDetailScreen() {
           <Text style={s.modalTitle}>Add Units — {item.name}</Text>
 
           <FieldLabel>Location *</FieldLabel>
-          <LocationPicker
-            placeholder="Search location…"
-            value={addUnitsLoc}
-            onChange={setAddUnitsLoc}
+          <LocationShelfPicker
+            locationValue={addUnitsLoc}
+            shelfValue={addUnitsShelf}
+            onChangeLocation={setAddUnitsLoc}
+            onChangeShelf={setAddUnitsShelf}
           />
 
           <Text style={[s.sectionLabel, { marginTop: 8 }]}>Unit Rows</Text>

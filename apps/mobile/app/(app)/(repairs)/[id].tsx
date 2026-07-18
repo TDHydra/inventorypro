@@ -15,7 +15,7 @@ import {
 } from '../../../src/db/queries/repairs';
 import { getRepairStatusesWithFallback, isTerminalStatus, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { setUnitStatus } from '../../../src/db/queries/equipmentUnits';
-import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { getAllActiveUsers, getUserById, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { searchItems, getItemById, adjustStock } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
@@ -28,7 +28,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker } from '../../../src/components/pickers';
+import { LocationShelfPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import { track } from '../../../src/telemetry';
 import { MAX_QUANTITY, parseStockQuantity, validateText } from '../../../src/lib/validation';
@@ -117,12 +117,14 @@ export default function RepairDetailScreen() {
   // Return-location modal state (only used for equipment-unit completion)
   const [returnUnitId, setReturnUnitId] = useState<string | null>(null);
   const [returnLoc, setReturnLoc] = useState<PickerOption | null>(null);
+  const [returnShelf, setReturnShelf] = useState<PickerOption | null>(null);
 
   // "Use parts" modal state (consume inventory against this repair)
   const [showUseParts, setShowUseParts] = useState(false);
   const [partItem, setPartItem] = useState<PickerOption | null>(null);
   const [partQty, setPartQty] = useState('');
   const [partLocation, setPartLocation] = useState<PickerOption | null>(null);
+  const [partShelf, setPartShelf] = useState<PickerOption | null>(null);
   const [partError, setPartError] = useState('');
   const partItemSearch = useMemo(
     () => (q: string): PickerOption[] =>
@@ -211,6 +213,7 @@ export default function RepairDetailScreen() {
     setPartItem(null);
     setPartQty('');
     setPartLocation(null);
+    setPartShelf(null);
     setPartError('');
     setShowUseParts(true);
   }
@@ -218,6 +221,8 @@ export default function RepairDetailScreen() {
   function pickPartItem(opt: PickerOption) {
     setPartItem(prev => (prev?.id === opt.id ? null : opt));
     setPartError('');
+    // Changing the item re-defaults the location below, so drop any stale shelf.
+    setPartShelf(null);
     // Preselect the item's home location as a convenience default — the user can
     // still override it via the location picker below.
     const full = getItemById(opt.id);
@@ -248,6 +253,16 @@ export default function RepairDetailScreen() {
       return;
     }
     const qty = qtyResult.value;
+    // Resolve the (location, shelf) pair into the id stock is deducted from — a
+    // typed-in shelf is find-or-created here. partLocation is non-null (checked
+    // above), so ok:true carries a non-null id.
+    const locRes = resolveLocationShelfSelection(partLocation, partShelf);
+    if (!locRes.ok) {
+      trackReject('repair_part.shelf', 'create_failed');
+      setPartError(`Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+      return;
+    }
+    const stockLocId = locRes.id as string;
     setPartError('');
     const full = getItemById(partItem.id);
     const unit = full?.unit ?? 'each';
@@ -257,15 +272,15 @@ export default function RepairDetailScreen() {
         // Deduct stock (server-side GREATEST(0,…) — and adjustStock's own
         // MAX(0,…) locally — guard against going negative; only qty>0 is
         // validated here).
-        adjustStock(partItem.id, partLocation.id, -qty);
+        adjustStock(partItem.id, stockLocId, -qty);
         appendOutbox('ADJUST', 'stock_by_location', {
-          item_id: partItem.id, location_id: partLocation.id, delta: -qty, updated_at: now,
+          item_id: partItem.id, location_id: stockLocId, delta: -qty, updated_at: now,
         });
         addRepairPart(repair.id, partItem.id, qty, unit, user?.id ?? null);
         appendLog({
           user_id: user?.id ?? null, team_id: null, action: 'consumed',
           entity_type: 'item', entity_id: partItem.id,
-          from_location_id: partLocation.id, to_location_id: null, quantity: qty, unit, job_id: null,
+          from_location_id: stockLocId, to_location_id: null, quantity: qty, unit, job_id: null,
           note: `Used on repair${repair.entity_label ? ' — ' + repair.entity_label : ''}`,
           metadata: null, device_id: null,
         });
@@ -333,6 +348,7 @@ export default function RepairDetailScreen() {
       // Completing a ticket on an equipment unit returns it to service — prompt
       // for the return location now that the status write has committed.
       setReturnLoc(null);
+      setReturnShelf(null);
       setReturnUnitId(repair.entity_id);
     }
     reload();
@@ -342,19 +358,28 @@ export default function RepairDetailScreen() {
   // so a completed ticket NEVER leaves a unit stranded in_repair.
   function confirmReturn(loc: PickerOption | null) {
     if (!repair || !returnUnitId) return;
-    if (isWriteBlocked()) { setReturnUnitId(null); setReturnLoc(null); return; }
+    if (isWriteBlocked()) { setReturnUnitId(null); setReturnLoc(null); setReturnShelf(null); return; }
+    // Location is optional here; when one is picked, resolve its (location, shelf)
+    // pair into a single id — a typed-in shelf is find-or-created. A null location
+    // resolves to { ok: true, id: null } (shelf ignored), preserving Skip → null.
+    const locRes = resolveLocationShelfSelection(loc, returnShelf);
+    if (!locRes.ok) {
+      Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+      return;
+    }
+    const returnLocId = locRes.id;
     // Atomic: drive the unit back to available, queue its outbox UPDATE, and log
     // the return together so a failure can't leave the unit half-returned.
     try {
       runInTransaction(() => {
         const updated = setUnitStatus(returnUnitId, {
-          status: 'available', current_location_id: loc?.id ?? null, notes: null,
+          status: 'available', current_location_id: returnLocId, notes: null,
         });
         outboxUnit(updated);
         appendLog({
           user_id: user?.id ?? null, team_id: null, action: 'repair_in',
           entity_type: 'item', entity_id: updated.item_id,
-          from_location_id: null, to_location_id: loc?.id ?? null, quantity: null, unit: null, job_id: null,
+          from_location_id: null, to_location_id: returnLocId, quantity: null, unit: null, job_id: null,
           note: 'unit ' + updated.asset_tag + ' returned from repair',
           metadata: null, device_id: null,
         });
@@ -369,6 +394,7 @@ export default function RepairDetailScreen() {
     }
     setReturnUnitId(null);
     setReturnLoc(null);
+    setReturnShelf(null);
     reload();
   }
 
@@ -562,10 +588,11 @@ export default function RepairDetailScreen() {
             choose where it returns.
           </Text>
           <FieldLabel style={{ marginTop: 12 }}>Return to Location (optional)</FieldLabel>
-          <LocationPicker
-            placeholder="Search location…"
-            value={returnLoc}
-            onChange={setReturnLoc}
+          <LocationShelfPicker
+            locationValue={returnLoc}
+            shelfValue={returnShelf}
+            onChangeLocation={setReturnLoc}
+            onChangeShelf={setReturnShelf}
           />
           <View style={[s.row, { marginTop: 16 }]}>
             <TouchableOpacity
@@ -601,10 +628,11 @@ export default function RepairDetailScreen() {
           />
 
           <FieldLabel style={{ marginTop: 12 }}>Location</FieldLabel>
-          <LocationPicker
-            placeholder="Search location…"
-            value={partLocation}
-            onChange={setPartLocation}
+          <LocationShelfPicker
+            locationValue={partLocation}
+            shelfValue={partShelf}
+            onChangeLocation={setPartLocation}
+            onChangeShelf={setPartShelf}
           />
 
           <FieldLabel style={{ marginTop: 12 }}>Quantity</FieldLabel>
