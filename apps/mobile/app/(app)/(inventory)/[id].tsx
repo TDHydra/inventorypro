@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { parseOptionalCount, parsePackSize, validateName, validateText } from '../../../src/lib/validation';
+import { parseOptionalCount, parsePackSize, validateName, validateText, MAX_QUANTITY } from '../../../src/lib/validation';
 import { track } from '../../../src/telemetry';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -22,9 +22,12 @@ import { MediaGallery } from '../../../src/components/MediaGallery';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
-import { AppInput } from '../../../src/components/ui/AppInput';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { LocationShelfPicker } from '../../../src/components/pickers';
+import { TextField } from '../../../src/components/ui/TextField';
+import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
+import { SelectField } from '../../../src/components/ui/SelectField';
+import { QuantityStepper } from '../../../src/components/ui/QuantityStepper';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
@@ -56,6 +59,8 @@ export default function ItemDetailScreen() {
   const [editItemType, setEditItemType] = useState('');
   const [editUnitCat, setEditUnitCat] = useState<string>(PRODUCT_CLASS_IDS.piece);
   const [editUnit, setEditUnit] = useState('');
+  // 0 = off (QuantityStepper has no blank state; mirrors the add-screen convention).
+  const [editMinAlert, setEditMinAlert] = useState(0);
   // Optional "home" location (where the item belongs). Nullable. The two-stage
   // LocationShelfPicker holds the parent location and its optional shelf
   // separately; both are resolved to a single id at submit.
@@ -70,9 +75,8 @@ export default function ItemDetailScreen() {
   const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), [refreshKey]);
   const productClasses = useMemo(() => getProductClasses(), [refreshKey]);
 
-  const supplierOptions = useMemo(() => getDistinctValues('supplier'), [refreshKey]);
-  const modelOptions = useMemo(() => getDistinctValues('model'), [refreshKey]);
   const categoryOptions = useMemo(() => getDistinctValues('category'), [refreshKey]);
+  const unitDbOptions = useMemo(() => getDistinctValues('unit'), [refreshKey]);
 
   // Label print sheet state
   const [printItemSheet, setPrintItemSheet] = useState(false);
@@ -125,10 +129,10 @@ export default function ItemDetailScreen() {
       barcode: item.barcode ?? '',
       sku: item.sku ?? '',
       supplier: item.supplier ?? '',
-      min_qty_alert: String(item.min_qty_alert ?? 0),
       reorder_to: item.reorder_to != null ? String(item.reorder_to) : '',
       pack_size: item.pack_size != null ? String(item.pack_size) : '',
     });
+    setEditMinAlert(item.min_qty_alert ?? 0);
     setEditCategory(item.category ?? '');
     setEditReturnable(item.returnable === 1);
     // Seed units from the item as-is (data safety: never destroy an existing
@@ -206,8 +210,8 @@ export default function ItemDetailScreen() {
 
     // Validate numeric fields up front with clear, fixable messages (mirrors the
     // add/quick-add screens) instead of silently coercing bad input.
-    const minAlert = parseOptionalCount(form.min_qty_alert, 'Low-stock alert');
-    if (!minAlert.ok) { trackReject('item.min_qty_alert', minAlert.rule); Alert.alert('Invalid low-stock alert', minAlert.error); return; }
+    // editMinAlert is already a valid clamped integer (QuantityStepper enforces
+    // min 0) — no separate parse/Alert step needed, same effective range.
     const reorder = parseOptionalCount(form.reorder_to, 'Reorder up to');
     if (!reorder.ok) { trackReject('item.reorder_to', reorder.rule); Alert.alert('Invalid reorder amount', reorder.error); return; }
     const pack = parsePackSize(form.pack_size ?? '');
@@ -230,7 +234,7 @@ export default function ItemDetailScreen() {
       barcode: form.barcode.trim() || null,
       sku: form.sku.trim() || null,
       supplier: form.supplier.trim() || null,
-      min_qty_alert: minAlert.value ?? 0,
+      min_qty_alert: editMinAlert,
       reorder_to: reorder.value,
       category: editCategory.trim() || null,
       returnable: (editReturnable ? 1 : 0) as number,
@@ -262,6 +266,16 @@ export default function ItemDetailScreen() {
   const editUnitOptions = editUnit && !editBaseUnits.includes(editUnit)
     ? [editUnit, ...editBaseUnits]
     : editBaseUnits;
+  // Merge in every unit ever typed anywhere in the catalog (deduped, curated/
+  // current-value options first) so a legacy/custom unit stays reachable —
+  // mirrors the add-screen's unit picker.
+  const mergedEditUnitOptions = (() => {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const u of editUnitOptions) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+    for (const u of unitDbOptions) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+    return merged;
+  })();
 
   return (
     <>
@@ -270,12 +284,12 @@ export default function ItemDetailScreen() {
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           {editing ? (
             <>
-              <Field label="Name *" value={form.name} onChange={setField('name')} autoFocus />
-              <SuggestInput label="Color / Model" value={form.model} onChange={setField('model')} suggestions={modelOptions} />
-              <Field label="Description" value={form.description} onChange={setField('description')} multiline />
+              <TextField label="Name" required value={form.name} onChangeText={setField('name')} autoFocus />
+              <AutofillTextField label="Color / Model" table="inventory_items" column="model" value={form.model} onChangeText={setField('model')} />
+              <TextField label="Description" value={form.description} onChangeText={setField('description')} multiline />
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
-              <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
-              <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
+              <TextField label="SKU / Part #" value={form.sku} onChangeText={setField('sku')} autoCapitalize="characters" />
+              <AutofillTextField label="Supplier / Vendor" table="inventory_items" column="supplier" value={form.supplier} onChangeText={setField('supplier')} />
               <View style={s.fieldWrap}>
                 <FieldLabel>Home location (where it belongs)</FieldLabel>
                 <LocationShelfPicker
@@ -330,34 +344,35 @@ export default function ItemDetailScreen() {
                   </View>
                 </View>
               )}
-              <View style={s.fieldWrap}>
-                <FieldLabel>Unit</FieldLabel>
-                {editUnitOptions.length > 0 && (
-                  <View style={s.chipRow}>
-                    {editUnitOptions.map(u => (
-                      <FilterChip
-                        key={u}
-                        label={u}
-                        active={editUnit === u}
-                        onPress={() => setEditUnit(u)}
-                      />
-                    ))}
-                  </View>
-                )}
-                <AppInput
-                  value={editUnit}
-                  onChangeText={setEditUnit}
-                  placeholder="Unit (e.g. each)"
-                  autoCapitalize="none"
+              {/* Parity with the pre-refactor chips+input: a picker for known
+                  units PLUS an always-present free-text fallback for a new/
+                  custom one. SelectField's own free-text fallback only renders
+                  when mergedEditUnitOptions is empty, which is unreachable here
+                  (an existing item's own unit is always merged in) — so without
+                  this second field there'd be no way to enter a custom unit.
+                  Both bind to the same editUnit state: picking from the sheet
+                  sets it, typing below overrides it. */}
+              {mergedEditUnitOptions.length > 0 && (
+                <SelectField
+                  label="Unit"
+                  value={editUnit || null}
+                  options={mergedEditUnitOptions.map(u => ({ id: u, label: u }))}
+                  onSelect={setEditUnit}
                 />
-              </View>
+              )}
+              <TextField label="Custom unit" value={editUnit} onChangeText={setEditUnit} placeholder="Unit (e.g. each)" autoCapitalize="none" />
               <View style={s.switchRow}>
                 <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
                 <Switch value={editReturnable} onValueChange={setEditReturnable} />
               </View>
-              <Field label="Low-stock alert" value={form.min_qty_alert} onChange={setField('min_qty_alert')} keyboardType="decimal-pad" />
-              <Field label="Reorder up to" value={form.reorder_to} onChange={setField('reorder_to')} keyboardType="decimal-pad" />
-              <Field label={`Pack size (units per pack, optional)`} value={form.pack_size ?? ''} onChange={setField('pack_size')} keyboardType="decimal-pad" />
+              <QuantityStepper label="Low-stock alert (0 = off)" value={editMinAlert} onChange={setEditMinAlert} min={0} max={MAX_QUANTITY} />
+              {/* Reorder up to / Pack size stay plain text fields (not
+                  QuantityStepper): blank vs 0 is a meaningful distinction for
+                  both (0 is a real, if unusual, reorder-to-zero value; a pack
+                  size of exactly 0/1 is a validation error, not an "off" state) —
+                  unlike the low-stock alert's established "0 = off" convention. */}
+              <TextField label="Reorder up to" value={form.reorder_to} onChangeText={setField('reorder_to')} keyboardType="decimal-pad" />
+              <TextField label="Pack size (units per pack, optional)" value={form.pack_size ?? ''} onChangeText={setField('pack_size')} keyboardType="decimal-pad" />
 
               <View style={s.row}>
                 <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={() => setEditing(false)}>
@@ -481,26 +496,6 @@ function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
   );
 }
 
-function Field(props: {
-  label: string; value: string; onChange: (v: string) => void;
-  multiline?: boolean; keyboardType?: 'decimal-pad'; autoCapitalize?: 'none' | 'characters'; autoFocus?: boolean;
-}) {
-  return (
-    <View style={s.fieldWrap}>
-      <FieldLabel>{props.label}</FieldLabel>
-      <AppInput
-        style={props.multiline ? s.multiline : undefined}
-        value={props.value}
-        onChangeText={props.onChange}
-        multiline={props.multiline}
-        keyboardType={props.keyboardType}
-        autoCapitalize={props.autoCapitalize}
-        autoFocus={props.autoFocus}
-      />
-    </View>
-  );
-}
-
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
@@ -530,7 +525,6 @@ const s = StyleSheet.create({
   // Item-type chip + its colored type dot, grouped so they read as one unit.
   chipWithDot: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   typeDot: { width: 9, height: 9, borderRadius: 5 },
-  multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
   btnGhost: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled },

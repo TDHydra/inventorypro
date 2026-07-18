@@ -4,13 +4,12 @@ import {
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  getItemById, updateItemFields, getDistinctValues,
+  getItemById, updateItemFields,
   InventoryItem,
 } from '../../../src/db/queries/items';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
-import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { PickerOption } from '../../../src/components/SearchablePicker';
@@ -36,8 +35,10 @@ import { colors } from '../../../src/theme';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
-import { AppInput } from '../../../src/components/ui/AppInput';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
+import { TextField } from '../../../src/components/ui/TextField';
+import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
+import { DateField } from '../../../src/components/ui/DateField';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -90,9 +91,6 @@ export default function EquipmentModelDetailScreen() {
   const [editTypeId, setEditTypeId] = useState<string | null>(null);
   const [editReturnable, setEditReturnable] = useState(false);
   const [editTagPrefix, setEditTagPrefix] = useState('');
-
-  const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
-  const modelOptions = useMemo(() => getDistinctValues('model'), []);
 
   // Add Units modal state
   const [addUnitsOpen, setAddUnitsOpen] = useState(false);
@@ -608,12 +606,12 @@ export default function EquipmentModelDetailScreen() {
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           {editing ? (
             <>
-              <Field label="Name *" value={form.name} onChange={setField('name')} autoFocus />
-              <SuggestInput label="Color / Model" value={form.model} onChange={setField('model')} suggestions={modelOptions} />
-              <Field label="Description" value={form.description} onChange={setField('description')} multiline />
+              <TextField label="Name" required value={form.name} onChangeText={setField('name')} autoFocus />
+              <AutofillTextField label="Color / Model" table="inventory_items" column="model" value={form.model} onChangeText={setField('model')} />
+              <TextField label="Description" value={form.description} onChangeText={setField('description')} multiline />
               <BarcodeInput label="Barcode" value={form.barcode} onChange={setField('barcode')} />
-              <Field label="SKU / Part #" value={form.sku} onChange={setField('sku')} autoCapitalize="characters" />
-              <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
+              <TextField label="SKU / Part #" value={form.sku} onChangeText={setField('sku')} autoCapitalize="characters" />
+              <AutofillTextField label="Supplier / Vendor" table="inventory_items" column="supplier" value={form.supplier} onChangeText={setField('supplier')} />
               <HidableField fieldId="equipment.type">
                 <View style={s.fieldWrap}>
                   <TaxonomyChips
@@ -627,16 +625,14 @@ export default function EquipmentModelDetailScreen() {
                   />
                 </View>
               </HidableField>
-              <View style={s.fieldWrap}>
-                <FieldLabel>Tag Prefix</FieldLabel>
-                <AppInput
-                  placeholder="AM-, DH-, MSC-…"
-                  value={editTagPrefix}
-                  onChangeText={setEditTagPrefix}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                />
-              </View>
+              <TextField
+                label="Tag Prefix"
+                placeholder="AM-, DH-, MSC-…"
+                value={editTagPrefix}
+                onChangeText={setEditTagPrefix}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
               <View style={s.switchRow}>
                 <Text style={s.switchLabel}>Returnable? (expected back via Check In)</Text>
                 <Switch value={editReturnable} onValueChange={setEditReturnable} />
@@ -872,76 +868,85 @@ export default function EquipmentModelDetailScreen() {
       <ModalSheet visible={editUnit !== null} onClose={() => setEditUnit(null)} scroll>
         <Text style={s.promptTitle}>Edit Unit</Text>
         <Text style={s.promptSub}>{editUnit?.asset_tag}</Text>
-        <FieldLabel style={{ marginTop: 14 }}>Asset Tag *</FieldLabel>
-        <AppInput
-          value={editUnitTag}
-          onChangeText={setEditUnitTag}
-          placeholder="Asset tag"
-          autoCapitalize="characters"
-          autoCorrect={false}
-        />
+        <View style={{ marginTop: 14 }}>
+          <TextField
+            label="Asset Tag"
+            required
+            value={editUnitTag}
+            onChangeText={setEditUnitTag}
+            placeholder="Asset tag"
+            autoCapitalize="characters"
+            autoCorrect={false}
+          />
+        </View>
         <AdvancedFields>
           <HidableField fieldId="equipment.serial_number">
-            <FieldLabel style={{ marginTop: 10 }}>Serial # (optional)</FieldLabel>
-            <AppInput
-              value={editUnitSerial}
-              onChangeText={setEditUnitSerial}
-              placeholder="Serial number"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <View style={{ marginTop: 10 }}>
+              <TextField
+                label="Serial # (optional)"
+                value={editUnitSerial}
+                onChangeText={setEditUnitSerial}
+                placeholder="Serial number"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
           </HidableField>
           <HidableField fieldId="equipment.notes">
-            <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
-            <AppInput
-              style={s.multiline}
-              value={editUnitNotes}
-              onChangeText={setEditUnitNotes}
-              placeholder="Notes"
-              multiline
-            />
+            <View style={{ marginTop: 10 }}>
+              <TextField
+                label="Notes (optional)"
+                value={editUnitNotes}
+                onChangeText={setEditUnitNotes}
+                placeholder="Notes"
+                multiline
+              />
+            </View>
           </HidableField>
           <HidableField fieldId="equipment.acquired_at">
-            <FieldLabel style={{ marginTop: 10 }}>Acquired date (optional)</FieldLabel>
-            <AppInput
-              value={editUnitAcquired}
-              onChangeText={setEditUnitAcquired}
-              placeholder="YYYY-MM-DD"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <View style={{ marginTop: 10 }}>
+              <DateField label="Acquired date (optional)" value={editUnitAcquired} onChange={setEditUnitAcquired} />
+            </View>
           </HidableField>
           {/* Financial fields: view_financial_data gate AND the hidable-field
-              gate must both pass (mirrors the book-value display gating). */}
+              gate must both pass (mirrors the book-value display gating).
+              Purchase price / salvage value stay plain text fields (not
+              QuantityStepper): 0 is a real, meaningful value (e.g. donated
+              equipment) distinct from blank/unset, unlike the low-stock
+              alert's "0 = off" convention used elsewhere in the kit. */}
           {canViewFinancial && (
             <HidableField fieldId="equipment.purchase_price">
-              <FieldLabel style={{ marginTop: 10 }}>Purchase price (optional)</FieldLabel>
-              <AppInput
-                value={editUnitPrice}
-                onChangeText={setEditUnitPrice}
-                placeholder="0.00"
-                keyboardType="numeric"
-              />
+              <View style={{ marginTop: 10 }}>
+                <TextField
+                  label="Purchase price (optional)"
+                  value={editUnitPrice}
+                  onChangeText={setEditUnitPrice}
+                  placeholder="0.00"
+                  keyboardType="numeric"
+                />
+              </View>
             </HidableField>
           )}
           <HidableField fieldId="equipment.depreciation">
-            <FieldLabel style={{ marginTop: 10 }}>Useful life (months)</FieldLabel>
-            <AppInput
-              value={editUnitLife}
-              onChangeText={setEditUnitLife}
-              placeholder="e.g. 60"
-              keyboardType="numeric"
-            />
+            <View style={{ marginTop: 10 }}>
+              <TextField
+                label="Useful life (months)"
+                value={editUnitLife}
+                onChangeText={setEditUnitLife}
+                placeholder="e.g. 60"
+                keyboardType="numeric"
+              />
+            </View>
             {canViewFinancial && (
-              <>
-                <FieldLabel style={{ marginTop: 10 }}>Salvage value (optional)</FieldLabel>
-                <AppInput
+              <View style={{ marginTop: 10 }}>
+                <TextField
+                  label="Salvage value (optional)"
                   value={editUnitSalvage}
                   onChangeText={setEditUnitSalvage}
                   placeholder="0.00"
                   keyboardType="numeric"
                 />
-              </>
+              </View>
             )}
             <FieldLabel style={{ marginTop: 10 }}>Depreciation method</FieldLabel>
             <View style={s.methodRow}>
@@ -956,21 +961,18 @@ export default function EquipmentModelDetailScreen() {
             </View>
           </HidableField>
           <HidableField fieldId="equipment.service_schedule">
-            <FieldLabel style={{ marginTop: 10 }}>Next service date (optional)</FieldLabel>
-            <AppInput
-              value={editUnitNextService}
-              onChangeText={setEditUnitNextService}
-              placeholder="YYYY-MM-DD"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <FieldLabel style={{ marginTop: 10 }}>Service interval (months)</FieldLabel>
-            <AppInput
-              value={editUnitInterval}
-              onChangeText={setEditUnitInterval}
-              placeholder="e.g. 6"
-              keyboardType="numeric"
-            />
+            <View style={{ marginTop: 10 }}>
+              <DateField label="Next service date (optional)" value={editUnitNextService} onChange={setEditUnitNextService} />
+            </View>
+            <View style={{ marginTop: 10 }}>
+              <TextField
+                label="Service interval (months)"
+                value={editUnitInterval}
+                onChangeText={setEditUnitInterval}
+                placeholder="e.g. 6"
+                keyboardType="numeric"
+              />
+            </View>
           </HidableField>
         </AdvancedFields>
         <View style={[s.row, { marginTop: 16 }]}>
@@ -998,41 +1000,42 @@ export default function EquipmentModelDetailScreen() {
           <Text style={s.promptTitle}>Log Maintenance</Text>
           <Text style={s.promptSub}>{maintUnit?.asset_tag}</Text>
 
-          <FieldLabel style={{ marginTop: 14 }}>Date</FieldLabel>
-          <AppInput
-            value={maintDate}
-            onChangeText={setMaintDate}
-            placeholder="YYYY-MM-DD"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          <View style={{ marginTop: 14 }}>
+            <DateField label="Date" value={maintDate} onChange={setMaintDate} />
+          </View>
 
-          <FieldLabel style={{ marginTop: 10 }}>Type *</FieldLabel>
-          <AppInput
-            value={maintType}
-            onChangeText={setMaintType}
-            placeholder="Inspection, oil change, calibration…"
-          />
+          <View style={{ marginTop: 10 }}>
+            <TextField
+              label="Type"
+              required
+              value={maintType}
+              onChangeText={setMaintType}
+              placeholder="Inspection, oil change, calibration…"
+            />
+          </View>
 
-          <FieldLabel style={{ marginTop: 10 }}>Notes (optional)</FieldLabel>
-          <AppInput
-            style={s.multiline}
-            value={maintNotes}
-            onChangeText={setMaintNotes}
-            placeholder="Notes"
-            multiline
-          />
+          <View style={{ marginTop: 10 }}>
+            <TextField
+              label="Notes (optional)"
+              value={maintNotes}
+              onChangeText={setMaintNotes}
+              placeholder="Notes"
+              multiline
+            />
+          </View>
 
+          {/* Stays a plain text field (not QuantityStepper): 0 is a real,
+              meaningful cost (e.g. warranty work), distinct from blank/unset. */}
           {canViewFinancial && (
-            <>
-              <FieldLabel style={{ marginTop: 10 }}>Cost (optional)</FieldLabel>
-              <AppInput
+            <View style={{ marginTop: 10 }}>
+              <TextField
+                label="Cost (optional)"
                 value={maintCost}
                 onChangeText={setMaintCost}
                 placeholder="0.00"
                 keyboardType="numeric"
               />
-            </>
+            </View>
           )}
 
           <View style={[s.row, { marginTop: 16 }]}>
@@ -1110,8 +1113,8 @@ export default function EquipmentModelDetailScreen() {
               />
               <AdvancedFields>
                 <View style={{ marginTop: 10 }}>
-                  <FieldLabel>Serial # (optional)</FieldLabel>
-                  <AppInput
+                  <TextField
+                    label="Serial # (optional)"
                     value={row.serial}
                     onChangeText={(v) => updateSerial(i, v)}
                     placeholder="Serial number"
@@ -1139,26 +1142,6 @@ export default function EquipmentModelDetailScreen() {
   );
 }
 
-function Field(props: {
-  label: string; value: string; onChange: (v: string) => void;
-  multiline?: boolean; keyboardType?: 'decimal-pad'; autoCapitalize?: 'none' | 'characters'; autoFocus?: boolean;
-}) {
-  return (
-    <View style={s.fieldWrap}>
-      <FieldLabel>{props.label}</FieldLabel>
-      <AppInput
-        style={props.multiline ? s.multiline : undefined}
-        value={props.value}
-        onChangeText={props.onChange}
-        multiline={props.multiline}
-        keyboardType={props.keyboardType}
-        autoCapitalize={props.autoCapitalize}
-        autoFocus={props.autoFocus}
-      />
-    </View>
-  );
-}
-
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
@@ -1180,7 +1163,6 @@ const s = StyleSheet.create({
   stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
   fieldWrap: { gap: 6 },
   methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
-  multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
   btnGhost: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled },

@@ -18,10 +18,10 @@ import { MediaGallery } from '../../../src/components/MediaGallery';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { TaxonomyChips } from '../../../src/components/pickers';
 import { HidableField } from '../../../src/components/ui/HidableField';
-import { AppInput } from '../../../src/components/ui/AppInput';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { TextField } from '../../../src/components/ui/TextField';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
 
 // Cap the equipment name so a runaway paste can't bloat the catalog row.
@@ -243,8 +243,9 @@ export default function AddEquipmentScreen() {
           <MediaGallery entityType="item" entityId={modelId} canUpload />
 
           {/* ── Model name ────────────────────────────────────────────────── */}
-          <FieldLabel>Name *</FieldLabel>
-          <AppInput
+          <TextField
+            label="Name"
+            required
             placeholder="e.g. Air Mover, Dehumidifier 70pt"
             value={name}
             onChangeText={setName}
@@ -268,8 +269,8 @@ export default function AddEquipmentScreen() {
 
           {/* ── Tag prefix ────────────────────────────────────────────────── */}
           <HidableField fieldId="equipment.tag_prefix">
-            <FieldLabel>Asset Tag Prefix (optional)</FieldLabel>
-            <AppInput
+            <TextField
+              label="Asset Tag Prefix (optional)"
               placeholder="e.g. AM-, DH-, MSC-"
               value={tagPrefix}
               onChangeText={setTagPrefix}
@@ -295,7 +296,8 @@ export default function AddEquipmentScreen() {
           {!!tagError && <Text style={s.errorText}>{tagError}</Text>}
 
           <HidableField fieldId="equipment.serial_number">
-            <AppInput
+            <TextField
+              label="Serial number (optional)"
               placeholder="Serial number (optional)"
               value={serial}
               onChangeText={setSerial}

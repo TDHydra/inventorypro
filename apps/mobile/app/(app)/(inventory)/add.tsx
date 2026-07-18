@@ -15,7 +15,6 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { getItemTypes, parseItemTypeMeta } from '../../../src/db/queries/taxonomy';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
-import { SuggestInput } from '../../../src/components/SuggestInput';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
@@ -26,15 +25,18 @@ import { LocationSuggestionBanner } from '../../../src/components/LocationSugges
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { runInTransaction } from '../../../src/db/tx';
-import { parseQuantity, parseOptionalCount, parsePackSize } from '../../../src/lib/validation';
+import { parseQuantity, parseOptionalCount, parsePackSize, MAX_QUANTITY } from '../../../src/lib/validation';
 import { colors } from '../../../src/theme';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
-import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { HidableField } from '../../../src/components/ui/HidableField';
+import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
+import { SelectField } from '../../../src/components/ui/SelectField';
+import { QuantityStepper } from '../../../src/components/ui/QuantityStepper';
+import { TextField } from '../../../src/components/ui/TextField';
 
 export default function AddStockScreen() {
   const router = useRouter();
@@ -70,7 +72,9 @@ export default function AddStockScreen() {
   const [unit, setUnit] = useState<string>(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
   // Whether this item is expected back via Check In
   const [returnable, setReturnable] = useState(false);
-  const [minAlert, setMinAlert] = useState('0');
+  // 0 = off (QuantityStepper has no blank state; matches the app's existing
+  // "0 = off" convention for this field, shown on the pre-kit placeholder).
+  const [minAlert, setMinAlert] = useState(0);
   const [reorderTo, setReorderTo] = useState('');
   // Optional "home" location for a newly-created item (where it belongs). Nullable.
   // Distinct from the add-stock target location below.
@@ -79,8 +83,12 @@ export default function AddStockScreen() {
   // ── Location + quantity state ─────────────────────────────────────────────
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null);
   const [shelfValue, setShelfValue] = useState<PickerOption | null>(null); // shelf within the location
-  const [quantity, setQuantity] = useState('');
-  const [packSize, setPackSize] = useState(''); // new item: units per pack
+  // 0 = not yet entered (QuantityStepper has no blank state); parseQuantity still
+  // rejects 0 at save ("must be greater than zero"), same as blank did before.
+  const [quantity, setQuantity] = useState(0);
+  // 0 = no pack tracking (QuantityStepper has no blank state; mirrors minAlert's
+  // "0 = off" convention). 1 stays a validation error (a pack of 1 is just the unit).
+  const [packSize, setPackSize] = useState(0); // new item: units per pack
   const [packMode, setPackMode] = useState<'packs' | 'units'>('packs');
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -132,9 +140,17 @@ export default function AddStockScreen() {
   const selectedType = itemTypes.find(t => t.label === itemType) ?? null;
   const typeUnits = selectedType ? parseItemTypeMeta(selectedType.meta).units : [];
   const unitOptions = typeUnits.length > 0 ? typeUnits : getUnitsForClass(unitCat);
-
-  const supplierOptions = useMemo(() => getDistinctValues('supplier'), []);
-  const modelOptions = useMemo(() => getDistinctValues('model'), []);
+  // Unit picker options: the context-appropriate curated list first, plus any
+  // unit ever typed anywhere in the catalog (deduped) so a legacy/custom unit
+  // stays reachable.
+  const unitDbOptions = useMemo(() => getDistinctValues('unit'), []);
+  const mergedUnitOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const u of unitOptions) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+    for (const u of unitDbOptions) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+    return merged;
+  }, [unitOptions, unitDbOptions]);
 
   // Pick/clear an item type — selecting one auto-sets the units + unit class +
   // catalog category to whatever that type allows (mirrors quick-add).
@@ -222,21 +238,24 @@ export default function AddStockScreen() {
     setItemType('');
     setUnitCat(CLASS_PIECE_ID); setUnit(getUnitsForClass(CLASS_PIECE_ID)[0] ?? 'each');
     setReturnable(false);
-    setMinAlert('0'); setReorderTo('');
+    setMinAlert(0); setReorderTo('');
     setHomeLocation(null);
     setSelectedLocation(null);
     setShelfValue(null);
-    setQuantity('');
-    setPackSize('');
+    setQuantity(0);
+    setPackSize(0);
     setPackMode('packs');
   }
 
   // Pack size in play for the current add: an existing item's stored pack_size,
   // or (when creating) the entered value. >1 means the Packs/Units toggle applies.
   const newItemPackSize = (() => {
-    // Render-safe: parsePackSize rejects negatives / ≤1 / non-integers and blanks
-    // to null. Invalid entries surface a precise error in handleSave (no Alert here).
-    const r = parsePackSize(packSize);
+    // 0 means "no pack tracking" (QuantityStepper's off state) — skip validation
+    // so it doesn't surface the ≤1 error. Render-safe otherwise: parsePackSize
+    // rejects negatives / ≤1 / non-integers. Invalid entries surface a precise
+    // error in handleSave (no Alert here).
+    if (packSize === 0) return null;
+    const r = parsePackSize(String(packSize));
     return r.ok ? r.value : null;
   })();
   const effectivePackSize = selectedItem
@@ -268,22 +287,21 @@ export default function AddStockScreen() {
 
     // Validate the new-item numeric fields up front (precise, fixable errors).
     let validatedPackSize: number | null = null;
-    let validatedMinAlert = 0;
+    // minAlert is already a valid clamped integer (QuantityStepper enforces
+    // min 0) — no separate parse/Alert step needed, same effective range.
+    const validatedMinAlert = minAlert;
     let validatedReorderTo: number | null = null;
     if (isCreatingNew) {
-      const packRes = parsePackSize(packSize);
-      if (!packRes.ok) {
-        Alert.alert('Invalid pack size', packRes.error);
-        return;
+      // 0 means "no pack tracking" (QuantityStepper's off state, mirrors
+      // minAlert) — skip validation so it doesn't surface the ≤1 error.
+      if (packSize !== 0) {
+        const packRes = parsePackSize(String(packSize));
+        if (!packRes.ok) {
+          Alert.alert('Invalid pack size', packRes.error);
+          return;
+        }
+        validatedPackSize = packRes.value;
       }
-      validatedPackSize = packRes.value;
-
-      const minAlertRes = parseOptionalCount(minAlert, 'Low-stock alert');
-      if (!minAlertRes.ok) {
-        Alert.alert('Invalid low-stock alert', minAlertRes.error);
-        return;
-      }
-      validatedMinAlert = minAlertRes.value ?? 0;
 
       const reorderRes = parseOptionalCount(reorderTo, 'Reorder up to');
       if (!reorderRes.ok) {
@@ -295,7 +313,7 @@ export default function AddStockScreen() {
 
     // Entered value is packs or base units depending on the toggle; stock is
     // always written in BASE units (entered × pack_size when adding packs).
-    const qtyRes = parseQuantity(quantity);
+    const qtyRes = parseQuantity(String(quantity));
     if (!qtyRes.ok) {
       Alert.alert('Invalid quantity', qtyRes.error);
       return;
@@ -458,8 +476,9 @@ export default function AddStockScreen() {
           {/* Editable catalog fields for new item creation */}
           {isCreatingNew && (
             <>
-              <AppInput
-                placeholder="Item name *"
+              <TextField
+                label="Item name"
+                required
                 value={name}
                 onChangeText={setName}
                 autoFocus
@@ -481,34 +500,32 @@ export default function AddStockScreen() {
                 </>
               )}
 
-              <FieldLabel style={{ marginTop: 12 }}>Unit</FieldLabel>
-              {unitOptions.length > 0 ? (
-                <View style={s.unitRow}>
-                  {unitOptions.map(u => (
-                    <FilterChip
-                      key={u}
-                      label={u}
-                      active={unit === u}
-                      onPress={() => setUnit(u)}
-                    />
-                  ))}
-                </View>
-              ) : (
-                <AppInput
-                  placeholder="Unit (e.g. each)"
-                  value={unit}
-                  onChangeText={setUnit}
-                />
-              )}
+              <View style={{ marginTop: 12 }}>
+                {/* No curated/prior units at all (fresh install, unrecognized class) —
+                    fall back to free text so the field is never a dead end. */}
+                {mergedUnitOptions.length > 0 ? (
+                  <SelectField
+                    label="Unit"
+                    value={unit}
+                    options={mergedUnitOptions.map(u => ({ id: u, label: u }))}
+                    onSelect={setUnit}
+                  />
+                ) : (
+                  <TextField label="Unit" placeholder="e.g. each" value={unit} onChangeText={setUnit} />
+                )}
+              </View>
 
               <HidableField fieldId="inventory.pack_size">
-                <FieldLabel style={{ marginTop: 12 }}>Pack size (optional)</FieldLabel>
-                <AppInput
-                  placeholder={`Units per pack — e.g. 4 = a 4-${unit || 'unit'} pack`}
-                  value={packSize}
-                  onChangeText={setPackSize}
-                  keyboardType="decimal-pad"
-                />
+                <View style={{ marginTop: 12 }}>
+                  <QuantityStepper
+                    label="Pack size (optional, 0 = no pack tracking)"
+                    value={packSize}
+                    onChange={setPackSize}
+                    min={0}
+                    max={MAX_QUANTITY}
+                    unit={`${unit || 'unit'} per pack`}
+                  />
+                </View>
               </HidableField>
 
               <HidableField fieldId="inventory.home_location">
@@ -524,9 +541,8 @@ export default function AddStockScreen() {
 
               <AdvancedFields>
                 <HidableField fieldId="inventory.description">
-                  <AppInput
-                    style={s.multiline}
-                    placeholder="Description (optional)"
+                  <TextField
+                    label="Description (optional)"
                     value={description}
                     onChangeText={setDescription}
                     multiline
@@ -534,19 +550,22 @@ export default function AddStockScreen() {
                   />
                 </HidableField>
                 <HidableField fieldId="inventory.supplier">
-                  <SuggestInput
+                  <AutofillTextField
+                    label="Supplier / Vendor"
+                    table="inventory_items"
+                    column="supplier"
                     value={supplier}
-                    onChange={setSupplier}
-                    suggestions={supplierOptions}
+                    onChangeText={setSupplier}
                     placeholder="Supplier / Vendor (optional)"
                   />
                 </HidableField>
                 <HidableField fieldId="inventory.model">
-                  <SuggestInput
-                    label=""
+                  <AutofillTextField
+                    label="Color / Model"
+                    table="inventory_items"
+                    column="model"
                     value={model}
-                    onChange={setModel}
-                    suggestions={modelOptions}
+                    onChangeText={setModel}
                     placeholder="Color / Model (optional)"
                   />
                 </HidableField>
@@ -555,22 +574,29 @@ export default function AddStockScreen() {
                   <Switch value={returnable} onValueChange={setReturnable} />
                 </View>
                 <HidableField fieldId="inventory.min_qty_alert">
-                  <FieldLabel style={{ marginTop: 12 }}>Low-stock alert</FieldLabel>
-                  <AppInput
-                    placeholder="Low-stock alert (0 = off)"
-                    value={minAlert}
-                    onChangeText={setMinAlert}
-                    keyboardType="decimal-pad"
-                  />
+                  <View style={{ marginTop: 12 }}>
+                    <QuantityStepper
+                      label="Low-stock alert (0 = off)"
+                      value={minAlert}
+                      onChange={setMinAlert}
+                      min={0}
+                      max={MAX_QUANTITY}
+                    />
+                  </View>
                 </HidableField>
                 <HidableField fieldId="inventory.reorder_to">
-                  <FieldLabel style={{ marginTop: 12 }}>Reorder up to (optional)</FieldLabel>
-                  <AppInput
-                    placeholder="Reorder up to (optional)"
-                    value={reorderTo}
-                    onChangeText={setReorderTo}
-                    keyboardType="decimal-pad"
-                  />
+                  <View style={{ marginTop: 12 }}>
+                    {/* Stays a plain text field (not QuantityStepper): blank (no
+                        target) and 0 (a real, if unusual, reorder-to-zero value)
+                        are distinct here, unlike minAlert's "0 = off". */}
+                    <TextField
+                      label="Reorder up to (optional)"
+                      placeholder="Reorder up to (optional)"
+                      value={reorderTo}
+                      onChangeText={setReorderTo}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
                 </HidableField>
               </AdvancedFields>
             </>
@@ -613,15 +639,17 @@ export default function AddStockScreen() {
                   />
                 </View>
               )}
-              <AppInput
-                placeholder={usePacks ? 'Number of packs' : 'Enter quantity'}
+              <QuantityStepper
                 value={quantity}
-                onChangeText={setQuantity}
-                keyboardType="decimal-pad"
+                onChange={setQuantity}
+                min={0}
+                max={MAX_QUANTITY}
+                allowDecimal
+                unit={usePacks ? 'packs' : (autofillItem?.unit ?? unit)}
               />
-              {usePacks && !!parseFloat(quantity) && (
+              {usePacks && quantity > 0 && (
                 <Text style={s.packHint}>
-                  = {parseFloat(quantity) * (effectivePackSize as number)} {autofillItem?.unit ?? unit}
+                  = {quantity * (effectivePackSize as number)} {autofillItem?.unit ?? unit}
                 </Text>
               )}
             </>
@@ -662,7 +690,6 @@ export default function AddStockScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 48 },
-  multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   packModeRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   packHint: { fontSize: 13, color: colors.primary, fontWeight: '600', marginTop: 4 },
   readonlyCard: {
