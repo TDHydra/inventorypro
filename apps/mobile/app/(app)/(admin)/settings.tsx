@@ -11,6 +11,8 @@ import { syncNow } from '../../../src/sync/engine';
 import { getDb } from '../../../src/db/schema';
 import { getIdleTimeoutMinutes, setIdleTimeoutMinutes, getAppSetting, setAppSetting } from '../../../src/db/appSettings';
 import { ensureNotificationPermission } from '../../../src/notifications/localAlerts';
+import { generateSampleData } from '../../../src/dev/generateSampleData';
+import { bumpDataVersion } from '../../../src/sync/dataVersion';
 import { setMaintenanceMode, isMaintenanceActive } from '../../../src/db/maintenance';
 import { getAppConfig, setAppConfigLocal } from '../../../src/db/appConfig';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -141,6 +143,41 @@ export default function SettingsScreen() {
     () => allLocations.map(l => ({ id: l.id, label: l.name, sublabel: l.parent_id ? locationById.get(l.parent_id)?.name : undefined })),
     [allLocations, locationById],
   );
+
+  // Dev tool (#24): populate the local sandbox with sample data. Guarded to test
+  // accounts so it can never write to production — generateSampleData enforces the
+  // same guard, and a test account's /sync/push is 403'd server-side regardless.
+  const handleGenerateSampleData = useCallback(() => {
+    if (!user?.is_test) {
+      Alert.alert(
+        'Test accounts only',
+        'Sample data generation is only available on a test / sandbox account, so it can never write to production.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Generate sample data?',
+      'Adds 5 sample locations and 5 sample items (with stock) to THIS device only. It stays in the sandbox and never syncs to production.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Generate',
+          onPress: () => {
+            try {
+              const r = generateSampleData({ isTest: true, count: 5 });
+              bumpDataVersion();
+              Alert.alert(
+                'Sample data created',
+                `Added ${r.locations} locations and ${r.items} items (${r.stockRows} with stock).`,
+              );
+            } catch (e) {
+              Alert.alert('Could not generate', (e as Error).message);
+            }
+          },
+        },
+      ],
+    );
+  }, [user?.is_test]);
   const storageLocHasShelves = (storageLoc ? locationById.get(storageLoc.id) : undefined)?.has_shelves === 1;
   const storageShelfOptions = useMemo<PickerOption[]>(
     () => (storageLocHasShelves && storageLoc) ? getShelvesForParent(storageLoc.id).map(s => ({ id: s.id, label: s.name })) : [],
@@ -780,6 +817,10 @@ export default function SettingsScreen() {
               >
                 <Text style={s.rowLabel}>⚡ Quick Add</Text>
                 <Text style={s.chevron}>›</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.row} onPress={handleGenerateSampleData}>
+                <Text style={s.rowLabel}>🧪 Generate Sample Data</Text>
+                <Text style={s.rowSub}>{user?.is_test ? 'Sandbox' : 'Test acct only'}</Text>
               </TouchableOpacity>
             </View>
           </View>
