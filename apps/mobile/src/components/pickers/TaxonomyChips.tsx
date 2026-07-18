@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View, Text } from 'react-native';
+import { colors } from '../../theme';
 import {
   getTaxonomyTypes,
   getTaxonomyTypesWithFallback,
@@ -73,31 +74,58 @@ export function TaxonomyChips({
     onChange({ id: t.id, label: t.label });
   }
 
+  // Discoverability for the horizontal overflow (board #85): the chip row often
+  // runs off-screen with no cue. Compare rendered content width against the
+  // visible container width; when the chips overflow, show an explicit grayed
+  // "Swipe for more →" caption under the row (a fade alone read as too subtle).
+  // The wrapper is box-neutral (zero padding/margin) so it doesn't disturb the
+  // parent-gap spacing the four call sites depend on (see header note).
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  const overflowing = contentWidth > containerWidth + 1;
+
   return (
     <>
       {!!label && <FieldLabel>{label}</FieldLabel>}
-      {/* No call site disables this today; pointerEvents+opacity is additive only. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.chipRow}
-        pointerEvents={disabled ? 'none' : 'auto'}
-        style={disabled ? s.disabled : undefined}
+      <View
+        style={s.scrollWrap}
+        onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}
       >
-        {types.map(t => (
-          <FilterChip
-            key={t.label}
-            label={`${renderIcon(t.icon)} ${t.label}`}
-            active={isActive(t)}
-            onPress={() => handlePress(t)}
-          />
-        ))}
-      </ScrollView>
+        {/* No call site disables this today; pointerEvents+opacity is additive only. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          contentContainerStyle={s.chipRow}
+          pointerEvents={disabled ? 'none' : 'auto'}
+          style={disabled ? s.disabled : undefined}
+          onContentSizeChange={w => setContentWidth(w)}
+        >
+          {types.map(t => (
+            <FilterChip
+              key={t.label}
+              label={`${renderIcon(t.icon)} ${t.label}`}
+              active={isActive(t)}
+              onPress={() => handlePress(t)}
+            />
+          ))}
+        </ScrollView>
+      </View>
+      {overflowing && (
+        <Text style={s.moreHint} pointerEvents="none">Swipe for more →</Text>
+      )}
     </>
   );
 }
 
 const s = StyleSheet.create({
+  scrollWrap: { position: 'relative' },
   chipRow: { gap: 8, paddingRight: 8 },
   disabled: { opacity: 0.5 },
+  moreHint: {
+    alignSelf: 'flex-end',
+    marginTop: 4,
+    paddingRight: 8,
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
 });

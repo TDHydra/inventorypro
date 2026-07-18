@@ -347,6 +347,7 @@ export default function AuditLogScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={s.chipScroll}
           contentContainerStyle={s.chipRow}
           keyboardShouldPersistTaps="handled"
         >
@@ -586,7 +587,13 @@ const s = StyleSheet.create({
   },
   debugText: { color: colors.danger, fontSize: fontSizes.body2, fontWeight: '700' },
 
-  chipRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  // flexGrow:0 keeps the horizontal ScrollView from stretching; without an explicit
+  // style it under-measures the rounded FilterChip pills and clips them top/bottom (esp. Android).
+  chipScroll: { flexGrow: 0 },
+  chipRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 56,
+  },
   search: {
     marginHorizontal: spacing.lg, marginBottom: spacing.sm,
     backgroundColor: colors.surface, borderRadius: radii.md,

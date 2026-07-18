@@ -113,10 +113,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'Creating an admin role or custom permissions requires the roles & permissions permission.' });
       }
     }
-    // Default PIN length expectation from role tier could be added later; for now
-    // store the provided length, or 4 as a placeholder until the user sets it.
+    // Seed pin_length_required from the role's configured minimum so the login
+    // roster demands the right PIN length at enrollment (auth /set-pin also
+    // enforces it server-side). Falls back to 4 for a role with no settings row.
+    const { rows: roleSettingRows } = await fastify.pg.query<{ min_pin_length: number }>(
+      `SELECT min_pin_length FROM role_settings WHERE role = $1`,
+      [role]
+    );
+    const roleMinPin = roleSettingRows[0]?.min_pin_length ?? 4;
     const pinHash = pin ? await bcrypt.hash(pin, 10) : null;
-    const pinLength = pin ? pin.length : 4;
+    const pinLength = pin ? pin.length : roleMinPin;
     const pinSet = !!pin;
 
     const { code: enrollmentCode, hash: enrollmentCodeHash } = await issueEnrollmentCode();

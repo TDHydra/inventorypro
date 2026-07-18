@@ -144,15 +144,24 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       pin_length_required: number; pin_set: boolean;
       is_test: boolean; test_code: string | null;
     }>(
-      `SELECT id, name, role, pin_length_required,
-              (pin_hash IS NOT NULL) AS pin_set,
-              is_test,
-              CASE WHEN is_test THEN enrollment_code_public END AS test_code
-         FROM users
-        WHERE active = true
-          AND (expires_at IS NULL OR expires_at > NOW())
-          ${demoOn ? '' : 'AND NOT is_test'}
-        ORDER BY name`,
+      // pin_length_required is the role's min for a user who hasn't set a PIN yet
+      // (so the set-PIN screen demands the role minimum), but the user's OWN stored
+      // length once set — otherwise raising a role's minimum would lock existing
+      // users out of the enter-PIN screen. GREATEST guards the pre-fix placeholder.
+      `SELECT u.id, u.name, u.role,
+              CASE WHEN u.pin_hash IS NOT NULL
+                   THEN u.pin_length_required
+                   ELSE GREATEST(u.pin_length_required, COALESCE(rs.min_pin_length, 4))
+              END AS pin_length_required,
+              (u.pin_hash IS NOT NULL) AS pin_set,
+              u.is_test,
+              CASE WHEN u.is_test THEN u.enrollment_code_public END AS test_code
+         FROM users u
+         LEFT JOIN role_settings rs ON rs.role = u.role
+        WHERE u.active = true
+          AND (u.expires_at IS NULL OR u.expires_at > NOW())
+          ${demoOn ? '' : 'AND NOT u.is_test'}
+        ORDER BY u.name`,
       []
     );
     return reply.send({
@@ -298,9 +307,14 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       id: string; name: string; role: string;
       pin_set: boolean; active: boolean; expires_at: string | null;
       enrollment_code_hash: string | null; enrollment_code_expires_at: string | null;
-      is_test: boolean; enrollment_code_public: string | null;
+      is_test: boolean; enrollment_code_public: string | null; min_pin_length: number;
     }>(
-      `SELECT id, name, role, pin_set, active, expires_at, enrollment_code_hash, enrollment_code_expires_at, is_test, enrollment_code_public FROM users WHERE id = $1`,
+      `SELECT u.id, u.name, u.role, u.pin_set, u.active, u.expires_at,
+              u.enrollment_code_hash, u.enrollment_code_expires_at, u.is_test, u.enrollment_code_public,
+              COALESCE(rs.min_pin_length, 4) AS min_pin_length
+         FROM users u
+         LEFT JOIN role_settings rs ON rs.role = u.role
+        WHERE u.id = $1`,
       [user_id]
     );
     const user = rows[0];
@@ -362,6 +376,15 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
     if (!codeOk) {
       recordFail(lockKey);
       return reply.status(401).send({ error: 'Invalid enrollment code' });
+    }
+
+    // Enforce the role's minimum PIN length (role_settings.min_pin_length). The
+    // schema floor is a static 4; the actual requirement is per-role and set by
+    // admins. Not a credential guess, so no lock penalty — just refuse the write.
+    if (pin.length < user.min_pin_length) {
+      return reply.status(400).send({
+        error: `Your role requires a PIN of at least ${user.min_pin_length} digits.`,
+      });
     }
 
     const pinHash = await bcrypt.hash(pin, 10);
