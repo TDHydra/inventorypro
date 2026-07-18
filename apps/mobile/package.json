@@ -44,6 +44,7 @@
     "@types/sql.js": "^1.4.11",
     "babel-preset-expo": "56.0.15",
     "leaflet": "1.9.4",
+    "tsx": "^4.16.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
