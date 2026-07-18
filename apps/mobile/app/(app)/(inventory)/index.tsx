@@ -19,7 +19,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
@@ -43,6 +43,12 @@ interface Item {
 
 const PAGE_SIZE = 20;
 
+// Tables whose synced rows this list actually renders: item catalog rows, their
+// per-location stock totals, and the item-type chips (taxonomy). A background
+// pull that only touched an unrelated table (e.g. chat messages) won't bump
+// these, so the list skips a needless re-query (#64). Module-level = stable ref.
+const INVENTORY_TABLES = ['inventory_items', 'stock_by_location', 'taxonomy_types'];
+
 // Filter value 'all' = no filter; any other value is an Item Type id (#74 P2)
 // matched against inventory_items.category_id so renamed types still filter.
 const ALL_FILTER = 'all';
@@ -55,7 +61,7 @@ export default function InventoryScreen() {
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<Item>();
   const refreshKey = useFocusOrDataRefresh();
-  const dataVersion = useDataVersion();
+  const dataVersion = useTableVersion(INVENTORY_TABLES);
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [minQtyOpen, setMinQtyOpen] = useState(false);
@@ -103,9 +109,9 @@ export default function InventoryScreen() {
   // changes are already handled by handleSearch/handleFilter below.
   useEffect(() => {
     // Reload the CURRENTLY-loaded window (not just page 1) so a background sync
-    // — which bumps the global dataVersion for any table — doesn't truncate an
-    // infinite-scrolled list back to the first page. Re-query 0..current-extent
-    // in one shot; fall back to one page on first load.
+    // — which now bumps this list only when an inventory-relevant table changed
+    // (#64) — doesn't truncate an infinite-scrolled list back to the first page.
+    // Re-query 0..current-extent in one shot; fall back to one page on first load.
     const limit = Math.max(PAGE_SIZE, offset);
     const typeFilter = filter === ALL_FILTER ? undefined : filter;
     const rows = searchItems(query, limit, 0, undefined, 'product', undefined, typeFilter) as Item[];
