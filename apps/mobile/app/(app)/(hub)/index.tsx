@@ -30,6 +30,7 @@ import { searchEverything, type GlobalSearchResults } from '../../../src/db/quer
 import {
   searchItems, getStockByItem, getStockQuantity, type InventoryItem,
 } from '../../../src/db/queries/items';
+import { getLocationById, getStockAtLocation } from '../../../src/db/queries/locations';
 import { getEquipmentModels, type EquipmentModel } from '../../../src/db/queries/equipment';
 import { setUnitStatus, type EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -56,7 +57,7 @@ export default function HubScreen() {
   const canAdd = usePermission('add_inventory');
   const canScanAct = canCheckout || canCheckin || canAdd;
 
-  const params = useLocalSearchParams<{ scan?: string; q?: string }>();
+  const params = useLocalSearchParams<{ scan?: string; q?: string; loc?: string }>();
   const [mode, setMode] = useState<Mode>('browse');
   const [query, setQuery] = useState('');
   const [flapOpen, setFlapOpen] = useState(false);
@@ -68,6 +69,22 @@ export default function HubScreen() {
     if (params.q) { setQuery(params.q); setFlapOpen(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.scan, params.q]);
+
+  // ?loc=<locationId> (#127 fast checkout) — a SCOPING CONTEXT, not a phase:
+  // browse/search item results narrow to stock at that location, and a plain
+  // check-OUT commits directly from it (self checkout — no DestinationPicker).
+  // Cleared with the ✕ on the banner; everything else behaves as before.
+  const [locId, setLocId] = useState<string | null>(null);
+  useEffect(() => {
+    if (params.loc) setLocId(params.loc);
+  }, [params.loc]);
+  // Unknown/stale ids (or a location deleted mid-session) resolve to null and
+  // scope nothing — the banner simply doesn't render.
+  const locContext = useMemo(() => (locId ? getLocationById(locId) : null), [locId]);
+  const locItemIds = useMemo(
+    () => (locContext ? new Set(getStockAtLocation(locContext.id).map(r => r.item_id)) : null),
+    [locContext?.id],
+  );
 
   // Consumable in/out working state.
   const [pendingItem, setPendingItem] = useState<InventoryItem | null>(null);
@@ -118,11 +135,21 @@ export default function HubScreen() {
   const catalogEquipment = useMemo(() => getEquipmentModels(), []);
 
   // Live grouped search results.
-  const results: GlobalSearchResults = useMemo(
+  const rawResults: GlobalSearchResults = useMemo(
     () => searchEverything(query),
     [query],
   );
   const hasQuery = query.trim().length > 0;
+
+  // Scope item results (browse catalog + search) to stock at the loc context.
+  const scopedCatalogItems = useMemo(
+    () => (locItemIds ? catalogItems.filter(i => locItemIds.has(i.id)) : catalogItems),
+    [catalogItems, locItemIds],
+  );
+  const results: GlobalSearchResults = useMemo(
+    () => (locItemIds ? { ...rawResults, items: rawResults.items.filter(i => locItemIds.has(i.id)) } : rawResults),
+    [rawResults, locItemIds],
+  );
 
   // ── helpers ──────────────────────────────────────────────────────────────
   function resetConsumable() {
@@ -231,6 +258,19 @@ export default function HubScreen() {
       return;
     }
     const item = pendingItem;
+    // Loc context check-out = "take it with me" from that location: source is
+    // pre-filled and the write commits immediately — no DestinationPicker phase.
+    if (dir === 'out' && locContext) {
+      if (getStockQuantity(item.id, locContext.id) < qty) {
+        Alert.alert(
+          'Not enough here',
+          `Only ${formatQuantity(getStockQuantity(item.id, locContext.id), item.unit, item.unit_category as any)} at ${locContext.name}.`,
+        );
+        return; // keep the sheet open so they can adjust the quantity
+      }
+      commitSelfCheckout(item, qty, locContext.id, locContext.name);
+      return;
+    }
     let need = false;
     let src: string | null = null;
     if (dir === 'out') {
@@ -246,6 +286,42 @@ export default function HubScreen() {
     setSourceId(src);
     setSourceSel(null);
     setMode('destination');
+  }
+
+  // #127 fast checkout: deduct from the loc-context source with no destination
+  // (the tech takes it into the field). Same failure discipline as the
+  // destination path — an error must not show a receipt or "scan another?".
+  function commitSelfCheckout(item: InventoryItem, qty: number, srcId: string, srcName: string) {
+    try {
+      applyConsumableAction({
+        itemId: item.id, unit: item.unit, direction: 'out', qty,
+        sourceLocationId: srcId,
+        destLocationId: null,
+        jobId: null,
+        userId: user?.id ?? null,
+        note: `Taken from ${srcName}`,
+        coords: coords
+          ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy }
+          : undefined,
+      });
+    } catch (err) {
+      Alert.alert(
+        'Could not save',
+        ((err as Error)?.message || 'The stock change failed.') +
+          '\n\nNothing was changed. Please try again.',
+      );
+      resetConsumable();
+      setMode('browse');
+      return;
+    }
+    pushReceiptEntry({
+      id: generateUUID(), itemName: item.name, direction: 'out',
+      qtyLabel: formatQuantity(qty, item.unit, item.unit_category as any),
+      destLabel: `Taken · from ${srcName}`, at: new Date().toISOString(),
+    });
+    resetConsumable();
+    setMode('browse'); // leave the inout overlay before the "scan another?" prompt
+    askAnythingElse();
   }
 
   // Source-location options for the destination step (locations holding stock).
@@ -462,6 +538,18 @@ export default function HubScreen() {
           open={flapOpen}
           onToggle={() => setFlapOpen(o => !o)}
         />
+        {locContext && (
+          <View style={s.locBanner}>
+            <Text style={s.locBannerText} numberOfLines={1}>From: {locContext.name}</Text>
+            <TouchableOpacity
+              onPress={() => setLocId(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Clear source location"
+            >
+              <Text style={s.locBannerClear}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {isHidSupported() && (
           <TouchableOpacity
             style={s.hidButton}
@@ -489,14 +577,14 @@ export default function HubScreen() {
             />
           ) : (
             <View style={{ gap: 10 }}>
-              {catalogItems.map(item => (
+              {scopedCatalogItems.map(item => (
                 <ItemCard
                   key={item.id}
                   item={item}
                   onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
                 />
               ))}
-              {catalogEquipment.length > 0 && (
+              {!locContext && catalogEquipment.length > 0 && (
                 <>
                   <Text style={s.sectionHeader}>Equipment</Text>
                   {catalogEquipment.map(eq => (
@@ -509,9 +597,13 @@ export default function HubScreen() {
                   ))}
                 </>
               )}
-              {catalogItems.length === 0 && catalogEquipment.length === 0 && (
-                <Text style={s.empty}>No catalog items yet.</Text>
-              )}
+              {locContext
+                ? scopedCatalogItems.length === 0 && (
+                    <Text style={s.empty}>Nothing in stock at {locContext.name}.</Text>
+                  )
+                : catalogItems.length === 0 && catalogEquipment.length === 0 && (
+                    <Text style={s.empty}>No catalog items yet.</Text>
+                  )}
             </View>
           )}
         </ScrollView>
@@ -655,6 +747,13 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   sheetTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
   headerScan: { paddingHorizontal: 8, paddingVertical: 4 },
   headerScanIcon: { fontSize: 22 },
+  locBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: 12, marginTop: 10, paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, backgroundColor: t.colors.primaryBg,
+  },
+  locBannerText: { flex: 1, fontSize: 14, fontWeight: '700', color: t.colors.primaryText, marginRight: 8 },
+  locBannerClear: { fontSize: 15, fontWeight: '700', color: t.colors.primaryText },
   hidButton: {
     marginHorizontal: 12, marginTop: 10, paddingVertical: 10, paddingHorizontal: 14,
     borderRadius: 8, borderWidth: 1, borderColor: t.colors.border, backgroundColor: t.colors.surface,

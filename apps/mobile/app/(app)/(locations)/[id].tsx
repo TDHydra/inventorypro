@@ -39,6 +39,8 @@ import { Card } from '../../../src/components/ui/Card';
 import { KeyValueRow } from '../../../src/components/ui/KeyValueRow';
 import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { VehiclePanel } from '../../../src/components/vehicles/VehiclePanel';
+import { LockerPanel } from '../../../src/components/lockers/LockerPanel';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
@@ -387,6 +389,22 @@ export default function LocationDetailScreen() {
           {!!parentName && <KeyValueRow label="Sub-area of" value={parentName} />}
           {!!ownerName && <KeyValueRow label="Owner" value={ownerName} />}
         </Card>
+
+        {/* ── Vehicle / Locker embeds (field-crew #125/#126, stage C1) ─────
+            Type-conditional panels above the stock section. The panels self-load
+            (useFocusOrDataRefresh + table versions) so they need only the id.
+            VehiclePanel's header tap-through opens the full (vehicles)/[id]
+            page; LockerPanel navigates itself (hub "check out from here"). */}
+        {location.type === 'Vehicle' && (
+          <VehiclePanel
+            locationId={id}
+            variant="summary"
+            onNavigate={() => router.push(`/(app)/(vehicles)/${id}`)}
+          />
+        )}
+        {location.type === 'Locker' && (
+          <LockerPanel locationId={id} variant="summary" />
+        )}
 
         {/* ── Stock here ──────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Stock here</Text>

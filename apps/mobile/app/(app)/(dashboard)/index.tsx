@@ -16,6 +16,7 @@ import { useDashboardLayout } from '../../../src/dashboard/store';
 import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { OnCallWidget } from '../../../src/components/oncall/OnCallWidget';
 
 function timeGreeting(): string {
   const hour = new Date().getHours();
@@ -30,6 +31,14 @@ const HUB_TRACK: Partial<Record<WidgetType, string>> = {
   checkout: 'hub_checkout',
   checkin: 'hub_checkin',
   'my-checkouts': 'hub_active_checkouts',
+  'fast-checkout': 'hub_fast_checkout',
+};
+
+// Tiles rendered with the primary (brand-filled) treatment, and the subtitle each
+// shows beneath its label. fast-checkout (#127) joins checkout as a primary action.
+const PRIMARY_SUB: Partial<Record<WidgetType, string>> = {
+  'fast-checkout': 'Check out from your locker or vehicle',
+  checkout: 'Scan or search for an item',
 };
 
 export default function DashboardScreen() {
@@ -79,7 +88,8 @@ export default function DashboardScreen() {
     const label = block.config?.label ?? def.label;
     const icon = block.config?.icon ?? def.icon;
     const route = def.route;
-    const primary = block.widget === 'checkout';
+    const primarySub = PRIMARY_SUB[block.widget];
+    const primary = primarySub !== undefined;
     const trackKey = HUB_TRACK[block.widget];
 
     const onPress = () => {
@@ -98,7 +108,7 @@ export default function DashboardScreen() {
       >
         <Text style={s.tileIcon}>{icon}</Text>
         <Text style={primary ? s.tileLabelPrimary : s.tileLabel}>{label}</Text>
-        {primary && <Text style={s.tileSubPrimary}>Scan or search for an item</Text>}
+        {primary && <Text style={s.tileSubPrimary}>{primarySub}</Text>}
         {block.widget === 'chat' && chatUnread > 0 && (
           <View style={s.tileBadge}>
             <Text style={s.tileBadgeText}>{chatUnread > 99 ? '99+' : chatUnread}</Text>
@@ -139,6 +149,9 @@ export default function DashboardScreen() {
         return <DashboardSearch key={key} />;
       case 'quick-add':
         return <QuickAddBanner key={key} />;
+      case 'on-call':
+        // Fully self-contained (#128): owns its reads, modal + calendar internally.
+        return <OnCallWidget key={key} />;
       case 'section': {
         if (!block.config?.sectionTitle) return null;
         const header = <Text style={s.sectionTitle}>{block.config.sectionTitle}</Text>;

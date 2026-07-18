@@ -3,6 +3,8 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import { useRouter } from 'expo-router';
 import { searchEverything } from '../db/queries/search';
 import { formatQuantity } from '../constants/units';
+import { VehicleSheet } from './vehicles/VehicleSheet';
+import { LockerSheet } from './lockers/LockerSheet';
 import { track } from '../telemetry';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
@@ -25,6 +27,16 @@ export function DashboardSearch() {
   const inputRef = useRef<TextInput>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+
+  // Vehicle/Locker results open their sheet in place (#122) instead of
+  // navigating — the flap stays open behind, so closing the sheet returns to
+  // the results. Target persists after close for ModalSheet's exit animation.
+  const [infoTarget, setInfoTarget] = useState<{ kind: 'vehicle' | 'locker'; id: string } | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  function openInfo(kind: 'vehicle' | 'locker', id: string) {
+    setInfoTarget({ kind, id });
+    setInfoOpen(true);
+  }
 
   const results = useMemo(() => searchEverything(query), [query]);
   const hasQuery = query.trim().length > 0;
@@ -105,7 +117,14 @@ export function DashboardSearch() {
                 onPress: () => goEquipment(e.id),
               }))} />
               <Group label="Locations" rows={results.locations.slice(0, PER_GROUP).map(l => ({
-                id: l.id, name: l.name, sub: undefined, onPress: () => goLocation(l.id),
+                id: l.id,
+                name: l.name,
+                sub: l.type ?? undefined,
+                onPress: () => {
+                  if (l.type === 'Vehicle') openInfo('vehicle', l.id);
+                  else if (l.type === 'Locker') openInfo('locker', l.id);
+                  else goLocation(l.id);
+                },
               }))} />
               <Group label="Jobs" rows={results.jobs.slice(0, PER_GROUP).map(j => ({
                 id: j.id, name: j.name, sub: j.status, onPress: () => goJob(j.id),
@@ -119,6 +138,14 @@ export function DashboardSearch() {
             </>
           )}
         </View>
+      )}
+
+      {/* In-place quick-view sheets for Vehicle/Locker search results (#122). */}
+      {infoTarget?.kind === 'vehicle' && (
+        <VehicleSheet locationId={infoTarget.id} visible={infoOpen} onClose={() => setInfoOpen(false)} />
+      )}
+      {infoTarget?.kind === 'locker' && (
+        <LockerSheet locationId={infoTarget.id} visible={infoOpen} onClose={() => setInfoOpen(false)} />
       )}
     </View>
   );
