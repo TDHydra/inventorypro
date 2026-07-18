@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { overLimit } from '../lib/rateLimit';
 import { createDemoModeGate, DemoModeGate } from '../lib/demoMode';
 import { UUID_SCHEMA } from '../lib/schemaShapes';
+import { isWeakPin } from '../lib/weakPin';
 
 interface TokenBody {
   user_id: string;
@@ -384,6 +385,15 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
     if (pin.length < user.min_pin_length) {
       return reply.status(400).send({
         error: `Your role requires a PIN of at least ${user.min_pin_length} digits.`,
+      });
+    }
+
+    // Reject trivially guessable PINs at the moment they're chosen. Only here at
+    // set-pin — NEVER on /auth/token, which would lock out existing users who
+    // already have a weak PIN. Not a credential guess, so no lock penalty.
+    if (isWeakPin(pin)) {
+      return reply.status(400).send({
+        error: 'That PIN is too easy to guess. Avoid repeated digits and simple sequences like 1234.',
       });
     }
 
