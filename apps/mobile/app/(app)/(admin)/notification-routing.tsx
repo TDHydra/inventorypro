@@ -4,7 +4,8 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { setAppConfigLocal } from '../../../src/db/appConfig';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { NotificationRoutingEditor } from '../../../src/components/NotificationRoutingEditor';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 // Writes a synced `app_config` value: locally + through the outbox so it reaches
 // the server (same write path as settings.tsx's `setAppConfigSynced` — INSERT is
@@ -22,6 +23,7 @@ function setAppConfigSynced(key: string, value: string): void {
 // on `system_settings` like the other admin sub-screens; frames each channel as
 // "when X happens → these people/roles also get notified" for leadership.
 export default function NotificationRoutingScreen() {
+  const s = useThemedStyles(makeStyles);
   const isAdmin = usePermission('system_settings');
 
   if (!isAdmin) {
@@ -59,33 +61,33 @@ export default function NotificationRoutingScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
   center: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl,
-    backgroundColor: colors.background,
+    flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl,
+    backgroundColor: t.colors.background,
   },
   muted: {
-    fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center',
+    fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center',
   },
 
-  intro: { gap: spacing.sm },
+  intro: { gap: t.spacing.sm },
   introTitle: {
-    fontSize: fontSizes.lg,
+    fontSize: t.typography.fontSizes.lg,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
   },
-  introBody: { fontSize: fontSizes.body2, color: colors.textSecondary, lineHeight: 20 },
-  introEmph: { fontWeight: '700', color: colors.textPrimary },
+  introBody: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, lineHeight: 20 },
+  introEmph: { fontWeight: '700', color: t.colors.textPrimary },
 
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
+    borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.base,
   },
 });

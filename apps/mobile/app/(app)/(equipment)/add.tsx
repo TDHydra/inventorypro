@@ -22,7 +22,9 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
-import { colors, spacing, fontSizes, radii } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 // Cap the equipment name so a runaway paste can't bloat the catalog row.
 const MAX_NAME_LENGTH = 200;
@@ -34,6 +36,8 @@ interface PendingUnit {
 }
 
 export default function AddEquipmentScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -343,7 +347,7 @@ export default function AddEquipmentScreen() {
             }
             onPress={handleSave}
             disabled={locked}
-            style={{ marginTop: spacing.xl }}
+            style={{ marginTop: t.spacing.xl }}
           />
           {locked && <MaintenanceBanner />}
 
@@ -357,68 +361,68 @@ export default function AddEquipmentScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.sm, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  flex: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.sm, paddingBottom: 48 },
   sectionDivider: {
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
+    marginTop: t.spacing.md,
+    paddingTop: t.spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: t.colors.border,
   },
   sectionTitle: {
-    fontSize: fontSizes.body,
+    fontSize: t.typography.fontSizes.body,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
   },
   errorText: {
-    fontSize: fontSizes.caption,
-    color: colors.danger,
+    fontSize: t.typography.fontSizes.caption,
+    color: t.colors.danger,
     marginTop: -4,
   },
   addUnitBtn: {
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.md,
+    backgroundColor: t.colors.primaryBg,
+    borderRadius: t.radii.md,
     borderWidth: 1,
-    borderColor: colors.primaryBgStrong,
-    paddingVertical: spacing.sm,
+    borderColor: t.colors.primaryBgStrong,
+    paddingVertical: t.spacing.sm,
     alignItems: 'center',
   },
   addUnitText: {
-    color: colors.primaryText,
+    color: t.colors.primaryText,
     fontWeight: '700',
-    fontSize: fontSizes.body,
+    fontSize: t.typography.fontSizes.body,
   },
   unitList: {
-    borderRadius: radii.md,
+    borderRadius: t.radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: t.colors.border,
+    backgroundColor: t.colors.surface,
     overflow: 'hidden',
   },
   unitRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: t.colors.border,
   },
   unitRowLast: { borderBottomWidth: 0 },
   unitInfo: { gap: 2 },
   unitTag: {
-    fontSize: fontSizes.body,
+    fontSize: t.typography.fontSizes.body,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
   },
-  unitSerial: { fontSize: fontSizes.caption, color: colors.textSecondary },
-  removeBtn: { padding: spacing.xs },
-  removeText: { fontSize: fontSizes.md, color: colors.danger },
-  cancelBtn: { alignItems: 'center', paddingVertical: spacing.md },
+  unitSerial: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary },
+  removeBtn: { padding: t.spacing.xs },
+  removeText: { fontSize: t.typography.fontSizes.md, color: t.colors.danger },
+  cancelBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
   cancelText: {
-    color: colors.textMuted,
-    fontSize: fontSizes.md,
+    color: t.colors.textMuted,
+    fontSize: t.typography.fontSizes.md,
     fontWeight: '600',
   },
 });

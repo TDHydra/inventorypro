@@ -2,7 +2,8 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { Stack, useRouter, type Href } from 'expo-router';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
-import { colors, spacing, fontSizes, radii } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 /**
  * Quick Add launcher — a grid of actions. Each action is its own screen under
@@ -24,6 +25,7 @@ const ACTIONS: { route: Href; icon: string; label: string; sub: string }[] = [
 ];
 
 export default function QuickAddLauncher() {
+  const s = useThemedStyles(makeStyles);
   const canQuickAdd = usePermission('quick_add');
   const router = useRouter();
 
@@ -59,25 +61,25 @@ export default function QuickAddLauncher() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg },
-  heading: { fontSize: fontSizes.md, fontWeight: '700', color: colors.textSecondary, marginBottom: spacing.lg },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg },
+  heading: { fontSize: t.typography.fontSizes.md, fontWeight: '700', color: t.colors.textSecondary, marginBottom: t.spacing.lg },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.md },
   card: {
     width: '47.5%',
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
+    borderColor: t.colors.border,
+    padding: t.spacing.lg,
     minHeight: 110,
     justifyContent: 'center',
   },
-  cardIcon: { fontSize: 30, marginBottom: spacing.sm },
-  cardLabel: { fontSize: fontSizes.base, fontWeight: '700', color: colors.textPrimary },
-  cardSub: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
-  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxxl, backgroundColor: colors.background },
-  gateTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
-  gateSub: { fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xxl },
+  cardIcon: { fontSize: 30, marginBottom: t.spacing.sm },
+  cardLabel: { fontSize: t.typography.fontSizes.base, fontWeight: '700', color: t.colors.textPrimary },
+  cardSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
+  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xxxl, backgroundColor: t.colors.background },
+  gateTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.sm },
+  gateSub: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center', marginBottom: t.spacing.xxl },
 });

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { BarcodeScanner } from './BarcodeScanner';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { sanitizeScan } from '../scan/sanitize';
 
 interface Props {
@@ -16,6 +18,8 @@ interface Props {
 
 /** Barcode text field with an inline "Scan" button that opens the camera. */
 export function BarcodeInput({ label, value, onChange, placeholder, note, noteTone = 'info' }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const [scanning, setScanning] = useState(false);
 
   // Bound/clean every value before it flows out — a wedge HID scanner types
@@ -37,7 +41,7 @@ export function BarcodeInput({ label, value, onChange, placeholder, note, noteTo
           value={value}
           onChangeText={handleChange}
           placeholder={placeholder ?? 'Barcode'}
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={t.colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -68,22 +72,22 @@ export function BarcodeInput({ label, value, onChange, placeholder, note, noteTo
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: { gap: 6 },
-  label: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  label: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   row: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   input: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: colors.textPrimary,
+    flex: 1, backgroundColor: t.colors.inputBg, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: 14, height: 44, fontSize: 14, color: t.colors.textPrimary,
   },
   scanBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: colors.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: colors.primaryBgStrong,
+    backgroundColor: t.colors.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: t.colors.primaryBgStrong,
     paddingHorizontal: 14, height: 44,
   },
   scanIcon: { fontSize: 16 },
-  scanText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
+  scanText: { color: t.colors.primaryText, fontWeight: '700', fontSize: 14 },
   note: { fontSize: 12, marginTop: 2 },
   noteWarn: { color: '#B45309' },
-  noteInfo: { color: colors.textSecondary },
+  noteInfo: { color: t.colors.textSecondary },
 });

@@ -1,5 +1,6 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 interface Props {
   name: string | null;
@@ -13,6 +14,7 @@ interface Props {
  * (caller selects the location); nothing auto-commits.
  */
 export function LocationSuggestionBanner({ name, distanceM, onUse }: Props) {
+  const s = useThemedStyles(makeStyles);
   if (!name || distanceM == null) return null;
   return (
     <View style={s.banner}>
@@ -28,26 +30,26 @@ export function LocationSuggestionBanner({ name, distanceM, onUse }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primaryBg,
+    backgroundColor: t.colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.primaryBgStrong,
+    borderColor: t.colors.primaryBgStrong,
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 8,
   },
-  text: { flex: 1, fontSize: 13, color: colors.primaryText, lineHeight: 18 },
+  text: { flex: 1, fontSize: 13, color: t.colors.primaryText, lineHeight: 18 },
   bold: { fontWeight: '700' },
   btn: {
-    backgroundColor: colors.primary,
+    backgroundColor: t.colors.primary,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     flexShrink: 0,
   },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  btnText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: 13 },
 });

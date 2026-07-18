@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { sanitizeScan } from '../scan/sanitize';
 
 interface Props {
@@ -18,6 +19,7 @@ const DETECTOR_FORMATS = [
 type Status = 'loading' | 'ready' | 'denied';
 
 export function BarcodeScanner({ active, onScanned, onClose }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [status, setStatus] = useState<Status>('loading');
   const [torchSupported, setTorchSupported] = useState(false);
   const [torch, setTorch] = useState(false);
@@ -160,55 +162,55 @@ export function BarcodeScanner({ active, onScanned, onClose }: Props) {
 
   if (status === 'denied') {
     return (
-      <div style={styles.permBox}>
-        <div style={styles.permIconWrap}><span style={styles.permIcon}>📷</span></div>
-        <div style={styles.permTitle}>Camera access</div>
-        <div style={styles.permText}>
+      <div style={s.permBox}>
+        <div style={s.permIconWrap}><span style={s.permIcon}>📷</span></div>
+        <div style={s.permTitle}>Camera access</div>
+        <div style={s.permText}>
           InventoryPro needs camera permission to scan barcodes and QR labels. Enable it in your
           browser, then try again.
         </div>
-        <button style={styles.btn} onClick={onClose}>Close</button>
+        <button style={s.btn} onClick={onClose}>Close</button>
       </div>
     );
   }
 
   return (
-    <div style={styles.container}>
+    <div style={s.container}>
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        style={styles.video}
+        style={s.video}
       />
 
       {/* Dim mask with a clear cut-out window */}
-      <div style={styles.overlay}>
-        <div style={styles.maskTop} />
-        <div style={styles.maskMiddle}>
-          <div style={styles.maskSide} />
-          <div style={styles.frame}>
-            <div style={{ ...styles.corner, ...styles.cornerTL }} />
-            <div style={{ ...styles.corner, ...styles.cornerTR }} />
-            <div style={{ ...styles.corner, ...styles.cornerBL }} />
-            <div style={{ ...styles.corner, ...styles.cornerBR }} />
+      <div style={s.overlay}>
+        <div style={s.maskTop} />
+        <div style={s.maskMiddle}>
+          <div style={s.maskSide} />
+          <div style={s.frame}>
+            <div style={{ ...s.corner, ...s.cornerTL }} />
+            <div style={{ ...s.corner, ...s.cornerTR }} />
+            <div style={{ ...s.corner, ...s.cornerBL }} />
+            <div style={{ ...s.corner, ...s.cornerBR }} />
           </div>
-          <div style={styles.maskSide} />
+          <div style={s.maskSide} />
         </div>
-        <div style={styles.maskBottom}>
-          <div style={styles.hintPill}>
-            <span style={styles.hintText}>Align the barcode or QR inside the frame</span>
+        <div style={s.maskBottom}>
+          <div style={s.hintPill}>
+            <span style={s.hintText}>Align the barcode or QR inside the frame</span>
           </div>
         </div>
       </div>
 
       {/* Top bar: close + torch */}
-      <div style={styles.topBar}>
-        <button style={styles.iconBtn} onClick={onClose} aria-label="Close scanner">✕</button>
-        <span style={styles.title}>Scan</span>
+      <div style={s.topBar}>
+        <button style={s.iconBtn} onClick={onClose} aria-label="Close scanner">✕</button>
+        <span style={s.title}>Scan</span>
         {torchSupported ? (
           <button
-            style={{ ...styles.iconBtn, ...(torch ? styles.iconBtnActive : null) }}
+            style={{ ...s.iconBtn, ...(torch ? s.iconBtnActive : null) }}
             onClick={toggleTorch}
             aria-label={torch ? 'Turn flashlight off' : 'Turn flashlight on'}
           >
@@ -228,7 +230,7 @@ const FRAME_W = 280;
 const FRAME_H = 210;
 const MASK = 'rgba(0,0,0,0.55)';
 
-const styles: Record<string, CSSProperties> = {
+const makeStyles = (t: Theme): Record<string, CSSProperties> => ({
   container: { position: 'absolute', inset: 0, backgroundColor: '#000', overflow: 'hidden' },
   video: { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' },
   overlay: { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' },
@@ -237,7 +239,7 @@ const styles: Record<string, CSSProperties> = {
   maskSide: { flex: 1, backgroundColor: MASK },
   maskBottom: { flex: 1, backgroundColor: MASK, display: 'flex', alignItems: 'center', flexDirection: 'column', paddingTop: 28 },
   frame: { position: 'relative', width: FRAME_W, height: FRAME_H, borderRadius: 18, overflow: 'hidden' },
-  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: colors.primary, borderStyle: 'solid' },
+  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: t.colors.primary, borderStyle: 'solid' },
   cornerTL: { top: 0, left: 0, borderTopWidth: CT, borderLeftWidth: CT, borderTopLeftRadius: 18 },
   cornerTR: { top: 0, right: 0, borderTopWidth: CT, borderRightWidth: CT, borderTopRightRadius: 18 },
   cornerBL: { bottom: 0, left: 0, borderBottomWidth: CT, borderLeftWidth: CT, borderBottomLeftRadius: 18 },
@@ -259,21 +261,21 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     border: '1px solid rgba(255,255,255,0.2)',
   },
-  iconBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  iconBtnActive: { backgroundColor: t.colors.accent, borderColor: t.colors.accent },
   permBox: {
     position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center', gap: 14, padding: 32,
-    backgroundColor: colors.background, textAlign: 'center',
+    backgroundColor: t.colors.background, textAlign: 'center',
   },
   permIconWrap: {
-    width: 88, height: 88, borderRadius: 44, backgroundColor: colors.accentBg,
+    width: 88, height: 88, borderRadius: 44, backgroundColor: t.colors.accentBg,
     display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
   permIcon: { fontSize: 40 },
-  permTitle: { fontSize: 20, fontWeight: 800, color: colors.textPrimary },
-  permText: { fontSize: 15, color: colors.textSecondary, lineHeight: '22px', maxWidth: 300 },
+  permTitle: { fontSize: 20, fontWeight: 800, color: t.colors.textPrimary },
+  permText: { fontSize: 15, color: t.colors.textSecondary, lineHeight: '22px', maxWidth: 300 },
   btn: {
-    backgroundColor: colors.primary, color: '#fff', borderRadius: 12, border: 'none',
+    backgroundColor: t.colors.primary, color: t.colors.onPrimary, borderRadius: 12, border: 'none',
     padding: '14px 28px', marginTop: 8, minWidth: 220, fontWeight: 800, fontSize: 16, cursor: 'pointer',
   },
-};
+});

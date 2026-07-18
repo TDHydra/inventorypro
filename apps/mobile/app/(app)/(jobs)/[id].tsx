@@ -20,7 +20,9 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import { LocationShelfPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
@@ -38,6 +40,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function JobDetailScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useSession();
@@ -318,12 +322,12 @@ export default function JobDetailScreen() {
     );
   }
 
-  const badgeBg = job.status === 'open' ? colors.primaryBgStrong
-    : job.status === 'closed' ? '#F1F5F9'
-    : colors.accentBg;
-  const badgeFg = job.status === 'open' ? colors.primaryText
+  const badgeBg = job.status === 'open' ? t.colors.primaryBgStrong
+    : job.status === 'closed' ? t.colors.surfaceAlt
+    : t.colors.accentBg;
+  const badgeFg = job.status === 'open' ? t.colors.primaryText
     : job.status === 'closed' ? '#475569'
-    : colors.warning;
+    : t.colors.warning;
 
   const jobNumberLabel = job.job_number ? `# ${job.job_number}` : 'Pending #';
 
@@ -634,49 +638,49 @@ export default function JobDetailScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: colors.textMuted },
+  muted: { fontSize: 14, color: t.colors.textMuted },
 
   jobNumberRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  jobNumber: { fontSize: 13, fontWeight: '700', color: colors.primaryText },
-  pendingHint: { fontSize: 11, color: colors.textMuted },
-  name: { fontSize: 22, fontWeight: '700', color: colors.brand },
+  jobNumber: { fontSize: 13, fontWeight: '700', color: t.colors.primaryText },
+  pendingHint: { fontSize: 11, color: t.colors.textMuted },
+  name: { fontSize: 22, fontWeight: '700', color: t.colors.brand },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   statusBadgeText: { fontSize: 13, fontWeight: '700' },
-  dateText: { fontSize: 13, color: colors.textMuted },
+  dateText: { fontSize: 13, color: t.colors.textMuted },
 
   metaRow: {
     flexDirection: 'row', alignItems: 'center',
     marginTop: 10, gap: 8,
   },
-  metaValue: { fontSize: 14, color: colors.textPrimary, flexShrink: 1 },
+  metaValue: { fontSize: 14, color: t.colors.textPrimary, flexShrink: 1 },
   mapWrap: { marginTop: 10 },
-  mapNote: { fontSize: 12, color: colors.textMuted, marginTop: 8, fontStyle: 'italic' },
+  mapNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8, fontStyle: 'italic' },
 
-  divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
 
   deployRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  deployTag: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  deploySub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  deployTag: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  deploySub: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
   typeBadge: {
-    backgroundColor: colors.primaryBgStrong, borderRadius: 8,
+    backgroundColor: t.colors.primaryBgStrong, borderRadius: 8,
     paddingHorizontal: 8, paddingVertical: 3,
   },
-  typeBadgeText: { fontSize: 12, fontWeight: '700', color: colors.primaryText },
-  typeBadgeItem: { backgroundColor: '#D1FAE5' },
-  typeBadgeItemText: { color: '#065F46' },
+  typeBadgeText: { fontSize: 12, fontWeight: '700', color: t.colors.primaryText },
+  typeBadgeItem: { backgroundColor: t.colors.successBg },
+  typeBadgeItemText: { color: t.colors.successText },
 
   logRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12 },
   logAction: {
-    fontSize: 14, fontWeight: '600', color: colors.textPrimary, textTransform: 'capitalize',
+    fontSize: 14, fontWeight: '600', color: t.colors.textPrimary, textTransform: 'capitalize',
   },
-  logUser: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  logNote: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  logDate: { fontSize: 12, color: colors.textMuted, marginLeft: 12 },
+  logUser: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
+  logNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
+  logDate: { fontSize: 12, color: t.colors.textMuted, marginLeft: 12 },
 
   fieldWrap: { gap: 6 },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
@@ -685,7 +689,7 @@ const s = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btnGhost: {
     borderRadius: 12, paddingVertical: 13, alignItems: 'center',
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled,
+    backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.textDisabled,
   },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
 });

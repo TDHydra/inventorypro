@@ -9,11 +9,15 @@ import { useIdleLogout } from '../../src/hooks/useIdleLogout';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../../src/lib/alertBus';
-import { colors } from '../../src/theme';
+import type { Theme } from '../../src/themes/types';
+import { useTheme } from '../../src/hooks/useTheme';
+import { useThemedStyles } from '../../src/hooks/useThemedStyles';
 
 export default function AppLayout() {
   const { user, logout } = useSession();
   const router = useRouter();
+  const t = useTheme();
+  const styles = useThemedStyles(makeStyles);
 
   // Idle auto-logout — must be called before any early return (React rules)
   const idle = useIdleLogout(
@@ -80,9 +84,9 @@ export default function AppLayout() {
       )}
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: colors.brand },
-          headerTintColor: '#fff',
-          headerTitleStyle: { fontWeight: '700' },
+          headerStyle: { backgroundColor: t.colors.headerBg },
+          headerTintColor: t.colors.headerTint,
+          headerTitleStyle: { fontWeight: t.typography.weights.bold, fontFamily: t.typography.fontFamily.bold },
           headerRight: () => (
             <View style={styles.headerRight}>
               <ChatBell />
@@ -115,7 +119,7 @@ export default function AppLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 4 },
   switchBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -123,9 +127,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
-  switchText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  banLocked: { backgroundColor: colors.warning, paddingVertical: 8, paddingHorizontal: 12 },
-  banLockedText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
-  banAdmin: { backgroundColor: colors.brand, paddingVertical: 6, paddingHorizontal: 12 },
+  switchText: { color: t.colors.headerTint, fontSize: 13, fontWeight: t.typography.weights.semibold },
+  banLocked: { backgroundColor: t.colors.warning, paddingVertical: 8, paddingHorizontal: 12 },
+  banLockedText: { color: t.colors.onPrimary, fontWeight: t.typography.weights.bold, textAlign: 'center' },
+  banAdmin: { backgroundColor: t.colors.brand, paddingVertical: 6, paddingHorizontal: 12 },
   banAdminText: { color: '#E5E7EB', fontSize: 12, textAlign: 'center' },
 });

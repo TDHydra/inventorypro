@@ -1,7 +1,9 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, spacing, fontSizes, radii } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 export function ErrorView({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.wrap}>
       <Text style={s.msg}>{message}</Text>
@@ -13,9 +15,9 @@ export function ErrorView({ message, onRetry }: { message: string; onRetry?: () 
     </View>
   );
 }
-const s = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
-  msg: { fontSize: fontSizes.body, color: colors.danger, textAlign: 'center' },
-  btn: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  btnText: { color: colors.primaryText, fontWeight: '700', fontSize: fontSizes.body },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  wrap: { alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl, gap: t.spacing.md },
+  msg: { fontSize: t.typography.fontSizes.body, color: t.colors.danger, textAlign: 'center' },
+  btn: { borderWidth: 1, borderColor: t.colors.border, borderRadius: t.radii.md, paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.sm },
+  btnText: { color: t.colors.primaryText, fontWeight: '700', fontSize: t.typography.fontSizes.body },
 });

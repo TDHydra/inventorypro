@@ -32,7 +32,8 @@ import { useSession } from '../../../src/hooks/useSession';
 import { generateUUID } from '../../../src/utils/uuid';
 import { UnitRow } from '../../../src/components/UnitRow';
 import ActivityFeed from '../../../src/components/ActivityFeed';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
@@ -68,6 +69,7 @@ const DEPRECIATION_METHODS = [
 ] as const;
 
 export default function EquipmentModelDetailScreen() {
+  const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
@@ -1143,6 +1145,7 @@ function Field(props: {
   label: string; value: string; onChange: (v: string) => void;
   multiline?: boolean; keyboardType?: 'decimal-pad'; autoCapitalize?: 'none' | 'characters'; autoFocus?: boolean;
 }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.fieldWrap}>
       <FieldLabel>{props.label}</FieldLabel>
@@ -1159,65 +1162,65 @@ function Field(props: {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: colors.textMuted },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.borderDetail },
-  name: { fontSize: 22, fontWeight: '700', color: colors.brand },
-  model: { fontSize: 14, color: colors.primary, marginTop: 2, fontWeight: '600' },
+  muted: { fontSize: 14, color: t.colors.textMuted },
+  card: { backgroundColor: t.colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: t.colors.borderDetail },
+  name: { fontSize: 22, fontWeight: '700', color: t.colors.brand },
+  model: { fontSize: 14, color: t.colors.primary, marginTop: 2, fontWeight: '600' },
   desc: { fontSize: 14, color: '#475569', marginTop: 8, lineHeight: 20 },
   tagPrefixRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
-  tagPrefixLabel: { fontSize: 13, color: colors.textSecondary },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  tagPrefixLabel: { fontSize: 13, color: t.colors.textSecondary },
+  sectionLabel: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
   attrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11 },
-  attrKey: { fontSize: 14, color: colors.textSecondary },
-  attrVal: { fontSize: 14, color: colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
-  divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  attrKey: { fontSize: 14, color: t.colors.textSecondary },
+  attrVal: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
+  divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
   stockRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  stockLoc: { fontSize: 15, color: colors.textPrimary, fontWeight: '600', flex: 1 },
-  stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
+  stockLoc: { fontSize: 15, color: t.colors.textPrimary, fontWeight: '600', flex: 1 },
+  stockQty: { fontSize: 15, fontWeight: '700', color: t.colors.success },
   fieldWrap: { gap: 6 },
   methodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
-  btnGhost: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled },
+  btnGhost: { backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.textDisabled },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
   badge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 13, fontWeight: '700' },
-  badgeTracked: { backgroundColor: colors.primaryBgStrong },
-  badgeTrackedText: { color: colors.primaryText, fontWeight: '700', fontSize: 13 },
+  badgeTracked: { backgroundColor: t.colors.primaryBgStrong },
+  badgeTrackedText: { color: t.colors.primaryText, fontWeight: '700', fontSize: 13 },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
+  switchLabel: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 12 },
   unitActionRow: { flexDirection: 'row', gap: 8, paddingBottom: 8, paddingTop: 2, flexWrap: 'wrap' },
-  unitActionBtn: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#F1F5F9' },
+  unitActionBtn: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: t.colors.surfaceAlt },
   unitActionText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  unitActionRetireBtn: { backgroundColor: colors.dangerBg },
+  unitActionRetireBtn: { backgroundColor: t.colors.dangerBg },
   unitActionRetireText: { fontSize: 12, fontWeight: '600', color: '#991B1B' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.brand, marginBottom: 8 },
-  promptTitle: { fontSize: 17, fontWeight: '700', color: colors.brand },
-  promptSub: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.brand, marginBottom: 8 },
+  promptTitle: { fontSize: 17, fontWeight: '700', color: t.colors.brand },
+  promptSub: { fontSize: 14, color: t.colors.textSecondary, marginTop: 2 },
   unitFormCard: {
-    backgroundColor: colors.surface, borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: colors.borderDetail, gap: 0,
+    backgroundColor: t.colors.surface, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: t.colors.borderDetail, gap: 0,
   },
-  unitSummary: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  unitSummary: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
   maintBlock: { paddingVertical: 12 },
   maintHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  maintUnitTag: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
-  maintBookValue: { fontSize: 13, fontWeight: '700', color: colors.primaryText },
-  maintEmpty: { fontSize: 13, color: colors.textMuted, marginTop: 6 },
+  maintUnitTag: { fontSize: 15, fontWeight: '700', color: t.colors.textPrimary },
+  maintBookValue: { fontSize: 13, fontWeight: '700', color: t.colors.primaryText },
+  maintEmpty: { fontSize: 13, color: t.colors.textMuted, marginTop: 6 },
   maintRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 8, gap: 12 },
   maintRowMain: { flex: 1 },
-  maintDate: { fontSize: 14, color: colors.textPrimary, fontWeight: '600' },
-  maintNotes: { fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18 },
-  maintCost: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-  maintAddBtn: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primaryBg, marginTop: 10 },
-  maintAddText: { fontSize: 12, fontWeight: '700', color: colors.primaryText },
+  maintDate: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '600' },
+  maintNotes: { fontSize: 13, color: t.colors.textSecondary, marginTop: 2, lineHeight: 18 },
+  maintCost: { fontSize: 14, fontWeight: '700', color: t.colors.textPrimary },
+  maintAddBtn: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: t.colors.primaryBg, marginTop: 10 },
+  maintAddText: { fontSize: 12, fontWeight: '700', color: t.colors.primaryText },
 });

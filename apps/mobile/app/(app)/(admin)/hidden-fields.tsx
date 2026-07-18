@@ -7,13 +7,17 @@ import { useHiddenFields } from '../../../src/hooks/useHiddenFields';
 import { toggleHiddenField, notifyHiddenFieldsChanged } from '../../../src/db/hiddenFields';
 import { FormFieldId, ALL_FORM_FIELD_IDS, FORM_FIELD_LABELS } from '../../../src/constants/formFields';
 import { runInTransaction } from '../../../src/db/tx';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 // Standalone admin screen for hiding optional form fields (moved out of Settings).
 // Gated on `system_settings` like the other admin sub-screens. Fields toggled on
 // here are hidden for all users on all devices; the reactive useHiddenFields hook
 // keeps the switches live without waiting for a focus event or sync pull.
 export default function HiddenFieldsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const isAdmin = usePermission('system_settings');
   const { user } = useSession();
   const { hiddenFields } = useHiddenFields();
@@ -65,7 +69,7 @@ export default function HiddenFieldsScreen() {
                 <Switch
                   value={hiddenFields.has(id)}
                   onValueChange={(v) => handleToggleHiddenField(id, v)}
-                  trackColor={{ true: colors.primary, false: colors.border }}
+                  trackColor={{ true: t.colors.primary, false: t.colors.border }}
                 />
               </View>
             </View>
@@ -76,31 +80,31 @@ export default function HiddenFieldsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
   center: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl,
-    backgroundColor: colors.background,
+    flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl,
+    backgroundColor: t.colors.background,
   },
   muted: {
-    fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center',
+    fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center',
   },
 
-  intro: { gap: spacing.sm },
+  intro: { gap: t.spacing.sm },
   introTitle: {
-    fontSize: fontSizes.lg,
+    fontSize: t.typography.fontSizes.lg,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
   },
-  introBody: { fontSize: fontSizes.body2, color: colors.textSecondary, lineHeight: 20 },
+  introBody: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, lineHeight: 20 },
 
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
   },
 
@@ -108,10 +112,10 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.base,
   },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
 
-  divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
+  divider: { height: 1, backgroundColor: t.colors.border, marginHorizontal: t.spacing.base },
 });

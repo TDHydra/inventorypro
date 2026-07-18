@@ -22,7 +22,9 @@ import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -35,6 +37,8 @@ import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 export default function LocationsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const canManage = usePermission('manage_locations');
   const router = useRouter();
   const { user } = useSession();
@@ -382,8 +386,8 @@ export default function LocationsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
         >
@@ -516,7 +520,7 @@ export default function LocationsScreen() {
                 </View>
               </AdvancedFields>
 
-              <PrimaryButton label="Add Location" onPress={handleSave} disabled={locked} style={{ marginTop: spacing.sm }} />
+              <PrimaryButton label="Add Location" onPress={handleSave} disabled={locked} style={{ marginTop: t.spacing.sm }} />
               {locked && <MaintenanceBanner />}
               <View style={s.secondaryRow}>
                 <TouchableOpacity style={s.linkBtn} onPress={resetForm}>
@@ -533,49 +537,49 @@ export default function LocationsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  subtitle: { fontSize: fontSizes.body2, color: colors.textSecondary, fontWeight: '600' },
-  addBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.md },
+  subtitle: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, fontWeight: '600' },
+  addBtn: { backgroundColor: t.colors.primary, borderRadius: t.radii.md, paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.sm },
+  addBtnText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: t.typography.fontSizes.body },
   filterRowWrap: { flexGrow: 0, maxHeight: 52 },
-  filterRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  list: { padding: spacing.lg, paddingTop: spacing.xs, gap: 10, paddingBottom: 48 },
-  empty: { textAlign: 'center', color: colors.textMuted, fontSize: fontSizes.md, marginTop: 48, paddingHorizontal: 24, lineHeight: 22 },
+  filterRow: { flexDirection: 'row', gap: t.spacing.sm, paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.sm },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
+  list: { padding: t.spacing.lg, paddingTop: t.spacing.xs, gap: 10, paddingBottom: 48 },
+  empty: { textAlign: 'center', color: t.colors.textMuted, fontSize: t.typography.fontSizes.md, marginTop: 48, paddingHorizontal: 24, lineHeight: 22 },
 
   group: { gap: 0 },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.md, gap: spacing.md, borderWidth: 1, borderColor: colors.border },
-  cardInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
+  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: t.colors.surface, borderRadius: t.radii.lg, padding: t.spacing.md, gap: t.spacing.md, borderWidth: 1, borderColor: t.colors.border },
+  cardInner: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, flex: 1 },
   expandBtn: { paddingHorizontal: 4, paddingVertical: 4 },
-  swatch: { width: 42, height: 42, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
+  swatch: { width: 42, height: 42, borderRadius: t.radii.md, alignItems: 'center', justifyContent: 'center' },
   swatchIcon: { fontSize: 20 },
-  name: { fontSize: fontSizes.base, fontWeight: '600', color: colors.textPrimary },
-  typeMeta: { fontSize: fontSizes.sm, color: colors.textSecondary, fontWeight: '600', marginTop: 2 },
-  meta: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
-  ownerMeta: { fontSize: fontSizes.sm, color: colors.textSecondary, marginTop: 2 },
-  chevron: { fontSize: fontSizes.lg, color: colors.textMuted, paddingHorizontal: 4 },
+  name: { fontSize: t.typography.fontSizes.base, fontWeight: '600', color: t.colors.textPrimary },
+  typeMeta: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, fontWeight: '600', marginTop: 2 },
+  meta: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
+  ownerMeta: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, marginTop: 2 },
+  chevron: { fontSize: t.typography.fontSizes.lg, color: t.colors.textMuted, paddingHorizontal: 4 },
 
-  children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
+  children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: t.colors.border, gap: 6 },
   addSub: { paddingVertical: 6, paddingHorizontal: 2 },
-  addSubText: { color: colors.primary, fontSize: fontSizes.body2, fontWeight: '600' },
+  addSubText: { color: t.colors.primary, fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
 
   // Modal content (overlay + sheet handled by ModalSheet primitive)
-  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
-  dupWarn: { color: colors.warning, fontSize: fontSizes.body2, fontWeight: '600' },
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  shelfToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingVertical: spacing.xs },
-  shelfToggleLabel: { flex: 1, fontSize: fontSizes.body, color: colors.textPrimary },
-  iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
+  modalTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.base },
+  dupWarn: { color: t.colors.warning, fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
+  shelfToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing.md, paddingVertical: t.spacing.xs },
+  shelfToggleLabel: { flex: 1, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  iconCell: { width: 46, height: 46, borderRadius: t.radii.md, backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.border, alignItems: 'center', justifyContent: 'center' },
+  iconCellActive: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBgStrong },
   iconCellText: { fontSize: 22 },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorCell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  colorCellActive: { borderColor: colors.textPrimary },
-  colorCheck: { color: '#fff', fontWeight: '800', fontSize: fontSizes.base },
-  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: spacing.sm },
-  linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
-  linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },
-  cancelText: { color: colors.textMuted },
+  colorCellActive: { borderColor: t.colors.textPrimary },
+  colorCheck: { color: '#fff', fontWeight: '800', fontSize: t.typography.fontSizes.base },
+  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: t.spacing.sm },
+  linkBtn: { paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
+  linkText: { color: t.colors.primary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted },
 });

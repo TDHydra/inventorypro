@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { colors } from '../../src/theme';
+import type { Theme } from '../../src/themes/types';
+import { useTheme } from '../../src/hooks/useTheme';
+import { useThemedStyles } from '../../src/hooks/useThemedStyles';
 import { useSession } from '../../src/hooks/useSession';
 import { getValidJwt, getSavedUserId, clearSession } from '../../src/auth/session';
 import { finishLogin } from '../../src/auth/finishLogin';
@@ -27,6 +29,8 @@ const TABLE_LABELS: Record<string, string> = {
 // /sync/full can be called authenticated. When the download finishes we build
 // the session locally and enter the app.
 export default function FirstLaunchScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { setUser } = useSession();
   const [progress, setProgress] = useState<DownloadProgress>({
@@ -81,7 +85,7 @@ export default function FirstLaunchScreen() {
         </>
       ) : (
         <>
-          <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
+          <ActivityIndicator size="large" color={t.colors.primary} style={styles.spinner} />
           <Text style={styles.heading}>Setting things up...</Text>
 
           <View style={styles.barOuter}>
@@ -107,10 +111,10 @@ export default function FirstLaunchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
@@ -118,41 +122,41 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: 28,
     fontWeight: '700',
-    color: colors.brand,
+    color: t.colors.brand,
     marginBottom: 40,
   },
   spinner: { marginBottom: 24 },
   heading: {
     fontSize: 18,
     fontWeight: '600',
-    color: colors.brand,
+    color: t.colors.brand,
     marginBottom: 20,
   },
   barOuter: {
     width: '100%',
     height: 8,
-    backgroundColor: colors.border,
+    backgroundColor: t.colors.border,
     borderRadius: 4,
     overflow: 'hidden',
     marginBottom: 8,
   },
   barInner: {
     height: '100%',
-    backgroundColor: colors.primary,
+    backgroundColor: t.colors.primary,
     borderRadius: 4,
   },
   pct: {
     fontSize: 14,
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     marginBottom: 8,
   },
   tableLabel: {
     fontSize: 14,
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     marginBottom: 40,
   },
   tipBox: {
-    backgroundColor: colors.primaryBg,
+    backgroundColor: t.colors.primaryBg,
     borderRadius: 12,
     padding: 16,
     width: '100%',
@@ -160,15 +164,15 @@ const styles = StyleSheet.create({
   tipTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.primaryText,
+    color: t.colors.primaryText,
     marginBottom: 6,
   },
   tipBody: {
     fontSize: 13,
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
     lineHeight: 19,
   },
-  errorText: { fontSize: 18, fontWeight: '600', color: colors.danger, marginBottom: 8 },
+  errorText: { fontSize: 18, fontWeight: '600', color: t.colors.danger, marginBottom: 8 },
   errorDetail: { fontSize: 13, color: '#7F1D1D', marginBottom: 20, textAlign: 'center' },
-  retry: { fontSize: 16, color: colors.primaryText, fontWeight: '600' },
+  retry: { fontSize: 16, color: t.colors.primaryText, fontWeight: '600' },
 });

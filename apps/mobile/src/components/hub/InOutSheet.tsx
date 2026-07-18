@@ -4,7 +4,8 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FilterChip } from '../ui/FilterChip';
 import { AppInput } from '../ui/AppInput';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { parseQuantity } from '../../lib/validation';
 import type { InventoryItem } from '../../db/queries/items';
 
@@ -18,6 +19,7 @@ interface Props {
 // "Check In or Check Out?" + qty stepper. Default direction Out, default qty 1.
 // "Continue" parses qty (NaN + MAX_QUANTITY bound) and reports the choice.
 export function InOutSheet({ visible, item, onChoose, onClose }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [direction, setDirection] = useState<'in' | 'out'>('out');
   const [qty, setQty] = useState('1');
   const [error, setError] = useState<string | null>(null);
@@ -69,9 +71,9 @@ export function InOutSheet({ visible, item, onChoose, onClose }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  title: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  title: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
   chipRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  label: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 },
-  error: { fontSize: 13, color: colors.danger, marginTop: 6 },
+  label: { fontSize: 13, fontWeight: '600', color: t.colors.textSecondary, marginBottom: 6 },
+  error: { fontSize: 13, color: t.colors.danger, marginTop: 6 },
 });

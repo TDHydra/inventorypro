@@ -7,7 +7,9 @@ import {
   listNotifications, markRead, markAllRead, countUnread, NotificationRow,
   getApprovalRequestById, decideApproval,
 } from '../../../src/db/queries/notifications';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { Card } from '../../../src/components/ui/Card';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
@@ -66,6 +68,7 @@ function ApprovalActions({
   userId: string | null;
   onDecided: () => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   const data = parseData(notification.data);
   const approvalId = typeof data?.id === 'string' ? data.id : undefined;
   const approval = approvalId ? getApprovalRequestById(approvalId) : undefined;
@@ -107,6 +110,8 @@ function ApprovalActions({
 }
 
 export default function NotificationsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const [reloadKey, setReloadKey] = useState(0);
@@ -185,8 +190,8 @@ export default function NotificationsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
           ListHeaderComponent={
@@ -245,31 +250,31 @@ export default function NotificationsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   list: { padding: 12, gap: 8, paddingBottom: 80 },
   headerBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 4, paddingBottom: 4,
   },
-  headerCount: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
-  markAll: { fontSize: 13, color: colors.primary, fontWeight: '700' },
-  cardUnread: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  headerCount: { fontSize: 13, color: t.colors.textMuted, fontWeight: '600' },
+  markAll: { fontSize: 13, color: t.colors.primary, fontWeight: '700' },
+  cardUnread: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
   row: { flexDirection: 'row', gap: 10 },
   icon: { fontSize: 20, lineHeight: 24 },
   body: { flex: 1, gap: 2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
-  title: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.colors.primary },
+  title: { flex: 1, fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
   titleUnread: { fontWeight: '700' },
-  age: { fontSize: 12, color: colors.textMuted },
-  text: { fontSize: 13, color: colors.textSecondary },
+  age: { fontSize: 12, color: t.colors.textMuted },
+  text: { fontSize: 13, color: t.colors.textSecondary },
   approvalBox: { marginTop: 8, gap: 8 },
   approvalNote: { height: 38, paddingVertical: 8 },
   approvalRow: { flexDirection: 'row', gap: 8 },
   apprBtn: { flex: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
-  approveBtn: { backgroundColor: colors.primary },
-  approveText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  rejectBtn: { backgroundColor: colors.dangerBg },
+  approveBtn: { backgroundColor: t.colors.primary },
+  approveText: { color: t.colors.onPrimary, fontSize: 13, fontWeight: '700' },
+  rejectBtn: { backgroundColor: t.colors.dangerBg },
   rejectText: { color: '#991B1B', fontSize: 13, fontWeight: '700' },
 });

@@ -16,7 +16,8 @@ import { usePermission } from '../../hooks/usePermission';
 import { isWriteBlocked } from '../../db/maintenance';
 import { runInTransaction } from '../../db/tx';
 import { Alert } from '../../lib/themedAlert';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 export interface ResolvedDestination {
   type: 'location' | 'job' | 'manager' | 'office';
@@ -34,6 +35,7 @@ interface Props {
 // Pick where a scanned consumable/equipment goes: Location, Job, Manager (→ their
 // owned location), or Office. Mirrors checkout's split-button destination row.
 export function DestinationPicker({ onResolved }: Props) {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const canCreateJobs = usePermission('create_jobs');
 
@@ -275,15 +277,15 @@ export function DestinationPicker({ onResolved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
-  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 20 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  label: { fontSize: 13, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
+  empty: { textAlign: 'center', color: t.colors.textMuted, marginTop: 20 },
   forRow: { flexDirection: 'row', gap: 8 },
   forBtn: {
     flex: 1, paddingVertical: 10, borderRadius: 8,
-    backgroundColor: '#F1F5F9', alignItems: 'center',
+    backgroundColor: t.colors.surfaceAlt, alignItems: 'center',
   },
-  forBtnActive: { backgroundColor: colors.primaryBgStrong },
-  forBtnText: { fontSize: 14, color: colors.textSecondary, fontWeight: '600' },
-  forBtnTextActive: { color: colors.primaryText },
+  forBtnActive: { backgroundColor: t.colors.primaryBgStrong },
+  forBtnText: { fontSize: 14, color: t.colors.textSecondary, fontWeight: '600' },
+  forBtnTextActive: { color: t.colors.primaryText },
 });

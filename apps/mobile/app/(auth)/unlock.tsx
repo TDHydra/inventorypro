@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { colors } from '../../src/theme';
+import type { Theme } from '../../src/themes/types';
+import { useTheme } from '../../src/hooks/useTheme';
+import { useThemedStyles } from '../../src/hooks/useThemedStyles';
 import { useSession } from '../../src/hooks/useSession';
 import { promptBiometric } from '../../src/auth/biometric';
 import {
@@ -9,6 +11,8 @@ import {
 } from '../../src/auth/session';
 
 export default function UnlockScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { setUser } = useSession();
   const [busy, setBusy] = useState(true);
@@ -54,7 +58,7 @@ export default function UnlockScreen() {
 
       {busy ? (
         <>
-          <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
+          <ActivityIndicator size="large" color={t.colors.primary} style={styles.spinner} />
           <Text style={styles.heading}>Unlocking{name ? ` for ${name}` : ''}…</Text>
         </>
       ) : (
@@ -80,18 +84,18 @@ export default function UnlockScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  appName: { fontSize: 20, fontWeight: '700', color: colors.primaryText, marginBottom: 40 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  appName: { fontSize: 20, fontWeight: '700', color: t.colors.primaryText, marginBottom: 40 },
   spinner: { marginBottom: 24 },
   lockIcon: { fontSize: 48, marginBottom: 16 },
-  heading: { fontSize: 22, fontWeight: '700', color: colors.brand, marginBottom: 8 },
-  sub: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 36 },
+  heading: { fontSize: 22, fontWeight: '700', color: t.colors.brand, marginBottom: 8 },
+  sub: { fontSize: 14, color: t.colors.textSecondary, textAlign: 'center', marginBottom: 36 },
   primaryBtn: {
-    backgroundColor: colors.primary, paddingVertical: 14, paddingHorizontal: 48,
+    backgroundColor: t.colors.primary, paddingVertical: 14, paddingHorizontal: 48,
     borderRadius: 12, marginBottom: 16,
   },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  primaryBtnText: { color: t.colors.onPrimary, fontSize: 16, fontWeight: '600' },
   secondaryBtn: { paddingVertical: 10 },
-  secondaryBtnText: { color: colors.primaryText, fontSize: 15 },
+  secondaryBtnText: { color: t.colors.primaryText, fontSize: 15 },
 });

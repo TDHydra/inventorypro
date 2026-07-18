@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useDataVersion } from '../hooks/useDataVersion';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { Alert } from '../lib/themedAlert';
 import { useSession } from '../hooks/useSession';
 import { usePermission } from '../hooks/usePermission';
@@ -28,6 +30,8 @@ interface PendingUpload {
 // the presigned URL via fetch PUT — the same /media/upload-url + DB + outbox path
 // the native MediaGallery uses, so the DB/sync contract is identical.
 export function MediaGallery({ entityType, entityId, canUpload = true, variant = 'grid' }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const canDelete = usePermission('delete_media');
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
@@ -176,14 +180,14 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
     typeof document !== 'undefined' ? createPortal(node, document.body) : node;
 
   return (
-    <div style={styles.container}>
+    <div style={s.container}>
       {/* Hidden file inputs drive capture (camera) and pick (gallery). */}
       <input
         ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
-        style={styles.hiddenInput}
+        style={s.hiddenInput}
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void handleCameraFile(f); }}
       />
       <input
@@ -191,49 +195,49 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
         type="file"
         accept="image/*,video/*"
         multiple
-        style={styles.hiddenInput}
+        style={s.hiddenInput}
         onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; void handleGalleryFiles(fs); }}
       />
 
       {variant === 'thumb' ? (
         <button
-          style={styles.thumbBox}
+          style={s.thumbBox}
           disabled={uploading}
           onClick={() => { if (canUpload) setPickerOpen(true); else if (primary) setLightbox(primary); }}
         >
           {uploading ? (
-            <span style={styles.addText}>…</span>
+            <span style={s.addText}>…</span>
           ) : primary ? (
-            <img src={primary.thumbnail_url ?? primary.url} alt="" style={styles.thumbBoxImg} />
+            <img src={primary.thumbnail_url ?? primary.url} alt="" style={s.thumbBoxImg} />
           ) : (
             <>
-              <span style={styles.thumbBoxIcon}>＋</span>
-              <span style={styles.thumbBoxText}>Photo</span>
+              <span style={s.thumbBoxIcon}>＋</span>
+              <span style={s.thumbBoxText}>Photo</span>
             </>
           )}
         </button>
       ) : (
-        <div style={styles.grid}>
+        <div style={s.grid}>
           {media.map(m => (
-            <button key={m.id} style={styles.thumbBtn} onClick={() => setLightbox(m)}>
+            <button key={m.id} style={s.thumbBtn} onClick={() => setLightbox(m)}>
               <img
                 src={m.thumbnail_url ?? m.url}
                 alt=""
-                style={{ ...styles.thumb, ...(m.id === primaryId ? styles.thumbPrimary : null) }}
+                style={{ ...s.thumb, ...(m.id === primaryId ? s.thumbPrimary : null) }}
               />
-              {m.id === primaryId && <span style={styles.primaryBadge}>★</span>}
-              {m.media_type === 'video' && <span style={styles.videoBadge}>▶</span>}
+              {m.id === primaryId && <span style={s.primaryBadge}>★</span>}
+              {m.media_type === 'video' && <span style={s.videoBadge}>▶</span>}
             </button>
           ))}
 
           {canUpload && (
-            <button style={styles.addBtn} onClick={() => setPickerOpen(true)} disabled={uploading}>
+            <button style={s.addBtn} onClick={() => setPickerOpen(true)} disabled={uploading}>
               {uploading ? (
-                <span style={styles.addText}>{progress ?? 'Uploading…'}</span>
+                <span style={s.addText}>{progress ?? 'Uploading…'}</span>
               ) : (
                 <>
-                  <span style={styles.addIcon}>＋</span>
-                  <span style={styles.addText}>Add photo</span>
+                  <span style={s.addIcon}>＋</span>
+                  <span style={s.addText}>Add photo</span>
                 </>
               )}
             </button>
@@ -243,23 +247,23 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
 
       {/* Source picker — bottom sheet (mirrors the native MediaGallery sheet) */}
       {pickerOpen && portal(
-        <div style={styles.sheetOverlay} onClick={() => setPickerOpen(false)}>
-          <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.sheetHandle} />
-            <div style={styles.sheetTitle}>Add photo or video</div>
-            <div style={styles.sourceRow}>
-              <button style={styles.sourceCard} onClick={() => pick(cameraInputRef.current)}>
-                <span style={{ ...styles.sourceIconWrap, backgroundColor: colors.primaryBg }}>📷</span>
-                <span style={styles.sourceLabel}>Take photo</span>
-                <span style={styles.sourceSub}>Use the camera</span>
+        <div style={s.sheetOverlay} onClick={() => setPickerOpen(false)}>
+          <div style={s.sheet} onClick={(e) => e.stopPropagation()}>
+            <div style={s.sheetHandle} />
+            <div style={s.sheetTitle}>Add photo or video</div>
+            <div style={s.sourceRow}>
+              <button style={s.sourceCard} onClick={() => pick(cameraInputRef.current)}>
+                <span style={{ ...s.sourceIconWrap, backgroundColor: t.colors.primaryBg }}>📷</span>
+                <span style={s.sourceLabel}>Take photo</span>
+                <span style={s.sourceSub}>Use the camera</span>
               </button>
-              <button style={styles.sourceCard} onClick={() => pick(galleryInputRef.current)}>
-                <span style={{ ...styles.sourceIconWrap, backgroundColor: colors.accentBg }}>🖼️</span>
-                <span style={styles.sourceLabel}>Choose</span>
-                <span style={styles.sourceSub}>Photo or video</span>
+              <button style={s.sourceCard} onClick={() => pick(galleryInputRef.current)}>
+                <span style={{ ...s.sourceIconWrap, backgroundColor: t.colors.accentBg }}>🖼️</span>
+                <span style={s.sourceLabel}>Choose</span>
+                <span style={s.sourceSub}>Photo or video</span>
               </button>
             </div>
-            <button style={styles.sheetCancel} onClick={() => setPickerOpen(false)}>Cancel</button>
+            <button style={s.sheetCancel} onClick={() => setPickerOpen(false)}>Cancel</button>
           </div>
         </div>
       )}
@@ -268,27 +272,27 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
           nothing uploads without an explicit Skip / Start Upload. Suggestion
           chips are the DOM analog of native's SuggestInput typeahead. */}
       {pendingBatch && portal(
-        <div style={styles.sheetOverlay} onClick={() => setPendingBatch(null)}>
-          <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.sheetHandle} />
-            <div style={styles.sheetTitle}>Where were these taken? (optional)</div>
-            <div style={styles.noteSub}>Applies to every photo in this batch.</div>
+        <div style={s.sheetOverlay} onClick={() => setPendingBatch(null)}>
+          <div style={s.sheet} onClick={(e) => e.stopPropagation()}>
+            <div style={s.sheetHandle} />
+            <div style={s.sheetTitle}>Where were these taken? (optional)</div>
+            <div style={s.noteSub}>Applies to every photo in this batch.</div>
             <input
-              style={styles.noteInput}
+              style={s.noteInput}
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               placeholder="e.g. Master bedroom"
             />
             {pendingBatch.suggestions.length > 0 && (
-              <div style={styles.noteChips}>
-                {pendingBatch.suggestions.map(s => (
-                  <button key={s} style={styles.noteChip} onClick={() => setNoteText(s)}>{s}</button>
+              <div style={s.noteChips}>
+                {pendingBatch.suggestions.map(sug => (
+                  <button key={sug} style={s.noteChip} onClick={() => setNoteText(sug)}>{sug}</button>
                 ))}
               </div>
             )}
-            <div style={styles.noteBtnRow}>
-              <button style={styles.noteSkipBtn} onClick={() => startBatch(null)}>Skip</button>
-              <button style={styles.noteStartBtn} onClick={() => startBatch(noteText.trim() || null)}>Start Upload</button>
+            <div style={s.noteBtnRow}>
+              <button style={s.noteSkipBtn} onClick={() => startBatch(null)}>Skip</button>
+              <button style={s.noteStartBtn} onClick={() => startBatch(noteText.trim() || null)}>Start Upload</button>
             </div>
           </div>
         </div>
@@ -296,47 +300,47 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
 
       {/* Lightbox */}
       {lightbox && portal(
-        <div style={styles.lightbox} onClick={() => setLightbox(null)}>
-          <img src={lightbox.url} alt="" style={styles.lightboxImg} />
+        <div style={s.lightbox} onClick={() => setLightbox(null)}>
+          <img src={lightbox.url} alt="" style={s.lightboxImg} />
           {canDelete && (
             <button
-              style={styles.lightboxDelete}
+              style={s.lightboxDelete}
               onClick={(e) => { e.stopPropagation(); confirmDelete(lightbox); }}
             >
               🗑 Delete
             </button>
           )}
-          <span style={styles.lightboxClose}>✕ Tap to close</span>
+          <span style={s.lightboxClose}>✕ Tap to close</span>
         </div>
       )}
     </div>
   );
 }
 
-const styles: Record<string, CSSProperties> = {
+const makeStyles = (t: Theme): Record<string, CSSProperties> => ({
   container: { margin: '8px 0' },
   hiddenInput: { display: 'none' },
   thumbBox: {
     width: 64, height: 64, borderRadius: 10, padding: 0, overflow: 'hidden',
-    border: `2px dashed ${colors.border}`, cursor: 'pointer',
+    border: `2px dashed ${t.colors.border}`, cursor: 'pointer',
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
   },
   thumbBoxImg: { width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 },
-  thumbBoxIcon: { fontSize: 22, color: colors.primary, fontWeight: 300, lineHeight: 1 },
-  thumbBoxText: { fontSize: 10, color: colors.textSecondary, fontWeight: 600 },
+  thumbBoxIcon: { fontSize: 22, color: t.colors.primary, fontWeight: 300, lineHeight: 1 },
+  thumbBoxText: { fontSize: 10, color: t.colors.textSecondary, fontWeight: 600 },
   grid: { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   thumbBtn: {
     position: 'relative', padding: 0, border: 'none', background: 'none', cursor: 'pointer',
     width: 'calc((100% - 12px) / 3)', aspectRatio: '1 / 1',
   },
-  thumb: { width: '100%', height: '100%', borderRadius: 8, backgroundColor: colors.border, objectFit: 'cover' },
-  thumbPrimary: { border: `2px solid ${colors.primary}`, boxSizing: 'border-box' },
+  thumb: { width: '100%', height: '100%', borderRadius: 8, backgroundColor: t.colors.border, objectFit: 'cover' },
+  thumbPrimary: { border: `2px solid ${t.colors.primary}`, boxSizing: 'border-box' },
   primaryBadge: {
     position: 'absolute', top: 4, left: 4,
-    backgroundColor: colors.primary, borderRadius: 8, width: 16, height: 16,
+    backgroundColor: t.colors.primary, borderRadius: 8, width: 16, height: 16,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    color: '#fff', fontSize: 10,
+    color: t.colors.onPrimary, fontSize: 10,
   },
   videoBadge: {
     position: 'absolute', inset: 0,
@@ -346,57 +350,57 @@ const styles: Record<string, CSSProperties> = {
   },
   addBtn: {
     width: 'calc((100% - 12px) / 3)', aspectRatio: '1 / 1', borderRadius: 8,
-    border: `2px dashed ${colors.border}`, cursor: 'pointer',
+    border: `2px dashed ${t.colors.border}`, cursor: 'pointer',
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
   },
-  addIcon: { fontSize: 26, color: colors.primary, fontWeight: 300 },
-  addText: { fontSize: 11, color: colors.textSecondary, fontWeight: 600, marginTop: 2 },
+  addIcon: { fontSize: 26, color: t.colors.primary, fontWeight: 300 },
+  addText: { fontSize: 11, color: t.colors.textSecondary, fontWeight: 600, marginTop: 2 },
   // Source picker bottom sheet
   sheetOverlay: {
     position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
     justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000,
   },
   sheet: {
-    backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    backgroundColor: t.colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
     padding: '10px 20px 34px', display: 'flex', flexDirection: 'column', gap: 16,
   },
-  sheetHandle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 4 },
-  sheetTitle: { fontSize: 17, fontWeight: 800, color: colors.textPrimary, textAlign: 'center' },
+  sheetHandle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: t.colors.border, marginBottom: 4 },
+  sheetTitle: { fontSize: 17, fontWeight: 800, color: t.colors.textPrimary, textAlign: 'center' },
   sourceRow: { display: 'flex', flexDirection: 'row', gap: 12 },
   sourceCard: {
     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '18px 0',
-    borderRadius: 16, border: `1px solid ${colors.border}`, backgroundColor: colors.background, cursor: 'pointer',
+    borderRadius: 16, border: `1px solid ${t.colors.border}`, backgroundColor: t.colors.background, cursor: 'pointer',
   },
   sourceIconWrap: {
     width: 56, height: 56, borderRadius: 28, display: 'flex',
     alignItems: 'center', justifyContent: 'center', fontSize: 26,
   },
-  sourceLabel: { fontSize: 15, fontWeight: 700, color: colors.textPrimary },
-  sourceSub: { fontSize: 12, color: colors.textMuted },
+  sourceLabel: { fontSize: 15, fontWeight: 700, color: t.colors.textPrimary },
+  sourceSub: { fontSize: 12, color: t.colors.textMuted },
   sheetCancel: {
     textAlign: 'center', padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
-    backgroundColor: colors.background, fontSize: 15, fontWeight: 700, color: colors.textSecondary,
+    backgroundColor: t.colors.background, fontSize: 15, fontWeight: 700, color: t.colors.textSecondary,
   },
   // Location-note sheet (job batches)
-  noteSub: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  noteSub: { fontSize: 12, color: t.colors.textMuted, textAlign: 'center' },
   noteInput: {
-    height: 44, borderRadius: 10, border: `1px solid ${colors.border}`, padding: '0 14px',
-    fontSize: 14, color: colors.textPrimary, backgroundColor: '#fff',
+    height: 44, borderRadius: 10, border: `1px solid ${t.colors.border}`, padding: '0 14px',
+    fontSize: 14, color: t.colors.textPrimary, backgroundColor: t.colors.inputBg,
   },
   noteChips: { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   noteChip: {
-    padding: '6px 12px', borderRadius: 14, border: `1px solid ${colors.border}`,
-    backgroundColor: colors.background, color: colors.textPrimary, fontSize: 13, cursor: 'pointer',
+    padding: '6px 12px', borderRadius: 14, border: `1px solid ${t.colors.border}`,
+    backgroundColor: t.colors.background, color: t.colors.textPrimary, fontSize: 13, cursor: 'pointer',
   },
   noteBtnRow: { display: 'flex', flexDirection: 'row', gap: 12, marginTop: 4 },
   noteSkipBtn: {
-    flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${colors.border}`, cursor: 'pointer',
-    backgroundColor: colors.background, fontSize: 15, fontWeight: 700, color: colors.textSecondary,
+    flex: 1, padding: '12px 0', borderRadius: 12, border: `1px solid ${t.colors.border}`, cursor: 'pointer',
+    backgroundColor: t.colors.background, fontSize: 15, fontWeight: 700, color: t.colors.textSecondary,
   },
   noteStartBtn: {
     flex: 1, padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
-    backgroundColor: colors.primary, fontSize: 15, fontWeight: 700, color: '#fff',
+    backgroundColor: t.colors.primary, fontSize: 15, fontWeight: 700, color: t.colors.onPrimary,
   },
   lightbox: {
     position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.92)',
@@ -405,7 +409,7 @@ const styles: Record<string, CSSProperties> = {
   lightboxImg: { width: '100%', height: '80%', objectFit: 'contain' },
   lightboxDelete: {
     marginTop: 16, padding: '10px 24px', borderRadius: 12, border: 'none', cursor: 'pointer',
-    backgroundColor: colors.danger, color: '#fff', fontSize: 14, fontWeight: 700,
+    backgroundColor: t.colors.danger, color: t.colors.onPrimary, fontSize: 14, fontWeight: 700,
   },
   lightboxClose: { color: '#fff', marginTop: 16, fontSize: 14 },
-};
+});

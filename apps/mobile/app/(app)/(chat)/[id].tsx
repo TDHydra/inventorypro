@@ -17,7 +17,9 @@ import { uploadMediaAsset } from '../../../src/media/upload';
 import { Alert } from '../../../src/lib/themedAlert';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { loadChatCache } from '../../../src/chat/store';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
@@ -44,6 +46,8 @@ function timeLabel(iso: string): string {
 }
 
 export default function ChatThreadScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const conversationId = String(id);
   const { user } = useSession();
@@ -282,7 +286,7 @@ export default function ChatThreadScreen() {
         ) : null}
       </View>
     );
-  }, [userId, isGroup, lastOwn?.id, receipt, mediaByMsg]);
+  }, [userId, isGroup, lastOwn?.id, receipt, mediaByMsg, s]);
 
   // The conversation row disappeared while open (removed-member purge / deletion)
   // — render a graceful dead-end instead of an empty shell that can still write.
@@ -330,7 +334,7 @@ export default function ChatThreadScreen() {
           }
         />
 
-        <View style={[s.composer, { paddingBottom: composerBottomPadding(spacing.sm, insets.bottom) }]}>
+        <View style={[s.composer, { paddingBottom: composerBottomPadding(t.spacing.sm, insets.bottom) }]}>
           {editingId ? (
             <View style={s.editingRow}>
               <Text style={s.editingText}>Editing message</Text>
@@ -362,14 +366,14 @@ export default function ChatThreadScreen() {
                 hitSlop={4}
               >
                 {attaching
-                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  ? <ActivityIndicator size="small" color={t.colors.primary} />
                   : <Text style={s.attachIcon}>🖼️</Text>}
               </TouchableOpacity>
             )}
             <TextInput
               style={s.input}
               placeholder="Message…"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={t.colors.textMuted}
               value={draft}
               onChangeText={setDraft}
               multiline
@@ -454,68 +458,68 @@ export default function ChatThreadScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  list: { padding: spacing.md, gap: 6, flexGrow: 1 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  list: { padding: t.spacing.md, gap: 6, flexGrow: 1 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  emptyText: { color: colors.textMuted, fontSize: fontSizes.body },
+  emptyText: { color: t.colors.textMuted, fontSize: t.typography.fontSizes.body },
   msgRow: { flexDirection: 'row', marginVertical: 2 },
   msgRowMine: { justifyContent: 'flex-end' },
   msgRowTheirs: { justifyContent: 'flex-start' },
-  bubble: { maxWidth: '80%', borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  bubbleMine: { backgroundColor: colors.primary, borderBottomRightRadius: 4 },
-  bubbleTheirs: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderBottomLeftRadius: 4 },
-  sender: { fontSize: fontSizes.xs, fontWeight: '800', color: colors.primaryText, marginBottom: 2 },
-  msgText: { fontSize: fontSizes.body, color: colors.textPrimary },
-  msgTextMine: { color: '#fff' },
-  msgImage: { width: 200, height: 200, borderRadius: radii.md, backgroundColor: colors.border, marginBottom: 4 },
+  bubble: { maxWidth: '80%', borderRadius: t.radii.lg, paddingHorizontal: t.spacing.md, paddingVertical: t.spacing.sm },
+  bubbleMine: { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 },
+  bubbleTheirs: { backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.border, borderBottomLeftRadius: 4 },
+  sender: { fontSize: t.typography.fontSizes.xs, fontWeight: '800', color: t.colors.primaryText, marginBottom: 2 },
+  msgText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  msgTextMine: { color: t.colors.onPrimary },
+  msgImage: { width: 200, height: 200, borderRadius: t.radii.md, backgroundColor: t.colors.border, marginBottom: 4 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginTop: 2 },
-  urgentTag: { fontSize: fontSizes.xs, fontWeight: '800', color: colors.accent },
+  urgentTag: { fontSize: t.typography.fontSizes.xs, fontWeight: '800', color: t.colors.accent },
   urgentTagMine: { color: '#FFE0C2' },
-  msgTime: { fontSize: fontSizes.xs, color: colors.textMuted },
+  msgTime: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
   msgTimeMine: { color: 'rgba(255,255,255,0.8)' },
-  bubbleDeleted: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.borderDetail },
-  deletedText: { fontSize: fontSizes.body2, fontStyle: 'italic', color: colors.textMuted },
+  bubbleDeleted: { backgroundColor: t.colors.background, borderWidth: 1, borderColor: t.colors.borderDetail },
+  deletedText: { fontSize: t.typography.fontSizes.body2, fontStyle: 'italic', color: t.colors.textMuted },
   receiptRow: { alignItems: 'flex-end', paddingRight: 4, marginTop: 2 },
-  receiptText: { fontSize: fontSizes.xs, color: colors.textMuted },
+  receiptText: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
   editingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  editingText: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary },
-  editingCancel: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.danger },
-  msgActionRow: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
-  msgActionText: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '600' },
-  msgActionDanger: { color: colors.danger },
-  goneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md, backgroundColor: colors.background },
-  goneTitle: { fontSize: fontSizes.md, fontWeight: '700', color: colors.textPrimary, textAlign: 'center' },
-  goneSub: { fontSize: fontSizes.body2, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
-  composer: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, padding: spacing.sm, gap: spacing.sm },
-  urgencyRow: { flexDirection: 'row', gap: spacing.sm },
-  uToggle: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.border },
-  uToggleOn: { backgroundColor: colors.accentBg, borderColor: colors.accent },
-  uToggleText: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary },
-  uToggleTextOn: { color: colors.accent },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  editingText: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary },
+  editingCancel: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.danger },
+  msgActionRow: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail },
+  msgActionText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '600' },
+  msgActionDanger: { color: t.colors.danger },
+  goneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl, gap: t.spacing.md, backgroundColor: t.colors.background },
+  goneTitle: { fontSize: t.typography.fontSizes.md, fontWeight: '700', color: t.colors.textPrimary, textAlign: 'center' },
+  goneSub: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, textAlign: 'center', marginBottom: t.spacing.md },
+  composer: { borderTopWidth: 1, borderTopColor: t.colors.border, backgroundColor: t.colors.surface, padding: t.spacing.sm, gap: t.spacing.sm },
+  urgencyRow: { flexDirection: 'row', gap: t.spacing.sm },
+  uToggle: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: t.radii.sm, borderWidth: 1, borderColor: t.colors.border },
+  uToggleOn: { backgroundColor: t.colors.accentBg, borderColor: t.colors.accent },
+  uToggleText: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary },
+  uToggleTextOn: { color: t.colors.accent },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: t.spacing.sm },
   attachBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   attachIcon: { fontSize: 22 },
   input: {
-    flex: 1, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, paddingTop: 10, paddingBottom: 10, maxHeight: 120,
-    fontSize: fontSizes.body, color: colors.textPrimary,
+    flex: 1, backgroundColor: t.colors.background, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, paddingTop: 10, paddingBottom: 10, maxHeight: 120,
+    fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
   },
-  sendBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: 16, height: 44, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { backgroundColor: t.colors.primary, borderRadius: t.radii.md, paddingHorizontal: 16, height: 44, alignItems: 'center', justifyContent: 'center' },
   sendBtnOff: { opacity: 0.5 },
-  sendText: { color: '#fff', fontWeight: '800', fontSize: fontSizes.body },
-  sheetTitle: { fontSize: fontSizes.lg, fontWeight: '800', color: colors.textPrimary },
-  sectionLabel: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginTop: spacing.lg, marginBottom: spacing.sm },
-  prefRow: { flexDirection: 'row', gap: spacing.sm },
-  prefBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.border },
-  prefBtnOn: { backgroundColor: colors.primaryBg, borderColor: colors.primary },
-  prefText: { fontSize: fontSizes.body2, fontWeight: '700', color: colors.textSecondary },
-  prefTextOn: { color: colors.primaryText },
-  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
-  memberName: { fontSize: fontSizes.body, color: colors.textPrimary },
-  removeText: { fontSize: fontSizes.body2, color: colors.danger, fontWeight: '700' },
-  addField: { marginTop: spacing.md },
-  sheetActions: { marginTop: spacing.xl },
+  sendText: { color: t.colors.onPrimary, fontWeight: '800', fontSize: t.typography.fontSizes.body },
+  sheetTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '800', color: t.colors.textPrimary },
+  sectionLabel: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textMuted, textTransform: 'uppercase', marginTop: t.spacing.lg, marginBottom: t.spacing.sm },
+  prefRow: { flexDirection: 'row', gap: t.spacing.sm },
+  prefBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: t.radii.sm, borderWidth: 1, borderColor: t.colors.border },
+  prefBtnOn: { backgroundColor: t.colors.primaryBg, borderColor: t.colors.primary },
+  prefText: { fontSize: t.typography.fontSizes.body2, fontWeight: '700', color: t.colors.textSecondary },
+  prefTextOn: { color: t.colors.primaryText },
+  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail },
+  memberName: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  removeText: { fontSize: t.typography.fontSizes.body2, color: t.colors.danger, fontWeight: '700' },
+  addField: { marginTop: t.spacing.md },
+  sheetActions: { marginTop: t.spacing.xl },
   hdrBtn: { paddingHorizontal: 8, paddingVertical: 4, marginRight: 4 },
-  hdrBtnText: { color: '#fff', fontSize: fontSizes.body2, fontWeight: '700' },
+  hdrBtnText: { color: t.colors.headerTint, fontSize: t.typography.fontSizes.body2, fontWeight: '700' },
 });

@@ -1,5 +1,8 @@
 import { useState, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 interface Props {
   label?: string;
@@ -29,6 +32,8 @@ export function SuggestInput({
   label, value, onChange, placeholder, suggestions,
   autoCapitalize = 'words', maxSuggestions = 8, onPick,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const [focused, setFocused] = useState(false);
 
   const matches = useMemo(() => {
@@ -54,7 +59,7 @@ export function SuggestInput({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#94A3B8"
+        placeholderTextColor={t.colors.textMuted}
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         onFocus={() => setFocused(true)}
@@ -74,14 +79,14 @@ export function SuggestInput({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: { gap: 6, position: 'relative' },
-  label: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
+  label: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: 14, height: 44, fontSize: 14, color: t.colors.textPrimary,
   },
-  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 2 },
-  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  rowLabel: { fontSize: 14, color: '#1E293B' },
+  dropdown: { maxHeight: 240, backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border, marginTop: 2 },
+  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
+  rowLabel: { fontSize: 14, color: t.colors.textPrimary },
 });

@@ -14,7 +14,10 @@ import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, radii, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
+import { getTheme } from '../../themes/store';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
@@ -25,7 +28,6 @@ import { validateName } from '../../lib/validation';
 // A vehicle is just a location tagged type='Vehicle' (no separate table). This
 // mirrors LocationQuickAdd but locks the type and offers an optional Owner instead
 // of a parent. The inline "+ Create" path in the repair picker stays name-only.
-const VEHICLE_COLOR = colors.brand;
 const VEHICLE_ICON = '🚐';
 
 interface Props {
@@ -33,6 +35,8 @@ interface Props {
 }
 
 export default function VehicleQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -66,7 +70,7 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
       id,
       name: trimmedName,
       parent_id: null,
-      color: VEHICLE_COLOR,
+      color: getTheme().colors.brand,
       icon: VEHICLE_ICON,
       owner_user_id: ownerOption?.id ?? null,
       active: 1,
@@ -106,7 +110,7 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
         ref={nameRef}
         style={[s.input, !!nameError && s.inputError]}
         placeholder="Vehicle name *"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={t.colors.textMuted}
         value={name}
         onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
         autoFocus
@@ -129,7 +133,7 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -139,14 +143,14 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
   input: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
   },
-  inputError: { borderColor: colors.danger },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

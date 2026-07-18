@@ -6,7 +6,8 @@ import { getAllTeams } from '../db/queries/teams';
 import { getAllActiveUsers } from '../db/queries/users';
 import { SearchablePicker } from './SearchablePicker';
 import type { PickerOption } from './SearchablePicker';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 // ── Channels ──────────────────────────────────────────────────────────────
 // The four server-side notification channels. Each is persisted as an
@@ -56,6 +57,7 @@ interface Props {
 // selection serializes to `{roles,teams,users}` JSON and is written through the
 // synced app_config path so the server resolver can read it.
 export function NotificationRoutingEditor({ onSave }: Props) {
+  const s = useThemedStyles(makeStyles);
   const teams = useMemo(() => getAllTeams(), []);
   const userOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
@@ -101,7 +103,7 @@ export function NotificationRoutingEditor({ onSave }: Props) {
   };
 
   return (
-    <View style={{ gap: spacing.lg }}>
+    <View style={s.wrap}>
       {CHANNELS.map(ch => {
         const cfg = routes[ch.key];
         return (
@@ -175,33 +177,34 @@ export function NotificationRoutingEditor({ onSave }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
+  wrap: { gap: t.spacing.lg },
   block: {
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.base,
-    gap: spacing.sm,
+    borderTopColor: t.colors.border,
+    paddingTop: t.spacing.base,
+    gap: t.spacing.sm,
   },
-  blockTitle: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
-  blockNote: { fontSize: fontSizes.body2, color: colors.textSecondary },
+  blockTitle: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
+  blockNote: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary },
   groupLabel: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginTop: spacing.sm,
+    marginTop: t.spacing.sm,
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: radii.sm,
+    borderRadius: t.radii.sm,
     borderWidth: 1,
-    borderColor: colors.textDisabled,
-    backgroundColor: colors.background,
+    borderColor: t.colors.textDisabled,
+    backgroundColor: t.colors.background,
   },
-  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  chipText: { fontSize: fontSizes.body2, fontWeight: '600', color: '#475569' },
-  chipTextActive: { color: '#fff' },
+  chipActive: { backgroundColor: t.colors.brand, borderColor: t.colors.brand },
+  chipText: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: '#475569' },
+  chipTextActive: { color: t.colors.onPrimary },
 });

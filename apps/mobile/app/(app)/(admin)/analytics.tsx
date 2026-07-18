@@ -5,7 +5,9 @@ import {
 import { Stack } from 'expo-router';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { getValidJwt } from '../../../src/auth/session';
-import { colors, spacing, fontSizes, radii } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -40,6 +42,8 @@ const WINDOWS = [
 ];
 
 export default function AnalyticsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const isAdmin = usePermission('system_settings');
   const [days, setDays] = useState(7);
   const [data, setData] = useState<Summary | null>(null);
@@ -80,8 +84,8 @@ export default function AnalyticsScreen() {
     <View style={s.container}>
       <Stack.Screen options={{ title: 'Analytics' }} />
       <ScrollView
-        contentContainerStyle={{ padding: spacing.base, paddingBottom: spacing.xl }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.primary} />}
+        contentContainerStyle={{ padding: t.spacing.base, paddingBottom: t.spacing.xl }}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={t.colors.primary} />}
       >
         <View style={s.windowRow}>
           {WINDOWS.map(w => (
@@ -90,7 +94,7 @@ export default function AnalyticsScreen() {
         </View>
 
         {loading && !data ? (
-          <View style={s.center}><ActivityIndicator color={colors.primary} /></View>
+          <View style={s.center}><ActivityIndicator color={t.colors.primary} /></View>
         ) : error ? (
           <View style={s.card}>
             <Text style={s.errorText}>{error}</Text>
@@ -120,7 +124,7 @@ export default function AnalyticsScreen() {
             <BarList title="Top actions" items={data.topActions} />
 
             <TrendChart title="Error trend" data={data.errorTrend} />
-            <BarList title="Top errors" items={data.topErrors} accent={colors.danger} emptyGood />
+            <BarList title="Top errors" items={data.topErrors} accent={t.colors.danger} emptyGood />
 
             <BarList
               title="Top users"
@@ -144,9 +148,11 @@ export default function AnalyticsScreen() {
 }
 
 function Stat({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   return (
     <View style={s.tile}>
-      <Text style={[s.tileValue, danger && { color: colors.danger }]}>{value.toLocaleString()}</Text>
+      <Text style={[s.tileValue, danger && { color: t.colors.danger }]}>{value.toLocaleString()}</Text>
       <Text style={s.tileLabel}>{label}</Text>
     </View>
   );
@@ -155,8 +161,10 @@ function Stat({ label, value, danger }: { label: string; value: number; danger?:
 function BarList({ title, items, accent, emptyGood }: {
   title: string; items: NameCount[]; accent?: string; emptyGood?: boolean;
 }) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const max = items.reduce((m, i) => Math.max(m, i.count), 0) || 1;
-  const barColor = accent ?? colors.primary;
+  const barColor = accent ?? t.colors.primary;
   return (
     <View style={s.card}>
       <Text style={s.cardTitle}>{title}</Text>
@@ -182,6 +190,8 @@ function BarList({ title, items, accent, emptyGood }: {
 // anchored to the baseline, a recessive track, and selective direct labels
 // (peak value + first/last day only, never a number on every column).
 function TrendChart({ title, data }: { title: string; data: DayCount[] }) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const max = data.reduce((m, d) => Math.max(m, d.count), 0);
   const total = data.reduce((sum, d) => sum + d.count, 0);
   const peakIdx = max > 0 ? data.findIndex(d => d.count === max) : -1;
@@ -208,7 +218,7 @@ function TrendChart({ title, data }: { title: string; data: DayCount[] }) {
                     s.trendBar,
                     {
                       height: `${max > 0 ? Math.max(d.count > 0 ? 6 : 0, (d.count / max) * 100) : 0}%`,
-                      backgroundColor: d.count > 0 ? colors.danger : 'transparent',
+                      backgroundColor: d.count > 0 ? t.colors.danger : 'transparent',
                     },
                   ]}
                 />
@@ -225,40 +235,40 @@ function TrendChart({ title, data }: { title: string; data: DayCount[] }) {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  muted: { color: colors.textMuted, fontSize: fontSizes.body },
-  windowRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.base, flexWrap: 'wrap' },
-  tileRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl },
+  muted: { color: t.colors.textMuted, fontSize: t.typography.fontSizes.body },
+  windowRow: { flexDirection: 'row', gap: t.spacing.sm, marginBottom: t.spacing.base, flexWrap: 'wrap' },
+  tileRow: { flexDirection: 'row', gap: t.spacing.sm, marginBottom: t.spacing.sm },
   tile: {
-    flex: 1, backgroundColor: colors.surface, borderRadius: radii.md,
-    paddingVertical: spacing.base, paddingHorizontal: spacing.sm, alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    flex: 1, backgroundColor: t.colors.surface, borderRadius: t.radii.md,
+    paddingVertical: t.spacing.base, paddingHorizontal: t.spacing.sm, alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
   },
-  tileValue: { fontSize: fontSizes.lg, fontWeight: '800', color: colors.textPrimary },
-  tileLabel: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 2, textAlign: 'center' },
+  tileValue: { fontSize: t.typography.fontSizes.lg, fontWeight: '800', color: t.colors.textPrimary },
+  tileLabel: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 2, textAlign: 'center' },
   card: {
-    backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.base,
-    marginTop: spacing.base, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, padding: t.spacing.base,
+    marginTop: t.spacing.base, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
   },
-  cardTitle: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
-  barRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, gap: spacing.sm },
-  barName: { width: '38%', fontSize: fontSizes.caption, color: colors.textSecondary },
-  barTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: colors.background, overflow: 'hidden' },
+  cardTitle: { fontSize: t.typography.fontSizes.body, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.sm },
+  barRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, gap: t.spacing.sm },
+  barName: { width: '38%', fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary },
+  barTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: t.colors.background, overflow: 'hidden' },
   barFill: { height: 8, borderRadius: 4 },
-  barCount: { width: 52, textAlign: 'right', fontSize: fontSizes.caption, fontWeight: '700', color: colors.textPrimary },
-  trendHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: spacing.sm },
-  trendTotal: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary },
+  barCount: { width: 52, textAlign: 'right', fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textPrimary },
+  trendHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: t.spacing.sm },
+  trendTotal: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary },
   trendPlot: { flexDirection: 'row', alignItems: 'flex-end', height: 88, gap: 2 },
   trendCol: { flex: 1, height: '100%', justifyContent: 'flex-end', alignItems: 'center' },
   trendBar: { width: '100%', borderTopLeftRadius: 4, borderTopRightRadius: 4, minWidth: 3 },
-  trendPeak: { fontSize: fontSizes.xs, fontWeight: '700', color: colors.danger, marginBottom: 2 },
-  trendPeakSpacer: { height: fontSizes.xs + 2 },
-  trendAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
-  trendAxisLabel: { fontSize: fontSizes.xs, color: colors.textMuted },
-  errorText: { color: colors.textSecondary, fontSize: fontSizes.body },
-  retryBtn: { marginTop: spacing.sm, alignSelf: 'flex-start', paddingVertical: spacing.xs, paddingHorizontal: spacing.base, borderRadius: radii.sm, backgroundColor: colors.primaryBg },
-  retryText: { color: colors.primaryText, fontWeight: '700' },
-  footnote: { marginTop: spacing.base, fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 18 },
+  trendPeak: { fontSize: t.typography.fontSizes.xs, fontWeight: '700', color: t.colors.danger, marginBottom: 2 },
+  trendPeakSpacer: { height: t.typography.fontSizes.xs + 2 },
+  trendAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing.xs },
+  trendAxisLabel: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
+  errorText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.body },
+  retryBtn: { marginTop: t.spacing.sm, alignSelf: 'flex-start', paddingVertical: t.spacing.xs, paddingHorizontal: t.spacing.base, borderRadius: t.radii.sm, backgroundColor: t.colors.primaryBg },
+  retryText: { color: t.colors.primaryText, fontWeight: '700' },
+  footnote: { marginTop: t.spacing.base, fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 18 },
 });

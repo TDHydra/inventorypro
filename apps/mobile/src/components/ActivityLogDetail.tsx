@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { LogEntry, LogNameMaps, resolveEntityName } from '../db/queries/log';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 // ── metadata parsing ───────────────────────────────────────────────────────────
 // activity_log.metadata is a JSON string (or null). We render it as a readable
@@ -75,6 +76,7 @@ function parseMetadata(raw: string | null, maps: LogNameMaps): MetaLine[] | null
 // ── component ──────────────────────────────────────────────────────────────────
 
 function Stat({ k, v }: { k: string; v: string }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.statRow}>
       <Text style={s.statKey}>{k}</Text>
@@ -96,6 +98,7 @@ interface Props {
  * (before→after diffs where present) + note, and surfaces coordinates.
  */
 export function ActivityLogDetail({ log, nameMaps, onViewMap }: Props) {
+  const s = useThemedStyles(makeStyles);
   const actor = log.user_name ?? (log.user_id ? nameMaps.users[log.user_id] : null);
   const team = log.team_id ? nameMaps.teams[log.team_id] : null;
   const job = log.job_id ? nameMaps.jobs[log.job_id] : null;
@@ -164,35 +167,35 @@ export function ActivityLogDetail({ log, nameMaps, onViewMap }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: {
     borderTopWidth: 1,
-    borderTopColor: colors.borderDetail,
+    borderTopColor: t.colors.borderDetail,
     marginTop: 10,
     paddingTop: 10,
     gap: 6,
   },
   stats: {
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     gap: 2,
   },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 2 },
-  statKey: { fontSize: 12, color: colors.textMuted },
-  statVal: { fontSize: 12, fontWeight: '600', color: '#334155', flexShrink: 1, marginLeft: 12, textAlign: 'right' },
+  statKey: { fontSize: 12, color: t.colors.textMuted },
+  statVal: { fontSize: 12, fontWeight: '600', color: t.colors.textStrong, flexShrink: 1, marginLeft: 12, textAlign: 'right' },
 
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginTop: 4 },
+  sectionLabel: { fontSize: 11, fontWeight: '700', color: t.colors.textMuted, textTransform: 'uppercase', marginTop: 4 },
   metaBox: { gap: 4 },
   metaRow: { gap: 1 },
-  metaKey: { fontSize: 11, color: colors.textMuted, textTransform: 'capitalize' },
-  metaVal: { fontSize: 13, color: '#334155' },
-  metaOld: { color: colors.danger },
-  metaArrow: { color: colors.textMuted },
-  metaNew: { color: colors.success, fontWeight: '600' },
+  metaKey: { fontSize: 11, color: t.colors.textMuted, textTransform: 'capitalize' },
+  metaVal: { fontSize: 13, color: t.colors.textStrong },
+  metaOld: { color: t.colors.danger },
+  metaArrow: { color: t.colors.textMuted },
+  metaNew: { color: t.colors.success, fontWeight: '600' },
 
-  note: { fontSize: 13, color: colors.textSecondary },
+  note: { fontSize: 13, color: t.colors.textSecondary },
 
   mapBtn: {
     flexDirection: 'row',
@@ -202,6 +205,6 @@ const s = StyleSheet.create({
     marginTop: 4,
     paddingVertical: 4,
   },
-  mapBtnText: { fontSize: 13, color: colors.primaryText, fontWeight: '600' },
-  mapAccuracy: { fontSize: 11, color: colors.textMuted },
+  mapBtnText: { fontSize: 13, color: t.colors.primaryText, fontWeight: '600' },
+  mapAccuracy: { fontSize: 11, color: t.colors.textMuted },
 });

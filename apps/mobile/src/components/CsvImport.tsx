@@ -12,7 +12,9 @@ import { getItemTypes, parseItemTypeMeta, getProductClasses } from '../db/querie
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../constants/units';
 import { runInTransaction } from '../db/tx';
 import { parseOptionalCount, parsePackSize } from '../lib/validation';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FieldLabel } from './ui/FieldLabel';
 import { MaintenanceBanner } from './ui/MaintenanceBanner';
@@ -124,6 +126,8 @@ interface ParsedRow {
 }
 
 export default function CsvImport({ onImported }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const [rawText, setRawText] = useState('');
@@ -376,7 +380,7 @@ export default function CsvImport({ onImported }: Props) {
             value={rawText}
             onChangeText={setRawText}
             placeholder={'name,sku,barcode,category,unit,min_qty_alert\nWork Gloves,WG-100,012345,PPE,pair,5'}
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor={t.colors.textMuted}
             multiline
             textAlignVertical="top"
             autoCapitalize="none"
@@ -387,7 +391,7 @@ export default function CsvImport({ onImported }: Props) {
             label="Preview import"
             onPress={handlePreview}
             disabled={!rawText.trim() || locked}
-            style={{ marginTop: spacing.md }}
+            style={{ marginTop: t.spacing.md }}
           />
           {locked && <MaintenanceBanner />}
         </>
@@ -441,31 +445,31 @@ export default function CsvImport({ onImported }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
-  hint: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: -4, marginBottom: 2 },
+  hint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: -4, marginBottom: 2 },
   textarea: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, paddingVertical: spacing.sm, minHeight: 160, fontSize: fontSizes.body2,
-    color: colors.textPrimary, fontFamily: 'monospace',
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.sm, minHeight: 160, fontSize: t.typography.fontSizes.body2,
+    color: t.colors.textPrimary, fontFamily: t.typography.fontFamily.mono,
   },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
   summaryRow: { paddingVertical: 4 },
-  summaryText: { fontSize: fontSizes.body2, fontWeight: '700', color: colors.textSecondary },
+  summaryText: { fontSize: t.typography.fontSizes.body2, fontWeight: '700', color: t.colors.textSecondary },
   rowCard: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderLeftWidth: 4,
-    padding: spacing.sm, gap: 2,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderLeftWidth: 4,
+    padding: t.spacing.sm, gap: 2,
   },
-  rowCardOk: { borderColor: colors.border, borderLeftColor: colors.success },
-  rowCardBad: { borderColor: colors.border, borderLeftColor: colors.danger },
+  rowCardOk: { borderColor: t.colors.border, borderLeftColor: t.colors.success },
+  rowCardBad: { borderColor: t.colors.border, borderLeftColor: t.colors.danger },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  rowNum: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700' },
-  rowStatus: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700' },
-  rowName: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },
-  rowSub: { fontSize: fontSizes.caption, color: colors.textMuted },
-  rowError: { fontSize: fontSizes.caption, color: colors.danger },
-  rowWarning: { fontSize: fontSizes.caption, color: colors.accent },
-  actionsRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: spacing.md },
-  editBtn: { paddingVertical: 13, paddingHorizontal: spacing.lg, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border },
-  editBtnText: { color: colors.textSecondary, fontWeight: '700', fontSize: fontSizes.base },
+  rowNum: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, fontWeight: '700' },
+  rowStatus: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, fontWeight: '700' },
+  rowName: { fontSize: t.typography.fontSizes.body, fontWeight: '700', color: t.colors.textPrimary },
+  rowSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  rowError: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger },
+  rowWarning: { fontSize: t.typography.fontSizes.caption, color: t.colors.accent },
+  actionsRow: { flexDirection: 'row', gap: t.spacing.sm, alignItems: 'center', marginTop: t.spacing.md },
+  editBtn: { paddingVertical: 13, paddingHorizontal: t.spacing.lg, borderRadius: t.radii.lg, borderWidth: 1, borderColor: t.colors.border },
+  editBtnText: { color: t.colors.textSecondary, fontWeight: '700', fontSize: t.typography.fontSizes.base },
 });

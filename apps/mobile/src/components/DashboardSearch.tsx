@@ -4,7 +4,9 @@ import { useRouter } from 'expo-router';
 import { searchEverything } from '../db/queries/search';
 import { formatQuantity } from '../constants/units';
 import { track } from '../telemetry';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 /**
  * The top-of-dashboard search. A collapsible "flap": tap the bar to expand an
@@ -17,6 +19,8 @@ const hit = { top: 8, bottom: 8, left: 8, right: 8 };
 const PER_GROUP = 3;
 
 export function DashboardSearch() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
   const [open, setOpen] = useState(false);
@@ -56,7 +60,7 @@ export function DashboardSearch() {
               ref={inputRef}
               style={s.input}
               placeholder="Search items, equipment, jobs, people…"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={t.colors.textMuted}
               value={query}
               onChangeText={setQuery}
               autoCapitalize="none"
@@ -121,6 +125,7 @@ export function DashboardSearch() {
 }
 
 function Group({ label, rows }: { label: string; rows: { id: string; name: string; sub?: string; onPress: () => void }[] }) {
+  const s = useThemedStyles(makeStyles);
   if (rows.length === 0) return null;
   return (
     <>
@@ -138,40 +143,40 @@ function Group({ label, rows }: { label: string; rows: { id: string; name: strin
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: { gap: 8 },
   barRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 12, height: 46,
   },
   icon: { fontSize: 16, marginRight: 8 },
-  input: { flex: 1, fontSize: 15, color: colors.textPrimary, paddingVertical: 0 },
-  placeholder: { flex: 1, fontSize: 15, color: colors.textMuted },
-  chev: { fontSize: 16, color: colors.textSecondary, marginLeft: 8 },
+  input: { flex: 1, fontSize: 15, color: t.colors.textPrimary, paddingVertical: 0 },
+  placeholder: { flex: 1, fontSize: 15, color: t.colors.textMuted },
+  chev: { fontSize: 16, color: t.colors.textSecondary, marginLeft: 8 },
   cam: {
-    width: 46, height: 46, borderRadius: 10, backgroundColor: colors.primary,
+    width: 46, height: 46, borderRadius: 10, backgroundColor: t.colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
   camIcon: { fontSize: 20 },
   results: {
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     overflow: 'hidden',
   },
   groupHeader: {
-    fontSize: 11, fontWeight: '700', color: colors.textMuted,
+    fontSize: 11, fontWeight: '700', color: t.colors.textMuted,
     textTransform: 'uppercase', letterSpacing: 0.5,
     paddingHorizontal: 14, paddingTop: 10, paddingBottom: 2,
   },
   row: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 11,
-    borderTopWidth: 1, borderTopColor: colors.borderDetail,
+    borderTopWidth: 1, borderTopColor: t.colors.borderDetail,
   },
-  rowName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  rowSub: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  rowChev: { fontSize: 20, color: colors.textMuted, marginLeft: 8 },
-  empty: { padding: 14, color: colors.textMuted, textAlign: 'center' },
-  openAll: { padding: 12, textAlign: 'center', color: colors.primary, fontWeight: '700', fontSize: 14 },
+  rowName: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
+  rowSub: { fontSize: 11, color: t.colors.textMuted, marginTop: 2 },
+  rowChev: { fontSize: 20, color: t.colors.textMuted, marginLeft: 8 },
+  empty: { padding: 14, color: t.colors.textMuted, textAlign: 'center' },
+  openAll: { padding: 12, textAlign: 'center', color: t.colors.primary, fontWeight: '700', fontSize: 14 },
 });

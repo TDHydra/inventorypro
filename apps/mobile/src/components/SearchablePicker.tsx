@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 export interface PickerOption { id: string; label: string; sublabel?: string }
 
@@ -23,6 +25,8 @@ interface Props {
 // is identical everywhere. For large catalogs pass `searchFn` (DB-backed) instead
 // of a static `options` array.
 export function SearchablePicker({ placeholder, options = [], value, onSelect, onCreate, autoFocus, searchFn }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
 
@@ -82,7 +86,7 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
       <TextInput
         style={s.input}
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={t.colors.textMuted}
         value={query}
         onChangeText={setQuery}
         onFocus={() => setFocused(true)}
@@ -108,17 +112,17 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: { position: 'relative' },
-  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, height: 44, fontSize: 14, color: colors.textPrimary },
-  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border, marginTop: 4 },
-  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  rowLabel: { fontSize: 14, color: colors.textPrimary },
-  rowSub: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
-  createRow: { backgroundColor: colors.primaryBg },
-  createText: { fontSize: 14, color: colors.primaryText, fontWeight: '600' },
-  selected: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 10, paddingHorizontal: 14, height: 44 },
-  selectedLabel: { fontSize: 14, color: colors.textPrimary, fontWeight: '600' },
-  selectedSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  change: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+  input: { backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: 14, height: 44, fontSize: 14, color: t.colors.textPrimary },
+  dropdown: { maxHeight: 240, backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border, marginTop: 4 },
+  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
+  rowLabel: { fontSize: 14, color: t.colors.textPrimary },
+  rowSub: { fontSize: 12, color: t.colors.textMuted, marginTop: 1 },
+  createRow: { backgroundColor: t.colors.primaryBg },
+  createText: { fontSize: 14, color: t.colors.primaryText, fontWeight: '600' },
+  selected: { flexDirection: 'row', alignItems: 'center', backgroundColor: t.colors.surfaceAlt, borderRadius: 10, paddingHorizontal: 14, height: 44 },
+  selectedLabel: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '600' },
+  selectedSub: { fontSize: 12, color: t.colors.textSecondary, marginTop: 1 },
+  change: { color: t.colors.primary, fontSize: 13, fontWeight: '600' },
 });

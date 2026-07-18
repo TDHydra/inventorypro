@@ -2,7 +2,8 @@ import React, { useState, useCallback } from 'react';
 import { Text, StyleSheet } from 'react-native';
 import { ModalSheet } from './ModalSheet';
 import { FormActions } from './FormActions';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 interface Props {
   visible: boolean;
@@ -25,6 +26,7 @@ interface Props {
  * the outbox/log/db and never alerts.
  */
 export function EntityEditSheet({ visible, onClose, title, children, onSave, saveLabel = 'Save', disabled }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [busy, setBusy] = useState(false);
 
   const handleSave = useCallback(async () => {
@@ -48,6 +50,6 @@ export function EntityEditSheet({ visible, onClose, title, children, onSave, sav
   );
 }
 
-const s = StyleSheet.create({
-  title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  title: { fontSize: t.typography.fontSizes.lg, fontWeight: t.typography.weights.bold, color: t.colors.textPrimary, marginBottom: t.spacing.base },
 });

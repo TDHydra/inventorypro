@@ -13,7 +13,9 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { track } from '../../telemetry';
 import { parseStockQuantity, validateName, validateText } from '../../lib/validation';
 import type { JustAddedRef } from './justAdded';
@@ -52,6 +54,8 @@ interface Props {
  * the handful of fields most likely to need a quick fix — not a full editor.
  */
 export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems, canAdjustStock, onClose, onSaved, onDeleted }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
@@ -297,10 +301,10 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
           <AppInput value={category} onChangeText={setCategory} placeholder="Category" editable={canEdit} />
           {!!error && <Text style={s.error}>{error}</Text>}
           {canEdit && (
-            <PrimaryButton label="Save" onPress={() => saveItem(entityRef)} style={{ marginTop: spacing.md }} />
+            <PrimaryButton label="Save" onPress={() => saveItem(entityRef)} style={{ marginTop: t.spacing.md }} />
           )}
           {canDeleteItems && (
-            <PrimaryButton label="Remove item" tone="danger" onPress={() => deleteItem(entityRef)} style={{ marginTop: spacing.sm }} />
+            <PrimaryButton label="Remove item" tone="danger" onPress={() => deleteItem(entityRef)} style={{ marginTop: t.spacing.sm }} />
           )}
         </View>
       )}
@@ -314,8 +318,8 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
           {!!error && <Text style={s.error}>{error}</Text>}
           {canEdit && (
             <>
-              <PrimaryButton label="Save" onPress={() => saveUnit(entityRef)} style={{ marginTop: spacing.md }} />
-              <PrimaryButton label="Retire unit" tone="danger" onPress={() => deleteUnit(entityRef)} style={{ marginTop: spacing.sm }} />
+              <PrimaryButton label="Save" onPress={() => saveUnit(entityRef)} style={{ marginTop: t.spacing.md }} />
+              <PrimaryButton label="Retire unit" tone="danger" onPress={() => deleteUnit(entityRef)} style={{ marginTop: t.spacing.sm }} />
             </>
           )}
         </View>
@@ -328,9 +332,9 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
           {!!error && <Text style={s.error}>{error}</Text>}
           {canAdjustStock && (
             <>
-              <PrimaryButton label="Save" onPress={() => saveStock(entityRef)} style={{ marginTop: spacing.md }} />
+              <PrimaryButton label="Save" onPress={() => saveStock(entityRef)} style={{ marginTop: t.spacing.md }} />
               {entityRef.mode === 'delta' && (
-                <PrimaryButton label="Undo this add" tone="danger" onPress={() => deleteStock(entityRef)} style={{ marginTop: spacing.sm }} />
+                <PrimaryButton label="Undo this add" tone="danger" onPress={() => deleteStock(entityRef)} style={{ marginTop: t.spacing.sm }} />
               )}
             </>
           )}
@@ -340,8 +344,8 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   body: { gap: 10 },
-  title: { fontSize: fontSizes.md, fontWeight: '700', color: colors.textPrimary, marginBottom: 4 },
-  error: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  title: { fontSize: t.typography.fontSizes.md, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 4 },
+  error: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
 });

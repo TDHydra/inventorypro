@@ -1,11 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
-  View, Text, FlatList, TextInput, TouchableOpacity, Image, StyleSheet,
+  View, Text, FlatList, TouchableOpacity, Image, StyleSheet,
   Dimensions, RefreshControl,
 } from 'react-native';
 import { Stack } from 'expo-router';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { SearchInput } from '../../../src/components/ui/SearchInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { MediaDetailSheet } from '../../../src/components/MediaDetailSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -31,6 +34,8 @@ const FILTERS: { label: string; value: MediaHubFilter }[] = [
 ];
 
 export default function MediaHubScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   // 'everything' surfaces media on non-job entities too — same gate as Activity Logs.
   const canViewAll = usePermission('view_all_logs');
   const canDelete = usePermission('delete_media');
@@ -164,15 +169,11 @@ export default function MediaHubScreen() {
           ))}
         </View>
 
-        <TextInput
+        <SearchInput
           style={s.search}
           placeholder="Search job, room, uploader…"
-          placeholderTextColor={colors.textMuted}
           value={query}
           onChangeText={handleSearch}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
         />
 
         {loaded && rows.length > 0 ? (
@@ -192,8 +193,8 @@ export default function MediaHubScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => void onRefresh()}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
           renderItem={({ item }) => {
@@ -259,21 +260,21 @@ export default function MediaHubScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  chipRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: 12, paddingTop: spacing.md, paddingBottom: spacing.sm, flexWrap: 'wrap' },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  chipRow: { flexDirection: 'row', gap: t.spacing.sm, paddingHorizontal: 12, paddingTop: t.spacing.md, paddingBottom: t.spacing.sm, flexWrap: 'wrap' },
+  // Margins + the screen's compact sizing kept as overrides on the SearchInput
+  // primitive (box/border/height come from the input descriptor).
   search: {
-    marginHorizontal: 12, marginBottom: spacing.sm,
-    backgroundColor: colors.surface, borderRadius: radii.md,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.md, height: 44, fontSize: fontSizes.body2, color: colors.textPrimary,
+    marginHorizontal: 12, marginBottom: t.spacing.sm,
+    paddingHorizontal: t.spacing.md, fontSize: t.typography.fontSizes.body2,
   },
-  count: { fontSize: fontSizes.caption, color: colors.textMuted, paddingHorizontal: 12, paddingBottom: spacing.xs },
+  count: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, paddingHorizontal: 12, paddingBottom: t.spacing.xs },
 
-  list: { padding: 12, paddingBottom: spacing.xxxl },
+  list: { padding: 12, paddingBottom: t.spacing.xxxl },
   gridRow: { gap: 12, marginBottom: 12 },
   cell: { width: THUMB },
-  thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: colors.border },
+  thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: t.colors.border },
   thumbSelected: { opacity: 0.65 },
   videoBadge: {
     position: 'absolute', top: 0, left: 0, width: THUMB, height: THUMB,
@@ -281,7 +282,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(15,23,42,0.35)', borderRadius: 8,
   },
   videoIcon: { color: '#fff', fontSize: 24 },
-  cellCaption: { fontSize: fontSizes.xs, color: colors.textSecondary, marginTop: 3 },
+  cellCaption: { fontSize: t.typography.fontSizes.xs, color: t.colors.textSecondary, marginTop: 3 },
   checkOverlay: {
     position: 'absolute', top: 4, right: 4,
     width: 22, height: 22, borderRadius: 11,
@@ -289,6 +290,6 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(15,23,42,0.35)',
     alignItems: 'center', justifyContent: 'center',
   },
-  checkOverlayOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: '#fff', fontSize: 13, fontWeight: '700', lineHeight: 16 },
+  checkOverlayOn: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
+  checkMark: { color: t.colors.onPrimary, fontSize: 13, fontWeight: '700', lineHeight: 16 },
 });

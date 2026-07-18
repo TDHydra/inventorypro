@@ -5,6 +5,8 @@ import {
 } from 'react-native';
 import { getLogForEntity, LogEntry } from '../db/queries/log';
 import { getPrimaryMedia, getMediaForEntity, MediaRecord } from '../db/queries/media';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -91,6 +93,7 @@ export interface ActivityFeedProps {
 }
 
 export default function ActivityFeed({ entityType, entityId, limit = 50 }: ActivityFeedProps) {
+  const s = useThemedStyles(makeStyles);
   const entries = useMemo(
     () => getLogForEntity(entityType, entityId, limit),
     [entityType, entityId, limit],
@@ -175,35 +178,35 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   list: { padding: 12, gap: 8 },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#fff',
+    backgroundColor: t.colors.surface,
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: t.colors.border,
   },
   icon: { fontSize: 20, width: 28, textAlign: 'center' },
   middle: { flex: 1 },
   action: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1E293B',
+    color: t.colors.textPrimary,
     textTransform: 'capitalize',
   },
-  user: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  qty: { fontSize: 12, color: '#16A34A', marginTop: 2 },
-  note: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  date: { fontSize: 11, color: '#94A3B8', paddingTop: 2 },
+  user: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
+  qty: { fontSize: 12, color: t.colors.success, marginTop: 2 },
+  note: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
+  date: { fontSize: 11, color: t.colors.textMuted, paddingTop: 2 },
   empty: { alignItems: 'center', paddingTop: 40 },
-  emptyText: { fontSize: 14, color: '#94A3B8' },
+  emptyText: { fontSize: 14, color: t.colors.textMuted },
   // Trailing thumbnail on rows that have a move photo
   thumbBtn: { marginLeft: 4, alignSelf: 'center' },
-  thumbImg: { width: 36, height: 36, borderRadius: 6, backgroundColor: '#E2E8F0' },
+  thumbImg: { width: 36, height: 36, borderRadius: 6, backgroundColor: t.colors.border },
   // Lightbox overlay (mirrors MediaGallery lightbox pattern)
   lightbox: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',

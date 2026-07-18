@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, Image, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../lib/themedAlert';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { ModalSheet } from './ui/ModalSheet';
 import { AppInput } from './ui/AppInput';
 import { FieldLabel } from './ui/FieldLabel';
@@ -24,6 +26,8 @@ interface Props {
 }
 
 export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const canEdit = usePermission('edit_media');
   const canDelete = usePermission('delete_media');
@@ -199,7 +203,7 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
         <TextInput
           style={s.jobSearch}
           placeholder="Search jobs…"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={t.colors.textMuted}
           value={jobSearch}
           onChangeText={setJobSearch}
           autoCapitalize="none"
@@ -221,6 +225,7 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
 }
 
 function Field({ label, value }: { label: string; value: string }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
@@ -229,39 +234,39 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-const s = StyleSheet.create({
-  image: { width: '100%', height: 300, borderRadius: radii.md, backgroundColor: colors.border, marginBottom: spacing.md },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  image: { width: '100%', height: 300, borderRadius: t.radii.md, backgroundColor: t.colors.border, marginBottom: t.spacing.md },
   videoBox: {
-    width: '100%', height: 300, borderRadius: radii.md, backgroundColor: '#0F172A',
-    alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginBottom: spacing.md,
+    width: '100%', height: 300, borderRadius: t.radii.md, backgroundColor: '#0F172A',
+    alignItems: 'center', justifyContent: 'center', gap: t.spacing.xs, marginBottom: t.spacing.md,
   },
   videoPlay: { color: '#fff', fontSize: 40 },
-  videoLabel: { color: colors.textMuted, fontSize: fontSizes.body2, fontWeight: '600' },
+  videoLabel: { color: t.colors.textMuted, fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
 
-  field: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5 },
-  fieldLabel: { fontSize: fontSizes.caption, color: colors.textMuted, flexShrink: 0 },
-  fieldValue: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1, textAlign: 'right' },
+  field: { flexDirection: 'row', justifyContent: 'space-between', gap: t.spacing.md, paddingVertical: 5 },
+  fieldLabel: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, flexShrink: 0 },
+  fieldValue: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, flex: 1, textAlign: 'right' },
 
-  actionBtn: { marginTop: spacing.md },
-  editBox: { marginTop: spacing.md, gap: spacing.md },
-  cancelText: { textAlign: 'center', color: colors.textSecondary, fontWeight: '600', paddingVertical: spacing.xs },
+  actionBtn: { marginTop: t.spacing.md },
+  editBox: { marginTop: t.spacing.md, gap: t.spacing.md },
+  cancelText: { textAlign: 'center', color: t.colors.textSecondary, fontWeight: '600', paddingVertical: t.spacing.xs },
   moveBtn: {
-    marginTop: spacing.md, paddingVertical: 13, borderRadius: radii.lg, alignItems: 'center',
-    borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primaryBg,
+    marginTop: t.spacing.md, paddingVertical: 13, borderRadius: t.radii.lg, alignItems: 'center',
+    borderWidth: 1, borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg,
   },
-  moveText: { color: colors.primaryText, fontWeight: '700', fontSize: fontSizes.body },
+  moveText: { color: t.colors.primaryText, fontWeight: '700', fontSize: t.typography.fontSizes.body },
 
-  sheetTitle: { fontSize: fontSizes.base, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
+  sheetTitle: { fontSize: t.typography.fontSizes.base, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.md },
   jobSearch: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
-    marginBottom: spacing.sm,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
+    marginBottom: t.spacing.sm,
   },
   jobRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md,
-    paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderDetail,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing.md,
+    paddingVertical: t.spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.colors.borderDetail,
   },
-  jobName: { flex: 1, fontSize: fontSizes.body, color: colors.textPrimary },
-  jobStatus: { fontSize: fontSizes.caption, color: colors.textMuted },
-  noJobs: { fontSize: fontSizes.body2, color: colors.textMuted, paddingVertical: spacing.md, textAlign: 'center' },
+  jobName: { flex: 1, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  jobStatus: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  noJobs: { fontSize: t.typography.fontSizes.body2, color: t.colors.textMuted, paddingVertical: t.spacing.md, textAlign: 'center' },
 });

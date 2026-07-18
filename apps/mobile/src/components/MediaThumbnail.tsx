@@ -1,4 +1,6 @@
 import { View, Image, Text, StyleSheet } from 'react-native';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { getPrimaryMedia } from '../db/queries/media';
 
 interface Props {
@@ -8,6 +10,7 @@ interface Props {
 }
 
 export function MediaThumbnail({ entityType, entityId, size = 44 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const record = getPrimaryMedia(entityType, entityId);
 
   if (record) {
@@ -20,16 +23,16 @@ export function MediaThumbnail({ entityType, entityId, size = 44 }: Props) {
   }
 
   return (
-    <View style={[styles.placeholder, { width: size, height: size }]}>
-      <Text style={styles.icon}>🖼</Text>
+    <View style={[s.placeholder, { width: size, height: size }]}>
+      <Text style={s.icon}>🖼</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   placeholder: {
     borderRadius: 8,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: t.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },

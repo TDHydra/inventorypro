@@ -27,7 +27,9 @@ import MoveStockModal from '../../../src/components/MoveStockModal';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/db/queries/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -38,6 +40,8 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
 export default function LocationDetailScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canManage = usePermission('manage_locations');
@@ -451,7 +455,7 @@ export default function LocationDetailScreen() {
                   <View key={shelf.id}>
                     <View style={[s.shelfRow, i < shelves.length - 1 && coloringShelfId !== shelf.id && s.divider]}>
                       <View style={s.shelfRowMain}>
-                        <View style={[s.shelfColorDot, { backgroundColor: shelf.color ?? colors.border }]} />
+                        <View style={[s.shelfColorDot, { backgroundColor: shelf.color ?? t.colors.border }]} />
                         <View style={{ flex: 1 }}>
                           <Text style={s.shelfName}>{shelf.name}</Text>
                           <Text style={s.shelfParent}>{location.name}</Text>
@@ -652,7 +656,7 @@ export default function LocationDetailScreen() {
               label="Save Changes"
               onPress={doEdit}
               disabled={locked || ownerMissing}
-              style={{ marginTop: spacing.sm }}
+              style={{ marginTop: t.spacing.sm }}
             />
             {locked && <MaintenanceBanner />}
             <View style={s.secondaryRow}>
@@ -687,103 +691,103 @@ export default function LocationDetailScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  content: { padding: spacing.lg, gap: spacing.md, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  content: { padding: t.spacing.lg, gap: t.spacing.md, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: fontSizes.body, color: colors.textMuted },
+  muted: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted },
 
   card: {
-    backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg,
-    borderWidth: 1, borderColor: colors.borderDetail,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.lg, padding: t.spacing.lg,
+    borderWidth: 1, borderColor: t.colors.borderDetail,
   },
 
   nameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  name: { fontSize: fontSizes.xl, fontWeight: '700', color: colors.brand, flex: 1 },
-  editBtn: { paddingHorizontal: spacing.md, paddingVertical: 6, backgroundColor: colors.primaryBg, borderRadius: radii.sm },
-  editBtnText: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body2 },
+  name: { fontSize: t.typography.fontSizes.xl, fontWeight: '700', color: t.colors.brand, flex: 1 },
+  editBtn: { paddingHorizontal: t.spacing.md, paddingVertical: 6, backgroundColor: t.colors.primaryBg, borderRadius: t.radii.sm },
+  editBtnText: { color: t.colors.primary, fontWeight: '700', fontSize: t.typography.fontSizes.body2 },
 
   attrRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 10,
   },
-  attrKey: { fontSize: fontSizes.body, color: colors.textSecondary },
+  attrKey: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary },
   attrVal: {
-    fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '600',
+    fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '600',
     maxWidth: '60%', textAlign: 'right',
   },
-  divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
 
   sectionLabel: {
-    fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary,
+    fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4,
   },
 
   stockRow: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', paddingVertical: spacing.md,
+    justifyContent: 'space-between', paddingVertical: t.spacing.md,
   },
-  stockName: { fontSize: fontSizes.md, color: colors.textPrimary, fontWeight: '500', flex: 1, marginRight: spacing.sm },
-  stockQty: { fontSize: fontSizes.md, fontWeight: '700', color: colors.success },
+  stockName: { fontSize: t.typography.fontSizes.md, color: t.colors.textPrimary, fontWeight: '500', flex: 1, marginRight: t.spacing.sm },
+  stockQty: { fontSize: t.typography.fontSizes.md, fontWeight: '700', color: t.colors.success },
 
   moveStockBtn: {
-    marginTop: spacing.md, paddingVertical: 10, alignItems: 'center',
-    backgroundColor: colors.primaryBg, borderRadius: radii.md,
+    marginTop: t.spacing.md, paddingVertical: 10, alignItems: 'center',
+    backgroundColor: t.colors.primaryBg, borderRadius: t.radii.md,
   },
-  moveStockBtnText: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body },
+  moveStockBtnText: { color: t.colors.primary, fontWeight: '700', fontSize: t.typography.fontSizes.body },
   addStockBtn: {
-    marginTop: spacing.md, paddingVertical: 12, alignItems: 'center',
-    backgroundColor: colors.primary, borderRadius: radii.md,
+    marginTop: t.spacing.md, paddingVertical: 12, alignItems: 'center',
+    backgroundColor: t.colors.primary, borderRadius: t.radii.md,
   },
-  addStockBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  addStockBtnText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: t.typography.fontSizes.body },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
 
-  btn: { borderRadius: radii.lg, paddingVertical: 13, alignItems: 'center', marginTop: spacing.sm },
-  btnDanger: { backgroundColor: colors.dangerBg },
-  btnDangerText: { color: colors.danger, fontWeight: '700', fontSize: fontSizes.base },
+  btn: { borderRadius: t.radii.lg, paddingVertical: 13, alignItems: 'center', marginTop: t.spacing.sm },
+  btnDanger: { backgroundColor: t.colors.dangerBg },
+  btnDangerText: { color: t.colors.danger, fontWeight: '700', fontSize: t.typography.fontSizes.base },
   btnRestore: { backgroundColor: '#DCFCE7' },
-  btnRestoreText: { color: colors.success, fontWeight: '700', fontSize: fontSizes.base },
+  btnRestoreText: { color: t.colors.success, fontWeight: '700', fontSize: t.typography.fontSizes.base },
 
   archivedBanner: {
-    backgroundColor: '#FEF3C7', borderRadius: radii.sm,
+    backgroundColor: t.colors.warningBg, borderRadius: t.radii.sm,
     paddingHorizontal: 10, paddingVertical: 4,
     marginBottom: 10, alignSelf: 'flex-start',
   },
-  archivedText: { color: '#92400E', fontWeight: '700', fontSize: fontSizes.caption },
+  archivedText: { color: t.colors.warningText, fontWeight: '700', fontSize: t.typography.fontSizes.caption },
 
   // ── Edit Modal (overlay + sheet handled by ModalSheet primitive) ──────────
-  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.base },
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  iconCell: { width: 46, height: 46, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  iconCellActive: { borderColor: colors.primary, backgroundColor: colors.primaryBgStrong },
+  modalTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.base },
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
+  iconCell: { width: 46, height: 46, borderRadius: t.radii.md, backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.border, alignItems: 'center', justifyContent: 'center' },
+  iconCellActive: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBgStrong },
   iconCellText: { fontSize: 22 },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorCell: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  colorCellActive: { borderColor: colors.textPrimary },
-  colorCheck: { color: '#fff', fontWeight: '800', fontSize: fontSizes.base },
-  colorCellNone: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  colorCellNoneText: { color: colors.textMuted, fontWeight: '800', fontSize: fontSizes.body },
+  colorCellActive: { borderColor: t.colors.textPrimary },
+  colorCheck: { color: '#fff', fontWeight: '800', fontSize: t.typography.fontSizes.base },
+  colorCellNone: { backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.border },
+  colorCellNoneText: { color: t.colors.textMuted, fontWeight: '800', fontSize: t.typography.fontSizes.body },
 
   // ── Shelves section ────────────────────────────────────────────────────────
   shelfRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 10, gap: spacing.sm,
+    paddingVertical: 10, gap: t.spacing.sm,
   },
-  shelfRowMain: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  shelfRowMain: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, flex: 1 },
   shelfColorDot: { width: 14, height: 14, borderRadius: 7 },
-  shelfName: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
-  shelfParent: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 1 },
-  shelfColorBtn: { color: colors.primary, fontWeight: '700', fontSize: fontSizes.body2 },
-  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: spacing.sm },
-  linkBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
-  linkText: { color: colors.primary, fontSize: fontSizes.md, fontWeight: '600' },
-  cancelText: { color: colors.textMuted },
+  shelfName: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
+  shelfParent: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 1 },
+  shelfColorBtn: { color: t.colors.primary, fontWeight: '700', fontSize: t.typography.fontSizes.body2 },
+  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: t.spacing.sm },
+  linkBtn: { paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
+  linkText: { color: t.colors.primary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
-  ownerError: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  switchLabel: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 12 },
+  ownerError: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
   reportRepairRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14 },
-  reportRepairText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
+  reportRepairText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontWeight: '600' },
 });

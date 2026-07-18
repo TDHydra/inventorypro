@@ -27,7 +27,8 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { runInTransaction } from '../../../src/db/tx';
 import { parseQuantity, parseOptionalCount, parsePackSize } from '../../../src/lib/validation';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
@@ -37,6 +38,7 @@ import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { HidableField } from '../../../src/components/ui/HidableField';
 
 export default function AddStockScreen() {
+  const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -659,41 +661,41 @@ export default function AddStockScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 48 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   packModeRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  packHint: { fontSize: 13, color: colors.primary, fontWeight: '600', marginTop: 4 },
+  packHint: { fontSize: 13, color: t.colors.primary, fontWeight: '600', marginTop: 4 },
   readonlyCard: {
-    backgroundColor: colors.primaryBg, borderRadius: 10, borderWidth: 1,
-    borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: t.colors.primaryBg, borderRadius: 10, borderWidth: 1,
+    borderColor: t.colors.border, paddingHorizontal: 14, paddingVertical: 10,
   },
-  readonlyName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-  readonlyMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  readonlyName: { fontSize: 14, fontWeight: '700', color: t.colors.textPrimary },
+  readonlyMeta: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
   unitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 12 },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
-  cancelText: { color: colors.textMuted },
+  linkText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted },
   noteBox: {
-    backgroundColor: colors.primaryBg,
+    backgroundColor: t.colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 4,
   },
   noteText: {
     fontSize: 13,
-    color: colors.primaryText,
+    color: t.colors.primaryText,
     lineHeight: 18,
   },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
+  switchLabel: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 12 },
 });
