@@ -9,7 +9,7 @@ import {
   getItemById, getStockByItem, updateItemFields, getDistinctValues,
   InventoryItem, StockByLocation,
 } from '../../../src/db/queries/items';
-import { getAllLocations, getLocationPath, getShelfLocations, findOrCreateShelfByName } from '../../../src/db/queries/locations';
+import { getLocationPath, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
@@ -24,7 +24,7 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
-import { SearchablePicker } from '../../../src/components/SearchablePicker';
+import { LocationShelfPicker } from '../../../src/components/pickers';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
@@ -56,8 +56,11 @@ export default function ItemDetailScreen() {
   const [editItemType, setEditItemType] = useState('');
   const [editUnitCat, setEditUnitCat] = useState<string>(PRODUCT_CLASS_IDS.piece);
   const [editUnit, setEditUnit] = useState('');
-  // Optional "home" location (where the item belongs). Nullable.
+  // Optional "home" location (where the item belongs). Nullable. The two-stage
+  // LocationShelfPicker holds the parent location and its optional shelf
+  // separately; both are resolved to a single id at submit.
   const [editHomeLocation, setEditHomeLocation] = useState<PickerOption | null>(null);
+  const [editHomeShelf, setEditHomeShelf] = useState<PickerOption | null>(null);
 
   // Admin-managed Item Types (PPE, Filters, …) and product classes (unit class
   // override). Each item type carries its curated units + unit class in meta.
@@ -66,15 +69,6 @@ export default function ItemDetailScreen() {
   // Keyed on refreshKey so the map refreshes after a sync.
   const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), [refreshKey]);
   const productClasses = useMemo(() => getProductClasses(), [refreshKey]);
-  // Home-location typeahead over Shelf-type locations (named WH-A1, SHOP-B3, …).
-  // Falls back to the full breadcrumb list when no shelves exist yet so the field
-  // stays usable.
-  const homeLocationOptions = useMemo<PickerOption[]>(() => {
-    const shelves = getShelfLocations();
-    return shelves.length
-      ? shelves.map(s => ({ id: s.id, label: s.name }))
-      : getAllLocations().map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, [refreshKey]);
 
   const supplierOptions = useMemo(() => getDistinctValues('supplier'), [refreshKey]);
   const modelOptions = useMemo(() => getDistinctValues('model'), [refreshKey]);
@@ -146,11 +140,15 @@ export default function ItemDetailScreen() {
     const matched = itemTypes.find(t => t.label === item.category);
     setEditItemType(matched ? matched.label : '');
     // Seed the home-location picker from the stored id (resolved to its path).
+    // The stored id is already the final location/shelf id, so it seeds the
+    // location field; the shelf sub-field starts empty and only reappears if the
+    // user re-picks a has_shelves parent.
     setEditHomeLocation(
       item.home_location_id
         ? { id: item.home_location_id, label: getLocationPath(item.home_location_id) }
         : null,
     );
+    setEditHomeShelf(null);
     setEditing(true);
   }
 
@@ -215,19 +213,15 @@ export default function ItemDetailScreen() {
     const pack = parsePackSize(form.pack_size ?? '');
     if (!pack.ok) { trackReject('item.pack_size', pack.rule); Alert.alert('Invalid pack size', pack.error); return; }
 
-    // Resolve the home location BEFORE building the update so a failed shelf
-    // create (findOrCreateShelfByName returns null on write failure) can't
-    // silently drop it. Abort with a message instead.
-    let homeLocationId: string | null;
-    if (editHomeLocation?.id === '__new__') {
-      homeLocationId = findOrCreateShelfByName(editHomeLocation.label);
-      if (!homeLocationId) {
-        Alert.alert('Couldn’t add that location', 'The shelf could not be created. Please try again.');
-        return;
-      }
-    } else {
-      homeLocationId = editHomeLocation?.id ?? null;
+    // Resolve the (location, shelf) pair into the single home-location id BEFORE
+    // building the update so a failed shelf create can't silently drop it. Abort
+    // with a message instead.
+    const locRes = resolveLocationShelfSelection(editHomeLocation, editHomeShelf);
+    if (!locRes.ok) {
+      Alert.alert('Couldn’t add that location', `Could not create shelf “${locRes.shelfLabel}”. Please try again.`);
+      return;
     }
+    const homeLocationId = locRes.id;
 
     const fields = {
       name: form.name.trim(),
@@ -284,12 +278,11 @@ export default function ItemDetailScreen() {
               <SuggestInput label="Supplier / Vendor" value={form.supplier} onChange={setField('supplier')} suggestions={supplierOptions} />
               <View style={s.fieldWrap}>
                 <FieldLabel>Home location (where it belongs)</FieldLabel>
-                <SearchablePicker
-                  placeholder="Search shelves… (type a new one to add it)"
-                  options={homeLocationOptions}
-                  value={editHomeLocation}
-                  onSelect={(opt) => setEditHomeLocation(prev => (prev?.id === opt.id ? null : opt))}
-                  onCreate={(text) => setEditHomeLocation({ id: '__new__', label: text })}
+                <LocationShelfPicker
+                  locationValue={editHomeLocation}
+                  shelfValue={editHomeShelf}
+                  onChangeLocation={setEditHomeLocation}
+                  onChangeShelf={setEditHomeShelf}
                 />
               </View>
               {itemTypes.length > 0 && (

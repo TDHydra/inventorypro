@@ -9,7 +9,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { generateUUID } from '../../../src/utils/uuid';
 import { getActiveCheckoutsForUser } from '../../../src/db/queries/jobs';
-import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { rowsAs } from '../../../src/db/schema';
 import { adjustStock } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
@@ -18,7 +18,8 @@ import { runInTransaction } from '../../../src/db/tx';
 import { parseQuantity } from '../../../src/lib/validation';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { formatQuantity } from '../../../src/constants/units';
-import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationShelfPicker } from '../../../src/components/pickers';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { getDeployedUnitsForUser, getUnitByTag, setUnitStatus } from '../../../src/db/queries/equipmentUnits';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
@@ -55,6 +56,7 @@ export default function CheckinScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
   const [returnLocation, setReturnLocation] = useState<PickerOption | null>(null);
+  const [returnShelf, setReturnShelf] = useState<PickerOption | null>(null);
   const [returnQtys, setReturnQtys] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,6 +65,7 @@ export default function CheckinScreen() {
   const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
   const [showUnitModal, setShowUnitModal] = useState(false);
   const [unitReturnLocation, setUnitReturnLocation] = useState<PickerOption | null>(null);
+  const [unitReturnShelf, setUnitReturnShelf] = useState<PickerOption | null>(null);
   const [scanTag, setScanTag] = useState('');
   const [scanNote, setScanNote] = useState<{ text: string; tone: 'warn' | 'info' } | null>(null);
   const [unitSubmitting, setUnitSubmitting] = useState(false);
@@ -99,19 +102,6 @@ export default function CheckinScreen() {
     ),
     [allLocations, coords],
   );
-  const locationNameById = useMemo(
-    () => new Map(sortedLocations.map(l => [l.id, l.name])),
-    [sortedLocations],
-  );
-  const locationOptions: PickerOption[] = useMemo(
-    () => sortedLocations.map(l => {
-      const parentName = l.parent_id ? locationNameById.get(l.parent_id) : undefined;
-      const distLabel = l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined;
-      const sublabel = [parentName, distLabel].filter(Boolean).join(' · ') || undefined;
-      return { id: l.id, label: l.name, sublabel };
-    }),
-    [sortedLocations, locationNameById],
-  );
   // First anchored location (non-null distanceM) is the nearest candidate for banners.
   const nearestLocation = useMemo(
     () => sortedLocations.find(l => l.distanceM != null) ?? null,
@@ -146,6 +136,16 @@ export default function CheckinScreen() {
       return;
     }
 
+    // Resolve the (location, shelf) pair into the id stock is stored against — a
+    // typed-in shelf is find-or-created here. returnLocation is non-null (guarded
+    // above), so ok:true always carries a non-null id.
+    const locRes = resolveLocationShelfSelection(returnLocation, returnShelf);
+    if (!locRes.ok) {
+      Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+      return;
+    }
+    const returnLocId = locRes.id as string;
+
     const toReturn = checkouts.filter(c => selected.has(c.log_id));
 
     // Validate all quantities before writing anything; keep the parsed values so
@@ -178,11 +178,11 @@ export default function CheckinScreen() {
         for (const item of toReturn) {
           const returnQty = returnQtyById[item.log_id];
 
-          adjustStock(item.entity_id, returnLocation.id, returnQty);
+          adjustStock(item.entity_id, returnLocId, returnQty);
 
           appendOutbox('ADJUST', 'stock_by_location', {
             item_id: item.entity_id,
-            location_id: returnLocation.id,
+            location_id: returnLocId,
             delta: returnQty,
             updated_at: now,
           });
@@ -194,7 +194,7 @@ export default function CheckinScreen() {
             entity_type: 'item',
             entity_id: item.entity_id,
             from_location_id: null,
-            to_location_id: returnLocation.id,
+            to_location_id: returnLocId,
             quantity: returnQty,
             unit: item.unit,
             job_id: item.job_id,
@@ -223,6 +223,7 @@ export default function CheckinScreen() {
     setShowModal(false);
     // Reset modal inputs after successful submit
     setReturnLocation(null);
+    setReturnShelf(null);
     setReturnQtys({});
     setCheckinEventId(generateUUID());
     Alert.alert(
@@ -273,6 +274,16 @@ export default function CheckinScreen() {
       Alert.alert('Not Allowed', 'You don’t have permission to check in inventory.');
       return;
     }
+    // Resolve the (location, shelf) pair into the id units are stored against — a
+    // typed-in shelf is find-or-created here. unitReturnLocation is non-null
+    // (guarded above), so ok:true always carries a non-null id.
+    const locRes = resolveLocationShelfSelection(unitReturnLocation, unitReturnShelf);
+    if (!locRes.ok) {
+      Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+      return;
+    }
+    const unitReturnLocId = locRes.id as string;
+
     const toReturn = deployedUnits.filter(u => selectedUnitIds.has(u.id));
     setUnitSubmitting(true);
 
@@ -287,7 +298,7 @@ export default function CheckinScreen() {
           const jobIdForLog = unit.current_job_id;
           const u = setUnitStatus(unit.id, {
             status: 'available',
-            current_location_id: unitReturnLocation.id,
+            current_location_id: unitReturnLocId,
             current_job_id: null,
           });
           // Full upsert by id; no synced_at
@@ -297,7 +308,7 @@ export default function CheckinScreen() {
             asset_tag: u.asset_tag,
             serial_number: u.serial_number,
             status: 'available',
-            current_location_id: unitReturnLocation.id,
+            current_location_id: unitReturnLocId,
             current_job_id: null,
             notes: u.notes,
             created_at: u.created_at,
@@ -311,7 +322,7 @@ export default function CheckinScreen() {
             entity_type: 'item',
             entity_id: u.item_id,
             from_location_id: null,
-            to_location_id: unitReturnLocation.id,
+            to_location_id: unitReturnLocId,
             quantity: 1,
             unit: null,
             job_id: jobIdForLog,
@@ -340,6 +351,7 @@ export default function CheckinScreen() {
     setShowUnitModal(false);
     // Reset modal inputs after successful submit
     setUnitReturnLocation(null);
+    setUnitReturnShelf(null);
     setSelectedUnitIds(new Set());
     setUnitRefreshKey(k => k + 1);
     setUnitCheckinEventId(generateUUID());
@@ -479,17 +491,12 @@ export default function CheckinScreen() {
                 distanceM={nearestLocation?.distanceM ?? null}
                 onUse={() => nearestLocation && setReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
               />
-              <SearchablePicker
-                placeholder="Search destination location..."
-                options={locationOptions}
-                value={returnLocation}
-                onSelect={(opt) => {
-                  if (returnLocation && returnLocation.id === opt.id) {
-                    setReturnLocation(null);
-                  } else {
-                    setReturnLocation(opt);
-                  }
-                }}
+              <LocationShelfPicker
+                locationValue={returnLocation}
+                shelfValue={returnShelf}
+                onChangeLocation={setReturnLocation}
+                onChangeShelf={setReturnShelf}
+                proximitySort
               />
 
               {/* Per-item return quantity inputs */}
@@ -541,17 +548,12 @@ export default function CheckinScreen() {
                 distanceM={nearestLocation?.distanceM ?? null}
                 onUse={() => nearestLocation && setUnitReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
               />
-              <SearchablePicker
-                placeholder="Search destination location..."
-                options={locationOptions}
-                value={unitReturnLocation}
-                onSelect={(opt) => {
-                  if (unitReturnLocation && unitReturnLocation.id === opt.id) {
-                    setUnitReturnLocation(null);
-                  } else {
-                    setUnitReturnLocation(opt);
-                  }
-                }}
+              <LocationShelfPicker
+                locationValue={unitReturnLocation}
+                shelfValue={unitReturnShelf}
+                onChangeLocation={setUnitReturnLocation}
+                onChangeShelf={setUnitReturnShelf}
+                proximitySort
               />
 
               {/* Selected units summary */}

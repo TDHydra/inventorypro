@@ -9,7 +9,7 @@ import {
 } from '../../../src/db/queries/jobs';
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
-import { getAllLocations } from '../../../src/db/queries/locations';
+import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { getAllTeams, getTeamById } from '../../../src/db/queries/teams';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { ROLE_TIER } from '../../../src/constants/roles';
@@ -17,7 +17,7 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
+import { LocationShelfPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { MapDisplay } from '../../../src/components/MapDisplay';
 import { colors } from '../../../src/theme';
@@ -82,6 +82,7 @@ export default function JobDetailScreen() {
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editSiteAddress, setEditSiteAddress] = useState('');
   const [editSiteLocation, setEditSiteLocation] = useState<PickerOption | null>(null);
+  const [editSiteShelf, setEditSiteShelf] = useState<PickerOption | null>(null);
   const [editDescription, setEditDescription] = useState('');
   const [editType, setEditType] = useState<string | null>(null);
   const [editReferenceNumber, setEditReferenceNumber] = useState('');
@@ -140,6 +141,7 @@ export default function JobDetailScreen() {
     } else {
       setEditSiteLocation(null);
     }
+    setEditSiteShelf(null);
     setEditing(true);
   }
 
@@ -165,12 +167,20 @@ export default function JobDetailScreen() {
       if (!r.ok) { trackReject(c.field, r.rule); Alert.alert(`Check ${c.label.toLowerCase()}`, r.error); return; }
     }
 
+    // Resolve the site location (may create a new shelf under the picked
+    // location); a typed-in shelf that can't be created stops the save.
+    const locRes = resolveLocationShelfSelection(editSiteLocation, editSiteShelf);
+    if (!locRes.ok) {
+      Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+      return;
+    }
+
     const fields = {
       name: trimmed,
       status: editStatus,
       customer_name: editCustomerName.trim() || null,
       site_address: editSiteAddress.trim() || null,
-      site_location_id: editSiteLocation?.id ?? null,
+      site_location_id: locRes.id,
       description: editDescription.trim() || null,
       type: editType || null,
       reference_number: editReferenceNumber.trim() || null,
@@ -380,11 +390,11 @@ export default function JobDetailScreen() {
                 />
               </View>
 
-              <LocationPicker
-                label="Site Location"
-                placeholder="Search locations..."
-                value={editSiteLocation}
-                onChange={setEditSiteLocation}
+              <LocationShelfPicker
+                locationValue={editSiteLocation}
+                shelfValue={editSiteShelf}
+                onChangeLocation={setEditSiteLocation}
+                onChangeShelf={setEditSiteShelf}
               />
 
               <View style={s.fieldWrap}>
