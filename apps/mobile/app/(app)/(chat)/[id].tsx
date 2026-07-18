@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform, Image, ActivityIndicator,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import {
   getMessages, sendMessage, editMessage, deleteMessage, getConversation,
@@ -24,6 +25,11 @@ import { syncNow } from '../../../src/sync/engine';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { useSession } from '../../../src/hooks/useSession';
 import { useRouter } from 'expo-router';
+import { composerBottomPadding, chatKeyboardVerticalOffset } from './composerInsets';
+
+// Distance from the top of the KeyboardAvoidingView to the top of the screen
+// (the native header height) — used to line the composer up with the keyboard.
+const CHAT_HEADER_OFFSET = 90;
 
 const NOTIFY_PREFS: { key: NotifyPref; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -43,6 +49,7 @@ export default function ChatThreadScreen() {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const dataVersion = useDataVersion();
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => {
@@ -308,7 +315,7 @@ export default function ChatThreadScreen() {
       <KeyboardAvoidingView
         style={s.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={chatKeyboardVerticalOffset(CHAT_HEADER_OFFSET, insets.bottom)}
       >
         <FlatList
           data={inverted}
@@ -323,7 +330,7 @@ export default function ChatThreadScreen() {
           }
         />
 
-        <View style={s.composer}>
+        <View style={[s.composer, { paddingBottom: composerBottomPadding(spacing.sm, insets.bottom) }]}>
           {editingId ? (
             <View style={s.editingRow}>
               <Text style={s.editingText}>Editing message</Text>
