@@ -2,6 +2,7 @@ import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
 import { applyLabelMap } from './labelResolve';
+import { CATEGORY_DEFAULT_ICON } from '../../constants/locationStyles';
 
 export type TaxonomyType = {
   id: string;
@@ -405,6 +406,12 @@ export function getRepairStatusesWithFallback(): TaxonomyType[] {
   return getTaxonomyTypesWithFallback(REPAIR_STATUS);
 }
 
+// The single chokepoint every screen (jobs/repairs/equipment/teams/locations/
+// manage-types) calls to render a type's icon. Prefer the row's own icon; when a
+// row carries none — or the label was free-typed and has no taxonomy row at all —
+// fall back to a per-category default (CATEGORY_DEFAULT_ICON) so each category
+// shows a distinct, meaningful glyph rather than the generic pin. Screens need no
+// changes to benefit. Returns null only for an unknown category with no icon.
 export function getTypeIcon(category: string, label: string): string | null {
   const db = getDb();
   const result = db.executeSync(
@@ -412,7 +419,9 @@ export function getTypeIcon(category: string, label: string): string | null {
     [category, label],
   );
   const row = result.rows[0] as { icon: string | null } | undefined;
-  return row?.icon ?? null;
+  const icon = row?.icon;
+  if (icon && icon.trim() !== '') return icon;
+  return CATEGORY_DEFAULT_ICON[category] ?? null;
 }
 
 export function addTaxonomyType({
