@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import { AppInput } from './AppInput';
 import { Field } from './Field';
 import { Alert } from '../../lib/themedAlert';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { filterRecordOptions, type RecordOption } from './recordAutofillFilter';
 
 /**
@@ -68,6 +69,7 @@ export function RecordAutofillInput<T>({
   error,
   maxSuggestions = 8,
 }: Props<T>) {
+  const s = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
 
   const matches = useMemo(
@@ -120,10 +122,10 @@ export function RecordAutofillInput<T>({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: { position: 'relative' },
-  dropdown: { maxHeight: 240, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 2 },
-  row: { paddingHorizontal: spacing.base, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary },
-  rowSublabel: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
+  dropdown: { maxHeight: 240, backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, marginTop: 2 },
+  row: { paddingHorizontal: t.spacing.base, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  rowSublabel: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
 });

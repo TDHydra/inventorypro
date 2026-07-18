@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
 import { AppInput } from './AppInput';
 import { maskDateInput, validateDateValue, toIsoDateString } from './dateFieldLogic';
@@ -41,6 +42,7 @@ export function DateField({
   max,
   quickPicks = true,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [draft, setDraft] = useState(value);
   const [localError, setLocalError] = useState<string | undefined>(undefined);
   const editingRef = useRef(false);
@@ -131,13 +133,13 @@ export function DateField({
   );
 }
 
-const s = StyleSheet.create({
-  chipRow: { flexDirection: 'row', gap: spacing.sm },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  chipRow: { flexDirection: 'row', gap: t.spacing.sm },
   chip: {
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
+    backgroundColor: t.colors.primaryBg,
+    borderRadius: t.radii.xl,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.sm,
   },
-  chipText: { fontSize: fontSizes.body2, color: colors.primaryText, fontWeight: '600' },
+  chipText: { fontSize: t.typography.fontSizes.body2, color: t.colors.primaryText, fontWeight: '600' },
 });

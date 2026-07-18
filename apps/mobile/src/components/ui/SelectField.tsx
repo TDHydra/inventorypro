@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
 import { AppInput } from './AppInput';
 import { ModalSheet } from './ModalSheet';
@@ -36,6 +37,7 @@ export function SelectField({
   label, value, options, onSelect, placeholder = 'Select…',
   required, hint, error, searchable, onClear,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -104,27 +106,27 @@ export function SelectField({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   trigger: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44,
   },
-  value: { fontSize: fontSizes.body, color: colors.textPrimary, flexShrink: 1 },
-  placeholder: { fontSize: fontSizes.body, color: colors.textMuted, flexShrink: 1 },
-  chevron: { fontSize: fontSizes.body, color: colors.textMuted, marginLeft: spacing.sm },
-  header: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
-  search: { marginBottom: spacing.sm },
+  value: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, flexShrink: 1 },
+  placeholder: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted, flexShrink: 1 },
+  chevron: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted, marginLeft: t.spacing.sm },
+  header: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.md },
+  search: { marginBottom: t.spacing.sm },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.base, paddingVertical: 11,
-    borderBottomWidth: 1, borderBottomColor: colors.borderDetail,
+    paddingHorizontal: t.spacing.base, paddingVertical: 11,
+    borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail,
   },
   rowText: { flex: 1 },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
   rowLabelSelected: { fontWeight: '600' },
-  rowSub: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 1 },
-  check: { fontSize: fontSizes.body, color: colors.primary, fontWeight: '700', marginLeft: spacing.sm },
-  clearLabel: { fontSize: fontSizes.body, color: colors.textSecondary, fontStyle: 'italic' },
-  empty: { fontSize: fontSizes.body, color: colors.textMuted, paddingVertical: spacing.base, textAlign: 'center' },
+  rowSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 1 },
+  check: { fontSize: t.typography.fontSizes.body, color: t.colors.primary, fontWeight: '700', marginLeft: t.spacing.sm },
+  clearLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontStyle: 'italic' },
+  empty: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted, paddingVertical: t.spacing.base, textAlign: 'center' },
 });

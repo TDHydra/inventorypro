@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { ModalSheet } from './ModalSheet';
 import { PrimaryButton } from './PrimaryButton';
 
@@ -88,6 +89,7 @@ export function confirmSheet(opts: ConfirmSheetOptions): Promise<boolean> {
 
 /** Mount once at the app root (alongside `<AlertHost />`). */
 export function ConfirmSheetHost(): ReactElement | null {
+  const s = useThemedStyles(makeStyles);
   const [req, setReq] = useState<ConfirmRequest | null>(null);
 
   useEffect(() => {
@@ -124,20 +126,20 @@ export function ConfirmSheetHost(): ReactElement | null {
   );
 }
 
-const s = StyleSheet.create({
-  title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary },
-  message: { fontSize: fontSizes.body, color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 20 },
-  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  title: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary },
+  message: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, marginTop: t.spacing.sm, lineHeight: 20 },
+  actions: { flexDirection: 'row', gap: t.spacing.sm, marginTop: t.spacing.xl },
   btnGhost: {
     flex: 1,
-    borderRadius: radii.lg,
+    borderRadius: t.radii.lg,
     paddingVertical: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
   },
-  btnGhostText: { color: colors.textSecondary, fontWeight: '600', fontSize: fontSizes.base },
+  btnGhostText: { color: t.colors.textSecondary, fontWeight: '600', fontSize: t.typography.fontSizes.base },
   confirmBtn: { flex: 1 },
 });

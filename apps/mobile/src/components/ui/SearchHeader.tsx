@@ -24,7 +24,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { AppInput } from './AppInput';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 interface Props {
   value: string;
@@ -39,6 +40,7 @@ interface Props {
 const hit = { top: 8, bottom: 8, left: 8, right: 8 };
 
 export function SearchHeader({ value, onChange, placeholder = 'Search…', debounceMs = 250, chips, resultCount, autoFocus }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [text, setText] = useState(value);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -105,9 +107,9 @@ export function SearchHeader({ value, onChange, placeholder = 'Search…', debou
   );
 }
 
-const s = StyleSheet.create({
-  wrap: { gap: spacing.sm },
-  clear: { fontSize: fontSizes.md, color: colors.textMuted },
-  chipsRow: { flexDirection: 'row', gap: spacing.sm },
-  count: { fontSize: fontSizes.xs, color: colors.textMuted, textAlign: 'right' },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  wrap: { gap: t.spacing.sm },
+  clear: { fontSize: t.typography.fontSizes.md, color: t.colors.textMuted },
+  chipsRow: { flexDirection: 'row', gap: t.spacing.sm },
+  count: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, textAlign: 'right' },
 });

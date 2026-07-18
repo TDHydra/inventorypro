@@ -3,7 +3,8 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { ModalSheet } from './ModalSheet';
 import { FormActions } from './FormActions';
 import { confirmDestructive } from '../../lib/confirm';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 /**
  * The standard create/edit popup scaffold: title bar + close, scrollable
@@ -67,6 +68,7 @@ export function FormSheet({
   scroll = true,
   busy,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   function requestClose() {
     if (busy) return;
     if (dirty) {
@@ -120,15 +122,15 @@ export function FormSheet({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: t.spacing.md,
   },
-  title: { flex: 1, fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginRight: spacing.md },
-  close: { fontSize: fontSizes.lg, color: colors.textSecondary },
+  title: { flex: 1, fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginRight: t.spacing.md },
+  close: { fontSize: t.typography.fontSizes.lg, color: t.colors.textSecondary },
   closeDisabled: { opacity: 0.4 },
   body: { flexShrink: 1 },
   scrollBody: { flexShrink: 1 },

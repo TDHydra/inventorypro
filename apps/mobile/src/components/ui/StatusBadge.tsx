@@ -11,7 +11,9 @@
 // FilterChip instead.
 
 import { Text, View, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { autoTypeColor } from '../../constants/typeColors';
 
 export type BadgeTone = 'default' | 'primary' | 'accent' | 'success' | 'warning' | 'danger';
@@ -28,14 +30,14 @@ function withAlpha(hex: string, alpha: string): string {
   return `${hex}${alpha}`;
 }
 
-const TONE_STYLES: Record<BadgeTone, { bg: string; fg: string; border?: string }> = {
-  default: { bg: colors.surface, fg: colors.textSecondary, border: colors.border },
-  primary: { bg: colors.primaryBg, fg: colors.primary },
-  accent: { bg: colors.accentBg, fg: colors.accent },
-  success: { bg: withAlpha(colors.success, '1A'), fg: colors.success },
-  warning: { bg: withAlpha(colors.warning, '1A'), fg: colors.warning },
-  danger: { bg: colors.dangerBg, fg: colors.danger },
-};
+const toneStyles = (t: Theme): Record<BadgeTone, { bg: string; fg: string; border?: string }> => ({
+  default: { bg: t.colors.surface, fg: t.colors.textSecondary, border: t.colors.border },
+  primary: { bg: t.colors.primaryBg, fg: t.colors.primary },
+  accent: { bg: t.colors.accentBg, fg: t.colors.accent },
+  success: { bg: withAlpha(t.colors.success, '1A'), fg: t.colors.success },
+  warning: { bg: withAlpha(t.colors.warning, '1A'), fg: t.colors.warning },
+  danger: { bg: t.colors.dangerBg, fg: t.colors.danger },
+});
 
 function Badge({
   label,
@@ -50,6 +52,7 @@ function Badge({
   border?: string;
   size?: 'sm' | 'md';
 }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View
       style={[
@@ -67,7 +70,8 @@ function Badge({
 }
 
 export function StatusBadge({ label, tone = 'default', size = 'sm' }: StatusBadgeProps) {
-  const { bg, fg, border } = TONE_STYLES[tone];
+  const t = useTheme();
+  const { bg, fg, border } = toneStyles(t)[tone];
   return <Badge label={label} bg={bg} fg={fg} border={border} size={size} />;
 }
 
@@ -77,24 +81,25 @@ interface TypeBadgeProps {
 }
 
 export function TypeBadge({ type, size = 'sm' }: TypeBadgeProps) {
+  const t = useTheme();
   const trimmed = type?.trim();
   if (!trimmed) {
-    const { bg, fg, border } = TONE_STYLES.default;
+    const { bg, fg, border } = toneStyles(t).default;
     return <Badge label={type ?? ''} bg={bg} fg={fg} border={border} size={size} />;
   }
   const accent = autoTypeColor(trimmed);
   return <Badge label={trimmed} bg={withAlpha(accent, '1A')} fg={accent} size={size} />;
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   pill: {
-    borderRadius: radii.xl,
+    borderRadius: t.radii.xl,
     alignSelf: 'flex-start',
     justifyContent: 'center',
   },
-  pillSm: { paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  pillMd: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  pillSm: { paddingHorizontal: t.spacing.sm, paddingVertical: 2 },
+  pillMd: { paddingHorizontal: t.spacing.sm, paddingVertical: t.spacing.xs },
   text: { fontWeight: '600' },
-  textSm: { fontSize: fontSizes.xs },
-  textMd: { fontSize: fontSizes.sm },
+  textSm: { fontSize: t.typography.fontSizes.xs },
+  textMd: { fontSize: t.typography.fontSizes.sm },
 });

@@ -17,7 +17,8 @@
  */
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import type { ReactNode } from 'react';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 interface Props {
   label: string;
@@ -30,6 +31,7 @@ interface Props {
 }
 
 export function KeyValueRow({ label, value, placeholder = '—', onPress, multiline = false, badge, selectable = false }: Props) {
+  const s = useThemedStyles(makeStyles);
   const isEmpty = value === null || value === undefined || value === '';
   const valueNode = (
     <Text
@@ -70,14 +72,14 @@ export function KeyValueRow({ label, value, placeholder = '—', onPress, multil
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   row: {
-    paddingVertical: spacing.sm,
+    paddingVertical: t.spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderDetail,
+    borderBottomColor: t.colors.borderDetail,
   },
   rowPressed: {
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
   },
   containerInline: {
     flexDirection: 'row',
@@ -88,23 +90,23 @@ const s = StyleSheet.create({
     flexDirection: 'column',
   },
   label: {
-    fontSize: fontSizes.sm,
-    color: colors.textSecondary,
+    fontSize: t.typography.fontSizes.sm,
+    color: t.colors.textSecondary,
   },
   valueWrapInline: {
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 1,
-    marginLeft: spacing.md,
+    marginLeft: t.spacing.md,
   },
   valueWrapMultiline: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xs,
+    marginTop: t.spacing.xs,
   },
   value: {
-    fontSize: fontSizes.body,
-    color: colors.textPrimary,
+    fontSize: t.typography.fontSizes.body,
+    color: t.colors.textPrimary,
   },
   valueInline: {
     textAlign: 'right',
@@ -114,11 +116,11 @@ const s = StyleSheet.create({
     textAlign: 'left',
   },
   placeholder: {
-    color: colors.textMuted,
+    color: t.colors.textMuted,
   },
   chevron: {
-    fontSize: fontSizes.md,
-    color: colors.textMuted,
-    marginLeft: spacing.sm,
+    fontSize: t.typography.fontSizes.md,
+    color: t.colors.textMuted,
+    marginLeft: t.spacing.sm,
   },
 });

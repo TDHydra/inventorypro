@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
 import { clampQuantity, parseQuantityInput } from './quantityMath';
 
@@ -42,6 +43,7 @@ export function QuantityStepper({
   allowDecimal = false,
   size = 'md',
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [text, setText] = useState(formatQuantity(value));
   const editingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -145,36 +147,36 @@ export function QuantityStepper({
   return <Field label={label}>{row}</Field>;
 }
 
-const s = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
   btn: {
-    borderRadius: radii.md,
+    borderRadius: t.radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: t.colors.border,
+    backgroundColor: t.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnDisabled: { borderColor: colors.borderDetail },
-  btnText: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary },
-  btnTextDisabled: { color: colors.textDisabled },
+  btnDisabled: { borderColor: t.colors.borderDetail },
+  btnText: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary },
+  btnTextDisabled: { color: t.colors.textDisabled },
   inputWrap: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.sm,
+    borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.sm,
   },
   input: {
     flex: 1,
-    fontSize: fontSizes.body,
-    color: colors.textPrimary,
+    fontSize: t.typography.fontSizes.body,
+    color: t.colors.textPrimary,
     padding: 0,
     textAlign: 'center',
   },
-  unit: { fontSize: fontSizes.body2, color: colors.textMuted, marginLeft: spacing.xs },
+  unit: { fontSize: t.typography.fontSizes.body2, color: t.colors.textMuted, marginLeft: t.spacing.xs },
 });
