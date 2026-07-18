@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef, Ref } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import type { TextInput, TextInputProps } from 'react-native';
 import { AppInput } from './ui/AppInput';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
@@ -19,6 +20,12 @@ interface Props {
    * while leaving free typing untouched. `onChange` still fires with the value.
    */
   onPick?: (v: string) => void;
+  autoFocus?: boolean;
+  /** Fired on keyboard submit; the dropdown is closed before this runs. */
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
+  returnKeyType?: TextInputProps['returnKeyType'];
+  /** Reaches the underlying native TextInput (focus/blur). */
+  inputRef?: Ref<TextInput>;
 }
 
 /**
@@ -31,9 +38,17 @@ interface Props {
 export function SuggestInput({
   label, value, onChange, placeholder, suggestions,
   autoCapitalize = 'words', maxSuggestions = 8, onPick,
+  autoFocus, onSubmitEditing, returnKeyType, inputRef,
 }: Props) {
   const s = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
+  // Pending blur-delay timer (see onBlur below); cancelled on submit/unmount so
+  // it can't fire against stale state.
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (blurTimer.current != null) clearTimeout(blurTimer.current);
+  }, []);
 
   const matches = useMemo(() => {
     const q = value.trim().toLowerCase();
@@ -54,14 +69,24 @@ export function SuggestInput({
     <View style={s.wrap}>
       {!!label && <Text style={s.label}>{label}</Text>}
       <AppInput
+        ref={inputRef}
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
+        autoFocus={autoFocus}
+        returnKeyType={returnKeyType}
         onFocus={() => setFocused(true)}
         // Delay so a row tap registers before the list hides.
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onBlur={() => { blurTimer.current = setTimeout(() => setFocused(false), 150); }}
+        // Close the dropdown before handing submit to the caller, and drop any
+        // pending blur timer so it can't act on stale state afterwards.
+        onSubmitEditing={(e) => {
+          if (blurTimer.current != null) { clearTimeout(blurTimer.current); blurTimer.current = null; }
+          setFocused(false);
+          onSubmitEditing?.(e);
+        }}
       />
       {open && (
         <ScrollView style={s.dropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>

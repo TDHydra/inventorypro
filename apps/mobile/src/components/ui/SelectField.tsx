@@ -17,6 +17,7 @@ interface Props {
   required?: boolean; hint?: string; error?: string;
   searchable?: boolean;              // default: options.length > 12
   onClear?: () => void;              // when provided, sheet shows a Clear row
+  disabled?: boolean;                // read-only: trigger inert + muted
 }
 
 /**
@@ -35,7 +36,7 @@ interface Props {
  */
 export function SelectField({
   label, value, options, onSelect, placeholder = 'Select…',
-  required, hint, error, searchable, onClear,
+  required, hint, error, searchable, onClear, disabled,
 }: Props) {
   const s = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
@@ -59,13 +60,18 @@ export function SelectField({
     setOpen(false);
   }
   function clear() {
+    if (disabled) return;
     onClear?.();
     setOpen(false);
   }
 
   return (
     <Field label={label} required={required} hint={hint} error={error}>
-      <Pressable style={s.trigger} onPress={openSheet}>
+      <Pressable
+        style={[s.trigger, disabled && s.triggerDisabled]}
+        onPress={openSheet}
+        disabled={disabled}
+      >
         <Text style={selected ? s.value : s.placeholder} numberOfLines={1}>
           {selected ? selected.label : placeholder}
         </Text>
@@ -81,9 +87,11 @@ export function SelectField({
             value={query}
             onChangeText={setQuery}
             autoFocus
+            autoCapitalize="none"
+            autoCorrect={false}
           />
         )}
-        {!!onClear && (
+        {!!onClear && !disabled && (
           <Pressable style={s.row} onPress={clear}>
             <Text style={s.clearLabel}>Clear</Text>
           </Pressable>
@@ -112,6 +120,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: t.spacing.base, height: 44,
   },
+  triggerDisabled: { opacity: 0.45 },
   value: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, flexShrink: 1 },
   placeholder: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted, flexShrink: 1 },
   chevron: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted, marginLeft: t.spacing.sm },

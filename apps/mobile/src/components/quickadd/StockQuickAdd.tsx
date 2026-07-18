@@ -82,7 +82,11 @@ export default function StockQuickAdd({ onSaved }: Props) {
     [],
   );
 
-  function handleSave() {
+  // `qtyOverride` carries the just-committed stepper value on Enter-to-save —
+  // the `qty` state set via onChange in the same event is still stale, and an
+  // explicit commit means the field was touched even if setQtyTouched hasn't
+  // flushed yet.
+  function handleSave(qtyOverride?: number) {
     track('action', 'quickadd_save_stock', { screen: 'quick_add' });
     if (!selectedLocation) {
       trackReject('stock.location', 'required');
@@ -104,7 +108,9 @@ export default function StockQuickAdd({ onSaved }: Props) {
     // Delta must be a positive addition; Set is an absolute recount, so 0 is a
     // valid "nothing here" reading. parseStockQuantity keeps the historical
     // parseFloat + copy, adding the overflow bound.
-    const qtyResult = parseStockQuantity(qtyTouched ? String(qty) : '', mode);
+    const effectiveQty = qtyOverride ?? qty;
+    const touched = qtyOverride !== undefined || qtyTouched;
+    const qtyResult = parseStockQuantity(touched ? String(effectiveQty) : '', mode);
     if (!qtyResult.ok) {
       trackReject('stock.qty', qtyResult.rule);
       setError(qtyResult.error);
@@ -244,12 +250,16 @@ export default function StockQuickAdd({ onSaved }: Props) {
         max={MAX_QUANTITY}
         allowDecimal
         unit={selectedItemOpt?.sublabel}
+        // Enter-to-save: use the just-committed value — `qty` state is stale in
+        // this event. Locked check mirrors the disabled save button.
+        onSubmitEditing={n => { if (!locked) handleSave(n); }}
+        returnKeyType="done"
       />
       {!!error && <Text style={s.errorText}>{error}</Text>}
 
       <PrimaryButton
         label="Save & add another"
-        onPress={handleSave}
+        onPress={() => handleSave()}
         disabled={locked}
         style={{ marginTop: t.spacing.md }}
       />
