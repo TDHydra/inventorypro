@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { AppInput } from './ui/AppInput';
-import { colors, radii, spacing, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 interface Props {
   label?: string;
@@ -31,6 +32,7 @@ export function SuggestInput({
   label, value, onChange, placeholder, suggestions,
   autoCapitalize = 'words', maxSuggestions = 8, onPick,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
 
   const matches = useMemo(() => {
@@ -74,10 +76,10 @@ export function SuggestInput({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: { gap: 6, position: 'relative' },
-  label: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  dropdown: { maxHeight: 240, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 2 },
-  row: { paddingHorizontal: spacing.base, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary },
+  label: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  dropdown: { maxHeight: 240, backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, marginTop: 2 },
+  row: { paddingHorizontal: t.spacing.base, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
 });

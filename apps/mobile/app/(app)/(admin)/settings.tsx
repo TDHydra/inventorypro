@@ -31,8 +31,12 @@ import { getValidJwt } from '../../../src/auth/session';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { QrSigningSection } from '../../../src/components/QrSigningSection';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { themeList } from '../../../src/themes/registry';
+import { chooseTheme } from '../../../src/db/userPrefs';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -101,11 +105,14 @@ function readSyncStatus(): { lastSync: string; pending: number } {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const isAdmin = usePermission('system_settings');
   const canBroadcast = usePermission('send_notifications');
   const canViewAudit = usePermission('view_audit_log');
   const { user, logout } = useSession();
+  const activeThemeId = t.id;
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   // Demo-accounts kill switch is apex-only — full_admin exactly, NOT tier-4 peers.
   const isApex = user?.role === 'full_admin';
@@ -509,6 +516,43 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── Theme (per user, synced) ──────────────────────────────────── */}
+        <View>
+          <Text style={s.sectionTitle}>Theme</Text>
+          <View style={s.card}>
+            {themeList().map((th, i) => (
+              <View key={th.id}>
+                {i > 0 && <View style={s.divider} />}
+                <TouchableOpacity
+                  style={s.row}
+                  onPress={() => { if (user) chooseTheme(user.id, th.id); }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.rowLabel}>{th.name}</Text>
+                  </View>
+                  {/* Palette preview: bg / surface / primary / accent */}
+                  {[th.colors.background, th.colors.surface, th.colors.primary, th.colors.accent].map((c, j) => (
+                    <View
+                      key={j}
+                      style={{
+                        width: 18, height: 18, borderRadius: 9, backgroundColor: c,
+                        borderWidth: 1, borderColor: th.colors.border, marginLeft: 4,
+                      }}
+                    />
+                  ))}
+                  <Text style={[s.rowSub, { marginLeft: t.spacing.md, width: 18 }]}>
+                    {activeThemeId === th.id ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={s.divider} />
+            <View style={s.infoBlock}>
+              <Text style={s.rowSub}>Synced to your account — follows you across devices.</Text>
+            </View>
+          </View>
+        </View>
+
         {/* ── Form detail (this device) ─────────────────────────────────── */}
         <View>
           <Text style={s.sectionTitle}>Form detail (this device)</Text>
@@ -576,7 +620,7 @@ export default function SettingsScreen() {
                 </>
               )}
               <View style={s.divider} />
-              <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.base }}>
+              <View style={{ paddingHorizontal: t.spacing.base, paddingTop: t.spacing.base }}>
                 <Text style={s.rowLabel}>Default form mode</Text>
                 <Text style={s.rowSub}>Applies to all devices unless a user overrides it.</Text>
               </View>
@@ -599,10 +643,10 @@ export default function SettingsScreen() {
                 ))}
               </View>
               <View style={s.divider} />
-              <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.base }}>
+              <View style={{ paddingHorizontal: t.spacing.base, paddingTop: t.spacing.base }}>
                 <Text style={s.rowLabel}>Main storage area</Text>
                 <Text style={s.rowSub}>New stock (e.g. Quick Add) defaults to this location. Pick a shelf if the area has them.</Text>
-                <View style={{ marginTop: spacing.sm }}>
+                <View style={{ marginTop: t.spacing.sm }}>
                   <SearchablePicker
                     placeholder="Search locations…"
                     options={locationOptions}
@@ -610,7 +654,7 @@ export default function SettingsScreen() {
                     onSelect={handleStorageLocationSelect}
                   />
                   {storageLocHasShelves && (
-                    <View style={{ marginTop: spacing.sm }}>
+                    <View style={{ marginTop: t.spacing.sm }}>
                       <SearchablePicker
                         placeholder="Pick a shelf (e.g. A1)…"
                         options={storageShelfOptions}
@@ -720,7 +764,7 @@ export default function SettingsScreen() {
                 />
               </View>
               <View style={s.divider} />
-              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+              <View style={{ paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.base, gap: t.spacing.sm }}>
                 <Text style={s.rowLabel}>Poll interval (minutes)</Text>
                 <Text style={s.rowSub}>How often the server checks for checkout-idle sessions.</Text>
                 <AppInput
@@ -732,7 +776,7 @@ export default function SettingsScreen() {
                 />
               </View>
               <View style={s.divider} />
-              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+              <View style={{ paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.base, gap: t.spacing.sm }}>
                 <Text style={s.rowLabel}>Checkout idle timeout (minutes)</Text>
                 <Text style={s.rowSub}>How long after a user's last checkout before their manager is notified.</Text>
                 <AppInput
@@ -771,7 +815,7 @@ export default function SettingsScreen() {
           <View>
             <Text style={s.sectionTitle}>Approvals</Text>
             <View style={s.card}>
-              <View style={{ paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm }}>
+              <View style={{ paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.base, gap: t.spacing.sm }}>
                 <Text style={s.rowLabel}>Require approval for movements ≥ (blank = off)</Text>
                 <Text style={s.rowSub}>Checkouts or transfers of this quantity or more auto-create an approval request for review.</Text>
                 <AppInput
@@ -833,23 +877,23 @@ export default function SettingsScreen() {
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
   sectionTitle: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
   },
 
@@ -857,44 +901,44 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.base,
   },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
-  rowSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginTop: 2 },
-  chevron: { fontSize: 18, color: colors.textMuted, fontWeight: '300' },
-  muted: { color: colors.textMuted },
-  danger: { color: colors.danger },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
+  rowSub: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, marginTop: 2 },
+  chevron: { fontSize: 18, color: t.colors.textMuted, fontWeight: '300' },
+  muted: { color: t.colors.textMuted },
+  danger: { color: t.colors.danger },
 
-  divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
+  divider: { height: 1, backgroundColor: t.colors.border, marginHorizontal: t.spacing.base },
 
-  infoBlock: { paddingHorizontal: spacing.base, paddingVertical: spacing.md, gap: 4 },
+  infoBlock: { paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.md, gap: 4 },
 
   // Idle-timeout chip selector
   idleRow: {
     flexDirection: 'row',
-    padding: spacing.md,
+    padding: t.spacing.md,
     gap: 8,
   },
   idleChip: {
     flex: 1,
     paddingVertical: 8,
-    borderRadius: radii.sm,
+    borderRadius: t.radii.sm,
     borderWidth: 1,
-    borderColor: colors.textDisabled,
-    backgroundColor: colors.background,
+    borderColor: t.colors.textDisabled,
+    backgroundColor: t.colors.background,
     alignItems: 'center',
   },
   idleChipActive: {
-    backgroundColor: colors.brand,
-    borderColor: colors.brand,
+    backgroundColor: t.colors.brand,
+    borderColor: t.colors.brand,
   },
   idleChipText: {
-    fontSize: fontSizes.body2,
+    fontSize: t.typography.fontSizes.body2,
     fontWeight: '600',
     color: '#475569',
   },
   idleChipTextActive: {
-    color: '#fff',
+    color: t.colors.onPrimary,
   },
 });

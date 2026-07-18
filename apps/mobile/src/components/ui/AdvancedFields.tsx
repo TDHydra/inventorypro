@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, TouchableOpacity, Text } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { useFormMode } from '../../hooks/useFormMode';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 /**
  * Wraps a form's optional (advanced) field group.
@@ -13,27 +14,14 @@ import { colors, spacing, fontSizes } from '../../theme';
 export function AdvancedFields({ children }: { children: React.ReactNode }) {
   const { isSimple } = useFormMode();
   const [open, setOpen] = useState(false);
+  const s = useThemedStyles(makeStyles);
 
   if (!isSimple) return <>{children}</>;
 
   return (
     <View>
-      <TouchableOpacity
-        onPress={() => setOpen(o => !o)}
-        style={{
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.xs,
-          marginTop: spacing.xs,
-        }}
-        activeOpacity={0.7}
-      >
-        <Text
-          style={{
-            color: colors.primaryText,
-            fontSize: fontSizes.body,
-            fontWeight: '500',
-          }}
-        >
+      <TouchableOpacity onPress={() => setOpen(o => !o)} style={s.toggle} activeOpacity={0.7}>
+        <Text style={s.toggleText}>
           {open ? '⌃ Hide advanced fields' : '⌄ Show advanced fields'}
         </Text>
       </TouchableOpacity>
@@ -41,3 +29,16 @@ export function AdvancedFields({ children }: { children: React.ReactNode }) {
     </View>
   );
 }
+
+const makeStyles = (t: Theme) => StyleSheet.create({
+  toggle: {
+    paddingVertical: t.spacing.sm,
+    paddingHorizontal: t.spacing.xs,
+    marginTop: t.spacing.xs,
+  },
+  toggleText: {
+    color: t.colors.primaryText,
+    fontSize: t.typography.fontSizes.body,
+    fontWeight: t.typography.weights.medium,
+  },
+});

@@ -6,7 +6,8 @@ import {
   StyleSheet,
   type GestureResponderHandlers,
 } from 'react-native';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 // Generic drag-to-reorder list — a reusable extraction of the DragRow/
 // DraggableTypeList pattern in app/(app)/(admin)/manage-types.tsx (absolutely
@@ -49,6 +50,7 @@ export function DragList<T>({
   onDragActiveChange,
   renderRow,
 }: Props<T>) {
+  const s = useThemedStyles(makeStyles);
   const dragY = useRef(new Animated.Value(0)).current;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [targetIndex, setTargetIndex] = useState<number | null>(null);
@@ -161,6 +163,7 @@ function DragListRow({
   moveDown: () => void;
   children: (api: DragRowApi) => ReactNode;
 }) {
+  const s = useThemedStyles(makeStyles);
   // Mirror per-render values into a ref so the once-created PanResponder always
   // reads this row's current index / locked flag / callbacks.
   const cfg = useRef({ index, locked, onDragStart, onDragMove, onDragEnd });
@@ -203,13 +206,13 @@ function DragListRow({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   list: { position: 'relative' },
   row: {
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
   },
   lifted: {
     zIndex: 10,

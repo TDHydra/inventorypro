@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { useTheme } from '../../hooks/useTheme';
 import { getNonShelfLocations, getShelvesForParent } from '../../db/queries/locations';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { FieldLabel } from '../ui/FieldLabel';
@@ -40,6 +41,7 @@ export function LocationShelfPicker({
   // location). Doesn't touch the Shelf sub-field.
   excludeIds?: string[];
 }) {
+  const t = useTheme();
   // useCurrentPosition is platform-resolved: the native hook imports expo-location,
   // the .web.ts sibling uses navigator.geolocation — so no native module reaches
   // the web bundle. Off → we never call request(), so no permission prompt and no
@@ -110,7 +112,7 @@ export function LocationShelfPicker({
       )}
       {locationHasShelves && (
         <>
-          <FieldLabel style={{ marginTop: 12 }}>Shelf</FieldLabel>
+          <FieldLabel style={{ marginTop: t.spacing.md }}>Shelf</FieldLabel>
           <SearchablePicker
             placeholder="Type or pick a shelf (e.g. A1)…"
             options={shelfOptions}

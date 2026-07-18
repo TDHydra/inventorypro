@@ -3,6 +3,9 @@ import {
   View, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { Stack, useRouter } from 'expo-router';
 import { ItemCard } from '../../../src/components/ItemCard';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
@@ -32,7 +35,7 @@ import { syncNow } from '../../../src/sync/engine';
 import { LabelItem } from '../../../src/labels/printLabel';
 import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
 import { Alert } from '../../../src/lib/themedAlert';
-import { colors } from '../../../src/theme';
+import { Fab } from '../../../src/components/ui/Fab';
 
 interface Item {
   id: string;
@@ -56,6 +59,8 @@ const INVENTORY_TABLES = ['inventory_items', 'stock_by_location', 'taxonomy_type
 const ALL_FILTER = 'all';
 
 export default function InventoryScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const canEdit = usePermission('edit_inventory');
@@ -268,9 +273,9 @@ export default function InventoryScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Inventory', headerShown: true }} />
-      <View style={styles.container}>
-        <View style={styles.searchRow}>
-          <View style={styles.searchBoxWrap}>
+      <View style={s.container}>
+        <View style={s.searchRow}>
+          <View style={s.searchBoxWrap}>
             <SearchHeader
               value={query}
               onChange={handleSearch}
@@ -279,23 +284,23 @@ export default function InventoryScreen() {
             />
           </View>
           <TouchableOpacity
-            style={styles.scanBtn}
+            style={s.scanBtn}
             onPress={() => router.push('/(app)/(inventory)/scan')}
           >
-            <Text style={styles.scanIcon}>⬛</Text>
+            <Text style={s.scanIcon}>⬛</Text>
           </TouchableOpacity>
           {canEdit && !ms.active && (
             <TouchableOpacity
-              style={styles.scanBtn}
+              style={s.scanBtn}
               onPress={() => ms.enter()}
               accessibilityLabel="Select multiple items"
             >
-              <Text style={styles.scanIcon}>☑️</Text>
+              <Text style={s.scanIcon}>☑️</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        <View style={styles.filters}>
+        <View style={s.filters}>
           {filterChips.map(chip => (
             <FilterChip
               key={chip.id}
@@ -323,10 +328,10 @@ export default function InventoryScreen() {
                 onLongPress={() => { if (canEdit && !ms.active) ms.enter(item.id); }}
                 delayLongPress={300}
               >
-                <View style={[styles.rowWrap, ms.active && selected && styles.rowSelected]}>
+                <View style={[s.rowWrap, ms.active && selected && s.rowSelected]}>
                   {ms.active && (
-                    <View style={[styles.checkbox, selected && styles.checkboxOn]}>
-                      {selected && <Text style={styles.checkMark}>✓</Text>}
+                    <View style={[s.checkbox, selected && s.checkboxOn]}>
+                      {selected && <Text style={s.checkMark}>✓</Text>}
                     </View>
                   )}
                   {/* Only intercept touches DURING selection mode so the row can own
@@ -334,56 +339,51 @@ export default function InventoryScreen() {
                       own touchables (expand / Check Out / Edit) fully working — entering
                       selection mode is done via the explicit "Select" button (long-press
                       is a bonus that fires on the card's non-touchable regions). */}
-                  <View style={styles.rowCard} pointerEvents={ms.active ? 'none' : 'auto'}>
+                  <View style={s.rowCard} pointerEvents={ms.active ? 'none' : 'auto'}>
                     <ItemCard item={item} onCheckout={handleCheckout} typeColorMap={typeColorMap} />
                   </View>
                 </View>
               </TouchableOpacity>
             );
           }}
-          style={styles.list}
-          contentContainerStyle={[styles.listContent, ms.active && styles.listContentSelecting]}
-          ListHeaderComponent={ms.active ? null : <QuickAddBanner style={styles.listHeaderBanner} />}
+          style={s.list}
+          contentContainerStyle={[s.listContent, ms.active && s.listContentSelecting]}
+          ListHeaderComponent={ms.active ? null : <QuickAddBanner style={s.listHeaderBanner} />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
           ListEmptyComponent={
             loading ? null : (
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>
+              <View style={s.empty}>
+                <Text style={s.emptyText}>
                   {query ? `No items matching "${query}"` : 'Search or browse items above'}
                 </Text>
                 <PermissionGate permission="edit_inventory">
                   <TouchableOpacity
-                    style={styles.addItemBtn}
+                    style={s.addItemBtn}
                     onPress={() => router.push('/(app)/(inventory)/add')}
                   >
-                    <Text style={styles.addItemText}>+ Add Item to Catalog</Text>
+                    <Text style={s.addItemText}>+ Add Item to Catalog</Text>
                   </TouchableOpacity>
                 </PermissionGate>
               </View>
             )
           }
           ListFooterComponent={
-            loading ? <ActivityIndicator style={styles.loader} color={colors.primary} /> : null
+            loading ? <ActivityIndicator style={s.loader} color={t.colors.primary} /> : null
           }
         />
 
         {!ms.active && (
           <PermissionGate permission="edit_inventory">
-            <TouchableOpacity
-              style={styles.fab}
-              onPress={() => router.push('/(app)/(inventory)/add')}
-            >
-              <Text style={styles.fabText}>+</Text>
-            </TouchableOpacity>
+            <Fab onPress={() => router.push('/(app)/(inventory)/add')} label="Add" />
           </PermissionGate>
         )}
 
@@ -399,7 +399,7 @@ export default function InventoryScreen() {
 
         {/* Bulk: set item type (backfill) — pick a managed type or free-type a value */}
         <ModalSheet visible={categoryPickerOpen} onClose={() => setCategoryPickerOpen(false)}>
-          <Text style={styles.sheetTitle}>Set item type for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <Text style={s.sheetTitle}>Set item type for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
           <SearchablePicker
             placeholder="Pick an item type…"
             options={itemTypeOptions}
@@ -411,7 +411,7 @@ export default function InventoryScreen() {
 
         {/* Bulk: set supplier (free entry allowed) */}
         <ModalSheet visible={supplierPickerOpen} onClose={() => setSupplierPickerOpen(false)}>
-          <Text style={styles.sheetTitle}>Set supplier for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <Text style={s.sheetTitle}>Set supplier for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
           <SearchablePicker
             placeholder="Search or type a supplier…"
             options={supplierOptions}
@@ -423,7 +423,7 @@ export default function InventoryScreen() {
 
         {/* Bulk: set low-stock alert */}
         <ModalSheet visible={minQtyOpen} onClose={() => setMinQtyOpen(false)}>
-          <Text style={styles.sheetTitle}>Set min-stock alert for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
+          <Text style={s.sheetTitle}>Set min-stock alert for {ms.count} item{ms.count === 1 ? '' : 's'}</Text>
           <FieldLabel>Low-stock alert</FieldLabel>
           <AppInput
             value={minQtyValue}
@@ -445,20 +445,20 @@ export default function InventoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   searchRow: { flexDirection: 'row', gap: 10, padding: 12, paddingBottom: 6 },
   searchBoxWrap: { flex: 1, justifyContent: 'center' },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, borderRadius: 10,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10,
+    borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 12,
   },
   searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, height: 42, fontSize: 15, color: colors.textPrimary },
+  searchInput: { flex: 1, height: 42, fontSize: 15, color: t.colors.textPrimary },
   scanBtn: {
-    width: 44, height: 44, backgroundColor: colors.primary, borderRadius: 10,
+    width: 44, height: 44, backgroundColor: t.colors.primary, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center',
   },
   scanIcon: { fontSize: 20 },
@@ -470,28 +470,20 @@ const styles = StyleSheet.create({
   rowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rowCard: { flex: 1 },
   rowSelected: {
-    borderRadius: 12, borderWidth: 1, borderColor: colors.primary,
-    backgroundColor: colors.primaryBg, paddingLeft: 8,
+    borderRadius: 12, borderWidth: 1, borderColor: t.colors.primary,
+    backgroundColor: t.colors.primaryBg, paddingLeft: 8,
   },
   checkbox: {
     width: 22, height: 22, borderRadius: 6, borderWidth: 2,
-    borderColor: colors.textDisabled, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.surface, marginLeft: 4,
+    borderColor: t.colors.textDisabled, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: t.colors.surface, marginLeft: 4,
   },
-  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+  checkboxOn: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
+  checkMark: { color: t.colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
   empty: { alignItems: 'center', marginTop: 60, gap: 16 },
-  emptyText: { fontSize: 15, color: colors.textMuted, textAlign: 'center' },
-  addItemBtn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
-  addItemText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  emptyText: { fontSize: 15, color: t.colors.textMuted, textAlign: 'center' },
+  addItemBtn: { backgroundColor: t.colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  addItemText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: 14 },
   loader: { padding: 20 },
-  fab: {
-    position: 'absolute', bottom: 24, right: 24,
-    width: 54, height: 54, borderRadius: 27,
-    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2, shadowRadius: 4, elevation: 5,
-  },
-  fabText: { fontSize: 28, color: '#fff', lineHeight: 32 },
 });

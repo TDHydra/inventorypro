@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { getRepairs, Repair } from '../../../src/db/queries/repairs';
 import { getTypeIcon, isTerminalStatus } from '../../../src/db/queries/taxonomy';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { StatusBadge } from '../../../src/components/ui/StatusBadge';
@@ -33,6 +34,7 @@ function ageLabel(iso: string): string {
 }
 
 export default function RepairsScreen() {
+  const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const [filter, setFilter] = useState<StatusFilter>('open');
   const [reloadKey, setReloadKey] = useState(0);
@@ -96,24 +98,24 @@ export default function RepairsScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   // The shell's listContent has no row gap; this keeps the original gap:8 spacing.
   item: { marginBottom: 8 },
-  cardName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
+  cardName: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary, marginBottom: 4 },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusBadge: {
     paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
     borderWidth: 1,
   },
-  statusBadgeOpen: { backgroundColor: colors.primaryBg, borderColor: colors.primary },
-  statusBadgeDone: { backgroundColor: colors.surface, borderColor: colors.success },
+  statusBadgeOpen: { backgroundColor: t.colors.primaryBg, borderColor: t.colors.primary },
+  statusBadgeDone: { backgroundColor: t.colors.surface, borderColor: t.colors.success },
   statusBadgeText: { fontSize: 12, fontWeight: '600' },
-  statusBadgeTextOpen: { color: colors.primary },
-  statusBadgeTextDone: { color: colors.success },
+  statusBadgeTextOpen: { color: t.colors.primary },
+  statusBadgeTextDone: { color: t.colors.success },
   overdueBadge: {
     paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
-    borderWidth: 1, backgroundColor: colors.dangerBg, borderColor: colors.danger,
+    borderWidth: 1, backgroundColor: t.colors.dangerBg, borderColor: t.colors.danger,
   },
-  overdueBadgeText: { fontSize: 11, fontWeight: '700', color: colors.danger },
-  cardDate: { fontSize: 12, color: colors.textMuted, marginLeft: 'auto' as any },
+  overdueBadgeText: { fontSize: 11, fontWeight: '700', color: t.colors.danger },
+  cardDate: { fontSize: 12, color: t.colors.textMuted, marginLeft: 'auto' as any },
 });

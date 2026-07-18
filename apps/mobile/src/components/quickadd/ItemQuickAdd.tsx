@@ -18,7 +18,9 @@ import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { runInTransaction } from '../../db/tx';
 import { parsePackSize, parseQuantity, validateBarcode, validateName, validateText } from '../../lib/validation';
 import { MediaGallery } from '../MediaGallery';
-import { colors, spacing, radii, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
@@ -46,6 +48,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function ItemQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -324,7 +328,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
           ref={nameRef}
           style={[s.input, s.nameInput, !!nameError && s.inputError]}
           placeholder="Item name *"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={t.colors.textMuted}
           value={name}
           onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
           autoFocus
@@ -448,7 +452,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -458,27 +462,27 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
-  topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
   nameInput: { flex: 1 },
   input: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
   },
-  inputError: { borderColor: colors.danger },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  skuHint: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: -4, marginBottom: 2 },
-  skuDup: { fontSize: fontSizes.caption, color: colors.accent, fontWeight: '600', marginTop: -4, marginBottom: 2 },
-  nameMatches: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: -2, overflow: 'hidden' },
-  nameMatchesHint: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
-  nameMatchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  nameMatchLabel: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1 },
-  nameMatchSub: { fontSize: fontSizes.caption, color: colors.textMuted },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  skuHint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: -4, marginBottom: 2 },
+  skuDup: { fontSize: t.typography.fontSizes.caption, color: t.colors.accent, fontWeight: '600', marginTop: -4, marginBottom: 2 },
+  nameMatches: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, marginTop: -2, overflow: 'hidden' },
+  nameMatchesHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
+  nameMatchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: t.colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  nameMatchLabel: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, flex: 1 },
+  nameMatchSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
   // Item-type chip + its colored type dot, grouped so they read as one unit.
   chipWithDot: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   typeDot: { width: 9, height: 9, borderRadius: 5 },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

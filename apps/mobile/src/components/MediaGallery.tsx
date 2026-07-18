@@ -3,7 +3,9 @@ import {
   View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, ActivityIndicator } from 'react-native';
 import { useDataVersion } from '../hooks/useDataVersion';
 import { Alert } from '../lib/themedAlert';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSession } from '../hooks/useSession';
@@ -32,6 +34,8 @@ interface PendingUpload {
 }
 
 export function MediaGallery({ entityType, entityId, canUpload = true, variant = 'grid' }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const canDelete = usePermission('delete_media');
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
@@ -199,21 +203,21 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   // Skip / Start Upload.
   const noteSheetModal = (
     <ModalSheet visible={!!pendingBatch} onClose={() => setPendingBatch(null)}>
-      <View style={styles.noteBody}>
-        <Text style={styles.noteTitle}>Where were these taken? (optional)</Text>
-        <Text style={styles.noteSub}>Applies to every photo in this batch.</Text>
+      <View style={s.noteBody}>
+        <Text style={s.noteTitle}>Where were these taken? (optional)</Text>
+        <Text style={s.noteSub}>Applies to every photo in this batch.</Text>
         <SuggestInput
           value={noteText}
           onChange={setNoteText}
           placeholder="e.g. Master bedroom"
           suggestions={pendingBatch?.suggestions ?? []}
         />
-        <View style={styles.noteBtnRow}>
-          <TouchableOpacity style={styles.noteSkipBtn} onPress={() => startBatch(null)}>
-            <Text style={styles.noteSkipText}>Skip</Text>
+        <View style={s.noteBtnRow}>
+          <TouchableOpacity style={s.noteSkipBtn} onPress={() => startBatch(null)}>
+            <Text style={s.noteSkipText}>Skip</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.noteStartBtn} onPress={() => startBatch(noteText.trim() || null)}>
-            <Text style={styles.noteStartText}>Start Upload</Text>
+          <TouchableOpacity style={s.noteStartBtn} onPress={() => startBatch(noteText.trim() || null)}>
+            <Text style={s.noteStartText}>Start Upload</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -222,16 +226,16 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
 
   const lightboxModal = (
     <Modal visible={!!lightbox} transparent animationType="fade">
-      <TouchableOpacity style={styles.lightbox} onPress={() => setLightbox(null)}>
+      <TouchableOpacity style={s.lightbox} onPress={() => setLightbox(null)}>
         {lightbox && (
-          <Image source={{ uri: lightbox.url }} style={styles.lightboxImg} resizeMode="contain" />
+          <Image source={{ uri: lightbox.url }} style={s.lightboxImg} resizeMode="contain" />
         )}
         {canDelete && lightbox && (
-          <TouchableOpacity style={styles.lightboxDelete} onPress={() => confirmDelete(lightbox)}>
-            <Text style={styles.lightboxDeleteText}>🗑 Delete</Text>
+          <TouchableOpacity style={s.lightboxDelete} onPress={() => confirmDelete(lightbox)}>
+            <Text style={s.lightboxDeleteText}>🗑 Delete</Text>
           </TouchableOpacity>
         )}
-        <Text style={styles.lightboxClose}>✕ Tap to close</Text>
+        <Text style={s.lightboxClose}>✕ Tap to close</Text>
       </TouchableOpacity>
     </Modal>
   );
@@ -240,7 +244,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
     return (
       <View>
         <TouchableOpacity
-          style={styles.thumbBox}
+          style={s.thumbBox}
           activeOpacity={0.8}
           disabled={uploading}
           onPress={() => {
@@ -249,41 +253,41 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
           }}
         >
           {uploading ? (
-            <ActivityIndicator color={colors.primary} />
+            <ActivityIndicator color={t.colors.primary} />
           ) : primary ? (
-            <Image source={{ uri: primary.thumbnail_url ?? primary.url }} style={styles.thumbBoxImg} />
+            <Image source={{ uri: primary.thumbnail_url ?? primary.url }} style={s.thumbBoxImg} />
           ) : (
             <>
-              <Text style={styles.thumbBoxIcon}>＋</Text>
-              <Text style={styles.thumbBoxText}>Photo</Text>
+              <Text style={s.thumbBoxIcon}>＋</Text>
+              <Text style={s.thumbBoxText}>Photo</Text>
             </>
           )}
         </TouchableOpacity>
 
         {/* Source picker — shared with the grid variant */}
         <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
-          <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
-            <View style={styles.sheet}>
-              <View style={styles.sheetHandle} />
-              <Text style={styles.sheetTitle}>Add photo or video</Text>
-              <View style={styles.sourceRow}>
-                <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handleCamera)} activeOpacity={0.85}>
-                  <View style={[styles.sourceIconWrap, { backgroundColor: colors.primaryBg }]}>
-                    <Text style={styles.sourceIcon}>📷</Text>
+          <TouchableOpacity style={s.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
+            <View style={s.sheet}>
+              <View style={s.sheetHandle} />
+              <Text style={s.sheetTitle}>Add photo or video</Text>
+              <View style={s.sourceRow}>
+                <TouchableOpacity style={s.sourceCard} onPress={() => pick(handleCamera)} activeOpacity={0.85}>
+                  <View style={[s.sourceIconWrap, { backgroundColor: t.colors.primaryBg }]}>
+                    <Text style={s.sourceIcon}>📷</Text>
                   </View>
-                  <Text style={styles.sourceLabel}>Take photo</Text>
-                  <Text style={styles.sourceSub}>Use the camera</Text>
+                  <Text style={s.sourceLabel}>Take photo</Text>
+                  <Text style={s.sourceSub}>Use the camera</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handlePickMedia)} activeOpacity={0.85}>
-                  <View style={[styles.sourceIconWrap, { backgroundColor: colors.accentBg }]}>
-                    <Text style={styles.sourceIcon}>🖼️</Text>
+                <TouchableOpacity style={s.sourceCard} onPress={() => pick(handlePickMedia)} activeOpacity={0.85}>
+                  <View style={[s.sourceIconWrap, { backgroundColor: t.colors.accentBg }]}>
+                    <Text style={s.sourceIcon}>🖼️</Text>
                   </View>
-                  <Text style={styles.sourceLabel}>Choose</Text>
-                  <Text style={styles.sourceSub}>Photo or video</Text>
+                  <Text style={s.sourceLabel}>Choose</Text>
+                  <Text style={s.sourceSub}>Photo or video</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.sheetCancel} onPress={() => setPickerOpen(false)}>
-                <Text style={styles.sheetCancelText}>Cancel</Text>
+              <TouchableOpacity style={s.sheetCancel} onPress={() => setPickerOpen(false)}>
+                <Text style={s.sheetCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -296,30 +300,30 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.grid}>
+    <View style={s.container}>
+      <View style={s.grid}>
         {media.map(m => (
           <TouchableOpacity key={m.id} onPress={() => setLightbox(m)}>
             <Image
               source={{ uri: m.thumbnail_url ?? m.url }}
-              style={[styles.thumb, m.id === primaryId && styles.thumbPrimary]}
+              style={[s.thumb, m.id === primaryId && s.thumbPrimary]}
             />
-            {m.id === primaryId && <View style={styles.primaryBadge}><Text style={styles.primaryText}>★</Text></View>}
-            {m.media_type === 'video' && <View style={styles.videoBadge}><Text style={styles.videoIcon}>▶</Text></View>}
+            {m.id === primaryId && <View style={s.primaryBadge}><Text style={s.primaryText}>★</Text></View>}
+            {m.media_type === 'video' && <View style={s.videoBadge}><Text style={s.videoIcon}>▶</Text></View>}
           </TouchableOpacity>
         ))}
 
         {canUpload && (
-          <TouchableOpacity style={styles.addBtn} onPress={() => setPickerOpen(true)} disabled={uploading}>
+          <TouchableOpacity style={s.addBtn} onPress={() => setPickerOpen(true)} disabled={uploading}>
             {uploading ? (
               <>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={styles.addText}>{progress ?? 'Uploading…'}</Text>
+                <ActivityIndicator color={t.colors.primary} />
+                <Text style={s.addText}>{progress ?? 'Uploading…'}</Text>
               </>
             ) : (
               <>
-                <Text style={styles.addIcon}>＋</Text>
-                <Text style={styles.addText}>Add photo</Text>
+                <Text style={s.addIcon}>＋</Text>
+                <Text style={s.addText}>Add photo</Text>
               </>
             )}
           </TouchableOpacity>
@@ -328,28 +332,28 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
 
       {/* Source picker — polished bottom sheet (replaces the bare Alert) */}
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
-        <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Add photo or video</Text>
-            <View style={styles.sourceRow}>
-              <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handleCamera)} activeOpacity={0.85}>
-                <View style={[styles.sourceIconWrap, { backgroundColor: colors.primaryBg }]}>
-                  <Text style={styles.sourceIcon}>📷</Text>
+        <TouchableOpacity style={s.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
+          <View style={s.sheet}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>Add photo or video</Text>
+            <View style={s.sourceRow}>
+              <TouchableOpacity style={s.sourceCard} onPress={() => pick(handleCamera)} activeOpacity={0.85}>
+                <View style={[s.sourceIconWrap, { backgroundColor: t.colors.primaryBg }]}>
+                  <Text style={s.sourceIcon}>📷</Text>
                 </View>
-                <Text style={styles.sourceLabel}>Take photo</Text>
-                <Text style={styles.sourceSub}>Use the camera</Text>
+                <Text style={s.sourceLabel}>Take photo</Text>
+                <Text style={s.sourceSub}>Use the camera</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.sourceCard} onPress={() => pick(handlePickMedia)} activeOpacity={0.85}>
-                <View style={[styles.sourceIconWrap, { backgroundColor: colors.accentBg }]}>
-                  <Text style={styles.sourceIcon}>🖼️</Text>
+              <TouchableOpacity style={s.sourceCard} onPress={() => pick(handlePickMedia)} activeOpacity={0.85}>
+                <View style={[s.sourceIconWrap, { backgroundColor: t.colors.accentBg }]}>
+                  <Text style={s.sourceIcon}>🖼️</Text>
                 </View>
-                <Text style={styles.sourceLabel}>Choose</Text>
-                <Text style={styles.sourceSub}>Photo or video</Text>
+                <Text style={s.sourceLabel}>Choose</Text>
+                <Text style={s.sourceSub}>Photo or video</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.sheetCancel} onPress={() => setPickerOpen(false)}>
-              <Text style={styles.sheetCancelText}>Cancel</Text>
+            <TouchableOpacity style={s.sheetCancel} onPress={() => setPickerOpen(false)}>
+              <Text style={s.sheetCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -361,27 +365,27 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { marginVertical: 8 },
   // Compact 64×64 thumbnail variant (Quick Add).
   thumbBox: {
     width: 64, height: 64, borderRadius: 10,
-    borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed',
+    borderWidth: 2, borderColor: t.colors.border, borderStyle: 'dashed',
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
   },
   thumbBoxImg: { width: '100%', height: '100%', borderRadius: 8 },
-  thumbBoxIcon: { fontSize: 22, color: colors.primary, fontWeight: '300', lineHeight: 24 },
-  thumbBoxText: { fontSize: 10, color: colors.textSecondary, fontWeight: '600' },
+  thumbBoxIcon: { fontSize: 22, color: t.colors.primary, fontWeight: '300', lineHeight: 24 },
+  thumbBoxText: { fontSize: 10, color: t.colors.textSecondary, fontWeight: '600' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: colors.border },
-  thumbPrimary: { borderWidth: 2, borderColor: colors.primary },
+  thumb: { width: THUMB, height: THUMB, borderRadius: 8, backgroundColor: t.colors.border },
+  thumbPrimary: { borderWidth: 2, borderColor: t.colors.primary },
   primaryBadge: {
     position: 'absolute', top: 4, left: 4,
-    backgroundColor: colors.primary, borderRadius: 8, width: 16, height: 16,
+    backgroundColor: t.colors.primary, borderRadius: 8, width: 16, height: 16,
     alignItems: 'center', justifyContent: 'center',
   },
-  primaryText: { color: '#fff', fontSize: 10 },
+  primaryText: { color: t.colors.onPrimary, fontSize: 10 },
   videoBadge: {
     position: 'absolute', inset: 0,
     alignItems: 'center', justifyContent: 'center',
@@ -390,48 +394,48 @@ const styles = StyleSheet.create({
   videoIcon: { color: '#fff', fontSize: 24 },
   addBtn: {
     width: THUMB, height: THUMB, borderRadius: 8,
-    borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed',
-    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background,
+    borderWidth: 2, borderColor: t.colors.border, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.background,
   },
-  addIcon: { fontSize: 26, color: colors.primary, fontWeight: '300' },
-  addText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600', marginTop: 2 },
+  addIcon: { fontSize: 26, color: t.colors.primary, fontWeight: '300' },
+  addText: { fontSize: 11, color: t.colors.textSecondary, fontWeight: '600', marginTop: 2 },
   // Source picker bottom sheet
   sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
-    backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    backgroundColor: t.colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34, gap: 16,
   },
-  sheetHandle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 4 },
-  sheetTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  sheetHandle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: t.colors.border, marginBottom: 4 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', color: t.colors.textPrimary, textAlign: 'center' },
   sourceRow: { flexDirection: 'row', gap: 12 },
   sourceCard: {
     flex: 1, alignItems: 'center', gap: 6, paddingVertical: 18,
-    borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background,
+    borderRadius: 16, borderWidth: 1, borderColor: t.colors.border, backgroundColor: t.colors.background,
   },
   sourceIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   sourceIcon: { fontSize: 26 },
-  sourceLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
-  sourceSub: { fontSize: 12, color: colors.textMuted },
-  sheetCancel: { alignItems: 'center', paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background },
-  sheetCancelText: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
+  sourceLabel: { fontSize: 15, fontWeight: '700', color: t.colors.textPrimary },
+  sourceSub: { fontSize: 12, color: t.colors.textMuted },
+  sheetCancel: { alignItems: 'center', paddingVertical: 12, borderRadius: 12, backgroundColor: t.colors.background },
+  sheetCancelText: { fontSize: 15, fontWeight: '700', color: t.colors.textSecondary },
   // Location-note sheet (job batches)
   noteBody: { gap: 14 },
-  noteTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
-  noteSub: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  noteTitle: { fontSize: 17, fontWeight: '800', color: t.colors.textPrimary, textAlign: 'center' },
+  noteSub: { fontSize: 12, color: t.colors.textMuted, textAlign: 'center' },
   noteBtnRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   noteSkipBtn: {
     flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 12,
-    borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background,
+    borderWidth: 1, borderColor: t.colors.border, backgroundColor: t.colors.background,
   },
-  noteSkipText: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
-  noteStartBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 12, backgroundColor: colors.primary },
-  noteStartText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  noteSkipText: { fontSize: 15, fontWeight: '700', color: t.colors.textSecondary },
+  noteStartBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 12, backgroundColor: t.colors.primary },
+  noteStartText: { fontSize: 15, fontWeight: '700', color: t.colors.onPrimary },
   lightbox: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
     alignItems: 'center', justifyContent: 'center',
   },
   lightboxImg: { width: '100%', height: '80%' },
-  lightboxDelete: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 12, backgroundColor: colors.danger },
-  lightboxDeleteText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  lightboxDelete: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 12, backgroundColor: t.colors.danger },
+  lightboxDeleteText: { color: t.colors.onPrimary, fontSize: 14, fontWeight: '700' },
   lightboxClose: { color: '#fff', marginTop: 16, fontSize: 14 },
 });

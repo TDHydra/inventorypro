@@ -37,7 +37,8 @@ import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -58,6 +59,7 @@ interface PmSelection {
 }
 
 export default function CheckoutScreen() {
+  const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -923,6 +925,7 @@ function PmLocationRow({
   /** When true, suppress all quantity display (used for unit-tracked items). */
   hideQty?: boolean;
 }) {
+  const s = useThemedStyles(makeStyles);
   const locs = useMemo(() => getLocationsByOwner(sel.pmId), [sel.pmId]);
   const options: PickerOption[] = locs.map(l => ({ id: l.id, label: l.name }));
   const value: PickerOption | null = sel.locationId
@@ -961,6 +964,7 @@ function PmLocationRow({
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.confirmRow}>
       <Text style={s.confirmLabel}>{label}</Text>
@@ -969,53 +973,53 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, padding: 16 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background, padding: 16 },
   confirmContent: { padding: 16, gap: 16 },
-  sectionLabel: { fontSize: 18, fontWeight: '700', color: colors.brand, marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
+  sectionLabel: { fontSize: 18, fontWeight: '700', color: t.colors.brand, marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
   qtyInput: {
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 14, height: 54, fontSize: 24, fontWeight: '700',
-    color: colors.textPrimary, textAlign: 'center',
+    color: t.colors.textPrimary, textAlign: 'center',
   },
   scanRow: { paddingVertical: 12, alignItems: 'center' },
-  scanText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
+  scanText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
   row: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, padding: 14,
-    borderRadius: 10, borderWidth: 1, borderColor: colors.border, marginBottom: 6,
+    backgroundColor: t.colors.surface, padding: 14,
+    borderRadius: 10, borderWidth: 1, borderColor: t.colors.border, marginBottom: 6,
   },
-  rowSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
-  rowName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, flex: 1 },
-  rowSub: { fontSize: 11, color: colors.textMuted },
-  rowStock: { fontSize: 14, fontWeight: '600', color: colors.success },
-  sep: { height: 1, backgroundColor: colors.borderDetail },
-  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 20 },
+  rowSelected: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
+  rowName: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary, flex: 1 },
+  rowSub: { fontSize: 11, color: t.colors.textMuted },
+  rowStock: { fontSize: 14, fontWeight: '600', color: t.colors.success },
+  sep: { height: 1, backgroundColor: t.colors.borderDetail },
+  empty: { textAlign: 'center', color: t.colors.textMuted, marginTop: 20 },
   btnSecondary: { alignItems: 'center', paddingVertical: 10 },
-  btnSecondaryText: { color: colors.textSecondary, fontSize: 15 },
+  btnSecondaryText: { color: t.colors.textSecondary, fontSize: 15 },
   forRow: { flexDirection: 'row', gap: 8 },
   forBtn: {
     flex: 1, paddingVertical: 10, borderRadius: 8,
-    backgroundColor: '#F1F5F9', alignItems: 'center',
+    backgroundColor: t.colors.surfaceAlt, alignItems: 'center',
   },
-  forBtnActive: { backgroundColor: colors.primaryBgStrong },
-  forBtnText: { fontSize: 14, color: colors.textSecondary, fontWeight: '600' },
-  forBtnTextActive: { color: colors.primaryText },
+  forBtnActive: { backgroundColor: t.colors.primaryBgStrong },
+  forBtnText: { fontSize: 14, color: t.colors.textSecondary, fontWeight: '600' },
+  forBtnTextActive: { color: t.colors.primaryText },
   pmDetail: { marginBottom: 10, paddingLeft: 8, gap: 6 },
-  pmHint: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
+  pmHint: { fontSize: 12, color: t.colors.textSecondary, fontWeight: '600' },
   pmQtyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pmQtyInput: {
-    backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 8, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 12, height: 40, fontSize: 16, fontWeight: '700',
-    color: colors.textPrimary, textAlign: 'center', minWidth: 80,
+    color: t.colors.textPrimary, textAlign: 'center', minWidth: 80,
   },
-  confirmTitle: { fontSize: 22, fontWeight: '700', color: colors.brand },
+  confirmTitle: { fontSize: 22, fontWeight: '700', color: t.colors.brand },
   confirmCard: {
-    backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1,
-    borderColor: colors.border, padding: 16, gap: 12,
+    backgroundColor: t.colors.surface, borderRadius: 12, borderWidth: 1,
+    borderColor: t.colors.border, padding: 16, gap: 12,
   },
   confirmRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  confirmLabel: { fontSize: 14, color: colors.textSecondary },
-  confirmValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary, flex: 1, textAlign: 'right' },
+  confirmLabel: { fontSize: 14, color: t.colors.textSecondary },
+  confirmValue: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary, flex: 1, textAlign: 'right' },
 });

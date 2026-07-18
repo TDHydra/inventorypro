@@ -4,7 +4,9 @@ import { FilterChip } from './FilterChip';
 import { BulkActionBar, BulkAction } from '../BulkActionBar';
 import { MultiSelect } from '../../hooks/useMultiSelect';
 import { syncNow } from '../../sync/engine';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 export interface ShellFilter {
   id: string;
@@ -65,6 +67,8 @@ export function ListScreenShell<T extends { id: string }>({
   bulk,
   fab,
 }: ListScreenShellProps<T>) {
+  const t = useTheme();
+  const s = useThemedStyles(makeStyles);
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -113,8 +117,8 @@ export function ListScreenShell<T extends { id: string }>({
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
+            tintColor={t.colors.primary}
+            colors={[t.colors.primary]}
           />
         }
       />
@@ -134,13 +138,13 @@ export function ListScreenShell<T extends { id: string }>({
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8, flexWrap: 'wrap' },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  filters: { flexDirection: 'row', gap: t.spacing.sm, paddingHorizontal: t.spacing.md, paddingBottom: t.spacing.sm, flexWrap: 'wrap' },
   list: { flex: 1 },
   // Copied verbatim from (inventory)/index.tsx listContent / listContentSelecting
   // so a converted screen is pixel-identical (the bump keeps the last row above
   // the BulkActionBar).
-  listContent: { padding: 12, paddingBottom: 80 },
+  listContent: { padding: t.spacing.md, paddingBottom: 80 },
   listContentSelecting: { paddingBottom: 180 },
 });

@@ -21,7 +21,8 @@ import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 const ENTITY_TYPE_LABEL: Record<string, string> = {
   equipment_unit: 'Equipment Unit',
@@ -30,6 +31,7 @@ const ENTITY_TYPE_LABEL: Record<string, string> = {
 };
 
 export default function NewRepairScreen() {
+  const s = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ entityType: string; entityId: string; entityLabel?: string }>();
   const entityType = params.entityType as Repair['entity_type'];
   const entityId = params.entityId;
@@ -194,13 +196,13 @@ export default function NewRepairScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.borderDetail },
-  entityKind: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
-  entityLabel: { fontSize: 20, fontWeight: '700', color: colors.brand, marginTop: 4 },
+  card: { backgroundColor: t.colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: t.colors.borderDetail },
+  entityKind: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  entityLabel: { fontSize: 20, fontWeight: '700', color: t.colors.brand, marginTop: 4 },
   fieldWrap: { gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },

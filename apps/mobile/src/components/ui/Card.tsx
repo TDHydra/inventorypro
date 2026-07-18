@@ -1,10 +1,12 @@
 import { View, StyleSheet } from 'react-native';
-import { colors, radii, spacing } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 export function Card({ variant = 'list', style, children }: { variant?: 'list' | 'detail'; style?: object; children: React.ReactNode }) {
+  const s = useThemedStyles(makeStyles);
   return <View style={[variant === 'detail' ? s.detail : s.list, style]}>{children}</View>;
 }
-const s = StyleSheet.create({
-  list: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, padding: spacing.base },
-  detail: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.borderDetail, padding: spacing.lg },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  list: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: t.components.card.borderWidth, borderColor: t.colors.border, padding: t.spacing.base },
+  detail: { backgroundColor: t.colors.surface, borderRadius: t.radii.card, borderWidth: t.components.card.borderWidth, borderColor: t.colors.borderDetail, padding: t.spacing.lg },
 });

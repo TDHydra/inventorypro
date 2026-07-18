@@ -4,11 +4,15 @@ import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
 import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox } from '../sync/outbox';
 import { syncNow } from '../sync/engine';
-import { colors, radii, spacing, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 type SyncStatus = 'synced' | 'pending' | 'failed' | 'offline';
 
 export function SyncIndicator() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const [status, setStatus] = useState<SyncStatus>('synced');
   const [active, setActive] = useState(0);
   const [failed, setFailed] = useState(0);
@@ -77,10 +81,10 @@ export function SyncIndicator() {
   }
 
   const SYNC_COLORS: Record<SyncStatus, string> = {
-    synced: colors.success,
-    pending: colors.warning,
-    failed: colors.danger,
-    offline: colors.danger,
+    synced: t.colors.success,
+    pending: t.colors.warning,
+    failed: t.colors.danger,
+    offline: t.colors.danger,
   };
   const color = SYNC_COLORS[status];
   const label = {
@@ -92,51 +96,51 @@ export function SyncIndicator() {
 
   return (
     <>
-      <TouchableOpacity onPress={() => { refresh(); setShowSheet(true); }} style={styles.dot}>
-        <View style={[styles.circle, { backgroundColor: color }]} />
+      <TouchableOpacity onPress={() => { refresh(); setShowSheet(true); }} style={s.dot}>
+        <View style={[s.circle, { backgroundColor: color }]} />
       </TouchableOpacity>
 
       <Modal visible={showSheet} transparent animationType="slide">
-        <Pressable style={styles.overlay} onPress={() => setShowSheet(false)}>
-          <Pressable style={styles.sheet}>
-            <View style={[styles.sheetDot, { backgroundColor: color }]} />
-            <Text style={styles.sheetStatus}>{label}</Text>
+        <Pressable style={s.overlay} onPress={() => setShowSheet(false)}>
+          <Pressable style={s.sheet}>
+            <View style={[s.sheetDot, { backgroundColor: color }]} />
+            <Text style={s.sheetStatus}>{label}</Text>
             {lastSync && (
-              <Text style={styles.sheetSub}>
+              <Text style={s.sheetSub}>
                 Last sync: {new Date(lastSync).toLocaleTimeString()}
               </Text>
             )}
             {active > 0 && (
-              <Text style={styles.sheetSub}>
+              <Text style={s.sheetSub}>
                 {active} change{active !== 1 ? 's' : ''} waiting to upload
               </Text>
             )}
             {failed > 0 && (
               <>
-                <Text style={styles.sheetFailed}>
+                <Text style={s.sheetFailed}>
                   {failed} change{failed !== 1 ? 's' : ''} failed to sync after several tries.
                 </Text>
-                {firstError && <Text style={styles.sheetErr} numberOfLines={3}>{firstError}</Text>}
-                <View style={styles.btnRow}>
+                {firstError && <Text style={s.sheetErr} numberOfLines={3}>{firstError}</Text>}
+                <View style={s.btnRow}>
                   <TouchableOpacity
-                    style={[styles.btn, styles.btnPrimary, busy && styles.btnDisabled]}
+                    style={[s.btn, s.btnPrimary, busy && s.btnDisabled]}
                     onPress={handleRetry}
                     disabled={busy}
                   >
-                    <Text style={styles.btnPrimaryText}>{busy ? 'Retrying…' : 'Retry now'}</Text>
+                    <Text style={s.btnPrimaryText}>{busy ? 'Retrying…' : 'Retry now'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.btn, styles.btnDanger]}
+                    style={[s.btn, s.btnDanger]}
                     onPress={handleDiscard}
                     disabled={busy}
                   >
-                    <Text style={styles.btnDangerText}>Discard</Text>
+                    <Text style={s.btnDangerText}>Discard</Text>
                   </TouchableOpacity>
                 </View>
               </>
             )}
             {status === 'offline' && (
-              <Text style={styles.sheetOffline}>
+              <Text style={s.sheetOffline}>
                 Connect to WiFi or cellular to sync your changes.
               </Text>
             )}
@@ -147,29 +151,29 @@ export function SyncIndicator() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   dot: { padding: 6 },
   circle: { width: 10, height: 10, borderRadius: 5 },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' },
   sheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
-    padding: spacing.xxl,
+    backgroundColor: t.colors.surface,
+    borderTopLeftRadius: t.radii.xl,
+    borderTopRightRadius: t.radii.xl,
+    padding: t.spacing.xxl,
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: t.spacing.sm,
   },
   sheetDot: { width: 16, height: 16, borderRadius: 8, marginBottom: 4 },
-  sheetStatus: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary },
-  sheetSub: { fontSize: fontSizes.body, color: colors.textSecondary },
-  sheetFailed: { fontSize: fontSizes.body, color: colors.danger, textAlign: 'center', marginTop: 4, fontWeight: '600' },
-  sheetErr: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', fontStyle: 'italic' },
-  sheetOffline: { fontSize: fontSizes.body2, color: colors.danger, textAlign: 'center', marginTop: 4 },
-  btnRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
-  btn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: radii.md, minWidth: 110, alignItems: 'center' },
-  btnPrimary: { backgroundColor: colors.primary },
-  btnPrimaryText: { color: colors.surface, fontWeight: '700', fontSize: fontSizes.body },
-  btnDanger: { backgroundColor: colors.dangerBg },
-  btnDangerText: { color: colors.danger, fontWeight: '700', fontSize: fontSizes.body },
+  sheetStatus: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary },
+  sheetSub: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary },
+  sheetFailed: { fontSize: t.typography.fontSizes.body, color: t.colors.danger, textAlign: 'center', marginTop: 4, fontWeight: '600' },
+  sheetErr: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, textAlign: 'center', fontStyle: 'italic' },
+  sheetOffline: { fontSize: t.typography.fontSizes.body2, color: t.colors.danger, textAlign: 'center', marginTop: 4 },
+  btnRow: { flexDirection: 'row', gap: t.spacing.md, marginTop: t.spacing.md },
+  btn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: t.radii.md, minWidth: 110, alignItems: 'center' },
+  btnPrimary: { backgroundColor: t.colors.primary },
+  btnPrimaryText: { color: t.colors.surface, fontWeight: '700', fontSize: t.typography.fontSizes.body },
+  btnDanger: { backgroundColor: t.colors.dangerBg },
+  btnDangerText: { color: t.colors.danger, fontWeight: '700', fontSize: t.typography.fontSizes.body },
   btnDisabled: { opacity: 0.6 },
 });

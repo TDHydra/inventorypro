@@ -14,7 +14,9 @@ import { isWriteBlocked } from '../../db/maintenance';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import { PickerOption } from '../SearchablePicker';
 import { LocationPicker, TaxonomyChips } from '../pickers';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
@@ -35,6 +37,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function JobQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
@@ -287,25 +291,25 @@ export default function JobQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
     </View>
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 12 },
   hint: {
-    backgroundColor: colors.primaryBg,
+    backgroundColor: t.colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.primaryBgStrong,
+    borderColor: t.colors.primaryBgStrong,
     padding: 12,
   },
-  hintText: { fontSize: 13, color: colors.primaryText },
+  hintText: { fontSize: 13, color: t.colors.primaryText },
   fieldWrap: { gap: 6 },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
-  inputError: { borderColor: colors.danger },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger },
 });

@@ -10,7 +10,9 @@ import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { getAllTeams, getTeamMembers } from '../../../src/db/queries/teams';
 import { getValidJwt } from '../../../src/auth/session';
 import { AppInput } from '../../../src/components/ui/AppInput';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -44,6 +46,8 @@ function estimateRecipients(
 }
 
 export default function BroadcastScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const canSend = usePermission('send_notifications');
   const { user } = useSession();
@@ -211,7 +215,7 @@ export default function BroadcastScreen() {
                 onChangeText={setTitle}
                 placeholder="Short headline"
                 maxLength={120}
-                style={{ marginTop: spacing.sm }}
+                style={{ marginTop: t.spacing.sm }}
               />
             </View>
             <View style={s.divider} />
@@ -223,7 +227,7 @@ export default function BroadcastScreen() {
                 placeholder="What do you want everyone to know?"
                 maxLength={1000}
                 multiline
-                style={{ marginTop: spacing.sm, minHeight: 96, textAlignVertical: 'top' }}
+                style={{ marginTop: t.spacing.sm, minHeight: 96, textAlignVertical: 'top' }}
               />
             </View>
           </View>
@@ -235,7 +239,7 @@ export default function BroadcastScreen() {
           disabled={!canSubmit}
         >
           {sending
-            ? <ActivityIndicator color="#fff" />
+            ? <ActivityIndicator color={t.colors.onPrimary} />
             : <Text style={s.sendBtnText}>Send broadcast</Text>}
         </TouchableOpacity>
 
@@ -244,60 +248,60 @@ export default function BroadcastScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
-  deniedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, backgroundColor: colors.background },
-  deniedText: { fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center' },
+  deniedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.lg, backgroundColor: t.colors.background },
+  deniedText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center' },
 
   sectionTitle: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.base,
   },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
-  rowSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginTop: 2 },
-  divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
-  blockPad: { paddingHorizontal: spacing.base, paddingVertical: spacing.base },
-  infoBlock: { paddingHorizontal: spacing.base, paddingVertical: spacing.md },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
+  rowSub: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, marginTop: 2 },
+  divider: { height: 1, backgroundColor: t.colors.border, marginHorizontal: t.spacing.base },
+  blockPad: { paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.base },
+  infoBlock: { paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.md },
 
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: t.spacing.sm },
   chip: {
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: radii.sm,
+    borderRadius: t.radii.sm,
     borderWidth: 1,
-    borderColor: colors.textDisabled,
-    backgroundColor: colors.background,
+    borderColor: t.colors.textDisabled,
+    backgroundColor: t.colors.background,
   },
-  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  chipText: { fontSize: fontSizes.body2, fontWeight: '600', color: '#475569' },
-  chipTextActive: { color: '#fff' },
+  chipActive: { backgroundColor: t.colors.brand, borderColor: t.colors.brand },
+  chipText: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: '#475569' },
+  chipTextActive: { color: t.colors.onPrimary },
 
   sendBtn: {
-    backgroundColor: colors.brand,
-    borderRadius: radii.lg,
-    paddingVertical: spacing.base,
+    backgroundColor: t.colors.brand,
+    borderRadius: t.radii.lg,
+    paddingVertical: t.spacing.base,
     alignItems: 'center',
   },
-  sendBtnDisabled: { backgroundColor: colors.textDisabled },
-  sendBtnText: { color: '#fff', fontSize: fontSizes.body, fontWeight: '700' },
+  sendBtnDisabled: { backgroundColor: t.colors.textDisabled },
+  sendBtnText: { color: t.colors.onPrimary, fontSize: t.typography.fontSizes.body, fontWeight: '700' },
 });

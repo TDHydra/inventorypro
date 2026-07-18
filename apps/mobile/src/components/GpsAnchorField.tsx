@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useCurrentPosition } from '../hooks/useCurrentPosition';
 import { MapPickerModal, PickedCoords } from './MapPickerModal';
 import { AppInput } from './ui/AppInput';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 interface Props {
   value: PickedCoords | null;
@@ -19,6 +20,7 @@ function inRange(lat: number, lng: number): boolean {
 // manual lat/lng entry, and a map tap-to-set picker (Leaflet/OSM WebView). Used by
 // both the location create and edit screens. Honors a maintenance `disabled` lock.
 export function GpsAnchorField({ value, onChange, disabled }: Props) {
+  const s = useThemedStyles(makeStyles);
   const { coords, status, request } = useCurrentPosition();
   const [mapOpen, setMapOpen] = useState(false);
   const [latText, setLatText] = useState(value ? String(value.latitude) : '');
@@ -75,7 +77,7 @@ export function GpsAnchorField({ value, onChange, disabled }: Props) {
 
       {/* Map picker */}
       <TouchableOpacity
-        style={[s.btn, { marginTop: spacing.sm }]}
+        style={[s.btn, s.btnGap]}
         onPress={() => setMapOpen(true)}
         disabled={disabled}
         activeOpacity={0.7}
@@ -130,17 +132,18 @@ export function GpsAnchorField({ value, onChange, disabled }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  btn: { backgroundColor: '#F1F5F9', borderRadius: radii.md, paddingVertical: 11, paddingHorizontal: spacing.base, borderWidth: 1, borderColor: colors.textDisabled, alignItems: 'center' },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  btn: { backgroundColor: t.colors.surfaceAlt, borderRadius: t.radii.md, paddingVertical: 11, paddingHorizontal: t.spacing.base, borderWidth: 1, borderColor: t.colors.textDisabled, alignItems: 'center' },
+  btnGap: { marginTop: t.spacing.sm },
   btnSet: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
-  btnText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '600' },
-  btnTextSet: { color: colors.success, fontWeight: '700' },
-  manualRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  btnText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontWeight: '600' },
+  btnTextSet: { color: t.colors.success, fontWeight: '700' },
+  manualRow: { flexDirection: 'row', gap: t.spacing.sm, marginTop: t.spacing.sm },
   manualInput: { flex: 1 },
-  invalid: { fontSize: fontSizes.caption, color: colors.warning, marginTop: 2 },
-  resolvedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm },
-  resolved: { fontSize: fontSizes.body2, color: colors.success, fontWeight: '700' },
-  clear: { fontSize: fontSizes.body2, color: colors.warning, fontWeight: '600' },
-  hint: { fontSize: fontSizes.caption, color: colors.textMuted, textAlign: 'center', marginTop: 4 },
-  denied: { fontSize: fontSizes.caption, color: colors.warning, textAlign: 'center', paddingVertical: spacing.sm },
+  invalid: { fontSize: t.typography.fontSizes.caption, color: t.colors.warning, marginTop: 2 },
+  resolvedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: t.spacing.sm },
+  resolved: { fontSize: t.typography.fontSizes.body2, color: t.colors.success, fontWeight: '700' },
+  clear: { fontSize: t.typography.fontSizes.body2, color: t.colors.warning, fontWeight: '600' },
+  hint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, textAlign: 'center', marginTop: 4 },
+  denied: { fontSize: t.typography.fontSizes.caption, color: t.colors.warning, textAlign: 'center', paddingVertical: t.spacing.sm },
 });

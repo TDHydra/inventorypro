@@ -1,5 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { colors, radii, spacing, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 export interface BulkAction {
   key: string;
@@ -24,6 +25,7 @@ interface Props {
  * business logic.
  */
 export function BulkActionBar({ count, actions, onSelectAll, onCancel, disabled }: Props) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.bar}>
       <View style={s.topRow}>
@@ -66,44 +68,44 @@ export function BulkActionBar({ count, actions, onSelectAll, onCancel, disabled 
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   bar: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xl,
+    borderTopColor: t.colors.border,
+    paddingHorizontal: t.spacing.lg,
+    paddingTop: t.spacing.md,
+    paddingBottom: t.spacing.xl,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: t.spacing.md,
   },
-  count: { fontSize: fontSizes.md, fontWeight: '700', color: colors.textPrimary },
+  count: { fontSize: t.typography.fontSizes.md, fontWeight: '700', color: t.colors.textPrimary },
   topRight: { flexDirection: 'row', alignItems: 'center' },
-  linkBtn: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, marginLeft: spacing.sm },
-  link: { fontSize: fontSizes.body, fontWeight: '600', color: colors.primary },
-  cancel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textSecondary },
-  actions: { gap: spacing.sm, paddingRight: spacing.sm },
+  linkBtn: { paddingVertical: t.spacing.xs, paddingHorizontal: t.spacing.sm, marginLeft: t.spacing.sm },
+  link: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.primary },
+  cancel: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textSecondary },
+  actions: { gap: t.spacing.sm, paddingRight: t.spacing.sm },
   action: {
     paddingVertical: 10,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radii.lg,
+    paddingHorizontal: t.spacing.lg,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionPrimary: { backgroundColor: colors.primaryBg, borderColor: colors.primaryBgStrong },
-  actionDanger: { backgroundColor: colors.dangerBg, borderColor: colors.dangerBg },
+  actionPrimary: { backgroundColor: t.colors.primaryBg, borderColor: t.colors.primaryBgStrong },
+  actionDanger: { backgroundColor: t.colors.dangerBg, borderColor: t.colors.dangerBg },
   disabled: { opacity: 0.5 },
-  actionText: { fontSize: fontSizes.body, fontWeight: '700' },
-  actionTextPrimary: { color: colors.primaryText },
-  actionTextDanger: { color: colors.danger },
+  actionText: { fontSize: t.typography.fontSizes.body, fontWeight: '700' },
+  actionTextPrimary: { color: t.colors.primaryText },
+  actionTextDanger: { color: t.colors.danger },
 });

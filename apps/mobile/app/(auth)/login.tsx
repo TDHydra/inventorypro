@@ -4,7 +4,9 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { colors } from '../../src/theme';
+import type { Theme } from '../../src/themes/types';
+import { useTheme } from '../../src/hooks/useTheme';
+import { useThemedStyles } from '../../src/hooks/useThemedStyles';
 import { PINPad } from '../../src/components/PINPad';
 import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
@@ -24,6 +26,8 @@ type Screen = 'pick' | 'pin' | 'setpin';
 type SetStep = 'code' | 'enter' | 'confirm';
 
 export default function LoginScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { setUser } = useSession();
 
@@ -317,7 +321,7 @@ export default function LoginScreen() {
             <TextInput
               style={styles.enrollInput}
               placeholder="000000"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={t.colors.textMuted}
               value={enrollmentCode}
               onChangeText={v => { setEnrollmentCode(v.replace(/\D/g, '').slice(0, 6)); setPinError(null); }}
               keyboardType="number-pad"
@@ -400,7 +404,7 @@ export default function LoginScreen() {
         <TextInput
           style={styles.searchInput}
           placeholder="Search name..."
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={t.colors.textMuted}
           value={search}
           onChangeText={setSearch}
           autoCapitalize="none"
@@ -440,7 +444,7 @@ export default function LoginScreen() {
         ListEmptyComponent={
           rosterLoading ? (
             <View style={styles.emptyState}>
-              <ActivityIndicator color={colors.primary} />
+              <ActivityIndicator color={t.colors.primary} />
               <Text style={styles.empty}>Loading sign-in list…</Text>
             </View>
           ) : rosterError ? (
@@ -459,74 +463,74 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
     paddingTop: 60,
     paddingHorizontal: 20,
   },
-  appName: { fontSize: 20, fontWeight: '700', color: colors.primaryText, marginBottom: 4 },
-  heading: { fontSize: 26, fontWeight: '700', color: colors.brand, marginBottom: 16 },
+  appName: { fontSize: 20, fontWeight: '700', color: t.colors.primaryText, marginBottom: 4 },
+  heading: { fontSize: 26, fontWeight: '700', color: t.colors.brand, marginBottom: 16 },
   searchBox: {
-    backgroundColor: '#fff',
+    backgroundColor: t.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     paddingHorizontal: 14,
     marginBottom: 12,
   },
-  searchInput: { height: 44, fontSize: 16, color: colors.textPrimary },
+  searchInput: { height: 44, fontSize: 16, color: t.colors.textPrimary },
   list: { flex: 1 },
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: t.colors.surface,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   avatar: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.primaryBg,
+    backgroundColor: t.colors.primaryBg,
     alignItems: 'center', justifyContent: 'center',
     marginRight: 12,
   },
-  avatarText: { fontSize: 16, fontWeight: '700', color: colors.primaryText },
+  avatarText: { fontSize: 16, fontWeight: '700', color: t.colors.primaryText },
   userInfo: { flex: 1 },
-  userName2: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
-  userRole: { fontSize: 12, color: colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
+  userName2: { fontSize: 16, fontWeight: '600', color: t.colors.textPrimary },
+  userRole: { fontSize: 12, color: t.colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
   // Deliberately quiet: the demo access code is public, but it should read as a
   // hint under the row/field ("small grayed out lettering"), not a callout.
-  testCode: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  chevron: { fontSize: 20, color: colors.textDisabled },
-  separator: { height: 1, backgroundColor: colors.borderDetail, marginLeft: 66 },
-  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 12, fontSize: 15 },
+  testCode: { fontSize: 11, color: t.colors.textMuted, marginTop: 2 },
+  chevron: { fontSize: 20, color: t.colors.textDisabled },
+  separator: { height: 1, backgroundColor: t.colors.borderDetail, marginLeft: 66 },
+  empty: { textAlign: 'center', color: t.colors.textMuted, marginTop: 12, fontSize: 15 },
   emptyState: { alignItems: 'center', marginTop: 40 },
   // PIN screen
   back: { marginBottom: 32 },
-  backText: { fontSize: 16, color: colors.primaryText },
-  greeting: { fontSize: 16, color: colors.textSecondary },
-  userName: { fontSize: 28, fontWeight: '700', color: colors.brand, marginBottom: 40 },
+  backText: { fontSize: 16, color: t.colors.primaryText },
+  greeting: { fontSize: 16, color: t.colors.textSecondary },
+  userName: { fontSize: 28, fontWeight: '700', color: t.colors.brand, marginBottom: 40 },
   pinSection: { alignItems: 'center', width: '100%' },
-  pinLabel: { fontSize: 18, fontWeight: '600', color: colors.textPrimary, marginBottom: 6 },
-  pinSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
+  pinLabel: { fontSize: 18, fontWeight: '600', color: t.colors.textPrimary, marginBottom: 6 },
+  pinSub: { fontSize: 13, color: t.colors.textSecondary, textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
   enrollSection: { alignItems: 'center', width: '100%', marginBottom: 28 },
   enrollInput: {
     width: 160,
     textAlign: 'center',
     fontSize: 22,
     letterSpacing: 6,
-    color: colors.textPrimary,
-    backgroundColor: '#fff',
+    color: t.colors.textPrimary,
+    backgroundColor: t.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     paddingVertical: 10,
   },
-  enrollError: { marginTop: 12, fontSize: 13, color: colors.danger, textAlign: 'center' },
+  enrollError: { marginTop: 12, fontSize: 13, color: t.colors.danger, textAlign: 'center' },
   continueBtn: {
     marginTop: 28,
-    backgroundColor: colors.primary,
+    backgroundColor: t.colors.primary,
     borderRadius: 10,
     paddingVertical: 14,
     paddingHorizontal: 40,
@@ -534,8 +538,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   continueBtnDisabled: { opacity: 0.4 },
-  continueText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  loading: { marginTop: 20, color: colors.textSecondary },
-  firstBanner: { backgroundColor: colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
-  firstBannerText: { color: colors.primaryText, fontSize: 13, fontWeight: '700' },
+  continueText: { color: t.colors.onPrimary, fontSize: 16, fontWeight: '700' },
+  loading: { marginTop: 20, color: t.colors.textSecondary },
+  firstBanner: { backgroundColor: t.colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
+  firstBannerText: { color: t.colors.primaryText, fontSize: 13, fontWeight: '700' },
 });

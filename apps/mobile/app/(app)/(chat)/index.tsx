@@ -9,7 +9,9 @@ import {
 } from '../../../src/db/queries/chat';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { loadChatCache } from '../../../src/chat/store';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { Card } from '../../../src/components/ui/Card';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
@@ -39,6 +41,8 @@ function titleFor(c: ConversationListItem): string {
 }
 
 export default function ChatListScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -128,8 +132,8 @@ export default function ChatListScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
           renderItem={({ item }) => {
@@ -227,39 +231,39 @@ export default function ChatListScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  list: { padding: spacing.md, gap: spacing.sm, paddingBottom: 80 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  list: { padding: t.spacing.md, gap: t.spacing.sm, paddingBottom: 80 },
   newBtn: { paddingHorizontal: 8, paddingVertical: 4, marginRight: 4 },
-  newBtnText: { color: '#fff', fontSize: fontSizes.body, fontWeight: '700' },
+  newBtnText: { color: t.colors.headerTint, fontSize: t.typography.fontSizes.body, fontWeight: '700' },
   fab: {
     position: 'absolute', right: 20, bottom: 24,
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',
     elevation: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
   },
-  fabText: { color: '#fff', fontSize: 30, fontWeight: '700', lineHeight: 34 },
-  cardUnread: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
-  row: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+  fabText: { color: t.colors.onPrimary, fontSize: 30, fontWeight: '700', lineHeight: 34 },
+  cardUnread: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
+  row: { flexDirection: 'row', gap: t.spacing.md, alignItems: 'center' },
   avatar: { fontSize: 22 },
   body: { flex: 1, gap: 2 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  title: { flex: 1, fontSize: fontSizes.md, fontWeight: '600', color: colors.textPrimary },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  title: { flex: 1, fontSize: t.typography.fontSizes.md, fontWeight: '600', color: t.colors.textPrimary },
   titleUnread: { fontWeight: '800' },
-  age: { fontSize: fontSizes.caption, color: colors.textMuted },
-  previewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  preview: { flex: 1, fontSize: fontSizes.body2, color: colors.textSecondary },
+  age: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  previewRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  preview: { flex: 1, fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary },
   badge: {
-    minWidth: 20, height: 20, borderRadius: 10, backgroundColor: colors.primary,
+    minWidth: 20, height: 20, borderRadius: 10, backgroundColor: t.colors.primary,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6,
   },
-  badgeText: { color: '#fff', fontSize: fontSizes.xs, fontWeight: '800' },
-  muted: { fontSize: fontSizes.body2 },
-  sheetTitle: { fontSize: fontSizes.lg, fontWeight: '800', color: colors.textPrimary },
-  sheetHint: { fontSize: fontSizes.body2, color: colors.textSecondary, marginTop: 4, marginBottom: spacing.md },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  chip: { backgroundColor: colors.primaryBgStrong, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 6 },
-  chipText: { color: colors.primaryText, fontSize: fontSizes.body2, fontWeight: '700' },
-  titleField: { marginTop: spacing.md },
-  sheetActions: { marginTop: spacing.lg },
+  badgeText: { color: t.colors.onPrimary, fontSize: t.typography.fontSizes.xs, fontWeight: '800' },
+  muted: { fontSize: t.typography.fontSizes.body2 },
+  sheetTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '800', color: t.colors.textPrimary },
+  sheetHint: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, marginTop: 4, marginBottom: t.spacing.md },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginBottom: t.spacing.md },
+  chip: { backgroundColor: t.colors.primaryBgStrong, borderRadius: t.radii.md, paddingHorizontal: 10, paddingVertical: 6 },
+  chipText: { color: t.colors.primaryText, fontSize: t.typography.fontSizes.body2, fontWeight: '700' },
+  titleField: { marginTop: t.spacing.md },
+  sheetActions: { marginTop: t.spacing.lg },
 });

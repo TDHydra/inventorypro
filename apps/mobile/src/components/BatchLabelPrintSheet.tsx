@@ -4,7 +4,8 @@ import { Alert } from '../lib/themedAlert';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FilterChip } from './ui/FilterChip';
-import { colors, spacing, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import {
   printLabels,
   printLabelsWithModel,
@@ -39,6 +40,7 @@ type Selection = { kind: 'preset'; key: LabelTemplate } | { kind: 'custom'; id: 
  * a designed template → printLabelsWithModel (positioned render).
  */
 export function BatchLabelPrintSheet({ visible, onClose, items }: Props) {
+  const s = useThemedStyles(makeStyles);
   const customTemplates = useMemo<LabelTemplateModel[]>(
     () => (visible ? getLabelTemplates() : []),
     [visible],
@@ -110,9 +112,9 @@ export function BatchLabelPrintSheet({ visible, onClose, items }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  heading: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.lg },
-  sectionLabel: { fontSize: fontSizes.caption, fontWeight: '600', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.sm },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl },
-  footer: { marginTop: spacing.sm },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  heading: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.lg },
+  sectionLabel: { fontSize: t.typography.fontSizes.caption, fontWeight: '600', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: t.spacing.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginBottom: t.spacing.xl },
+  footer: { marginTop: t.spacing.sm },
 });

@@ -5,6 +5,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
     "@aws-sdk/s3-request-presigner": "^3.1075.0",
+    "@expo-google-fonts/nunito": "^0.4.2",
+    "@expo-google-fonts/rajdhani": "^0.4.1",
     "@op-engineering/op-sqlite": "^17.0.0",
     "@react-native-community/netinfo": "12.0.1",
     "@zxing/browser": "^0.2.0",
@@ -14,6 +16,7 @@
     "expo-constants": "~56.0.18",
     "expo-dev-client": "~56.0.20",
     "expo-file-system": "~56.0.8",
+    "expo-font": "~56.0.7",
     "expo-image-picker": "~56.0.18",
     "expo-local-authentication": "~56.0.4",
     "expo-location": "~56.0.18",
@@ -52,7 +55,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "node --import tsx --test $(find src -name '*.test.ts')"
+    "test": "node --import tsx --import ./src/test/setupGlobals.mjs --test $(find src -name '*.test.ts')"
   },
   "private": true
 }

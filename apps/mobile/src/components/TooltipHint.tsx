@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated,
 } from 'react-native';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { HINTS } from '../constants/hints';
 import { useSession } from '../hooks/useSession';
 import { ROLE_TIER } from '../constants/roles';
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function TooltipHint({ screenKey, style, onReady }: Props) {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const [visible, setVisible] = useState(false);
   const [opacity] = useState(new Animated.Value(0));
@@ -53,11 +55,11 @@ export function TooltipHint({ screenKey, style, onReady }: Props) {
   return (
     <>
       {visible && (
-        <Animated.View style={[styles.tooltip, { opacity }, style]}>
-          <Text style={styles.icon}>💡</Text>
-          <Text style={styles.text}>{hintText}</Text>
-          <TouchableOpacity onPress={dismiss} style={styles.close}>
-            <Text style={styles.closeText}>✕</Text>
+        <Animated.View style={[s.tooltip, { opacity }, style]}>
+          <Text style={s.icon}>💡</Text>
+          <Text style={s.text}>{hintText}</Text>
+          <TouchableOpacity onPress={dismiss} style={s.close}>
+            <Text style={s.closeText}>✕</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
@@ -65,7 +67,7 @@ export function TooltipHint({ screenKey, style, onReady }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   tooltip: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -79,7 +81,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   icon: { fontSize: 16 },
-  text: { flex: 1, fontSize: 13, color: colors.primaryText, lineHeight: 19 },
+  text: { flex: 1, fontSize: 13, color: t.colors.primaryText, lineHeight: 19 },
   close: { paddingLeft: 8 },
   closeText: { color: '#93C5FD', fontSize: 15 },
 });

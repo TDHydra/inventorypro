@@ -9,11 +9,13 @@ import { getUnitByTag } from '../../../src/db/queries/equipmentUnits';
 import { resolveScan } from '../../../src/scan/resolveScan';
 import { verifyWithConfig } from '../../../src/scan/qrSignConfig';
 import { TooltipHint } from '../../../src/components/TooltipHint';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 type ScanMode = 'camera' | 'usb';
 
 export default function ScanScreen() {
+  const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const [mode, setMode] = useState<ScanMode>('camera');
 
@@ -87,22 +89,22 @@ export default function ScanScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Scan Barcode', headerShown: true }} />
-      <View style={styles.container}>
+      <View style={s.container}>
         {/* Mode toggle */}
-        <View style={styles.modeBar}>
+        <View style={s.modeBar}>
           <TouchableOpacity
-            style={[styles.modeBtn, mode === 'camera' && styles.modeBtnActive]}
+            style={[s.modeBtn, mode === 'camera' && s.modeBtnActive]}
             onPress={() => setMode('camera')}
           >
-            <Text style={[styles.modeBtnText, mode === 'camera' && styles.modeBtnTextActive]}>
+            <Text style={[s.modeBtnText, mode === 'camera' && s.modeBtnTextActive]}>
               📷 Camera
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.modeBtn, mode === 'usb' && styles.modeBtnActive]}
+            style={[s.modeBtn, mode === 'usb' && s.modeBtnActive]}
             onPress={() => setMode('usb')}
           >
-            <Text style={[styles.modeBtnText, mode === 'usb' && styles.modeBtnTextActive]}>
+            <Text style={[s.modeBtnText, mode === 'usb' && s.modeBtnTextActive]}>
               ⌨ USB Scanner
             </Text>
           </TouchableOpacity>
@@ -117,15 +119,15 @@ export default function ScanScreen() {
             onClose={() => router.back()}
           />
         ) : (
-          <View style={styles.usbMode}>
+          <View style={s.usbMode}>
             <USBScanner active={true} onScanned={handleScanned} />
-            <Text style={styles.usbIcon}>⌨</Text>
-            <Text style={styles.usbTitle}>USB Scanner Ready</Text>
-            <Text style={styles.usbHint}>
+            <Text style={s.usbIcon}>⌨</Text>
+            <Text style={s.usbTitle}>USB Scanner Ready</Text>
+            <Text style={s.usbHint}>
               Scan a barcode with your USB scanner. The input is captured automatically.
             </Text>
-            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-              <Text style={styles.backBtnText}>Cancel</Text>
+            <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
+              <Text style={s.backBtnText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -134,7 +136,7 @@ export default function ScanScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   modeBar: {
     flexDirection: 'row',
@@ -146,18 +148,18 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 8, borderRadius: 8,
     alignItems: 'center',
   },
-  modeBtnActive: { backgroundColor: colors.primary },
-  modeBtnText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
-  modeBtnTextActive: { color: '#fff' },
+  modeBtnActive: { backgroundColor: t.colors.primary },
+  modeBtnText: { color: t.colors.textMuted, fontSize: 14, fontWeight: '600' },
+  modeBtnTextActive: { color: t.colors.onPrimary },
   usbMode: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.background, gap: 12, padding: 32,
+    backgroundColor: t.colors.background, gap: 12, padding: 32,
   },
   usbIcon: { fontSize: 60 },
-  usbTitle: { fontSize: 22, fontWeight: '700', color: colors.brand },
-  usbHint: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  usbTitle: { fontSize: 22, fontWeight: '700', color: t.colors.brand },
+  usbHint: { fontSize: 14, color: t.colors.textSecondary, textAlign: 'center', lineHeight: 22 },
   backBtn: {
-    marginTop: 16, backgroundColor: '#F1F5F9', borderRadius: 10,
+    marginTop: 16, backgroundColor: t.colors.surfaceAlt, borderRadius: 10,
     paddingHorizontal: 32, paddingVertical: 12,
   },
   backBtnText: { color: '#475569', fontSize: 16, fontWeight: '600' },

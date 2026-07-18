@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { radii } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { LEAFLET_JS, LEAFLET_CSS, MARKER_ICON, MARKER_ICON_2X, MARKER_SHADOW } from './leafletAssets';
 
 interface Props {
@@ -51,6 +52,7 @@ function buildHtml(latitude: number, longitude: number, radiusMeters: number, sh
 }
 
 export function MapDisplay({ latitude, longitude, radiusMiles = 35, showRadius = false, height = 220 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const html = useMemo(
     () => buildHtml(latitude, longitude, radiusMiles * 1609.34, showRadius),
     [latitude, longitude, radiusMiles, showRadius],
@@ -70,10 +72,10 @@ export function MapDisplay({ latitude, longitude, radiusMiles = 35, showRadius =
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: {
-    borderRadius: radii.lg,
+    borderRadius: t.radii.lg,
     overflow: 'hidden',
-    backgroundColor: '#E2E8F0',
+    backgroundColor: t.colors.border,
   },
 });

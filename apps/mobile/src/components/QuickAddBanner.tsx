@@ -3,7 +3,8 @@ import { useRouter } from 'expo-router';
 import { usePermission } from '../hooks/usePermission';
 import { useQuickAddBannerHidden, hideQuickAddBanner } from '../lib/quickAddBanner';
 import { track } from '../telemetry';
-import { colors, radii, spacing, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 /**
  * Big "Quick Add" call-to-action, shown to any role granted the `quick_add`
@@ -11,6 +12,7 @@ import { colors, radii, spacing, fontSizes } from '../theme';
  * (see lib/quickAddBanner). Renders nothing when not permitted or hidden.
  */
 export function QuickAddBanner({ style }: { style?: StyleProp<ViewStyle> }) {
+  const s = useThemedStyles(makeStyles);
   const canQuickAdd = usePermission('quick_add');
   const hidden = useQuickAddBannerHidden();
   const router = useRouter();
@@ -40,21 +42,21 @@ export function QuickAddBanner({ style }: { style?: StyleProp<ViewStyle> }) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   btn: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.lg,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
+    backgroundColor: t.colors.primary,
+    borderRadius: t.radii.lg,
+    paddingVertical: t.spacing.xl,
+    paddingHorizontal: t.spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: t.spacing.md,
     minHeight: 72,
   },
   icon: { fontSize: 26 },
   textWrap: { flex: 1 },
-  label: { color: '#fff', fontWeight: '800', fontSize: fontSizes.lg },
-  sub: { color: colors.primaryBg, fontSize: fontSizes.body2, marginTop: 2 },
+  label: { color: t.colors.onPrimary, fontWeight: '800', fontSize: t.typography.fontSizes.lg },
+  sub: { color: t.colors.primaryBg, fontSize: t.typography.fontSizes.body2, marginTop: 2 },
   x: {
     position: 'absolute',
     bottom: 6,
@@ -66,5 +68,5 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  xText: { color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 },
+  xText: { color: t.colors.onPrimary, fontSize: 12, fontWeight: '700', lineHeight: 14 },
 });

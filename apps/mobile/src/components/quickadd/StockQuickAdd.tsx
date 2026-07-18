@@ -13,7 +13,9 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
@@ -35,6 +37,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function StockQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -247,7 +251,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -257,10 +261,10 @@ export default function StockQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  hint: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  hint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

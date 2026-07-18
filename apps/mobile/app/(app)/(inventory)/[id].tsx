@@ -19,7 +19,8 @@ import { resolveTypeColor } from '../../../src/constants/typeColors';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { SuggestInput } from '../../../src/components/SuggestInput';
 import { MediaGallery } from '../../../src/components/MediaGallery';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
@@ -38,6 +39,7 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function ItemDetailScreen() {
+  const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
@@ -488,6 +490,7 @@ export default function ItemDetailScreen() {
 }
 
 function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={[s.attrRow, !last && s.divider]}>
       <Text style={s.attrKey}>{k}</Text>
@@ -496,30 +499,30 @@ function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: colors.textMuted },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.borderDetail },
-  name: { fontSize: 22, fontWeight: '700', color: colors.brand },
-  model: { fontSize: 14, color: colors.primary, marginTop: 2, fontWeight: '600' },
+  muted: { fontSize: 14, color: t.colors.textMuted },
+  card: { backgroundColor: t.colors.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: t.colors.borderDetail },
+  name: { fontSize: 22, fontWeight: '700', color: t.colors.brand },
+  model: { fontSize: 14, color: t.colors.primary, marginTop: 2, fontWeight: '600' },
   desc: { fontSize: 14, color: '#475569', marginTop: 8, lineHeight: 20 },
-  belongsAt: { fontSize: 13, color: colors.primary, marginTop: 8, fontWeight: '600' },
+  belongsAt: { fontSize: 13, color: t.colors.primary, marginTop: 8, fontWeight: '600' },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 14 },
   totalNum: { fontSize: 26, fontWeight: '800', color: '#0F172A' },
-  totalLbl: { fontSize: 13, color: colors.textSecondary },
-  lowStock: { marginTop: 8, color: colors.danger, fontSize: 13, fontWeight: '600' },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  totalLbl: { fontSize: 13, color: t.colors.textSecondary },
+  lowStock: { marginTop: 8, color: t.colors.danger, fontSize: 13, fontWeight: '600' },
+  sectionLabel: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
   attrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11 },
-  attrKey: { fontSize: 14, color: colors.textSecondary },
-  attrVal: { fontSize: 14, color: colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
-  divider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  attrKey: { fontSize: 14, color: t.colors.textSecondary },
+  attrVal: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
+  divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
   stockRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  stockLoc: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
-  stockParent: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
-  stockQty: { fontSize: 15, fontWeight: '700', color: colors.success },
-  stockZero: { color: colors.textDisabled },
+  stockLoc: { fontSize: 15, color: t.colors.textPrimary, fontWeight: '600' },
+  stockParent: { fontSize: 12, color: t.colors.textMuted, marginTop: 1 },
+  stockQty: { fontSize: 15, fontWeight: '700', color: t.colors.success },
+  stockZero: { color: t.colors.textDisabled },
   fieldWrap: { gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   // Item-type chip + its colored type dot, grouped so they read as one unit.
@@ -527,18 +530,18 @@ const s = StyleSheet.create({
   typeDot: { width: 9, height: 9, borderRadius: 5 },
   row: { flexDirection: 'row', gap: 12, marginTop: 16 },
   btn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, flex: 1 },
-  btnGhost: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled },
+  btnGhost: { backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.textDisabled },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
   badge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  badgeReturn: { backgroundColor: '#D1FAE5' },
-  badgeReturnText: { color: '#065F46', fontWeight: '700', fontSize: 13 },
-  badgeConsume: { backgroundColor: colors.dangerBg },
+  badgeReturn: { backgroundColor: t.colors.successBg },
+  badgeReturnText: { color: t.colors.successText, fontWeight: '700', fontSize: 13 },
+  badgeConsume: { backgroundColor: t.colors.dangerBg },
   badgeConsumeText: { color: '#991B1B', fontWeight: '700', fontSize: 13 },
   badgeText: { fontSize: 13, fontWeight: '700' },
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  switchLabel: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 12 },
+  switchLabel: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 12 },
 });

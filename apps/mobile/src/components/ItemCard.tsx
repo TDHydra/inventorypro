@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
 import { getStockByItem, getItemById, InventoryItem } from '../db/queries/items';
@@ -35,6 +36,7 @@ interface Props {
 }
 
 function Stat({ k, v }: { k: string; v: string }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.statRow}>
       <Text style={styles.statKey}>{k}</Text>
@@ -44,6 +46,7 @@ function Stat({ k, v }: { k: string; v: string }) {
 }
 
 export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const [expanded, setExpanded] = useState(false);
   const [stock, setStock] = useState<StockRow[] | null>(null);
   const [full, setFull] = useState<InventoryItem | null>(null);
@@ -156,32 +159,32 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: t.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
     marginBottom: 8,
   },
   header: { flexDirection: 'row', alignItems: 'center', padding: 14 },
   headerLeft: { flex: 1, marginLeft: 10 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  name: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  barcode: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  stock: { fontSize: 14, fontWeight: '600', color: colors.success },
-  stockLow: { color: colors.danger },
-  chevron: { fontSize: 11, color: colors.textMuted },
+  name: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  barcode: { fontSize: 11, color: t.colors.textMuted, marginTop: 2 },
+  stock: { fontSize: 14, fontWeight: '600', color: t.colors.success },
+  stockLow: { color: t.colors.danger },
+  chevron: { fontSize: 11, color: t.colors.textMuted },
   expanded: {
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    borderTopColor: t.colors.surfaceAlt,
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 4,
   },
   stats: {
-    backgroundColor: colors.background,
+    backgroundColor: t.colors.background,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -189,22 +192,22 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
-  statKey: { fontSize: 12, color: colors.textMuted },
-  statVal: { fontSize: 12, fontWeight: '600', color: '#334155', flexShrink: 1, marginLeft: 12, textAlign: 'right' },
+  statKey: { fontSize: 12, color: t.colors.textMuted },
+  statVal: { fontSize: 12, fontWeight: '600', color: t.colors.textStrong, flexShrink: 1, marginLeft: 12, textAlign: 'right' },
   typeBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 12, flexShrink: 1 },
   typeBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginTop: 2 },
-  noStock: { fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
+  sectionLabel: { fontSize: 11, fontWeight: '700', color: t.colors.textMuted, textTransform: 'uppercase', marginTop: 2 },
+  noStock: { fontSize: 13, color: t.colors.textMuted, textAlign: 'center', paddingVertical: 8 },
   locationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   locationInfo: { flex: 1 },
-  parentName: { fontSize: 11, color: colors.textMuted },
+  parentName: { fontSize: 11, color: t.colors.textMuted },
   locationName: { fontSize: 13, color: '#475569' },
-  locationQty: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  locationQtyZero: { color: colors.textDisabled },
+  locationQty: { fontSize: 13, fontWeight: '600', color: t.colors.textStrong },
+  locationQtyZero: { color: t.colors.textDisabled },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   actBtn: { borderRadius: 8, paddingVertical: 9, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
-  actPrimary: { flexGrow: 1, backgroundColor: colors.primary },
-  actPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  actGhost: { backgroundColor: '#F1F5F9' },
+  actPrimary: { flexGrow: 1, backgroundColor: t.colors.primary },
+  actPrimaryText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: 14 },
+  actGhost: { backgroundColor: t.colors.surfaceAlt },
   actGhostText: { color: '#475569', fontWeight: '600', fontSize: 13 },
 });

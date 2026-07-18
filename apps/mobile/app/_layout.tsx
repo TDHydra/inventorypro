@@ -19,6 +19,11 @@ import { getAppSetting } from '../src/db/appSettings';
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 import { AlertHost } from '../src/lib/themedAlert';
 import { ConfirmSheetHost } from '../src/components/ui/ConfirmSheet';
+import { loadThemeFromSettings } from '../src/themes/store';
+import { useTheme } from '../src/hooks/useTheme';
+import { useFonts } from 'expo-font';
+import { Rajdhani_600SemiBold, Rajdhani_700Bold } from '@expo-google-fonts/rajdhani';
+import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-google-fonts/nunito';
 import { useScreenTracking } from '../src/telemetry/useScreenTracking';
 import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
 import { useNotificationObservers } from '../src/push/handlers';
@@ -28,6 +33,15 @@ import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
   const [user, setUser] = useState<UserSession | null>(null);
+  const theme = useTheme();
+
+  // Theme faces (Fluid/Futuristic). Non-blocking: render proceeds before they
+  // resolve — themes whose fontFamily is undefined never reference them, and
+  // the themed faces only appear after load on first launch.
+  useFonts({
+    Rajdhani_600SemiBold, Rajdhani_700Bold,
+    Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold,
+  });
 
   // Telemetry screen-view tracking + push tap/deep-link observers. Hooks are
   // called unconditionally (before any early return) per the rules of hooks.
@@ -45,6 +59,9 @@ export default function RootLayout() {
           console.log('[DB] stale test session detected — wiping sandbox');
           await resetLocalDb();
         }
+        // Device-cached theme before first render so login/unlock don't flash
+        // the default look (per-user synced choice re-applies after login/pull).
+        loadThemeFromSettings();
         setDbReady(true);
         loadClassConfigCache();
         loadRolePermissionCache();
@@ -104,8 +121,10 @@ export default function RootLayout() {
   return (
     <SessionContext.Provider value={sessionValue}>
       <TelemetryErrorBoundary>
-        <StatusBar style="auto" />
-        <Stack screenOptions={{ headerShown: false }} />
+        <StatusBar style={theme.dark ? 'light' : 'dark'} />
+        {/* key remounts the tree on theme switch so memoized/unmigrated
+            subtrees can't keep stale styles. Switching is rare; acceptable. */}
+        <Stack key={theme.id} screenOptions={{ headerShown: false }} />
         <AlertHost />
         <ConfirmSheetHost />
       </TelemetryErrorBoundary>

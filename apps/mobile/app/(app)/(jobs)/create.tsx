@@ -19,7 +19,8 @@ import { getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { generateUUID } from '../../../src/utils/uuid';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
@@ -30,6 +31,7 @@ import { RecordAutofillInput, RecordOption } from '../../../src/components/ui/Re
 import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 
 export default function CreateJobScreen() {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
@@ -318,29 +320,29 @@ export default function CreateJobScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  muted: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
+  muted: { fontSize: 14, color: t.colors.textMuted, textAlign: 'center' },
 
   hint: {
-    backgroundColor: colors.primaryBg,
+    backgroundColor: t.colors.primaryBg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.primaryBgStrong,
+    borderColor: t.colors.primaryBgStrong,
     padding: 12,
   },
-  hintText: { fontSize: 13, color: colors.primaryText },
+  hintText: { fontSize: 13, color: t.colors.primaryText },
 
   fieldWrap: { gap: 6 },
-  teamHint: { fontSize: 12, color: colors.textMuted },
+  teamHint: { fontSize: 12, color: t.colors.textMuted },
   textArea: { height: 100, paddingTop: 12, paddingBottom: 12 },
 
   row: { flexDirection: 'row', gap: 12, marginTop: 8 },
   btnGhost: {
     borderRadius: 12, paddingVertical: 13, alignItems: 'center',
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.textDisabled,
+    backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.textDisabled,
   },
   btnGhostText: { color: '#475569', fontWeight: '600', fontSize: 16 },
 });

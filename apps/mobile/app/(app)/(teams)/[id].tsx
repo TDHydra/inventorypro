@@ -20,7 +20,9 @@ import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, ROLE_TIER, UserRole, Permission, can
 import { parsePermissionOverrides } from '../../../src/auth/permissions';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTypeIcon } from '../../../src/db/queries/taxonomy';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { TaxonomyChips } from '../../../src/components/pickers';
@@ -43,6 +45,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function TeamDetailScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -706,7 +710,7 @@ export default function TeamDetailScreen() {
                     value={value}
                     disabled={locked || savingPerms || permMemberLocked}
                     onValueChange={() => togglePermDraft(perm)}
-                    trackColor={{ true: colors.primary, false: colors.border }}
+                    trackColor={{ true: t.colors.primary, false: t.colors.border }}
                   />
                 </View>
               );
@@ -732,91 +736,91 @@ export default function TeamDetailScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, color: colors.textMuted },
+  muted: { fontSize: 14, color: t.colors.textMuted },
 
-  teamName: { fontSize: 22, fontWeight: '700', color: colors.brand, marginBottom: 8 },
+  teamName: { fontSize: 22, fontWeight: '700', color: t.colors.brand, marginBottom: 8 },
 
   attrRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 10,
   },
-  attrKey: { fontSize: 14, color: colors.textSecondary },
+  attrKey: { fontSize: 14, color: t.colors.textSecondary },
   attrVal: {
-    fontSize: 14, color: colors.textPrimary, fontWeight: '600',
+    fontSize: 14, color: t.colors.textPrimary, fontWeight: '600',
     maxWidth: '60%', textAlign: 'right', textTransform: 'capitalize',
   },
-  divider: { borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  divider: { borderTopWidth: 1, borderTopColor: t.colors.surfaceAlt },
 
   mgrChips: {
     flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end',
     gap: 6, marginLeft: 12,
   },
   mgrChip: {
-    backgroundColor: colors.primaryBg, borderRadius: 999,
+    backgroundColor: t.colors.primaryBg, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  mgrChipText: { color: colors.primaryText, fontSize: 13, fontWeight: '700' },
+  mgrChipText: { color: t.colors.primaryText, fontSize: 13, fontWeight: '700' },
 
   editBtn: {
-    marginTop: 12, backgroundColor: colors.primaryBg, borderRadius: 10,
+    marginTop: 12, backgroundColor: t.colors.primaryBg, borderRadius: 10,
     paddingVertical: 10, alignItems: 'center',
   },
-  editBtnText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
+  editBtnText: { color: t.colors.primaryText, fontWeight: '700', fontSize: 14 },
 
   sectionHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
   sectionLabel: {
-    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
+    fontSize: 12, fontWeight: '700', color: t.colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  addLink: { color: colors.primary, fontSize: 14, fontWeight: '700' },
+  addLink: { color: t.colors.primary, fontSize: 14, fontWeight: '700' },
 
   memberRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
   },
-  memberName: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
-  memberRole: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  lockNote: { fontSize: 12, color: colors.textMuted, lineHeight: 16, marginTop: 4, maxWidth: '90%' },
-  restrictNote: { fontSize: 12, color: colors.textMuted, lineHeight: 16, marginTop: 10 },
+  memberName: { fontSize: 15, color: t.colors.textPrimary, fontWeight: '600' },
+  memberRole: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
+  lockNote: { fontSize: 12, color: t.colors.textMuted, lineHeight: 16, marginTop: 4, maxWidth: '90%' },
+  restrictNote: { fontSize: 12, color: t.colors.textMuted, lineHeight: 16, marginTop: 10 },
   removeBtn: { marginLeft: 12 },
-  removeText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+  removeText: { color: t.colors.danger, fontSize: 13, fontWeight: '600' },
   permsBtn: {
-    marginLeft: 10, borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  permsText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
+  permsText: { color: t.colors.textSecondary, fontSize: 12, fontWeight: '700' },
   msgBtn: {
-    marginLeft: 10, borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  msgText: { color: colors.primary, fontSize: 12, fontWeight: '700' },
+  msgText: { color: t.colors.primary, fontSize: 12, fontWeight: '700' },
 
-  permsIntro: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: 8 },
+  permsIntro: { fontSize: 13, color: t.colors.textSecondary, lineHeight: 18, marginBottom: 8 },
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
-  permLabel: { fontSize: 14, color: colors.textPrimary },
-  modifiedBadge: { fontSize: 11, color: colors.warning, fontWeight: '600', marginTop: 2 },
+  permLabel: { fontSize: 14, color: t.colors.textPrimary },
+  modifiedBadge: { fontSize: 11, color: t.colors.warning, fontWeight: '600', marginTop: 2 },
 
   mgrToggle: {
-    borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  mgrToggleActive: { backgroundColor: colors.primaryBg, borderColor: colors.primaryBg },
+  mgrToggleActive: { backgroundColor: t.colors.primaryBg, borderColor: t.colors.primaryBg },
   mgrToggleDisabled: { opacity: 0.5 },
-  mgrToggleText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
-  mgrToggleTextActive: { color: colors.primaryText },
+  mgrToggleText: { color: t.colors.textSecondary, fontSize: 12, fontWeight: '700' },
+  mgrToggleTextActive: { color: t.colors.primaryText },
 
   mgrBadge: {
-    backgroundColor: colors.primaryBg, borderRadius: 999,
+    backgroundColor: t.colors.primaryBg, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  mgrBadgeText: { color: colors.primaryText, fontSize: 12, fontWeight: '700' },
+  mgrBadgeText: { color: t.colors.primaryText, fontSize: 12, fontWeight: '700' },
 
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 14 },
   cancelRow: { paddingVertical: 10, alignItems: 'center', marginBottom: 4 },
-  linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
-  cancelText: { color: colors.textMuted },
+  linkText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted },
 });

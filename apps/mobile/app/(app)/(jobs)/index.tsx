@@ -16,7 +16,9 @@ import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { rowsAs } from '../../../src/db/schema';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
@@ -40,6 +42,8 @@ type Tab = 'my' | 'all';
 type StatusFilter = 'open' | 'closed' | 'all';
 
 export default function JobsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
@@ -246,8 +250,8 @@ export default function JobsScreen() {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
+                tintColor={t.colors.primary}
+                colors={[t.colors.primary]}
               />
             }
             renderItem={({ item }) => (
@@ -288,8 +292,8 @@ export default function JobsScreen() {
                 <Switch
                   value={showArchived}
                   onValueChange={setShowArchived}
-                  trackColor={{ false: colors.textDisabled, true: colors.primaryBg }}
-                  thumbColor={showArchived ? colors.primary : colors.surface}
+                  trackColor={{ false: t.colors.textDisabled, true: t.colors.primaryBg }}
+                  thumbColor={showArchived ? t.colors.primary : t.colors.surface}
                 />
               </View>
             </View>
@@ -302,8 +306,8 @@ export default function JobsScreen() {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  tintColor={colors.primary}
-                  colors={[colors.primary]}
+                  tintColor={t.colors.primary}
+                  colors={[t.colors.primary]}
                 />
               }
               renderItem={({ item: job }) => {
@@ -374,21 +378,21 @@ export default function JobsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   tabs: {
-    flexDirection: 'row', backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
+    flexDirection: 'row', backgroundColor: t.colors.surface,
+    borderBottomWidth: 1, borderBottomColor: t.colors.border,
   },
   tab: {
     flex: 1, paddingVertical: 12, alignItems: 'center',
     flexDirection: 'row', justifyContent: 'center', gap: 6,
   },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: colors.primary },
-  tabText: { fontSize: 14, color: colors.textSecondary, fontWeight: '600' },
-  tabTextActive: { color: colors.primary },
-  badge: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 },
-  badgeText: { color: colors.surface, fontSize: 11, fontWeight: '700' },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: t.colors.primary },
+  tabText: { fontSize: 14, color: t.colors.textSecondary, fontWeight: '600' },
+  tabTextActive: { color: t.colors.primary },
+  badge: { backgroundColor: t.colors.primary, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 },
+  badgeText: { color: t.colors.surface, fontSize: 11, fontWeight: '700' },
 
   searchBox: { padding: 12, paddingBottom: 0 },
 
@@ -400,35 +404,35 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6,
     marginLeft: 'auto' as any,
   },
-  archivedLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
+  archivedLabel: { fontSize: 13, color: t.colors.textSecondary, fontWeight: '600' },
 
   list: { padding: 12, gap: 8, paddingBottom: 80 },
   listSelecting: { paddingBottom: 180 },
-  cardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  cardSelected: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   checkbox: {
     width: 20, height: 20, borderRadius: 6, borderWidth: 2,
-    borderColor: colors.textDisabled, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.surface,
+    borderColor: t.colors.textDisabled, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: t.colors.surface,
   },
-  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
-  cardName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  checkboxOn: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
+  checkMark: { color: t.colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
+  cardName: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardSub: { fontSize: 12, color: colors.textSecondary },
-  cardDate: { fontSize: 12, color: colors.textMuted, marginLeft: 'auto' as any },
-  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.textDisabled },
-  statusOpen: { backgroundColor: colors.success },
-  statusArchived: { backgroundColor: colors.warning },
+  cardSub: { fontSize: 12, color: t.colors.textSecondary },
+  cardDate: { fontSize: 12, color: t.colors.textMuted, marginLeft: 'auto' as any },
+  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: t.colors.textDisabled },
+  statusOpen: { backgroundColor: t.colors.success },
+  statusArchived: { backgroundColor: t.colors.warning },
 
   fab: {
     position: 'absolute', bottom: 24, right: 20,
-    backgroundColor: colors.primary, borderRadius: 28,
+    backgroundColor: t.colors.primary, borderRadius: 28,
     paddingHorizontal: 22, paddingVertical: 13,
     zIndex: 10,
-    shadowColor: colors.brand, shadowOffset: { width: 0, height: 4 },
+    shadowColor: t.colors.brand, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25, shadowRadius: 8, elevation: 6,
   },
-  fabText: { color: colors.surface, fontWeight: '700', fontSize: 15 },
+  fabText: { color: t.colors.surface, fontWeight: '700', fontSize: 15 },
 });

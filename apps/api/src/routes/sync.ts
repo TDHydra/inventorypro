@@ -47,6 +47,7 @@ const ALLOWED_TABLES = new Set([
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
   'dashboard_presets',
   'conversations', 'conversation_participants', 'messages',
+  'user_prefs',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -76,6 +77,7 @@ const CONFLICT_TARGETS: Record<string, string> = {
   team_members: 'team_id, user_id',
   role_settings: 'role',
   app_config: 'key',
+  user_prefs: 'user_id',
   taxonomy_types: 'id',
   dashboard_presets: 'id',
   conversations: 'id',
@@ -101,7 +103,9 @@ const INSERT_NO_UPSERT = new Set([
 // Tables whose pull is scoped to the authenticated caller (private per-user data).
 // The listed column is matched against the caller's user id so a device only ever
 // downloads its own rows (e.g. the per-user notifications inbox).
-const SCOPED_TABLES: Record<string, string> = { notifications: 'user_id' };
+// user_prefs: presentation prefs aren't secret, but scoping keeps pulls to the
+// caller's own row (a device has no use for anyone else's theme choice).
+const SCOPED_TABLES: Record<string, string> = { notifications: 'user_id', user_prefs: 'user_id' };
 
 // Chat tables have a scoped pull the single-column SCOPED_TABLES map can't express:
 // a device may only pull conversations/participants/messages for conversations it
@@ -205,6 +209,7 @@ const FULL_TABLES = [
   'notifications', 'approval_requests', 'maintenance_events', 'label_templates',
   'dashboard_presets',
   'conversations', 'conversation_participants', 'messages',
+  'user_prefs',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to

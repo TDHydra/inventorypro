@@ -16,6 +16,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   team_members: `INSERT OR REPLACE INTO team_members (team_id, user_id, team_permission_overrides, added_by, joined_at, is_manager, updated_at) VALUES (?,?,?,?,?,?,?)`,
   media: `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, is_primary, uploaded_by, created_at, location_note, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   app_config: `INSERT OR REPLACE INTO app_config (key, value, updated_at) VALUES (?, ?, ?)`,
+  user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, updated_at) VALUES (?, ?, ?)`,
   taxonomy_types: `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta) VALUES (?,?,?,?,?,?,?,?)`,
   repairs: `INSERT OR REPLACE INTO repairs (id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, cost, due_at, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   repair_parts: `INSERT OR REPLACE INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
@@ -42,6 +43,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at, row.is_manager ? 1 : 0, row.updated_at];
     case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at, row.location_note ?? null, row.updated_at ?? row.created_at];
     case 'app_config': return [row.key, row.value, row.updated_at];
+    case 'user_prefs': return [row.user_id, row.theme ?? null, row.updated_at];
     case 'taxonomy_types': return [row.id, row.category, row.label, row.icon ?? null, row.sort_order, row.active ? 1 : 0, row.updated_at, row.meta ?? null];
     case 'repairs': return [row.id, row.entity_type, row.entity_id, row.entity_label ?? null, row.notes ?? null, row.parts_needed ?? null, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.completed_at ?? null, row.assignee_id ?? null, row.cost ?? null, row.due_at ?? null, row.status_id ?? null];
     case 'repair_parts': return [row.id, row.repair_id, row.item_id, row.qty, row.unit, row.created_by ?? null, row.created_at, row.updated_at];

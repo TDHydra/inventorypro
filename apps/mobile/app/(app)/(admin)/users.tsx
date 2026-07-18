@@ -29,7 +29,9 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { useReactiveRows } from '../../../src/hooks/useReactiveRows';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
@@ -151,11 +153,11 @@ function userStatus(u: User): Status {
   return 'active';
 }
 
-const STATUS_META: Record<Status, { label: string; color: string; bg: string }> = {
-  active:   { label: 'Active',   color: colors.success, bg: '#DCFCE7' },
-  inactive: { label: 'Inactive', color: colors.danger,  bg: colors.dangerBg },
-  expired:  { label: 'Expired',  color: colors.warning, bg: '#FEF3C7' },
-};
+const statusMeta = (t: Theme): Record<Status, { label: string; color: string; bg: string }> => ({
+  active:   { label: 'Active',   color: t.colors.success, bg: '#DCFCE7' },
+  inactive: { label: 'Inactive', color: t.colors.danger,  bg: t.colors.dangerBg },
+  expired:  { label: 'Expired',  color: t.colors.warning, bg: t.colors.warningBg },
+});
 
 function isoFromNowDays(days: number): string {
   return new Date(Date.now() + days * 86400000).toISOString();
@@ -167,6 +169,9 @@ function formatDate(iso: string | null): string {
 }
 
 export default function AdminUsersScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const STATUS_META = statusMeta(t);
   const { user: sessionUser } = useSession();
   const router = useRouter();
   const canManageUsers = usePermission('manage_users');
@@ -945,7 +950,7 @@ export default function AdminUsersScreen() {
             placeholder="Full name"
             value={newName}
             onChangeText={setNewName}
-            style={{ marginBottom: spacing.xs }}
+            style={{ marginBottom: t.spacing.xs }}
           />
           {!!dupUser && (
             <Text style={s.dupWarn}>⚠ "{dupUser.name}" already exists ({ROLE_DISPLAY_NAMES[dupUser.role as UserRole]})</Text>
@@ -957,7 +962,7 @@ export default function AdminUsersScreen() {
             onChangeText={setNewEmail}
             autoCapitalize="none"
             keyboardType="email-address"
-            style={{ marginBottom: spacing.xs }}
+            style={{ marginBottom: t.spacing.xs }}
           />
           <FieldLabel>Role</FieldLabel>
           {/* keyboardShouldPersistTaps so a role tap registers immediately even when the
@@ -1197,7 +1202,7 @@ export default function AdminUsersScreen() {
                                 value={effective}
                                 disabled={!canActOnUser}
                                 onValueChange={() => handleTogglePermission(editUser.id, perm, !effective, roleEffective)}
-                                trackColor={{ true: colors.primary, false: colors.border }}
+                                trackColor={{ true: t.colors.primary, false: t.colors.border }}
                                 accessibilityLabel={
                                   isModified
                                     ? `${label}, changed from ${roleName} default of ${roleEffective ? 'on' : 'off'}`
@@ -1262,98 +1267,98 @@ export default function AdminUsersScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  topBar: { flexDirection: 'row', padding: spacing.md, gap: 10 },
-  addBtn: { backgroundColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
-  list: { padding: spacing.md, gap: 8 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  topBar: { flexDirection: 'row', padding: t.spacing.md, gap: 10 },
+  addBtn: { backgroundColor: t.colors.primary, borderRadius: t.radii.md, paddingHorizontal: t.spacing.lg, justifyContent: 'center' },
+  addBtnText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: t.typography.fontSizes.body },
+  list: { padding: t.spacing.md, gap: 8 },
   listWithBar: { paddingBottom: 160 },
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: colors.surface, padding: spacing.md, borderRadius: radii.md,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, padding: t.spacing.md, borderRadius: t.radii.md,
+    borderWidth: 1, borderColor: t.colors.border,
   },
-  cardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  cardSelected: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
   checkCircle: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.border,
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: t.colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkCircleOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: '#fff', fontSize: fontSizes.sm, fontWeight: '800' },
+  checkCircleOn: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
+  checkMark: { color: t.colors.onPrimary, fontSize: t.typography.fontSizes.sm, fontWeight: '800' },
   avatar: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.primaryBgStrong, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: t.colors.primaryBgStrong, alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { fontSize: fontSizes.base, fontWeight: '700', color: colors.primary },
-  name: { fontSize: fontSizes.md, fontWeight: '600', color: colors.textPrimary },
-  role: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 1 },
+  avatarText: { fontSize: t.typography.fontSizes.base, fontWeight: '700', color: t.colors.primary },
+  name: { fontSize: t.typography.fontSizes.md, fontWeight: '600', color: t.colors.textPrimary },
+  role: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 1 },
   tier: {
-    fontSize: fontSizes.sm, fontWeight: '700', color: colors.textMuted,
-    backgroundColor: '#F1F5F9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    fontSize: t.typography.fontSizes.sm, fontWeight: '700', color: t.colors.textMuted,
+    backgroundColor: t.colors.surfaceAlt, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
-  chevron: { fontSize: 18, color: colors.textDisabled },
+  chevron: { fontSize: 18, color: t.colors.textDisabled },
   msgBtn: {
-    borderWidth: 1, borderColor: colors.border, borderRadius: 999,
+    borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 8, paddingVertical: 3,
   },
-  msgBtnText: { fontSize: fontSizes.body2 },
-  empty: { textAlign: 'center', marginTop: 40, color: colors.textMuted, fontSize: fontSizes.body },
-  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.brand, marginBottom: 8 },
-  roleSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginBottom: 12 },
-  hint: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 17, marginBottom: 8 },
+  msgBtnText: { fontSize: t.typography.fontSizes.body2 },
+  empty: { textAlign: 'center', marginTop: 40, color: t.colors.textMuted, fontSize: t.typography.fontSizes.body },
+  modalTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.brand, marginBottom: 8 },
+  roleSub: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, marginBottom: 12 },
+  hint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 17, marginBottom: 8 },
   roleRow: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 6 },
-  roleRowActive: { backgroundColor: colors.primaryBg },
-  roleText: { fontSize: fontSizes.body, color: '#475569' },
-  roleTextActive: { color: colors.primaryText, fontWeight: '600' },
+  roleRowActive: { backgroundColor: t.colors.primaryBg },
+  roleText: { fontSize: t.typography.fontSizes.body, color: '#475569' }, // no Original token matches slate-600; kept literal for parity
+  roleTextActive: { color: t.colors.primaryText, fontWeight: '600' },
   cancel: { alignItems: 'center', paddingVertical: 10, flex: 1 },
-  cancelText: { color: colors.textSecondary, fontSize: fontSizes.body },
-  cancelStrong: { color: colors.textMuted, fontWeight: '600' },
-  modalActions: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: spacing.sm },
-  dupWarn: { color: colors.warning, fontSize: fontSizes.caption, marginTop: -4 },
-  infoBox: { backgroundColor: colors.primaryBg, borderRadius: radii.md, padding: spacing.md },
-  infoText: { color: colors.primaryText, fontSize: fontSizes.body2, lineHeight: 19 },
+  cancelText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.body },
+  cancelStrong: { color: t.colors.textMuted, fontWeight: '600' },
+  modalActions: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: t.spacing.sm },
+  dupWarn: { color: t.colors.warning, fontSize: t.typography.fontSizes.caption, marginTop: -4 },
+  infoBox: { backgroundColor: t.colors.primaryBg, borderRadius: t.radii.md, padding: t.spacing.md },
+  infoText: { color: t.colors.primaryText, fontSize: t.typography.fontSizes.body2, lineHeight: 19 },
   permRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
-    borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
+    borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt,
   },
-  permName: { fontSize: fontSizes.body2, color: colors.textPrimary, textTransform: 'capitalize' },
-  overrideBadge: { fontSize: fontSizes.xs, color: colors.accent, marginTop: 2, fontWeight: '600' },
-  overrideDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent, marginRight: 8 },
-  overrideSummary: { fontSize: fontSizes.caption, color: colors.textMuted, fontWeight: '600', marginBottom: 6 },
-  overrideSummaryActive: { color: colors.accent },
+  permName: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, textTransform: 'capitalize' },
+  overrideBadge: { fontSize: t.typography.fontSizes.xs, color: t.colors.accent, marginTop: 2, fontWeight: '600' },
+  overrideDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.colors.accent, marginRight: 8 },
+  overrideSummary: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, fontWeight: '600', marginBottom: 6 },
+  overrideSummaryActive: { color: t.colors.accent },
 
   cardMuted: { opacity: 0.6 },
   cardSub: { flexDirection: 'row', alignItems: 'center', marginTop: 1, gap: 4 },
-  pinPending: { fontSize: fontSizes.sm, color: colors.warning, fontWeight: '600' },
+  pinPending: { fontSize: t.typography.fontSizes.sm, color: t.colors.warning, fontWeight: '600' },
   statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusText: { fontSize: fontSizes.sm, fontWeight: '700' },
+  statusText: { fontSize: t.typography.fontSizes.sm, fontWeight: '700' },
 
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: colors.background, borderRadius: radii.md, padding: spacing.md, rowGap: 6 },
-  infoRow: { width: '50%', fontSize: fontSizes.caption, color: colors.textMuted },
-  infoVal: { color: colors.textPrimary, fontWeight: '600' },
-  selectRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.base, height: 44 },
-  selectText: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
-  selectChevron: { fontSize: fontSizes.base, color: colors.textMuted },
-  rolePicker: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  roleTierHint: { fontSize: fontSizes.sm, fontWeight: '700', color: colors.textDisabled },
+  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: t.colors.background, borderRadius: t.radii.md, padding: t.spacing.md, rowGap: 6 },
+  infoRow: { width: '50%', fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  infoVal: { color: t.colors.textPrimary, fontWeight: '600' },
+  selectRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: t.colors.background, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: t.spacing.base, height: 44 },
+  selectText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
+  selectChevron: { fontSize: t.typography.fontSizes.base, color: t.colors.textMuted },
+  rolePicker: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, overflow: 'hidden' },
+  roleTierHint: { fontSize: t.typography.fontSizes.sm, fontWeight: '700', color: t.colors.textDisabled },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  expiryCurrent: { flex: 1, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.base, height: 44, justifyContent: 'center' },
-  expiryText: { fontSize: fontSizes.body, color: colors.textPrimary },
-  expiryClear: { color: colors.danger, fontSize: fontSizes.body, fontWeight: '600', paddingHorizontal: 6 },
+  expiryCurrent: { flex: 1, backgroundColor: t.colors.background, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: t.spacing.base, height: 44, justifyContent: 'center' },
+  expiryText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  expiryClear: { color: t.colors.danger, fontSize: t.typography.fontSizes.body, fontWeight: '600', paddingHorizontal: 6 },
   chipWrap: { flexDirection: 'row', gap: 8 },
-  expiryChip: { backgroundColor: colors.primaryBg, borderRadius: 16, paddingHorizontal: spacing.base, paddingVertical: 8 },
-  expiryChipText: { color: colors.primaryText, fontSize: fontSizes.body2, fontWeight: '600' },
+  expiryChip: { backgroundColor: t.colors.primaryBg, borderRadius: 16, paddingHorizontal: t.spacing.base, paddingVertical: 8 },
+  expiryChipText: { color: t.colors.primaryText, fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
   btnDisabled: { opacity: 0.45 },
   rowDisabled: { opacity: 0.45 },
-  lockNote: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 17, marginBottom: 6 },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.background, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
+  lockNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 17, marginBottom: 6 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: t.colors.background, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, padding: t.spacing.md },
   actionIcon: { fontSize: 20 },
-  actionTitle: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
-  actionSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
+  actionTitle: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
+  actionSub: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted, marginTop: 1 },
   actionDanger: { borderColor: '#FECACA', backgroundColor: '#FEF2F2' },
   actionGood: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
-  dangerText: { color: colors.danger },
-  goodText: { color: colors.success },
+  dangerText: { color: t.colors.danger },
+  goodText: { color: t.colors.success },
 });

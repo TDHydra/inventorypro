@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../lib/themedAlert';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { AppInput } from './ui/AppInput';
@@ -41,6 +42,7 @@ export function RequestApprovalSheet({
   entityLabel,
   onSubmitted,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const [title, setTitle] = useState('');
   const [detail, setDetail] = useState('');
@@ -123,10 +125,10 @@ export function RequestApprovalSheet({
   );
 }
 
-const s = StyleSheet.create({
-  title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  sub: { fontSize: 13, color: colors.textSecondary },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  title: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary },
+  sub: { fontSize: 13, color: t.colors.textSecondary },
   multiline: { height: 90, paddingTop: 12, textAlignVertical: 'top' },
   cancelBtn: { paddingVertical: 10, alignItems: 'center' },
-  cancelText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted, fontSize: 15, fontWeight: '600' },
 });

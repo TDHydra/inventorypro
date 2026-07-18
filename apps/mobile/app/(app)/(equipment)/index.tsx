@@ -28,9 +28,14 @@ import { LabelItem } from '../../../src/labels/printLabel';
 import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
 import { Alert } from '../../../src/lib/themedAlert';
 import { autoTypeColor } from '../../../src/constants/typeColors';
-import { colors, spacing, fontSizes, radii } from '../../../src/theme';
+import { Fab } from '../../../src/components/ui/Fab';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 export default function EquipmentScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const canAdd = usePermission('add_inventory');
   const canEdit = usePermission('edit_inventory');
@@ -237,8 +242,8 @@ export default function EquipmentScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
           ListEmptyComponent={
@@ -262,12 +267,7 @@ export default function EquipmentScreen() {
         />
 
         {canAdd && !ms.active && (
-          <TouchableOpacity
-            style={s.fab}
-            onPress={() => router.push('/(app)/(equipment)/add')}
-          >
-            <Text style={s.fabText}>+</Text>
-          </TouchableOpacity>
+          <Fab onPress={() => router.push('/(app)/(equipment)/add')} label="Add" />
         )}
 
         {canEdit && ms.active && (
@@ -315,58 +315,50 @@ export default function EquipmentScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   searchRow: {
-    flexDirection: 'row', gap: 10, padding: spacing.md, paddingBottom: spacing.sm,
+    flexDirection: 'row', gap: 10, padding: t.spacing.md, paddingBottom: t.spacing.sm,
   },
   searchBoxWrap: { flex: 1, justifyContent: 'center' },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, borderRadius: radii.md,
-    borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md,
+    borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: 12,
   },
   searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, height: 42, fontSize: fontSizes.md, color: colors.textPrimary },
+  searchInput: { flex: 1, height: 42, fontSize: t.typography.fontSizes.md, color: t.colors.textPrimary },
   headerAddBtn: {
-    width: 44, height: 44, backgroundColor: colors.primary, borderRadius: radii.md,
+    width: 44, height: 44, backgroundColor: t.colors.primary, borderRadius: t.radii.md,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerAddText: { fontSize: 24, color: '#fff', lineHeight: 28 },
+  headerAddText: { fontSize: 24, color: t.colors.onPrimary, lineHeight: 28 },
   list: { flex: 1 },
-  listContent: { padding: spacing.md, paddingBottom: 96 },
+  listContent: { padding: t.spacing.md, paddingBottom: 96 },
   listContentSelecting: { paddingBottom: 180 },
-  card: { marginBottom: spacing.sm },
-  cardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  card: { marginBottom: t.spacing.sm },
+  cardSelected: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
   checkbox: {
     width: 22, height: 22, borderRadius: 6, borderWidth: 2,
-    borderColor: colors.textDisabled, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.surface,
+    borderColor: t.colors.textDisabled, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: t.colors.surface,
   },
-  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  checkboxOn: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
+  checkMark: { color: t.colors.surface, fontSize: 13, fontWeight: '800', lineHeight: 16 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
   accent: { width: 4, alignSelf: 'stretch', borderRadius: 2, marginRight: 2 },
   info: { flex: 1, gap: 4 },
-  name: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },
+  name: { fontSize: t.typography.fontSizes.body, fontWeight: '700', color: t.colors.textPrimary },
   catRow: { flexDirection: 'row' },
-  catBadge: { borderRadius: radii.sm, paddingHorizontal: 8, paddingVertical: 2, maxWidth: '100%' },
-  catBadgeText: { fontSize: fontSizes.caption, fontWeight: '700', color: '#fff' },
+  catBadge: { borderRadius: t.radii.sm, paddingHorizontal: 8, paddingVertical: 2, maxWidth: '100%' },
+  catBadgeText: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.onPrimary },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { borderRadius: radii.sm, paddingHorizontal: 8, paddingVertical: 2 },
-  chipAvail: { backgroundColor: '#D1FAE5' },
+  chip: { borderRadius: t.radii.sm, paddingHorizontal: 8, paddingVertical: 2 },
+  chipAvail: { backgroundColor: t.colors.successBg },
   chipDeploy: { backgroundColor: '#DBEAFE' },
-  chipRepair: { backgroundColor: '#FEF3C7' },
-  chipText: { fontSize: fontSizes.caption, fontWeight: '600', color: colors.textPrimary },
-  noUnits: { fontSize: fontSizes.caption, color: colors.textMuted, fontStyle: 'italic' },
-  chevron: { fontSize: 22, color: colors.textMuted },
-  fab: {
-    position: 'absolute', bottom: 24, right: 24,
-    width: 54, height: 54, borderRadius: 27,
-    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2, shadowRadius: 4, elevation: 5,
-  },
-  fabText: { fontSize: 28, color: '#fff', lineHeight: 32 },
+  chipRepair: { backgroundColor: t.colors.warningBg },
+  chipText: { fontSize: t.typography.fontSizes.caption, fontWeight: '600', color: t.colors.textPrimary },
+  noUnits: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, fontStyle: 'italic' },
+  chevron: { fontSize: 22, color: t.colors.textMuted },
 });
