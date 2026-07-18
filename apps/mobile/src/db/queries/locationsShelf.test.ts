@@ -21,6 +21,14 @@ const origLoad = Module._load;
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   // Side-effect-only crypto polyfill; node already has crypto.getRandomValues.
   if (request === 'react-native-get-random-values') return {};
+  // The GPS-stamping log path (#33) transitively imports expo-location, which
+  // pulls in expo / expo-modules-core / react-native — none of which parse under
+  // tsx/esbuild (react-native/index.js is Flow-typed) or run outside Metro. These
+  // tests never exercise GPS, so hand back a benign no-op stub for each; every
+  // property access returns a no-op fn so any polyfill init on load stays inert.
+  if (request === 'react-native' || request === 'expo' || request === 'expo-modules-core') {
+    return new Proxy({ __esModule: true }, { get: (_t, p) => (p === '__esModule' ? true : () => {}) });
+  }
   let resolved = '';
   try { resolved = Module._resolveFilename(request, parent); } catch { /* not ours — fall through */ }
   if (resolved.endsWith('/src/db/schema.ts')) return testDb;

@@ -50,7 +50,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "node --import tsx --test $(find src -name '*.test.ts')"
+    "test": "node --import tsx --import ./src/test/setupGlobals.mjs --test $(find src -name '*.test.ts')"
   },
   "private": true
 }
