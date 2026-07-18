@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { colors } from '../theme';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { colors, radii, spacing, fontSizes } from '../theme';
+import { AppInput } from './ui/AppInput';
 
 export interface PickerOption { id: string; label: string; sublabel?: string }
 
@@ -79,10 +80,8 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
 
   return (
     <View style={s.wrap}>
-      <TextInput
-        style={s.input}
+      <AppInput
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
         value={query}
         onChangeText={setQuery}
         onFocus={() => setFocused(true)}
@@ -110,15 +109,14 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
 
 const s = StyleSheet.create({
   wrap: { position: 'relative' },
-  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, height: 44, fontSize: 14, color: colors.textPrimary },
-  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border, marginTop: 4 },
-  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  rowLabel: { fontSize: 14, color: colors.textPrimary },
-  rowSub: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
+  dropdown: { maxHeight: 240, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 4 },
+  row: { paddingHorizontal: spacing.base, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
+  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary },
+  rowSub: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 1 },
   createRow: { backgroundColor: colors.primaryBg },
-  createText: { fontSize: 14, color: colors.primaryText, fontWeight: '600' },
-  selected: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 10, paddingHorizontal: 14, height: 44 },
-  selectedLabel: { fontSize: 14, color: colors.textPrimary, fontWeight: '600' },
-  selectedSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  change: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+  createText: { fontSize: fontSizes.body, color: colors.primaryText, fontWeight: '600' },
+  selected: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: radii.md, paddingHorizontal: spacing.base, height: 44 },
+  selectedLabel: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '600' },
+  selectedSub: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 1 },
+  change: { color: colors.primary, fontSize: fontSizes.body2, fontWeight: '600' },
 });

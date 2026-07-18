@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { AppInput } from './ui/AppInput';
+import { colors, radii, spacing, fontSizes } from '../theme';
 
 interface Props {
   label?: string;
@@ -49,12 +51,10 @@ export function SuggestInput({
   return (
     <View style={s.wrap}>
       {!!label && <Text style={s.label}>{label}</Text>}
-      <TextInput
-        style={s.input}
+      <AppInput
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#94A3B8"
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         onFocus={() => setFocused(true)}
@@ -76,12 +76,8 @@ export function SuggestInput({
 
 const s = StyleSheet.create({
   wrap: { gap: 6, position: 'relative' },
-  label: { fontSize: 12, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
-  input: {
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, height: 44, fontSize: 14, color: '#1E293B',
-  },
-  dropdown: { maxHeight: 240, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 2 },
-  row: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  rowLabel: { fontSize: 14, color: '#1E293B' },
+  label: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  dropdown: { maxHeight: 240, backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: 2 },
+  row: { paddingHorizontal: spacing.base, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.borderDetail },
+  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary },
 });
