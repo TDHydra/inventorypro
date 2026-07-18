@@ -4,6 +4,7 @@ import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { ModalSheet } from './ModalSheet';
 import { PrimaryButton } from './PrimaryButton';
+import { createConfirmQueue, type ConfirmRequest, type ConfirmSheetOptions } from './confirmQueue';
 
 /**
  * Themed confirm bottom-sheet — a promise-based replacement for the ad-hoc
@@ -17,8 +18,8 @@ import { PrimaryButton } from './PrimaryButton';
  * Mount `<ConfirmSheetHost />` once at the app root (alongside `<AlertHost />`)
  * — it renders whatever `confirmSheet()` pushes. Wired the same way as
  * `themedAlert.tsx`/`alertBus.ts`: a framework-free module-level queue
- * (`createConfirmQueue`, exported for testability) holds the queue/showing
- * state; this file only adds the React rendering on top.
+ * (`createConfirmQueue` in `confirmQueue.ts`, re-exported here) holds the
+ * queue/showing state; this file only adds the React rendering on top.
  *
  * Resolves `false` on Cancel tap AND on backdrop/Android-back dismiss — a
  * pending promise is never left hanging. A second `confirmSheet()` call while
@@ -28,56 +29,11 @@ import { PrimaryButton } from './PrimaryButton';
  * — Wave C migrates screens to `confirmSheet()` one at a time.
  */
 
-export interface ConfirmSheetOptions {
-  title: string;
-  message?: string;
-  confirmLabel?: string; // default 'Confirm'
-  cancelLabel?: string; // default 'Cancel'
-  destructive?: boolean; // confirm button uses colors.danger / colors.dangerBg
-}
-
-interface ConfirmRequest extends ConfirmSheetOptions {
-  resolve: (value: boolean) => void;
-}
-
-/**
- * Framework-free queue/showing state machine, mirroring `createAlertBus` in
- * `alertBus.ts`. Exported (beyond the module singleton below) so the
- * queueing/ordering behavior is unit-testable without React/RN.
- */
-export function createConfirmQueue() {
-  let listener: ((req: ConfirmRequest | null) => void) | null = null;
-  let current: ConfirmRequest | null = null;
-  const queue: ConfirmRequest[] = [];
-
-  function pump(): void {
-    if (current || !listener || queue.length === 0) return;
-    current = queue.shift()!;
-    listener(current);
-  }
-
-  return {
-    push(opts: ConfirmSheetOptions): Promise<boolean> {
-      return new Promise<boolean>((resolve) => {
-        queue.push({ ...opts, resolve });
-        pump();
-      });
-    },
-    /** The host registers here on mount (null on unmount); queued requests drain immediately. */
-    setListener(fn: ((req: ConfirmRequest | null) => void) | null): void {
-      listener = fn;
-      pump();
-    },
-    /** The host calls this once the user resolves the showing request. */
-    settle(value: boolean): void {
-      if (!current) return;
-      const req = current;
-      current = null;
-      req.resolve(value);
-      pump();
-    },
-  };
-}
+// The queue itself lives in `confirmQueue.ts` (a pure, react-free module so it
+// runs under plain `node --test`); re-exported here so existing importers keep
+// working.
+export { createConfirmQueue } from './confirmQueue';
+export type { ConfirmSheetOptions, ConfirmRequest } from './confirmQueue';
 
 /** The app-wide queue `ConfirmSheetHost` renders. Raise on it via `confirmSheet()`. */
 const confirmQueue = createConfirmQueue();
@@ -101,7 +57,11 @@ export function ConfirmSheetHost(): ReactElement | null {
 
   function settle(value: boolean) {
     setReq(null);
-    confirmQueue.settle(value);
+    // Resolve AFTER the modal tears down (next macrotask), mirroring AlertHost:
+    // if the awaiting caller navigates while this <Modal> is still mounted, its
+    // lingering native window sits on top of the pushed screen and swallows
+    // touches until manually dismissed.
+    setTimeout(() => confirmQueue.settle(value), 0);
   }
 
   const confirmLabel = req.confirmLabel ?? 'Confirm';
