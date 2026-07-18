@@ -1,4 +1,4 @@
-import { UserRole, Permission, ROLE_DEFAULTS } from '../constants/roles';
+import { UserRole, Permission, ROLE_DEFAULTS, canActOnTarget } from '../constants/roles';
 import { getRolePermissionOverrides } from '../db/queries/users';
 
 export type { Permission } from '../constants/roles';
@@ -43,6 +43,40 @@ export function loadRolePermissionCache(): void {
 // role/user override, so the system can never lose permission management.
 // Authoritative (not just UI-disabled). KEEP IN SYNC with apps/api/src/lib/permissions.ts.
 const FULL_ADMIN_FLOOR: Permission[] = ['manage_roles_permissions', 'system_settings'];
+
+// Destructive permissions only a full_admin may grant/revoke. KEEP IN SYNC with
+// FULL_ADMIN_ONLY_GRANT in apps/api/src/lib/permissions.ts.
+const FULL_ADMIN_ONLY_GRANT: Permission[] = ['delete_inventory', 'delete_media'];
+
+// Pre-flight editability of a single role→permission cell — the mobile mirror of
+// canEditRolePermission in apps/api/src/lib/permissions.ts, applying the SAME three
+// checks in the SAME order the server enforces on a role_settings write (#82), so
+// the editor can disable-with-reason instead of failing on write and can't drift
+// from the server. Holding manage_roles_permissions is a separate precondition to
+// reach the editor and is intentionally not re-checked here.
+export type PermissionEditability =
+  | { editable: true; reason: null }
+  | { editable: false; reason: string };
+
+export function canEditRolePermission(
+  callerRole: UserRole | null | undefined,
+  targetRole: UserRole,
+  perm: Permission,
+): PermissionEditability {
+  // 1. Tier guard — caller must be at/above the target role's effective tier.
+  if (!callerRole || !canActOnTarget(callerRole, targetRole)) {
+    return { editable: false, reason: 'This role is at or above your access level.' };
+  }
+  // 2. Self-lockout floor — full_admin can never lose these (forced ON).
+  if (targetRole === 'full_admin' && FULL_ADMIN_FLOOR.includes(perm)) {
+    return { editable: false, reason: 'Required for full admin.' };
+  }
+  // 3. Destructive grant — only a full_admin may grant/revoke delete permissions.
+  if (FULL_ADMIN_ONLY_GRANT.includes(perm) && callerRole !== 'full_admin') {
+    return { editable: false, reason: 'Only a full admin can grant this.' };
+  }
+  return { editable: true, reason: null };
+}
 
 export interface TeamContext {
   team_id: string;

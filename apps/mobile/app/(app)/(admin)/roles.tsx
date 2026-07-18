@@ -10,7 +10,7 @@ import {
   getRolePermissionOverrides, setRolePermission,
   getRoleColorMap, setRoleColor,
 } from '../../../src/db/queries/users';
-import { loadRolePermissionCache } from '../../../src/auth/permissions';
+import { loadRolePermissionCache, canEditRolePermission } from '../../../src/auth/permissions';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -315,12 +315,18 @@ export default function RolesScreen() {
                 <View style={s.matrix}>
                   {PERMISSION_ORDER.map(perm => {
                     const lockedPerm = isLockedPerm(role, perm);
-                    // delete_inventory/delete_media are destructive → only a full_admin
-                    // may grant them (enforced server-side too on the role_settings write).
-                    const deleteGrantLocked = (perm === 'delete_inventory' || perm === 'delete_media') && sessionUser?.role !== 'full_admin';
+                    // Single source of truth for whether this cell may be toggled —
+                    // the shared canEditRolePermission mirrors the server's role_settings
+                    // rules (tier guard + full_admin floor + full_admin-only delete grant)
+                    // so the editor can't drift from what the server accepts (#82).
+                    const editability = canEditRolePermission(callerRole, role, perm);
                     const { value, modified } = effectivePerm(role, perm);
                     const shown = lockedPerm ? true : value;
-                    const disabled = !canManage || locked || lockedPerm || !canActThisRole || deleteGrantLocked;
+                    const disabled = !canManage || locked || !editability.editable;
+                    // The tier-guard reason is shown once at the role level above; here
+                    // surface only the per-permission reasons (floor / delete-grant) when
+                    // the caller can otherwise act on this role.
+                    const permReason = canActThisRole && !editability.editable ? editability.reason : null;
                     return (
                       <View key={perm} style={s.permRow}>
                         <View style={{ flex: 1 }}>
@@ -330,11 +336,8 @@ export default function RolesScreen() {
                           {modified && !lockedPerm && (
                             <Text style={s.modifiedBadge}>modified</Text>
                           )}
-                          {lockedPerm && (
-                            <Text style={s.lockedBadge}>required for full admin</Text>
-                          )}
-                          {deleteGrantLocked && !lockedPerm && (
-                            <Text style={s.lockedBadge}>only full admin can grant</Text>
+                          {permReason && (
+                            <Text style={s.lockedBadge}>{permReason}</Text>
                           )}
                         </View>
                         <Switch
