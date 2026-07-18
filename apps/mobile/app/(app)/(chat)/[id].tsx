@@ -25,7 +25,7 @@ import { syncNow } from '../../../src/sync/engine';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { useSession } from '../../../src/hooks/useSession';
 import { useRouter } from 'expo-router';
-import { composerBottomPadding, chatKeyboardVerticalOffset } from './composerInsets';
+import { composerBottomPadding, chatKeyboardVerticalOffset } from '../../../src/chat/composerInsets';
 
 // Distance from the top of the KeyboardAvoidingView to the top of the screen
 // (the native header height) — used to line the composer up with the keyboard.

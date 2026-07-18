@@ -1,6 +1,5 @@
-import { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Stack, useNavigation, useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { ChatBell } from '../../../src/components/ChatBell';
 import { NotificationBell } from '../../../src/components/NotificationBell';
 import { SyncIndicator } from '../../../src/components/SyncIndicator';
@@ -20,12 +19,7 @@ import { colors } from '../../../src/theme';
 // the list keeps them; the account "Switch" affordance stays on every other
 // screen and is intentionally dropped inside chat.
 export default function ChatLayout() {
-  const navigation = useNavigation();
   const router = useRouter();
-
-  useEffect(() => {
-    navigation.setOptions({ headerShown: false });
-  }, [navigation]);
 
   return (
     <Stack

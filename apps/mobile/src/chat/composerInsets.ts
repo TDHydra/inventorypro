@@ -1,6 +1,10 @@
-// Small chat-local helper for #89(b): reconcile the bottom safe-area inset with
+// Small chat helper for #89(b): reconcile the bottom safe-area inset with
 // the message composer's padding and the KeyboardAvoidingView offset. Kept as a
 // pure module (no React/RN imports) so it can be unit-tested under `node --test`.
+//
+// Lives under src/ (NOT app/) on purpose: Expo Router globs every file under
+// app/ into the route bundle, so a co-located *.test.ts importing `node:test`
+// there breaks the whole Metro build (#89 follow-up).
 
 function safeInset(insetBottom: number): number {
   // Guard against NaN / negative values coming out of useSafeAreaInsets().
