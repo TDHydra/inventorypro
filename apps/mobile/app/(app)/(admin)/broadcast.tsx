@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Switch, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -10,6 +10,7 @@ import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { getAllTeams, getTeamMembers } from '../../../src/db/queries/teams';
 import { getValidJwt } from '../../../src/auth/session';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -137,7 +138,7 @@ export default function BroadcastScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Broadcast', headerShown: true }} />
-      <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
 
         {/* ── Audience ─────────────────────────────────────────────────── */}
         <View>
@@ -243,13 +244,12 @@ export default function BroadcastScreen() {
             : <Text style={s.sendBtnText}>Send broadcast</Text>}
         </TouchableOpacity>
 
-      </ScrollView>
+      </FormScreen>
     </>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
   deniedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.lg, backgroundColor: t.colors.background },

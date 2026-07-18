@@ -1,4 +1,13 @@
-import type { Theme, ThemeOverrides } from './types';
+import type { Theme, ThemeKeyboard, ThemeOverrides } from './types';
+
+/**
+ * Base default for the `keyboard` theme block (#118). ≈ spacing.base — the
+ * breathing room kept between the focused field's caret and the keyboard top
+ * (KeyboardAwareScrollView `bottomOffset`). Themes inherit this via the root
+ * (`original`) unless they override `keyboard` in their createTheme() diff
+ * (Fluid roomier, Classic tighter).
+ */
+export const DEFAULT_THEME_KEYBOARD: ThemeKeyboard = { focusExtraOffset: 16 };
 
 /**
  * Deep-merge a base theme with a partial override. Plain objects merge one

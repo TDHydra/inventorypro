@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initDb, resetLocalDb } from '../src/db/schema';
 import { SessionContext, SessionContextValue } from '../src/hooks/useSession';
 import { UserSession } from '../src/auth/permissions';
@@ -119,15 +121,23 @@ export default function RootLayout() {
   if (!dbReady) return null;
 
   return (
-    <SessionContext.Provider value={sessionValue}>
-      <TelemetryErrorBoundary>
-        <StatusBar style={theme.dark ? 'light' : 'dark'} />
-        {/* key remounts the tree on theme switch so memoized/unmigrated
-            subtrees can't keep stale styles. Switching is rare; acceptable. */}
-        <Stack key={theme.id} screenOptions={{ headerShown: false }} />
-        <AlertHost />
-        <ConfirmSheetHost />
-      </TelemetryErrorBoundary>
-    </SessionContext.Provider>
+    // SafeAreaProvider → KeyboardProvider sit ABOVE the theme-keyed <Stack> so a
+    // theme switch (which remounts the Stack via its key) never tears down the
+    // safe-area / keyboard native context. SafeAreaProvider must be outermost so
+    // useSafeAreaInsets() resolves real insets everywhere below (#118).
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <SessionContext.Provider value={sessionValue}>
+          <TelemetryErrorBoundary>
+            <StatusBar style={theme.dark ? 'light' : 'dark'} />
+            {/* key remounts the tree on theme switch so memoized/unmigrated
+                subtrees can't keep stale styles. Switching is rare; acceptable. */}
+            <Stack key={theme.id} screenOptions={{ headerShown: false }} />
+            <AlertHost />
+            <ConfirmSheetHost />
+          </TelemetryErrorBoundary>
+        </SessionContext.Provider>
+      </KeyboardProvider>
+    </SafeAreaProvider>
   );
 }

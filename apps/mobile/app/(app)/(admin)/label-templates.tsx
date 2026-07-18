@@ -16,6 +16,7 @@ import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { DraggableResizableBox } from '../../../src/components/DraggableResizableBox';
 
 const SIZE_PRESETS = [
@@ -120,10 +121,9 @@ function Editor({ initial, userId, onDone }: {
   }
 
   return (
-    <ScrollView
+    <FormScreen
       scrollEnabled={!dragging}
       contentContainerStyle={{ padding: t.spacing.base, paddingBottom: t.spacing.xxl }}
-      keyboardShouldPersistTaps="handled"
     >
       <FieldLabel text="Template name" />
       <TextInput style={s.input} value={model.name} onChangeText={t => setModel(m => ({ ...m, name: t }))} placeholder="e.g. Warehouse 4×2" placeholderTextColor={t.colors.textMuted} />
@@ -189,7 +189,7 @@ function Editor({ initial, userId, onDone }: {
         <TouchableOpacity style={s.cancelBtn} onPress={onDone}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity>
         <TouchableOpacity style={s.saveBtn} onPress={save}><Text style={s.saveText}>Save template</Text></TouchableOpacity>
       </View>
-    </ScrollView>
+    </FormScreen>
   );
 }
 

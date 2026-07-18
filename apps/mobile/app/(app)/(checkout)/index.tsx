@@ -7,7 +7,7 @@
  */
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+  View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -41,6 +41,7 @@ import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { track } from '../../../src/telemetry';
@@ -597,7 +598,20 @@ export default function CheckoutScreen() {
     return (
       <>
         <Stack.Screen options={{ title: 'Select Location & Qty', headerShown: true }} />
-        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        {/* Keyboard-aware form area with the "Next" action pinned as a sticky
+            footer that floats above the keyboard (#118). */}
+        <FormScreen
+          contentContainerStyle={s.stepContent}
+          footer={
+            <View style={s.footerBar}>
+              <PrimaryButton
+                label="Next: Choose Destination →"
+                disabled={isUnitTracked ? selectedUnits.length === 0 : !selectedLocation}
+                onPress={() => { resetDest(); setStep('dest'); }}
+              />
+            </View>
+          }
+        >
           <Text style={s.sectionLabel}>{selectedItem.name}</Text>
 
           <Text style={s.label}>Source Location</Text>
@@ -620,7 +634,7 @@ export default function CheckoutScreen() {
           )}
 
           {isUnitTracked ? (
-            <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
+            <View style={{ marginTop: 8 }}>
               <Text style={s.label}>Select Units{selectedUnits.length > 0 ? ` (${selectedUnits.length})` : ''}</Text>
               {!selectedLocation ? (
                 <Text style={s.empty}>Choose a source location first.</Text>
@@ -660,13 +674,9 @@ export default function CheckoutScreen() {
                   )}
                 </>
               )}
-            </ScrollView>
+            </View>
           ) : (
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: 24 }}
-              keyboardShouldPersistTaps="handled"
-            >
+            <>
               <Text style={s.label}>Quantity</Text>
               <TextInput
                 style={s.qtyInput}
@@ -675,16 +685,9 @@ export default function CheckoutScreen() {
                 keyboardType="decimal-pad"
                 selectTextOnFocus
               />
-            </ScrollView>
+            </>
           )}
-
-          <PrimaryButton
-            label="Next: Choose Destination →"
-            disabled={isUnitTracked ? selectedUnits.length === 0 : !selectedLocation}
-            onPress={() => { resetDest(); setStep('dest'); }}
-            style={{ marginTop: 20 }}
-          />
-        </KeyboardAvoidingView>
+        </FormScreen>
       </>
     );
   }
@@ -694,8 +697,7 @@ export default function CheckoutScreen() {
     return (
       <>
         <Stack.Screen options={{ title: 'Destination', headerShown: true }} />
-        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        <FormScreen contentContainerStyle={s.destContent}>
             <Text style={s.sectionLabel}>
               {isUnitTracked
                 ? `${selectedUnits.length} unit${selectedUnits.length === 1 ? '' : 's'}`
@@ -824,8 +826,7 @@ export default function CheckoutScreen() {
             <TouchableOpacity style={s.btnSecondary} onPress={() => setStep('qty')}>
               <Text style={s.btnSecondaryText}>← Go Back</Text>
             </TouchableOpacity>
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </FormScreen>
       </>
     );
   }
@@ -975,6 +976,12 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.colors.background, padding: 16 },
+  // FormScreen content padding for the qty/dest steps (was the container's
+  // padding + the inner ScrollView's paddingBottom). #118
+  stepContent: { padding: 16 },
+  destContent: { padding: 16, paddingBottom: 24 },
+  // Sticky save bar (KeyboardStickyView) for the qty step's pinned Next action.
+  footerBar: { padding: 16, backgroundColor: t.colors.background, borderTopWidth: 1, borderTopColor: t.colors.border },
   confirmContent: { padding: 16, gap: 16 },
   sectionLabel: { fontSize: 18, fontWeight: '700', color: t.colors.brand, marginBottom: 16 },
   label: { fontSize: 13, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },

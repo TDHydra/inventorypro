@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -18,6 +18,7 @@ import { MediaGallery } from '../../../src/components/MediaGallery';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { TaxonomyChips } from '../../../src/components/pickers';
 import { HidableField } from '../../../src/components/ui/HidableField';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -233,14 +234,7 @@ export default function AddEquipmentScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Add Equipment', headerShown: true }} />
-      <KeyboardAvoidingView
-        style={s.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={s.content}
-          keyboardShouldPersistTaps="handled"
-        >
+      <FormScreen contentContainerStyle={s.content}>
 
           {/* ── Model photo ───────────────────────────────────────────────── */}
           <FieldLabel>Model Photo</FieldLabel>
@@ -357,14 +351,12 @@ export default function AddEquipmentScreen() {
             <Text style={s.cancelText}>Cancel</Text>
           </TouchableOpacity>
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
     </>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  flex: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: t.spacing.lg, gap: t.spacing.sm, paddingBottom: 48 },
   sectionDivider: {
     marginTop: t.spacing.md,

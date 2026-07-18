@@ -105,6 +105,14 @@ export interface ThemeMotion {
   enabled: boolean;
 }
 
+export interface ThemeKeyboard {
+  /** Breathing room kept between the focused field's bottom (caret) and the
+   *  keyboard top. Maps to KeyboardAwareScrollView `bottomOffset`. The scroll
+   *  animation itself is native + keyboard-synced (that is what makes it fluid),
+   *  so this lever is the *offset*, not a duration. */
+  focusExtraOffset: number;
+}
+
 export type SheetPresentation = 'slide-bottom' | 'center-dialog' | 'slide-fast' | 'spring-bottom';
 export type AlertPresentation = 'fade' | 'fade-scale' | 'slide-up' | 'spring-pop';
 
@@ -148,6 +156,7 @@ export interface Theme {
   shadows: ThemeShadows;
   motion: ThemeMotion;
   components: ThemeComponentSpec;
+  keyboard: ThemeKeyboard;
 }
 
 /** Recursive partial for createTheme() override files. Functions are replaced whole. */

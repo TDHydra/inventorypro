@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, KeyboardAvoidingView, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { usePermission } from '../../hooks/usePermission';
 import { PrimaryButton } from '../ui/PrimaryButton';
+import { FormScreen } from '../ui/FormScreen';
 import { Toast } from '../ui/Toast';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -102,7 +103,9 @@ export function QuickAddScreenShell({
   return (
     <>
       <Stack.Screen options={{ title, headerShown: true }} />
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* Non-scrolling chrome (toast / counter / recent list) stays pinned above
+          the FormScreen; only the form area scrolls + is keyboard-aware (#118). */}
+      <View style={s.container}>
         {toast !== null && <Toast message={toast} />}
         {count > 0 && (
           <View style={s.counterRow}><Text style={s.counterText}>Added {count} this session</Text></View>
@@ -119,10 +122,10 @@ export function QuickAddScreenShell({
             ))}
           </View>
         )}
-        <ScrollView style={s.scroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        <FormScreen contentContainerStyle={s.content}>
           {children(onSaved)}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScreen>
+      </View>
       <QuickAddEditSheet
         visible={editingRef !== null}
         entityRef={editingRef}
@@ -158,7 +161,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   recentLabel: { flex: 1, fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary },
   recentEditBtn: { paddingHorizontal: t.spacing.sm, paddingVertical: 4 },
   recentEditText: { fontSize: t.typography.fontSizes.caption, color: t.colors.primaryText, fontWeight: '700' },
-  scroll: { flex: 1 },
   content: { padding: t.spacing.lg, paddingBottom: 48 },
   gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xxxl, backgroundColor: t.colors.background },
   gateTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.sm },

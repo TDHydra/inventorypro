@@ -1,8 +1,14 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, type ComponentProps } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, Image, ActivityIndicator,
+  Image, ActivityIndicator,
 } from 'react-native';
+// keyboard-controller's KeyboardAvoidingView (NOT react-native's): once
+// <KeyboardProvider> is mounted app-wide (#118), it takes over Android soft-input
+// handling (edge-to-edge + WindowInsets), so RN's KeyboardAvoidingView — a no-op
+// on Android — no longer lifts the composer and the keyboard covers it. This one
+// avoids the keyboard consistently on both platforms.
+import { KeyboardChatScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,11 +33,15 @@ import { syncNow } from '../../../src/sync/engine';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { useSession } from '../../../src/hooks/useSession';
 import { useRouter } from 'expo-router';
-import { composerBottomPadding, chatKeyboardVerticalOffset } from '../../../src/chat/composerInsets';
+import { composerBottomPadding } from '../../../src/chat/composerInsets';
 
-// Distance from the top of the KeyboardAvoidingView to the top of the screen
-// (the native header height) — used to line the composer up with the keyboard.
-const CHAT_HEADER_OFFSET = 90;
+// Swap the message FlatList's scroll surface for keyboard-controller's chat
+// scroll view so the newest (bottom) messages of the inverted list stay visible
+// above the keyboard. Module-level (stable identity) so the FlatList isn't
+// re-created each render.
+const renderChatScroll = (props: ComponentProps<typeof KeyboardChatScrollView>) => (
+  <KeyboardChatScrollView {...props} />
+);
 
 const NOTIFY_PREFS: { key: NotifyPref; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -316,12 +326,13 @@ export default function ChatThreadScreen() {
           ),
         }}
       />
-      <KeyboardAvoidingView
-        style={s.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={chatKeyboardVerticalOffset(CHAT_HEADER_OFFSET, insets.bottom)}
-      >
+      {/* keyboard-controller chat pattern (#118): KeyboardChatScrollView keeps the
+          newest (bottom) messages of the inverted list visible when the keyboard
+          opens, and KeyboardStickyView pins the composer directly above it. */}
+      <View style={s.container}>
         <FlatList
+          style={s.flex}
+          renderScrollComponent={renderChatScroll}
           data={inverted}
           keyExtractor={m => m.id}
           renderItem={renderMessage}
@@ -334,7 +345,13 @@ export default function ChatThreadScreen() {
           }
         />
 
-        <View style={[s.composer, { paddingBottom: composerBottomPadding(t.spacing.sm, insets.bottom) }]}>
+        {/* opened:insets.bottom folds out the composer's own bottom inset (which
+            clears the nav bar when closed) so the input sits snug above the
+            keyboard instead of leaving a gap. */}
+        <KeyboardStickyView
+          offset={{ opened: insets.bottom }}
+          style={[s.composer, { paddingBottom: composerBottomPadding(t.spacing.sm, insets.bottom) }]}
+        >
           {editingId ? (
             <View style={s.editingRow}>
               <Text style={s.editingText}>Editing message</Text>
@@ -386,8 +403,8 @@ export default function ChatThreadScreen() {
               <Text style={s.sendText}>{editingId ? 'Save' : 'Send'}</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardStickyView>
+      </View>
 
       {/* Long-press action menu for the caller's own messages */}
       <ModalSheet visible={!!actionMsg} onClose={() => setActionMsg(null)}>
@@ -460,6 +477,7 @@ export default function ChatThreadScreen() {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.colors.background },
+  flex: { flex: 1 },
   list: { padding: t.spacing.md, gap: 6, flexGrow: 1 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
   emptyText: { color: t.colors.textMuted, fontSize: t.typography.fontSizes.body },

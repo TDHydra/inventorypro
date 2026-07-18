@@ -1,5 +1,6 @@
 import { Easing } from 'react-native';
 import type { Theme } from './types';
+import { DEFAULT_THEME_KEYBOARD } from './createTheme';
 
 /**
  * "Original" — the app's launch design (emerald/slate), extracted verbatim from
@@ -64,4 +65,5 @@ export const original: Theme = {
     card: { borderWidth: 1, divided: false },
     chip: { variant: 'pill' },
   },
+  keyboard: DEFAULT_THEME_KEYBOARD,
 };

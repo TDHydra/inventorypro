@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { parseOptionalCount, parsePackSize, validateName, validateText, MAX_QUANTITY } from '../../../src/lib/validation';
 import { track } from '../../../src/telemetry';
@@ -32,6 +32,7 @@ import { QuantityStepper } from '../../../src/components/ui/QuantityStepper';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -282,8 +283,7 @@ export default function ItemDetailScreen() {
   return (
     <>
       <Stack.Screen options={{ title: editing ? 'Edit Item' : item.name, headerShown: true }} />
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
           {editing ? (
             <>
               <TextField label="Name" required value={form.name} onChangeText={setField('name')} autoFocus />
@@ -465,8 +465,7 @@ export default function ItemDetailScreen() {
               )}
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
 
       {/* ── Print QR Label (item) ──────────────────────────────────────── */}
       <LabelPrintSheet
@@ -500,7 +499,6 @@ function Row({ k, v, last }: { k: string; v: string; last?: boolean }) {
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   muted: { fontSize: 14, color: t.colors.textMuted },

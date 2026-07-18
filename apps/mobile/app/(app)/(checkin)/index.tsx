@@ -29,6 +29,7 @@ import { LocationSuggestionBanner } from '../../../src/components/LocationSugges
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
@@ -370,14 +371,16 @@ export default function CheckinScreen() {
     <>
       <Stack.Screen options={{ title: 'Check In Items', headerShown: true }} />
       <View style={s.container}>
-        <TooltipHint screenKey="checkin" />
+        {/* container no longer pads (FormScreen's `content` owns the list's 16px
+            inset); restore the hint's original top gap + 16px inset directly. */}
+        <TooltipHint screenKey="checkin" style={{ marginTop: 16, marginHorizontal: 16 }} />
         {!hasAnything ? (
           <View style={s.empty}>
             <Text style={s.emptyTitle}>No Active Checkouts</Text>
             <Text style={s.emptyText}>Items you check out will appear here for return.</Text>
           </View>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <FormScreen contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
             {/* ── Count-based job checkouts (unchanged) ── */}
             {checkouts.length > 0 && (
               <>
@@ -479,7 +482,7 @@ export default function CheckinScreen() {
             )}
 
             <View style={{ height: 24 }} />
-          </ScrollView>
+          </FormScreen>
         )}
 
         {/* Count-based return modal — outside-tap preserves inputs */}
@@ -596,7 +599,8 @@ export default function CheckinScreen() {
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background, padding: 16 },
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: 16 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textMuted },
   emptyText: { fontSize: 14, color: t.colors.textDisabled, textAlign: 'center' },

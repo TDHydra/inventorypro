@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+  View, Text, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -31,6 +31,7 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { HidableField } from '../../../src/components/ui/HidableField';
@@ -438,8 +439,7 @@ export default function AddStockScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Add Stock to Location', headerShown: true }} />
-      <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <FormScreen contentContainerStyle={s.content}>
 
           {/* ── ITEM ─────────────────────────────────────────────────────── */}
           <FieldLabel>Item</FieldLabel>
@@ -683,14 +683,12 @@ export default function AddStockScreen() {
             </TouchableOpacity>
           </View>
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
     </>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 48 },
   packModeRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   packHint: { fontSize: 13, color: t.colors.primary, fontWeight: '600', marginTop: 4 },
