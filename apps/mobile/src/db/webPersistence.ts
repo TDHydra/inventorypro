@@ -1,11 +1,15 @@
 // src/db/webPersistence.ts
 // Minimal IndexedDB store for a single key holding the exported sql.js DB file.
 //
-// SECURITY: the snapshot is encrypted at rest with AES-GCM-256 (see webCrypto.ts)
-// using a key that lives only in memory + sessionStorage — so a shared/compromised
-// browser or an XSS read of IndexedDB yields ciphertext, not the full dataset.
-// The stored blob is [MAGIC][IV][ciphertext]; anything without MAGIC is a legacy
-// PLAINTEXT snapshot from before this change and is discarded on read.
+// SECURITY / THREAT MODEL: the snapshot is encrypted at rest with AES-GCM-256
+// (see webCrypto.ts) using a key held in memory + sessionStorage. This protects
+// the DURABLE ON-DISK IndexedDB copy against an OFFLINE attacker (filesystem
+// access to the browser profile, no live page): they get ciphertext, not the
+// dataset. It does NOT protect against XSS or any same-origin script in the live
+// page — that script can read the key straight out of sessionStorage/memory and
+// decrypt everything. See webCrypto.ts for the full note. The stored blob is
+// [MAGIC][IV][ciphertext]; anything without MAGIC is a legacy PLAINTEXT snapshot
+// from before this change and is discarded on read.
 import {
   getSnapshotKey,
   getOrCreateSnapshotKey,
@@ -143,9 +147,11 @@ export async function clearDbSnapshot(): Promise<void> {
 // prefix both marks the value as v1-encrypted and lets a legacy plaintext value
 // (a raw JWT / uuid) be detected and discarded on read.
 //
-// Residual limitation (out of scope, tracked by #42): an attacker with script
-// execution in the live page (XSS) can still read the in-memory key and decrypt
-// these — this only defends the at-rest disk copy.
+// Residual limitation (accepted; see the threat-model note in webCrypto.ts): an
+// attacker with script execution in the live page (XSS) can read the in-memory /
+// sessionStorage key and decrypt these too — this defends only the at-rest disk
+// copy against an offline attacker, not the live page. There is no client-only
+// fix; XSS is mitigated by CSP / output encoding / short-lived JWTs elsewhere.
 const SECURE_PREFIX = 'ipe1:';
 
 function idbGetString(name: string): Promise<string | null> {
