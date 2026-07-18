@@ -8,7 +8,7 @@ import { colors } from '../../src/theme';
 import { PINPad } from '../../src/components/PINPad';
 import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings } from '../../src/db/queries/users';
 import { useSession } from '../../src/hooks/useSession';
-import { verifyPinOnline, validatePinFormat, setPinFirstTime } from '../../src/auth/pin';
+import { verifyPinOnline, validatePinFormat, setPinFirstTime, isWeakPin } from '../../src/auth/pin';
 import { saveSession } from '../../src/auth/session';
 import { finishLogin } from '../../src/auth/finishLogin';
 import { fetchRoster, RosterUser } from '../../src/auth/roster';
@@ -265,6 +265,13 @@ export default function LoginScreen() {
     if (!selectedUser || newPin.length !== selectedUser.pin_length_required) return;
 
     if (setStep === 'enter') {
+      // Reject trivially guessable PINs before advancing — instant feedback so
+      // the user isn't asked to confirm a PIN the server would reject at set-pin.
+      if (isWeakPin(newPin)) {
+        setPinError('That PIN is too easy to guess. Avoid repeats and sequences like 1234.');
+        setTimeout(() => setPin(''), 200);
+        return;
+      }
       // First entry captured — advance to confirmation.
       setFirstPin(newPin);
       setTimeout(() => { setPin(''); setSetStep('confirm'); }, 200);

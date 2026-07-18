@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
+import bcrypt from 'bcrypt';
 import authRoutes, { isRefreshToken } from './auth';
 
 // Covers the batch-2 auth hardening:
@@ -72,6 +73,64 @@ test('POST /auth/set-pin rejects a non-UUID user_id (schema 400)', async () => {
     payload: { user_id: 'u1', pin: '1234', enrollment_code: '123456' },
   });
   assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+// --- /auth/set-pin weak-PIN rejection (#90) ------------------------------
+// The schema (minLength/maxLength) accepts a weak PIN; rejection happens in the
+// handler. Drive the handler with a stubbed pg so we reach the isWeakPin check
+// on a valid, not-yet-enrolled user with a live enrollment code.
+async function buildSetPinApp(overrides: Record<string, unknown> = {}) {
+  const app = Fastify();
+  const codeHash = await bcrypt.hash('123456', 10);
+  const userRow = {
+    id: VALID_UUID, name: 'New User', role: 'staff',
+    pin_set: false, active: true, expires_at: null,
+    enrollment_code_hash: codeHash,
+    enrollment_code_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    is_test: false, enrollment_code_public: null, min_pin_length: 4,
+    ...overrides,
+  };
+  app.decorate('pg', {
+    query: async (sql: string) => {
+      if (/from users/i.test(sql)) return { rows: [userRow] };
+      return { rows: [] }; // UPDATE users / INSERT activity_log
+    },
+  } as any);
+  await app.register(fastifyJwt, { secret: SECRET });
+  await app.register(authRoutes, { prefix: '/auth' });
+  await app.ready();
+  return app;
+}
+
+test('POST /auth/set-pin rejects a weak PIN (1234) with 400', async () => {
+  const app = await buildSetPinApp();
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: VALID_UUID, pin: '1234', enrollment_code: '123456' },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /too easy to guess/i);
+  await app.close();
+});
+
+test('POST /auth/set-pin rejects a repeated-digit PIN (0000) with 400', async () => {
+  const app = await buildSetPinApp();
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: VALID_UUID, pin: '0000', enrollment_code: '123456' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('POST /auth/set-pin accepts a strong PIN (not 400)', async () => {
+  const app = await buildSetPinApp();
+  const res = await app.inject({
+    method: 'POST', url: '/auth/set-pin',
+    payload: { user_id: VALID_UUID, pin: '1957', enrollment_code: '123456' },
+  });
+  assert.notEqual(res.statusCode, 400); // passes weak-PIN + all checks → session issued
   await app.close();
 });
 
