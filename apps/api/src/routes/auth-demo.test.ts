@@ -177,7 +177,7 @@ test('set-pin with a valid UNEXPIRED enrollment code succeeds', async () => {
   const app = await buildEnrollApp({ expiresAt: future, hash });
   const res = await app.inject({
     method: 'POST', url: '/auth/set-pin',
-    payload: { user_id: ENROLL_ID, pin: '4321', enrollment_code: ENROLL_CODE },
+    payload: { user_id: ENROLL_ID, pin: '8351', enrollment_code: ENROLL_CODE },
   });
   assert.equal(res.statusCode, 200);
   const body = res.json() as { jwt?: string; userId?: string };
@@ -207,7 +207,7 @@ test('set-pin accepts a PIN that meets the role minimum (role min 8, 8-digit PIN
   const app = await buildEnrollApp({ expiresAt: future, hash, minPin: 8 });
   const res = await app.inject({
     method: 'POST', url: '/auth/set-pin',
-    payload: { user_id: ENROLL_ID, pin: '12345678', enrollment_code: ENROLL_CODE },
+    payload: { user_id: ENROLL_ID, pin: '80412739', enrollment_code: ENROLL_CODE },
   });
   assert.equal(res.statusCode, 200);
   assert.ok((res.json() as { jwt?: string }).jwt, 'jwt issued');

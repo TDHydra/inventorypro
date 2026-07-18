@@ -15,7 +15,7 @@ import {
   type ItemWithTotalStock, type StockByLocation,
 } from '../../../src/db/queries/items';
 import { getOpenJobs, upsertJob, type Job } from '../../../src/db/queries/jobs';
-import { getAllLocations, getLocationsByOwner, type Location } from '../../../src/db/queries/locations';
+import { getAllLocations, getLocationsByOwner, resolveLocationShelfSelection, type Location } from '../../../src/db/queries/locations';
 import { getManagerTierUsers } from '../../../src/db/queries/users';
 import {
   getUnitsForItem, getAvailableUnitsAtLocation, getUnitByTag, setUnitStatus,
@@ -32,6 +32,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { generateUUID } from '../../../src/utils/uuid';
 import { formatQuantity } from '../../../src/constants/units';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
+import { LocationShelfPicker } from '../../../src/components/pickers';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
@@ -77,7 +78,9 @@ export default function CheckoutScreen() {
   // Destination
   const [destType, setDestType] = useState<DestType | null>(null);
   const [selectedJob, setSelectedJob] = useState<{ id: string; name: string } | null>(null);
-  const [selectedDestLocation, setSelectedDestLocation] = useState<Location | null>(null);
+  // Destination location is now a two-stage (location, shelf) selection.
+  const [destLoc, setDestLoc] = useState<PickerOption | null>(null);
+  const [destShelf, setDestShelf] = useState<PickerOption | null>(null);
   const [pmMode, setPmMode] = useState<PmMode>('single');
   const [pmSelections, setPmSelections] = useState<PmSelection[]>([]);
 
@@ -165,20 +168,6 @@ export default function CheckoutScreen() {
     if (!selectedItem || !isUnitTracked || !selectedLocation) return [];
     return getAvailableUnitsAtLocation(selectedItem.id, selectedLocation.location_id);
   }, [selectedItem, isUnitTracked, selectedLocation]);
-  const destLocationOptions: PickerOption[] = useMemo(
-    () => allLocations
-      .filter(l => l.id !== selectedLocation?.location_id)
-      .map(l => ({
-        id: l.id,
-        label: l.name,
-        sublabel: l.parent_id ? (locNameById.get(l.parent_id) ?? undefined) : undefined,
-      })),
-    [allLocations, selectedLocation, locNameById]
-  );
-  const destLocationValue: PickerOption | null = selectedDestLocation
-    ? { id: selectedDestLocation.id, label: selectedDestLocation.name }
-    : null;
-
   // Job options (open jobs; SearchablePicker filters client-side, onCreate makes new).
   const jobOptions: PickerOption[] = useMemo(
     () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
@@ -236,7 +225,8 @@ export default function CheckoutScreen() {
   function resetDest() {
     setDestType(null);
     setSelectedJob(null);
-    setSelectedDestLocation(null);
+    setDestLoc(null);
+    setDestShelf(null);
     setPmMode('single');
     setPmSelections([]);
   }
@@ -307,10 +297,10 @@ export default function CheckoutScreen() {
   }
 
   // ── Destination: location ────────────────────────────────────────────────
-  function selectDestLocation(opt: PickerOption) {
-    if (selectedDestLocation?.id === opt.id) { setSelectedDestLocation(null); return; }
-    setSelectedDestLocation(allLocations.find(l => l.id === opt.id) ?? null);
-  }
+  // The destination location field is now the two-stage LocationShelfPicker,
+  // which owns clear-on-retap and its own (shelf-free) option list — so no
+  // dedicated select handler is needed; setDestLoc/setDestShelf are wired
+  // straight into the component and resolved at submit.
 
   // ── Destination: production manager ──────────────────────────────────────
   function setMode(mode: PmMode) {
@@ -351,13 +341,13 @@ export default function CheckoutScreen() {
   // Whether the dest step is complete enough to review.
   const destReady = useMemo(() => {
     if (destType === 'job') return !!selectedJob;
-    if (destType === 'location') return !!selectedDestLocation;
+    if (destType === 'location') return !!destLoc;
     if (destType === 'pm') {
       return pmSelections.length > 0 &&
         pmSelections.every(p => p.locationId && (parseFloat(p.qty) || 0) > 0);
     }
     return false;
-  }, [destType, selectedJob, selectedDestLocation, pmSelections]);
+  }, [destType, selectedJob, destLoc, pmSelections]);
 
   // ── Stock write helper: deduct source, optionally credit a destination. ───
   // Push SIGNED deltas; the server merges authoritatively (idempotent + clamped).
@@ -408,12 +398,18 @@ export default function CheckoutScreen() {
 
       // Resolve + validate the destination before any writes.
       let destLabel: string;
+      // For the location destination, the resolved (location, shelf) id — a
+      // typed-in shelf is find-or-created here, before any unit writes.
+      let resolvedDestLocId: string | null = null;
       if (destType === 'job') {
         if (!selectedJob) { Alert.alert('Pick a Job', 'Choose or create a job first.'); return; }
         destLabel = selectedJob.name;
       } else if (destType === 'location') {
-        if (!selectedDestLocation) { Alert.alert('Pick a Location', 'Choose a destination location.'); return; }
-        destLabel = selectedDestLocation.name;
+        if (!destLoc) { Alert.alert('Pick a Location', 'Choose a destination location.'); return; }
+        const locRes = resolveLocationShelfSelection(destLoc, destShelf);
+        if (!locRes.ok) { Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`); return; }
+        resolvedDestLocId = locRes.id;
+        destLabel = destShelf ? `${destLoc.label} › ${destShelf.label}` : destLoc.label;
       } else {
         const pm = pmSelections[0];
         if (!pm || !pm.locationId) { Alert.alert('Pick a Location', 'The manager needs a destination location.'); return; }
@@ -438,12 +434,12 @@ export default function CheckoutScreen() {
           primaryUnitLogged = true;
         } else if (destType === 'location') {
           updated = setUnitStatus(sel.id, {
-            status: 'available', current_location_id: selectedDestLocation!.id, current_job_id: null,
+            status: 'available', current_location_id: resolvedDestLocId, current_job_id: null,
           });
           outboxUnit(updated);
           appendLog({
             ...baseLog, action: 'transfer',
-            from_location_id: source, to_location_id: selectedDestLocation!.id,
+            from_location_id: source, to_location_id: resolvedDestLocId,
             job_id: null, quantity: 1, note: 'unit ' + sel.asset_tag,
             ...(!primaryUnitLogged && { id: checkoutEventId }),
           });
@@ -495,19 +491,24 @@ export default function CheckoutScreen() {
 
     if (destType === 'location') {
       const qty = parseFloat(quantity);
-      if (!selectedDestLocation) { Alert.alert('Pick a Location', 'Choose a destination location.'); return; }
+      if (!destLoc) { Alert.alert('Pick a Location', 'Choose a destination location.'); return; }
       if (isNaN(qty) || qty <= 0) { Alert.alert('Invalid Quantity', 'Enter a positive number.'); return; }
       if (qty > onHand) { Alert.alert('Not Enough Stock', `Only ${formatQuantity(onHand, unit, cat)} available.`); return; }
+      // Resolve the (location, shelf) pair into the id stock is credited to — a
+      // typed-in shelf is find-or-created here, before any stock writes.
+      const locRes = resolveLocationShelfSelection(destLoc, destShelf);
+      if (!locRes.ok) { Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`); return; }
+      const destLocId = locRes.id;
 
       setSubmitting(true);
-      stockMove(itemId, source, selectedDestLocation.id, qty);
+      stockMove(itemId, source, destLocId, qty);
       appendLog({
         ...baseLog, action: 'transfer',
-        from_location_id: source, to_location_id: selectedDestLocation.id,
+        from_location_id: source, to_location_id: destLocId,
         job_id: null, quantity: qty, note: null,
         id: checkoutEventId,
       });
-      done(`Transferred ${formatQuantity(qty, unit, cat)} of ${selectedItem.name} to ${selectedDestLocation.name}.`);
+      done(`Transferred ${formatQuantity(qty, unit, cat)} of ${selectedItem.name} to ${destShelf ? `${destLoc.label} › ${destShelf.label}` : destLoc.label}.`);
       return;
     }
 
@@ -730,11 +731,12 @@ export default function CheckoutScreen() {
             {destType === 'location' && (
               <>
                 <Text style={s.label}>To Location</Text>
-                <SearchablePicker
-                  placeholder="Search destination location..."
-                  options={destLocationOptions}
-                  value={destLocationValue}
-                  onSelect={selectDestLocation}
+                <LocationShelfPicker
+                  locationValue={destLoc}
+                  shelfValue={destShelf}
+                  onChangeLocation={setDestLoc}
+                  onChangeShelf={setDestShelf}
+                  excludeIds={[selectedLocation.location_id]}
                 />
               </>
             )}
@@ -850,7 +852,7 @@ export default function CheckoutScreen() {
                 </>
               )}
               {destType === 'location' && (
-                <Row label="To Location" value={selectedDestLocation?.name ?? ''} />
+                <Row label="To Location" value={destLoc ? (destShelf ? `${destLoc.label} › ${destShelf.label}` : destLoc.label) : ''} />
               )}
               {destType === 'pm' && (
                 <Row
@@ -873,7 +875,7 @@ export default function CheckoutScreen() {
           {!isUnitTracked && destType === 'location' && (
             <>
               <Row label="Qty" value={formatQuantity(parseFloat(quantity) || 0, unit, cat)} />
-              <Row label="To Location" value={selectedDestLocation?.name ?? ''} />
+              <Row label="To Location" value={destLoc ? (destShelf ? `${destLoc.label} › ${destShelf.label}` : destLoc.label) : ''} />
             </>
           )}
           {!isUnitTracked && destType === 'pm' && pmSelections.map(p => (

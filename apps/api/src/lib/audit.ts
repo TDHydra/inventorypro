@@ -10,7 +10,7 @@ import type { FastifyRequest } from 'fastify';
 // denylist of field names, which silently fails the moment someone adds a new
 // secret-bearing field. audit.test.ts enforces this.
 
-export type Outcome = 'success' | 'denied' | 'rate_limited' | 'client_error' | 'server_error' | 'validation_reject';
+export type Outcome = 'success' | 'denied' | 'rate_limited' | 'client_error' | 'server_error' | 'validation_reject' | 'injection_attempt';
 
 // Routine, high-volume endpoints that would otherwise bury the signal. Every
 // offline-first device polls /sync/pull continuously and flushes /telemetry in
@@ -56,7 +56,14 @@ export const AUDIT_RETAIN_SECURITY_DAYS = parseInt(process.env.AUDIT_RETAIN_SECU
 // schema validation rejected the request (err.validation) — a malformed-input
 // probe is distinguishable from an ordinary client error without ever reading
 // the offending body.
-export function outcomeFor(statusCode: number, validationReject = false): Outcome {
+//
+// `injectionAttempt` is stashed by the /sync/push handler when a crafted entry
+// tried to write a non-allowlisted TABLE or a forbidden/unknown COLUMN — a
+// schema-probing signal distinct from an ordinary rejection. It WINS over the
+// status code: /sync/push strands a bad entry as a per-entry conflict and still
+// returns 200, so keying off the status alone would file it as a plain success.
+export function outcomeFor(statusCode: number, validationReject = false, injectionAttempt = false): Outcome {
+  if (injectionAttempt) return 'injection_attempt';    // crafted payload probing the schema — always flagged
   if (statusCode >= 500) return 'server_error';
   if (statusCode === 429) return 'rate_limited';       // brute force ≠ validation typo
   if (validationReject && statusCode >= 400) return 'validation_reject';
@@ -71,6 +78,8 @@ export function isSecurityClass(method: string, url: string, outcome: Outcome): 
   if (outcome === 'denied' || outcome === 'rate_limited' || outcome === 'server_error') return true;
   // Schema-invalid input is probe-shaped traffic — retained like other failures.
   if (outcome === 'validation_reject') return true;
+  // A crafted table/column write is the clearest intrusion signal we capture.
+  if (outcome === 'injection_attempt') return true;
   if (url.startsWith('/auth')) return true;            // logins, set-pin, refresh — success or not
   if (method === 'GET') return false;
   // Toggling the demo-account kill switch changes who can sign in.
@@ -136,10 +145,11 @@ export function buildAuditRow(
   actor: { id: string | null; name: string | null; role: string | null },
   errorMessage: string | null,
   validationReject = false,
+  injectionAttempt = false,
 ): AuditRow {
   const method = request.method;
   const path = stripQuery(request.url);
-  const outcome = outcomeFor(statusCode, validationReject);
+  const outcome = outcomeFor(statusCode, validationReject, injectionAttempt);
   return {
     request_id: String(request.id),
     user_id: actor.id,

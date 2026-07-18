@@ -26,6 +26,16 @@ test('outcomeFor flags schema-validation rejects distinctly — but only on 4xx'
   assert.equal(outcomeFor(200, true), 'success');         // stray flag on a 2xx is ignored
 });
 
+test('outcomeFor flags injection attempts and lets them win over the status code', () => {
+  // A crafted table/column write strands the entry as a conflict but /sync/push
+  // still returns 200 — the flag must win so it is not filed as a plain success.
+  assert.equal(outcomeFor(200, false, true), 'injection_attempt');
+  assert.equal(outcomeFor(400, false, true), 'injection_attempt');
+  assert.equal(outcomeFor(500, false, true), 'injection_attempt'); // beats 5xx: intent matters more than the incidental status
+  assert.equal(outcomeFor(200, true, true), 'injection_attempt');  // beats validation_reject too
+  assert.equal(outcomeFor(200, false, false), 'success');          // no flag → unchanged
+});
+
 test('security class covers failures, all auth traffic, and privilege changes', () => {
   assert.equal(isSecurityClass('POST', '/auth/token', 'success'), true);   // successful login
   assert.equal(isSecurityClass('POST', '/auth/token', 'denied'), true);    // failed login
@@ -39,6 +49,9 @@ test('security class covers failures, all auth traffic, and privilege changes', 
   // Schema-invalid input is probe-shaped traffic — retained like other failures.
   assert.equal(isSecurityClass('POST', '/items', 'validation_reject'), true);
   assert.equal(isSecurityClass('GET', '/items', 'validation_reject'), true);
+  // A crafted table/column write is the clearest intrusion signal — always retained,
+  // even on the /sync/push routine-write path that is otherwise dropped on success.
+  assert.equal(isSecurityClass('POST', '/sync/push', 'injection_attempt'), true);
   // Toggling the demo-account kill switch changes who can sign in; reading it doesn't.
   assert.equal(isSecurityClass('PATCH', '/audit/demo-mode', 'success'), true);
   assert.equal(isSecurityClass('GET', '/audit/demo-mode', 'success'), false);

@@ -105,7 +105,12 @@ export default function AppLayout() {
             </View>
           ),
         }}
-      />
+      >
+        {/* The chat group owns its own nested Stack (list + thread with
+            per-screen titles), so hide this parent header for it — otherwise the
+            parent renders the route-group name "(chat)" over the top (#89). */}
+        <Stack.Screen name="(chat)" options={{ headerShown: false }} />
+      </Stack>
     </View>
   );
 }
