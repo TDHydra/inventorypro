@@ -19,7 +19,8 @@ import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/
 import { getAllActiveUsers, getUserById, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { searchItems, getItemById, adjustStock } from '../../../src/db/queries/items';
 import { appendLog } from '../../../src/db/queries/log';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -54,6 +55,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function RepairDetailScreen() {
+  const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useSession();
@@ -656,59 +658,59 @@ export default function RepairDetailScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, paddingBottom: 48 },
   header: {
-    backgroundColor: colors.surface, borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: colors.border, marginBottom: 16, gap: 2,
+    backgroundColor: t.colors.surface, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: t.colors.border, marginBottom: 16, gap: 2,
   },
-  entityLabel: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  entityLink: { color: colors.primary },
-  entityType: { fontSize: 13, color: colors.textSecondary },
+  entityLabel: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary },
+  entityLink: { color: t.colors.primary },
+  entityType: { fontSize: 13, color: t.colors.textSecondary },
   statusLine: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-  currentStatus: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  currentStatus: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
   assigneeLine: { fontSize: 13, fontWeight: '600', marginTop: 2 },
-  completedAt: { fontSize: 12, color: colors.success, fontWeight: '600', marginTop: 2 },
+  completedAt: { fontSize: 12, color: t.colors.success, fontWeight: '600', marginTop: 2 },
   overdueBadge: {
-    backgroundColor: colors.dangerBg, borderColor: colors.danger, borderWidth: 1,
+    backgroundColor: t.colors.dangerBg, borderColor: t.colors.danger, borderWidth: 1,
     borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2,
   },
-  overdueBadgeText: { fontSize: 11, fontWeight: '700', color: colors.danger },
-  overdueText: { color: colors.danger, fontWeight: '700' },
+  overdueBadgeText: { fontSize: 11, fontWeight: '700', color: t.colors.danger },
+  overdueText: { color: t.colors.danger, fontWeight: '700' },
   statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
-  readonlyNote: { fontSize: 12, color: colors.textMuted, marginTop: 8 },
-  readonlyValue: { fontSize: 15, color: colors.textPrimary, marginTop: 2 },
+  readonlyNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8 },
+  readonlyValue: { fontSize: 15, color: t.colors.textPrimary, marginTop: 2 },
   multiline: { minHeight: 72, textAlignVertical: 'top' },
   sectionTitle: {
-    fontSize: 12, fontWeight: '700', color: colors.textMuted,
+    fontSize: 12, fontWeight: '700', color: t.colors.textMuted,
     textTransform: 'uppercase', letterSpacing: 1, marginTop: 24, marginBottom: 8,
   },
   sectionHeadRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 8,
   },
-  usePartsLink: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  usePartsLink: { fontSize: 13, fontWeight: '700', color: t.colors.primary },
   partRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.borderDetail,
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail,
   },
-  partName: { fontSize: 14, color: colors.textPrimary, flex: 1, marginRight: 8 },
-  partQty: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
+  partName: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 8 },
+  partQty: { fontSize: 13, color: t.colors.textSecondary, fontWeight: '600' },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
   expiryCurrent: {
-    flex: 1, backgroundColor: colors.background, borderRadius: 10, borderWidth: 1,
-    borderColor: colors.border, paddingHorizontal: 12, height: 44, justifyContent: 'center',
+    flex: 1, backgroundColor: t.colors.background, borderRadius: 10, borderWidth: 1,
+    borderColor: t.colors.border, paddingHorizontal: 12, height: 44, justifyContent: 'center',
   },
-  expiryText: { fontSize: 14, color: colors.textPrimary },
-  expiryClear: { color: colors.danger, fontSize: 14, fontWeight: '600', paddingHorizontal: 6 },
+  expiryText: { fontSize: 14, color: t.colors.textPrimary },
+  expiryClear: { color: t.colors.danger, fontSize: 14, fontWeight: '600', paddingHorizontal: 6 },
   chipWrap: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  expiryChip: { backgroundColor: colors.primaryBg, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
-  expiryChipText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
-  errorText: { fontSize: 12, color: colors.danger, marginTop: 4 },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
-  modalSub: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  expiryChip: { backgroundColor: t.colors.primaryBg, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
+  expiryChipText: { color: t.colors.primary, fontSize: 13, fontWeight: '600' },
+  errorText: { fontSize: 12, color: t.colors.danger, marginTop: 4 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary },
+  modalSub: { fontSize: 13, color: t.colors.textSecondary, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   btn: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, alignItems: 'center' },
-  btnGhost: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  btnGhostText: { color: colors.textSecondary, fontWeight: '600' },
+  btnGhost: { borderWidth: 1, borderColor: t.colors.border, backgroundColor: t.colors.surface },
+  btnGhostText: { color: t.colors.textSecondary, fontWeight: '600' },
 });

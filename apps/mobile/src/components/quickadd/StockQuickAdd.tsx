@@ -13,7 +13,9 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, radii, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
@@ -34,6 +36,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function StockQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -232,7 +236,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
         ref={qtyRef}
         style={[s.input, !!error && s.inputError]}
         placeholder={mode === 'set' ? 'New quantity *' : 'Quantity *'}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={t.colors.textMuted}
         value={qty}
         onChangeText={t => { setQty(t); if (error) setError(''); }}
         keyboardType="decimal-pad"
@@ -245,7 +249,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -255,16 +259,16 @@ export default function StockQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
   input: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
   },
-  inputError: { borderColor: colors.danger },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  hint: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  hint: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

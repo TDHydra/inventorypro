@@ -1,6 +1,8 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { EquipmentUnit } from '../db/queries/equipmentUnits';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 type Props = {
   unit: EquipmentUnit;
@@ -9,13 +11,13 @@ type Props = {
   onRepairIn?: () => void;
 };
 
-function statusColors(status: string): { bg: string; text: string } {
+function statusColors(t: Theme, status: string): { bg: string; text: string } {
   switch (status) {
-    case 'available': return { bg: '#D1FAE5', text: '#065F46' };
-    case 'deployed':  return { bg: colors.primaryBgStrong, text: colors.primaryText };
-    case 'in_repair': return { bg: '#FEF3C7', text: '#92400E' };
-    case 'retired':   return { bg: '#F1F5F9', text: '#64748B' };
-    default:          return { bg: '#F1F5F9', text: '#64748B' };
+    case 'available': return { bg: t.colors.successBg, text: t.colors.successText };
+    case 'deployed':  return { bg: t.colors.primaryBgStrong, text: t.colors.primaryText };
+    case 'in_repair': return { bg: t.colors.warningBg, text: t.colors.warningText };
+    case 'retired':   return { bg: t.colors.surfaceAlt, text: t.colors.textSecondary };
+    default:          return { bg: t.colors.surfaceAlt, text: t.colors.textSecondary };
   }
 }
 
@@ -30,7 +32,9 @@ function statusLabel(status: string): string {
 }
 
 export function UnitRow({ unit, locationName, onRepairOut, onRepairIn }: Props) {
-  const statusClr = statusColors(unit.status);
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const statusClr = statusColors(t, unit.status);
   const hasActions = !!onRepairOut || !!onRepairIn;
 
   return (
@@ -63,7 +67,7 @@ export function UnitRow({ unit, locationName, onRepairOut, onRepairIn }: Props) 
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -71,16 +75,16 @@ const s = StyleSheet.create({
     gap: 8,
   },
   info: { flex: 1 },
-  tag: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
-  serial: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
-  location: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  tag: { fontSize: 15, color: t.colors.textPrimary, fontWeight: '600' },
+  serial: { fontSize: 12, color: t.colors.textMuted, marginTop: 1 },
+  location: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
   right: { alignItems: 'flex-end', gap: 6 },
   badge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 12, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: 6 },
   actionBtn: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  repairOutBtn: { backgroundColor: '#FEF3C7' },
-  repairOutText: { fontSize: 12, fontWeight: '700', color: '#92400E' },
-  repairInBtn: { backgroundColor: '#D1FAE5' },
-  repairInText: { fontSize: 12, fontWeight: '700', color: '#065F46' },
+  repairOutBtn: { backgroundColor: t.colors.warningBg },
+  repairOutText: { fontSize: 12, fontWeight: '700', color: t.colors.warningText },
+  repairInBtn: { backgroundColor: t.colors.successBg },
+  repairInText: { fontSize: 12, fontWeight: '700', color: t.colors.successText },
 });

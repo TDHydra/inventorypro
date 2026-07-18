@@ -10,7 +10,8 @@ import { roleColor } from '../../../src/db/queries/users';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/roles';
 import { track } from '../../../src/telemetry';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { useDashboardLayout } from '../../../src/dashboard/store';
 import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
@@ -32,6 +33,7 @@ const HUB_TRACK: Partial<Record<WidgetType, string>> = {
 };
 
 export default function DashboardScreen() {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const router = useRouter();
   const [reshow, setReshow] = useState<(() => void) | null>(null);
@@ -56,13 +58,13 @@ export default function DashboardScreen() {
   // they render at the very top instead so the user is never greeting-less.
   const greeting = (
     <View key="__greeting">
-      <View style={styles.greeting}>
-        <View style={styles.greetingText}>
-          <Text style={[styles.hi, { color: roleColor(user.role) }]}>{timeGreeting()}, {user.name.split(' ')[0]}</Text>
-          <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
+      <View style={s.greeting}>
+        <View style={s.greetingText}>
+          <Text style={[s.hi, { color: roleColor(user.role) }]}>{timeGreeting()}, {user.name.split(' ')[0]}</Text>
+          <Text style={s.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
         </View>
-        <TouchableOpacity onPress={() => reshow?.()} style={styles.questionBtn}>
-          <Text style={styles.questionBtnText}>?</Text>
+        <TouchableOpacity onPress={() => reshow?.()} style={s.questionBtn}>
+          <Text style={s.questionBtnText}>?</Text>
         </TouchableOpacity>
       </View>
       <TooltipHint screenKey="dashboard" onReady={fn => setReshow(() => fn)} />
@@ -88,18 +90,18 @@ export default function DashboardScreen() {
     const tile = (
       <TouchableOpacity
         style={[
-          styles.tile,
-          primary && styles.tilePrimary,
-          block.width === 'half' && styles.tileHalf,
+          s.tile,
+          primary && s.tilePrimary,
+          block.width === 'half' && s.tileHalf,
         ]}
         onPress={onPress}
       >
-        <Text style={styles.tileIcon}>{icon}</Text>
-        <Text style={primary ? styles.tileLabelPrimary : styles.tileLabel}>{label}</Text>
-        {primary && <Text style={styles.tileSubPrimary}>Scan or search for an item</Text>}
+        <Text style={s.tileIcon}>{icon}</Text>
+        <Text style={primary ? s.tileLabelPrimary : s.tileLabel}>{label}</Text>
+        {primary && <Text style={s.tileSubPrimary}>Scan or search for an item</Text>}
         {block.widget === 'chat' && chatUnread > 0 && (
-          <View style={styles.tileBadge}>
-            <Text style={styles.tileBadgeText}>{chatUnread > 99 ? '99+' : chatUnread}</Text>
+          <View style={s.tileBadge}>
+            <Text style={s.tileBadgeText}>{chatUnread > 99 ? '99+' : chatUnread}</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -129,7 +131,7 @@ export default function DashboardScreen() {
   };
 
   // A block widget (search / quick-add / low-stock / section header) → its existing
-  // component/list, reusing today's styles. `gatePerm` (section only) wraps the
+  // component/list, reusing today's s. `gatePerm` (section only) wraps the
   // header so it hides when the user can't see any tile beneath it.
   const renderBlock = (block: LayoutBlock, key: string, gatePerm?: Permission): ReactNode => {
     switch (block.widget) {
@@ -139,15 +141,15 @@ export default function DashboardScreen() {
         return <QuickAddBanner key={key} />;
       case 'section': {
         if (!block.config?.sectionTitle) return null;
-        const header = <Text style={styles.sectionTitle}>{block.config.sectionTitle}</Text>;
+        const header = <Text style={s.sectionTitle}>{block.config.sectionTitle}</Text>;
         return gatePerm
           ? <PermissionGate key={key} permission={gatePerm}>{header}</PermissionGate>
           : <View key={key}>{header}</View>;
       }
       case 'low-stock':
         return shown.length > 0 ? (
-          <View key={key} style={styles.alert}>
-            <Text style={styles.alertTitle}>⚠️ Low Stock</Text>
+          <View key={key} style={s.alert}>
+            <Text style={s.alertTitle}>⚠️ Low Stock</Text>
             {shown.map(item => (
               <TouchableOpacity
                 key={item.id}
@@ -155,12 +157,12 @@ export default function DashboardScreen() {
                   router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: item.id } })
                 }
               >
-                <Text style={styles.alertItem}>
+                <Text style={s.alertItem}>
                   {item.name} — {item.total_stock} {item.unit} remaining
                 </Text>
               </TouchableOpacity>
             ))}
-            {all.length > 3 && <Text style={styles.alertMore}>+{all.length - 3} more</Text>}
+            {all.length > 3 && <Text style={s.alertMore}>+{all.length - 3} more</Text>}
           </View>
         ) : null;
       default:
@@ -185,7 +187,7 @@ export default function DashboardScreen() {
     // Pair two adjacent half tiles side by side.
     if (block.width === 'half' && isTile(block.widget) && next?.width === 'half' && isTile(next.widget)) {
       elements.push(
-        <View key={`row-${i}`} style={styles.row}>
+        <View key={`row-${i}`} style={s.row}>
           {renderTile(block, `b-${i}`)}
           {renderTile(next, `b-${i + 1}`)}
         </View>,
@@ -204,39 +206,39 @@ export default function DashboardScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'InventoryPro', headerShown: true }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         {elements}
       </ScrollView>
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 40 },
   greeting: { marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   greetingText: { flex: 1 },
-  hi: { fontSize: 24, fontWeight: '700', color: colors.brand },
-  role: { fontSize: 13, color: colors.textSecondary, textTransform: 'capitalize' },
+  hi: { fontSize: 24, fontWeight: '700', color: t.colors.brand },
+  role: { fontSize: 13, color: t.colors.textSecondary, textTransform: 'capitalize' },
   questionBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: colors.border,
+    backgroundColor: t.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  questionBtnText: { fontSize: 14, fontWeight: '700', color: colors.textSecondary },
+  questionBtnText: { fontSize: 14, fontWeight: '700', color: t.colors.textSecondary },
   tile: {
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
   },
   tilePrimary: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: t.colors.primary,
+    borderColor: t.colors.primary,
     paddingVertical: 20,
   },
   tileHalf: { flex: 1 },
@@ -254,28 +256,28 @@ const styles = StyleSheet.create({
   },
   tileBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   tileIcon: { fontSize: 22, marginBottom: 6 },
-  tileLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  tileLabelPrimary: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  tileSubPrimary: { fontSize: 13, color: colors.primaryBg },
+  tileLabel: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  tileLabelPrimary: { fontSize: 18, fontWeight: '700', color: t.colors.onPrimary, marginBottom: 4 },
+  tileSubPrimary: { fontSize: 13, color: t.colors.primaryBg },
   row: { flexDirection: 'row', gap: 10 },
   section: { gap: 8 },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.textMuted,
+    color: t.colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginTop: 8,
   },
   alert: {
-    backgroundColor: colors.accentBg,
+    backgroundColor: t.colors.accentBg,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     gap: 4,
   },
-  alertTitle: { fontSize: 14, fontWeight: '700', color: colors.accent },
-  alertItem: { fontSize: 13, color: colors.accent },
-  alertMore: { fontSize: 13, color: colors.accent, fontWeight: '600', marginTop: 2 },
+  alertTitle: { fontSize: 14, fontWeight: '700', color: t.colors.accent },
+  alertItem: { fontSize: 13, color: t.colors.accent },
+  alertMore: { fontSize: 13, color: t.colors.accent, fontWeight: '600', marginTop: 2 },
 });

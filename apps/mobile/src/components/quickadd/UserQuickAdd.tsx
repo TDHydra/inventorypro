@@ -7,7 +7,9 @@ import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, radii, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
@@ -26,6 +28,8 @@ interface Props {
 // first sign-in). We only collect name + role here — no PIN — exactly like the
 // admin Users screen; see createUserOnline.
 export default function UserQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user: sessionUser } = useSession();
   const { locked } = useMaintenanceMode();
@@ -94,7 +98,7 @@ export default function UserQuickAdd({ onSaved }: Props) {
         ref={nameRef}
         style={[s.input, !!nameError && s.inputError]}
         placeholder="Full name *"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={t.colors.textMuted}
         value={name}
         onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
         autoFocus
@@ -134,7 +138,7 @@ export default function UserQuickAdd({ onSaved }: Props) {
         onPress={handleSave}
         disabled={locked}
         loading={saving}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -144,21 +148,21 @@ export default function UserQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
   input: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  matches: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: -2, overflow: 'hidden' },
-  matchesHint: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
-  matchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  matchName: { fontSize: fontSizes.body2, fontWeight: '600', flex: 1 },
-  matchSub: { fontSize: fontSizes.caption, color: colors.textMuted },
-  inputError: { borderColor: colors.danger },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  pinNote: { fontSize: fontSizes.caption, color: colors.textMuted },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  matches: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, marginTop: -2, overflow: 'hidden' },
+  matchesHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
+  matchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: t.colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  matchName: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', flex: 1 },
+  matchSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  pinNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

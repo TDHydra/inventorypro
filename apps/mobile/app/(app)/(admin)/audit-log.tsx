@@ -1,14 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput,
+  View, Text, FlatList, StyleSheet, TouchableOpacity,
   ActivityIndicator, RefreshControl, ScrollView, Platform,
 } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { getValidJwt } from '../../../src/auth/session';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
+import { getTheme } from '../../../src/themes/store';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { SearchInput } from '../../../src/components/ui/SearchInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { MapDisplay } from '../../../src/components/MapDisplay';
@@ -128,13 +132,14 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
 const VALIDATION_REJECT_COLOR = '#B45309';
 
 function outcomeColor(o: Outcome): string {
+  const t = getTheme();
   switch (o) {
-    case 'success': return colors.success;
+    case 'success': return t.colors.success;
     case 'denied':
-    case 'rate_limited': return colors.warning;
+    case 'rate_limited': return t.colors.warning;
     case 'validation_reject': return VALIDATION_REJECT_COLOR;
     case 'client_error':
-    case 'server_error': return colors.danger;
+    case 'server_error': return t.colors.danger;
   }
 }
 
@@ -161,11 +166,11 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-const MONO = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
-
 type Phase = 'loading' | 'ready' | 'error' | 'forbidden';
 
 export default function AuditLogScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const canView = usePermission('view_audit_log');
 
   // Filter inputs
@@ -366,15 +371,11 @@ export default function AuditLogScreen() {
           />
         </ScrollView>
 
-        <TextInput
+        <SearchInput
           style={s.search}
           placeholder="Filter by path, e.g. /users"
-          placeholderTextColor={colors.textMuted}
           value={q}
           onChangeText={setQ}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
         />
 
         {phase === 'forbidden' ? (
@@ -383,7 +384,7 @@ export default function AuditLogScreen() {
             subtitle="Ask an administrator to grant the audit-log permission."
           />
         ) : phase === 'loading' ? (
-          <View style={s.center}><ActivityIndicator color={colors.primary} /></View>
+          <View style={s.center}><ActivityIndicator color={t.colors.primary} /></View>
         ) : phase === 'error' ? (
           <View style={s.center}>
             <Text style={s.errorText}>{errMsg}</Text>
@@ -403,8 +404,8 @@ export default function AuditLogScreen() {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={() => void loadInitial(true)}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
+                tintColor={t.colors.primary}
+                colors={[t.colors.primary]}
               />
             }
             renderItem={({ item }) => (
@@ -435,7 +436,7 @@ export default function AuditLogScreen() {
             }
             ListFooterComponent={
               loadingMore ? (
-                <View style={s.footer}><ActivityIndicator color={colors.primary} /></View>
+                <View style={s.footer}><ActivityIndicator color={t.colors.primary} /></View>
               ) : (!hasMore && rows.length > 0) ? (
                 <Text style={s.endNote}>End of log</Text>
               ) : null
@@ -486,7 +487,7 @@ export default function AuditLogScreen() {
                     // The IP itself is the hyperlink: tap → geolocate → in-app
                     // map sheet. Private/pre-fix proxy IPs stay plain text.
                     <View style={s.ipRow}>
-                      {mapLookupBusy ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+                      {mapLookupBusy ? <ActivityIndicator size="small" color={t.colors.primary} /> : null}
                       <TouchableOpacity
                         hitSlop={10}
                         disabled={mapLookupBusy}
@@ -515,7 +516,7 @@ export default function AuditLogScreen() {
 
             <Text style={s.sectionTitle}>Correlated activity</Text>
             {activityLoading ? (
-              <View style={s.footer}><ActivityIndicator color={colors.primary} /></View>
+              <View style={s.footer}><ActivityIndicator color={t.colors.primary} /></View>
             ) : activityError ? (
               <Text style={s.note}>Couldn’t load correlated activity.</Text>
             ) : activity && activity.length > 0 ? (
@@ -563,11 +564,13 @@ export default function AuditLogScreen() {
 }
 
 function Field({ label, value, mono, danger }: { label: string; value: string; mono?: boolean; danger?: boolean }) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
       <Text
-        style={[s.fieldValue, mono && s.mono, danger && { color: colors.danger }]}
+        style={[s.fieldValue, mono && s.mono, danger && { color: t.colors.danger }]}
         selectable
       >
         {value}
@@ -576,70 +579,75 @@ function Field({ label, value, mono, danger }: { label: string; value: string; m
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.sm },
-  subtitle: { fontSize: fontSizes.body2, color: colors.textSecondary, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+const makeStyles = (t: Theme) => {
+  // iOS never had a 'monospace' family — keep the pre-theme Courier fallback there.
+  const mono = Platform.select({ ios: 'Courier', android: t.typography.fontFamily.mono, default: t.typography.fontFamily.mono });
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl, gap: t.spacing.sm },
+  subtitle: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, paddingHorizontal: t.spacing.lg, paddingTop: t.spacing.md },
 
   debugBanner: {
-    backgroundColor: colors.dangerBg, paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.danger,
+    backgroundColor: t.colors.dangerBg, paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.colors.danger,
   },
-  debugText: { color: colors.danger, fontSize: fontSizes.body2, fontWeight: '700' },
+  debugText: { color: t.colors.danger, fontSize: t.typography.fontSizes.body2, fontWeight: '700' },
 
   // flexGrow:0 keeps the horizontal ScrollView from stretching; without an explicit
   // style it under-measures the rounded FilterChip pills and clips them top/bottom (esp. Android).
   chipScroll: { flexGrow: 0 },
   chipRow: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 56,
+    flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm,
+    paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.md, minHeight: 56,
   },
+  // Box visuals (surface bg, 1px border, radius 10, height 44) now come from the
+  // themed AppInput underneath SearchInput — only layout + the pre-existing
+  // tighter padding/font stay here (pixel parity with the old raw TextInput).
   search: {
-    marginHorizontal: spacing.lg, marginBottom: spacing.sm,
-    backgroundColor: colors.surface, borderRadius: radii.md,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.md, height: 44, fontSize: fontSizes.body2, color: colors.textPrimary,
+    marginHorizontal: t.spacing.lg, marginBottom: t.spacing.sm,
+    paddingHorizontal: t.spacing.md, fontSize: t.typography.fontSizes.body2,
   },
 
-  list: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xxxl },
+  list: { padding: t.spacing.lg, gap: t.spacing.sm, paddingBottom: t.spacing.xxxl },
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
+    flexDirection: 'row', alignItems: 'center', gap: t.spacing.md,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, padding: t.spacing.md,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
   },
-  pill: { borderRadius: radii.sm, paddingHorizontal: spacing.sm, paddingVertical: 3, alignSelf: 'flex-start' },
-  pillText: { color: '#fff', fontSize: fontSizes.xs, fontWeight: '800' },
+  pill: { borderRadius: t.radii.sm, paddingHorizontal: t.spacing.sm, paddingVertical: 3, alignSelf: 'flex-start' },
+  pillText: { color: t.colors.onPrimary, fontSize: t.typography.fontSizes.xs, fontWeight: '800' },
   rowMid: { flex: 1, minWidth: 0 },
-  mono: { fontFamily: MONO, fontSize: fontSizes.body2, color: colors.textPrimary },
-  actor: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 2 },
+  mono: { fontFamily: mono, fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary },
+  actor: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 2 },
   rowRight: { alignItems: 'flex-end' },
-  status: { fontSize: fontSizes.body, fontWeight: '800' },
-  meta: { fontSize: fontSizes.xs, color: colors.textMuted, marginTop: 1 },
+  status: { fontSize: t.typography.fontSizes.body, fontWeight: '800' },
+  meta: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, marginTop: 1 },
 
-  footer: { paddingVertical: spacing.lg, alignItems: 'center' },
-  endNote: { textAlign: 'center', color: colors.textMuted, fontSize: fontSizes.caption, paddingVertical: spacing.lg },
+  footer: { paddingVertical: t.spacing.lg, alignItems: 'center' },
+  endNote: { textAlign: 'center', color: t.colors.textMuted, fontSize: t.typography.fontSizes.caption, paddingVertical: t.spacing.lg },
 
-  errorText: { color: colors.textSecondary, fontSize: fontSizes.body, textAlign: 'center' },
-  retryBtn: { paddingVertical: spacing.xs, paddingHorizontal: spacing.base, borderRadius: radii.sm, backgroundColor: colors.primaryBg },
-  retryText: { color: colors.primaryText, fontWeight: '700' },
+  errorText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.body, textAlign: 'center' },
+  retryBtn: { paddingVertical: t.spacing.xs, paddingHorizontal: t.spacing.base, borderRadius: t.radii.sm, backgroundColor: t.colors.primaryBg },
+  retryText: { color: t.colors.primaryText, fontWeight: '700' },
 
   // Detail sheet
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
-  close: { fontSize: fontSizes.lg, color: colors.textMuted, padding: 4 },
-  sheetPath: { fontSize: fontSizes.body, marginBottom: spacing.md },
-  field: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5 },
-  fieldLabel: { fontSize: fontSizes.caption, color: colors.textMuted, flexShrink: 0 },
-  fieldValue: { fontSize: fontSizes.body2, color: colors.textPrimary, flex: 1, textAlign: 'right' },
-  ipRow: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.md },
-  ipLink: { color: colors.primary, textDecorationLine: 'underline' },
-  mapTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.xs },
-  mapIp: { color: colors.textSecondary, marginBottom: spacing.md },
-  mapCaption: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: spacing.md, marginBottom: spacing.md },
-  note: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: spacing.xs, fontStyle: 'italic' },
-  sectionTitle: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: spacing.lg, marginBottom: spacing.sm },
-  activityRow: { paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderDetail },
-  activityAction: { fontSize: fontSizes.body2, fontWeight: '700', color: colors.textPrimary },
-  activityMeta: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
-  activityNote: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 2 },
-  caption: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 18, marginTop: spacing.lg },
-});
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: t.spacing.sm },
+  close: { fontSize: t.typography.fontSizes.lg, color: t.colors.textMuted, padding: 4 },
+  sheetPath: { fontSize: t.typography.fontSizes.body, marginBottom: t.spacing.md },
+  field: { flexDirection: 'row', justifyContent: 'space-between', gap: t.spacing.md, paddingVertical: 5 },
+  fieldLabel: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, flexShrink: 0 },
+  fieldValue: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, flex: 1, textAlign: 'right' },
+  ipRow: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: t.spacing.md },
+  ipLink: { color: t.colors.primary, textDecorationLine: 'underline' },
+  mapTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.xs },
+  mapIp: { color: t.colors.textSecondary, marginBottom: t.spacing.md },
+  mapCaption: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: t.spacing.md, marginBottom: t.spacing.md },
+  note: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: t.spacing.xs, fontStyle: 'italic' },
+  sectionTitle: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: t.spacing.lg, marginBottom: t.spacing.sm },
+  activityRow: { paddingVertical: t.spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.colors.borderDetail },
+  activityAction: { fontSize: t.typography.fontSizes.body2, fontWeight: '700', color: t.colors.textPrimary },
+  activityMeta: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
+  activityNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 2 },
+  caption: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 18, marginTop: t.spacing.lg },
+  });
+};

@@ -19,7 +19,9 @@ import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, fontSizes, radii } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
@@ -50,6 +52,8 @@ function newRow(assetTag = ''): UnitRow {
 }
 
 export default function EquipmentQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -322,7 +326,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
         label={rows.length > 1 ? `Save ${rows.length} units` : 'Save & add another'}
         onPress={handleSave}
         disabled={!selectedItem || locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -332,39 +336,39 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
   rowBlock: {
     gap: 6,
     borderLeftWidth: 2,
-    borderLeftColor: colors.borderDetail,
-    paddingLeft: spacing.sm,
+    borderLeftColor: t.colors.borderDetail,
+    paddingLeft: t.spacing.sm,
   },
   rowIndex: {
-    fontSize: fontSizes.xs,
+    fontSize: t.typography.fontSizes.xs,
     fontWeight: '700',
-    color: colors.textMuted,
+    color: t.colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  rowHeader: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  rowHeader: { flexDirection: 'row', alignItems: 'flex-end', gap: t.spacing.sm },
   rowHeaderInput: { flex: 1 },
   removeBtn: {
     height: 44,
     width: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    borderRadius: t.radii.sm,
+    backgroundColor: t.colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
   },
-  removeBtnText: { color: colors.textSecondary, fontSize: fontSizes.body, fontWeight: '700' },
+  removeBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.body, fontWeight: '700' },
   // The serial input is the asset tag's child: indented to read as nested under it.
-  serialChild: { marginLeft: spacing.md },
-  addAnotherBtn: { alignSelf: 'flex-start', paddingVertical: spacing.xs },
-  addAnotherText: { color: colors.primaryText, fontSize: fontSizes.body2, fontWeight: '700' },
+  serialChild: { marginLeft: t.spacing.md },
+  addAnotherBtn: { alignSelf: 'flex-start', paddingVertical: t.spacing.xs },
+  addAnotherText: { color: t.colors.primaryText, fontSize: t.typography.fontSizes.body2, fontWeight: '700' },
 });

@@ -3,7 +3,9 @@ import { Stack, useRouter } from 'expo-router';
 import { ChatBell } from '../../../src/components/ChatBell';
 import { NotificationBell } from '../../../src/components/NotificationBell';
 import { SyncIndicator } from '../../../src/components/SyncIndicator';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 // Chat owns its own Stack so the list (index) and a thread ([id]) are DISTINCT
 // navigator screens with independent, per-screen headers. Under the old <Slot/>
@@ -19,13 +21,15 @@ import { colors } from '../../../src/theme';
 // the list keeps them; the account "Switch" affordance stays on every other
 // screen and is intentionally dropped inside chat.
 export default function ChatLayout() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
 
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: colors.brand },
-        headerTintColor: '#fff',
+        headerStyle: { backgroundColor: t.colors.headerBg },
+        headerTintColor: t.colors.headerTint,
         headerTitleStyle: { fontWeight: '700' },
         headerRight: () => (
           <View style={s.headerRight}>
@@ -55,8 +59,8 @@ export default function ChatLayout() {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 4 },
   backBtn: { paddingHorizontal: 4, paddingVertical: 4, marginLeft: 4 },
-  backText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  backText: { color: t.colors.headerTint, fontSize: 17, fontWeight: '600' },
 });

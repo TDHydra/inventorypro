@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Alert } from '../lib/themedAlert';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { AppInput } from './ui/AppInput';
@@ -56,6 +57,7 @@ export default function MoveStockModal({
   onClose,
   onDone,
 }: Props) {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
 
   // Load data once (these are sync queries, so useMemo is fine)
@@ -249,16 +251,16 @@ export default function MoveStockModal({
   );
 }
 
-const s = StyleSheet.create({
-  title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 2 },
-  fromLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 14 },
-  onHand: { fontSize: 12, color: colors.success, fontWeight: '600', marginTop: 4 },
-  muted: { fontSize: 14, color: colors.textMuted },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  title: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 2 },
+  fromLabel: { fontSize: 13, color: t.colors.textSecondary, marginBottom: 14 },
+  onHand: { fontSize: 12, color: t.colors.success, fontWeight: '600', marginTop: 4 },
+  muted: { fontSize: 14, color: t.colors.textMuted },
   moveBtn: { marginTop: 8 },
   secondaryRow: {
     flexDirection: 'row', justifyContent: 'center',
     gap: 28, marginTop: 4, marginBottom: 8,
   },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  cancelText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted, fontSize: 15, fontWeight: '600' },
 });

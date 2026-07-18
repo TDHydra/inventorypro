@@ -20,7 +20,9 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
 
@@ -68,6 +70,8 @@ function isLockedPerm(role: UserRole, perm: Permission): boolean {
 }
 
 export default function RolesScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user: sessionUser } = useSession();
   const { locked } = useMaintenanceMode();
   const canManage = usePermission('manage_roles_permissions');
@@ -341,7 +345,7 @@ export default function RolesScreen() {
                           value={shown}
                           disabled={disabled}
                           onValueChange={() => togglePerm(role, perm)}
-                          trackColor={{ true: colors.primary, false: colors.border }}
+                          trackColor={{ true: t.colors.primary, false: t.colors.border }}
                         />
                       </View>
                     );
@@ -362,46 +366,46 @@ export default function RolesScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: 10, paddingBottom: 48 },
-  intro: { fontSize: fontSizes.body2, color: colors.textSecondary, lineHeight: 19, marginBottom: 2 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: 10, paddingBottom: 48 },
+  intro: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, lineHeight: 19, marginBottom: 2 },
 
-  card: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  cardHead: { flexDirection: 'row', alignItems: 'center', padding: spacing.base, gap: 10 },
-  roleName: { fontSize: fontSizes.base, fontWeight: '600', color: colors.textPrimary },
-  roleMeta: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
-  tierBadge: { fontSize: fontSizes.sm, fontWeight: '700', color: colors.primary, backgroundColor: colors.primaryBgStrong, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  chevron: { fontSize: fontSizes.base, color: colors.textMuted },
+  card: { backgroundColor: t.colors.surface, borderRadius: t.radii.lg, borderWidth: 1, borderColor: t.colors.border, overflow: 'hidden' },
+  cardHead: { flexDirection: 'row', alignItems: 'center', padding: t.spacing.base, gap: 10 },
+  roleName: { fontSize: t.typography.fontSizes.base, fontWeight: '600', color: t.colors.textPrimary },
+  roleMeta: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
+  tierBadge: { fontSize: t.typography.fontSizes.sm, fontWeight: '700', color: t.colors.primary, backgroundColor: t.colors.primaryBgStrong, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  chevron: { fontSize: t.typography.fontSizes.base, color: t.colors.textMuted },
 
-  pinRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingBottom: spacing.base, gap: 10 },
-  pinLabel: { fontSize: fontSizes.body2, color: colors.textPrimary, fontWeight: '500' },
-  pinHint: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
-  stepper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: radii.md },
+  pinRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: t.spacing.base, paddingBottom: t.spacing.base, gap: 10 },
+  pinLabel: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, fontWeight: '500' },
+  pinHint: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted, marginTop: 1 },
+  stepper: { flexDirection: 'row', alignItems: 'center', backgroundColor: t.colors.surfaceAlt, borderRadius: t.radii.md },
   stepBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   stepBtnOff: { opacity: 0.3 },
-  stepText: { fontSize: 22, color: colors.primaryText, fontWeight: '600' },
-  pinValue: { fontSize: fontSizes.base, fontWeight: '700', color: colors.textPrimary, minWidth: 24, textAlign: 'center' },
+  stepText: { fontSize: 22, color: t.colors.primaryText, fontWeight: '600' },
+  pinValue: { fontSize: t.typography.fontSizes.base, fontWeight: '700', color: t.colors.textPrimary, minWidth: 24, textAlign: 'center' },
 
-  matrix: { borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingHorizontal: spacing.base, paddingVertical: 8 },
+  matrix: { borderTopWidth: 1, borderTopColor: t.colors.surfaceAlt, paddingHorizontal: t.spacing.base, paddingVertical: 8 },
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
-  permCheck: { width: 18, textAlign: 'center', fontSize: fontSizes.body, fontWeight: '700' },
-  permYes: { color: colors.success },
-  permNo: { color: colors.textDisabled },
-  permLabel: { fontSize: fontSizes.body2, color: colors.textPrimary },
-  permLabelOff: { color: colors.textMuted },
-  modifiedBadge: { fontSize: fontSizes.caption, color: colors.warning, fontWeight: '600', marginTop: 2 },
-  lockedBadge: { fontSize: fontSizes.caption, color: colors.textMuted, marginTop: 2 },
+  permCheck: { width: 18, textAlign: 'center', fontSize: t.typography.fontSizes.body, fontWeight: '700' },
+  permYes: { color: t.colors.success },
+  permNo: { color: t.colors.textDisabled },
+  permLabel: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary },
+  permLabelOff: { color: t.colors.textMuted },
+  modifiedBadge: { fontSize: t.typography.fontSizes.caption, color: t.colors.warning, fontWeight: '600', marginTop: 2 },
+  lockedBadge: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
 
-  readOnly: { fontSize: fontSizes.body2, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
-  lockNote: { fontSize: fontSizes.caption, color: colors.textMuted, lineHeight: 17, paddingHorizontal: spacing.base, paddingBottom: spacing.base },
+  readOnly: { fontSize: t.typography.fontSizes.body2, color: t.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
+  lockNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 17, paddingHorizontal: t.spacing.base, paddingBottom: t.spacing.base },
 
-  colorSection: { paddingHorizontal: spacing.base, paddingVertical: spacing.sm, gap: spacing.sm },
-  colorPreview: { fontSize: fontSizes.base, fontWeight: '700' },
-  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  colorSection: { paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.sm, gap: t.spacing.sm },
+  colorPreview: { fontSize: t.typography.fontSizes.base, fontWeight: '700' },
+  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
   colorCell: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  colorCellActive: { borderWidth: 3, borderColor: colors.textPrimary },
+  colorCellActive: { borderWidth: 3, borderColor: t.colors.textPrimary },
   colorCellDisabled: { opacity: 0.4 },
-  colorCheck: { color: '#fff', fontSize: fontSizes.body, fontWeight: '800' },
-  colorReset: { fontSize: fontSizes.caption, color: colors.primaryText, fontWeight: '600' },
+  colorCheck: { color: '#fff', fontSize: t.typography.fontSizes.body, fontWeight: '800' },
+  colorReset: { fontSize: t.typography.fontSizes.caption, color: t.colors.primaryText, fontWeight: '600' },
 });

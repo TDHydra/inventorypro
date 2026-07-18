@@ -39,6 +39,15 @@ function notify(): void {
   listeners.forEach(l => l());
 }
 
+// Web: keep the document's color-scheme (scrollbars, form controls) in step
+// with the theme, and cache the dark flag so +html.tsx applies it before
+// first paint (no light flash when a dark-theme user reloads).
+function applyWebColorScheme(theme: Theme): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light';
+  try { localStorage.setItem('inventorypro_theme_dark', theme.dark ? '1' : '0'); } catch { /* private mode */ }
+}
+
 /**
  * Apply a theme by id (unknown ids fall back to default) and cache it on the
  * device. `persist: false` is for sync-driven applies where user_prefs is
@@ -51,7 +60,10 @@ export function setThemeId(id: string, opts: { persist?: boolean } = {}): void {
   if (opts.persist !== false) {
     try { setAppSetting(THEME_LAST_KEY, next.id); } catch { /* DB not ready — cache next launch */ }
   }
-  if (changed) notify();
+  if (changed) {
+    applyWebColorScheme(next);
+    notify();
+  }
 }
 
 /**
@@ -63,5 +75,6 @@ export function loadThemeFromSettings(): void {
   let id: string | null = null;
   try { id = getAppSetting(THEME_LAST_KEY); } catch { /* DB not ready */ }
   activeTheme = resolveTheme(id);
+  applyWebColorScheme(activeTheme);
   // No notify: callers run this before the first render.
 }

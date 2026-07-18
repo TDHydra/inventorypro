@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, Switch, StyleSheet } from 'react-native';
 import { Alert } from '../lib/themedAlert';
-import { colors, spacing, fontSizes, radii } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import {
   getQrSignConfig, generateQrSecret, setQrSigningSecret, rotateQrSigningKey,
   clearPrevQrKey, clearQrSigning, setRequireSignedQr,
@@ -15,6 +16,7 @@ import {
  * signed" is turned on. Assumes it's rendered inside an admin-gated block.
  */
 export function QrSigningSection() {
+  const s = useThemedStyles(makeStyles);
   const [version, setVersion] = useState(0);
   const cfg = getQrSignConfig(); // re-read each render; `version` forces refresh after writes
   const enabled = !!cfg.secret;
@@ -111,14 +113,14 @@ export function QrSigningSection() {
   );
 }
 
-const s = StyleSheet.create({
-  sectionTitle: { fontSize: fontSizes.caption, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: spacing.lg, marginBottom: spacing.sm, marginLeft: spacing.xs },
-  card: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingVertical: spacing.base, gap: spacing.sm },
-  rowLabel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
-  rowSub: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 2 },
-  danger: { color: colors.danger },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginLeft: spacing.base },
-  primaryBtn: { margin: spacing.base, marginTop: 0, alignItems: 'center', paddingVertical: 12, borderRadius: radii.md, backgroundColor: colors.primary },
-  primaryBtnText: { color: '#fff', fontWeight: '800' },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  sectionTitle: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: t.spacing.lg, marginBottom: t.spacing.sm, marginLeft: t.spacing.xs },
+  card: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.base, gap: t.spacing.sm },
+  rowLabel: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
+  rowSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 2 },
+  danger: { color: t.colors.danger },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: t.colors.border, marginLeft: t.spacing.base },
+  primaryBtn: { margin: t.spacing.base, marginTop: 0, alignItems: 'center', paddingVertical: 12, borderRadius: t.radii.md, backgroundColor: t.colors.primary },
+  primaryBtnText: { color: t.colors.onPrimary, fontWeight: '800' },
 });

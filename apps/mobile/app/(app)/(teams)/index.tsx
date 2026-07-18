@@ -13,7 +13,9 @@ import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { syncNow } from '../../../src/sync/engine';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -24,6 +26,8 @@ import { TooltipHint } from '../../../src/components/TooltipHint';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
 export default function TeamsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const canManage = usePermission('manage_teams');
@@ -184,8 +188,8 @@ export default function TeamsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
             />
           }
         >
@@ -252,34 +256,34 @@ export default function TeamsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 12,
   },
-  subtitle: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
-  addBtn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  subtitle: { fontSize: 13, color: t.colors.textSecondary, fontWeight: '600' },
+  addBtn: { backgroundColor: t.colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
+  addBtnText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: 14 },
   list: { padding: 12, gap: 8, paddingBottom: 48 },
   sectionHeader: {
-    fontSize: 12, fontWeight: '700', color: colors.textSecondary,
+    fontSize: 12, fontWeight: '700', color: t.colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 2, paddingHorizontal: 4,
   },
-  sectionEmpty: { fontSize: 13, color: colors.textMuted, paddingHorizontal: 4, paddingVertical: 8 },
+  sectionEmpty: { fontSize: 13, color: t.colors.textMuted, paddingHorizontal: 4, paddingVertical: 8 },
   cardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   cardText: { flex: 1 },
   managerBadge: {
-    fontSize: 11, fontWeight: '700', color: colors.primary,
-    backgroundColor: colors.primaryBg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+    fontSize: 11, fontWeight: '700', color: t.colors.primary,
+    backgroundColor: t.colors.primaryBg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
     overflow: 'hidden',
   },
-  name: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  type: { fontSize: 12, color: colors.textSecondary, marginTop: 2, textTransform: 'capitalize' },
+  name: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  type: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2, textTransform: 'capitalize' },
 
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 14 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: 8 },
   linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
-  cancelText: { color: colors.textMuted },
+  linkText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted },
 });

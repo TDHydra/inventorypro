@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { LEAFLET_JS, LEAFLET_CSS, MARKER_ICON, MARKER_ICON_2X, MARKER_SHADOW } from './leafletAssets';
 
 export interface PickedCoords {
@@ -70,6 +71,7 @@ function buildHtml(initial?: PickedCoords | null): string {
 }
 
 export function MapPickerModal({ visible, initial, onPick, onClose }: Props) {
+  const s = useThemedStyles(makeStyles);
   const html = useMemo(() => buildHtml(initial), [initial?.latitude, initial?.longitude]);
 
   function handleMessage(e: WebViewMessageEvent) {
@@ -106,17 +108,17 @@ export function MapPickerModal({ visible, initial, onPick, onClose }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.background,
+    paddingHorizontal: t.spacing.lg,
+    paddingVertical: t.spacing.md,
+    backgroundColor: t.colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: colors.textDisabled,
+    borderBottomColor: t.colors.textDisabled,
   },
-  title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary },
-  close: { fontSize: 22, color: colors.textSecondary, paddingHorizontal: spacing.sm },
+  title: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary },
+  close: { fontSize: 22, color: t.colors.textSecondary, paddingHorizontal: t.spacing.sm },
 });

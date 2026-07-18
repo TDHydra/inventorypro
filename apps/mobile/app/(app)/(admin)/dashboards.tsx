@@ -23,7 +23,8 @@ import {
   type DashboardPreset,
 } from '../../../src/db/queries/dashboards';
 import { generateUUID } from '../../../src/utils/uuid';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
@@ -72,6 +73,7 @@ function widgetDisplay(block: LayoutBlock): { icon: string; label: string } {
 }
 
 export default function DashboardsScreen() {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
 
@@ -602,35 +604,35 @@ export default function DashboardsScreen() {
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
-  unauthorizedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  unauthorizedText: { fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center' },
+  unauthorizedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl },
+  unauthorizedText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center' },
 
-  section: { gap: spacing.sm },
+  section: { gap: t.spacing.sm },
   sectionTitle: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 4,
   },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
   },
-  blockRowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+  blockRowBorder: { borderTopWidth: 1, borderTopColor: t.colors.border },
   emptyText: {
     textAlign: 'center',
-    padding: spacing.lg,
-    color: colors.textMuted,
-    fontSize: fontSizes.body2,
+    padding: t.spacing.lg,
+    color: t.colors.textMuted,
+    fontSize: t.typography.fontSizes.body2,
   },
   muted: { opacity: 0.55 },
 
@@ -639,17 +641,17 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.md,
   },
   presetTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  presetName: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary, flexShrink: 1 },
+  presetName: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary, flexShrink: 1 },
   presetActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 190 },
   archivedBadge: {
-    fontSize: fontSizes.xs,
+    fontSize: t.typography.fontSizes.xs,
     fontWeight: '700',
-    color: colors.textMuted,
-    backgroundColor: '#F1F5F9',
+    color: t.colors.textMuted,
+    backgroundColor: t.colors.surfaceAlt,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -657,90 +659,90 @@ const s = StyleSheet.create({
 
   // Editor
   backRow: { paddingVertical: 2 },
-  backText: { fontSize: fontSizes.body, color: colors.primary, fontWeight: '600' },
-  editorTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.brand },
+  backText: { fontSize: t.typography.fontSizes.body, color: t.colors.primary, fontWeight: '600' },
+  editorTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.brand },
 
   blockRow: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.base,
+    paddingHorizontal: t.spacing.base,
     gap: 6,
     height: ROW_HEIGHT,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
   },
   dragHandle: { paddingHorizontal: 4, paddingVertical: 8 },
-  dragGlyph: { fontSize: 18, color: colors.textMuted, fontWeight: '700' },
+  dragGlyph: { fontSize: 18, color: t.colors.textMuted, fontWeight: '700' },
   blockIcon: { fontSize: 18, width: 24, textAlign: 'center' },
-  blockLabel: { fontSize: fontSizes.body2, fontWeight: '600', color: colors.textPrimary },
-  blockMeta: { fontSize: fontSizes.xs, color: colors.textMuted, textTransform: 'uppercase', marginTop: 1 },
+  blockLabel: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textPrimary },
+  blockMeta: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, textTransform: 'uppercase', marginTop: 1 },
   iconBtn: { padding: 4 },
-  arrow: { fontSize: 12, color: colors.textSecondary, fontWeight: '700' },
-  arrowDisabled: { color: colors.textDisabled },
-  removeGlyph: { fontSize: 20, lineHeight: 20, fontWeight: '700', color: colors.danger },
+  arrow: { fontSize: 12, color: t.colors.textSecondary, fontWeight: '700' },
+  arrowDisabled: { color: t.colors.textDisabled },
+  removeGlyph: { fontSize: 20, lineHeight: 20, fontWeight: '700', color: t.colors.danger },
   widthBtn: {
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
+    borderColor: t.colors.border,
+    borderRadius: t.radii.sm,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  widthBtnText: { fontSize: fontSizes.body2, fontWeight: '700', color: colors.textSecondary },
+  widthBtnText: { fontSize: t.typography.fontSizes.body2, fontWeight: '700', color: t.colors.textSecondary },
   editBtn: {
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
+    backgroundColor: t.colors.primaryBg,
+    borderRadius: t.radii.sm,
+    paddingHorizontal: t.spacing.sm,
     paddingVertical: 5,
   },
-  editBtnText: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primaryText },
+  editBtnText: { fontSize: t.typography.fontSizes.sm, fontWeight: '600', color: t.colors.primaryText },
   textBtn: { paddingHorizontal: 4, paddingVertical: 5 },
-  textBtnText: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.textSecondary },
+  textBtnText: { fontSize: t.typography.fontSizes.sm, fontWeight: '600', color: t.colors.textSecondary },
 
-  addRow: { alignItems: 'center', paddingVertical: spacing.md },
-  addRowText: { fontSize: fontSizes.body, fontWeight: '600', color: colors.primary },
+  addRow: { alignItems: 'center', paddingVertical: t.spacing.md },
+  addRowText: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.primary },
 
   // Preview grid
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   previewCell: {
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
+    borderColor: t.colors.border,
+    borderRadius: t.radii.sm,
     paddingHorizontal: 10,
     paddingVertical: 10,
     justifyContent: 'center',
   },
   previewFull: { width: '100%' },
   previewHalf: { width: '48.5%' },
-  previewSection: { backgroundColor: colors.primaryBg, borderColor: colors.primaryBgStrong },
-  previewText: { fontSize: fontSizes.body2, fontWeight: '600', color: colors.textPrimary },
+  previewSection: { backgroundColor: t.colors.primaryBg, borderColor: t.colors.primaryBgStrong },
+  previewText: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textPrimary },
 
   // Generic rows
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.base,
   },
-  rowLabel: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500' },
-  rowSub: { fontSize: fontSizes.body2, color: colors.textSecondary, marginTop: 2 },
-  chevron: { fontSize: 18, color: colors.textMuted, fontWeight: '300' },
-  danger: { color: colors.danger },
-  good: { color: colors.success },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
+  rowSub: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, marginTop: 2 },
+  chevron: { fontSize: 18, color: t.colors.textMuted, fontWeight: '300' },
+  danger: { color: t.colors.danger },
+  good: { color: t.colors.success },
 
   // Modals
   modalContent: { gap: 12, paddingBottom: 16 },
-  modalTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.brand, marginBottom: 4 },
+  modalTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.brand, marginBottom: 4 },
   fieldLabel: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   cancelBtn: { alignItems: 'center', paddingVertical: 10 },
-  cancelText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '500' },
+  cancelText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontWeight: '500' },
 
   // Add-widget picker grid
   pickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -748,24 +750,24 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F1F5F9',
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    backgroundColor: t.colors.surfaceAlt,
+    borderRadius: t.radii.md,
+    paddingHorizontal: t.spacing.md,
+    paddingVertical: t.spacing.sm,
     minWidth: '47%',
   },
   pickIcon: { fontSize: 16 },
-  pickLabel: { fontSize: fontSizes.body2, fontWeight: '600', color: colors.textSecondary, flexShrink: 1 },
+  pickLabel: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textSecondary, flexShrink: 1 },
 
   // Role preset picker rows
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.md,
+    paddingVertical: t.spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopColor: t.colors.border,
   },
-  pickRowText: { fontSize: fontSizes.body, color: colors.textPrimary, fontWeight: '500', flexShrink: 1 },
-  pickCheck: { fontSize: fontSizes.body, color: colors.primary, fontWeight: '800' },
+  pickRowText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500', flexShrink: 1 },
+  pickCheck: { fontSize: t.typography.fontSizes.body, color: t.colors.primary, fontWeight: '800' },
 });

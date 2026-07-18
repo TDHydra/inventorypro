@@ -19,7 +19,9 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { AppInput } from '../ui/AppInput';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
-import { colors, spacing, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { track } from '../../telemetry';
 import { validateText } from '../../lib/validation';
 
@@ -41,6 +43,8 @@ function trackReject(field: string, rule: string) {
 }
 
 export default function RepairQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const canManageLocations = usePermission('manage_locations');
@@ -273,18 +277,18 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
     </View>
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 12 },
   fieldWrap: { gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger },
-  assigneeName: { fontSize: fontSizes.body2, fontWeight: '600' },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger },
+  assigneeName: { fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
 });

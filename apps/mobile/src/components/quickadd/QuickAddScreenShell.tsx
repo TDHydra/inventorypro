@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, Platform, KeyboardAvoidingView, ScrollView, Tou
 import { Stack, useRouter } from 'expo-router';
 import { usePermission } from '../../hooks/usePermission';
 import { PrimaryButton } from '../ui/PrimaryButton';
-import { colors, spacing, fontSizes, radii } from '../../theme';
+import { Toast } from '../ui/Toast';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { QuickAddEditSheet } from './QuickAddEditSheet';
 import type { JustAddedRef, QuickAddSaveMeta } from './justAdded';
 
@@ -34,6 +36,7 @@ export function QuickAddScreenShell({
   title: string;
   children: (onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void) => React.ReactNode;
 }) {
+  const s = useThemedStyles(makeStyles);
   const canQuickAdd = usePermission('quick_add');
   // Editing item/unit fields and adjusting stock are all gated behind
   // edit_inventory on their full screens — mirror that here rather than
@@ -100,9 +103,7 @@ export function QuickAddScreenShell({
     <>
       <Stack.Screen options={{ title, headerShown: true }} />
       <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        {toast !== null && (
-          <View style={s.toast}><Text style={s.toastText}>{toast}</Text></View>
-        )}
+        {toast !== null && <Toast message={toast} />}
         {count > 0 && (
           <View style={s.counterRow}><Text style={s.counterText}>Added {count} this session</Text></View>
         )}
@@ -144,24 +145,22 @@ export function QuickAddScreenShell({
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  toast: { backgroundColor: colors.success, paddingHorizontal: spacing.lg, paddingVertical: 10, alignItems: 'center' },
-  toastText: { color: '#fff', fontWeight: '700', fontSize: fontSizes.body },
-  counterRow: { paddingHorizontal: spacing.lg, paddingBottom: 6, paddingTop: 6, alignItems: 'center' },
-  counterText: { fontSize: fontSizes.caption, color: colors.success, fontWeight: '700' },
-  recentList: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: 6 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  counterRow: { paddingHorizontal: t.spacing.lg, paddingBottom: 6, paddingTop: 6, alignItems: 'center' },
+  counterText: { fontSize: t.typography.fontSizes.caption, color: t.colors.success, fontWeight: '700' },
+  recentList: { paddingHorizontal: t.spacing.lg, paddingBottom: t.spacing.sm, gap: 6 },
   recentRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, paddingVertical: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing.sm,
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, paddingVertical: 8,
   },
-  recentLabel: { flex: 1, fontSize: fontSizes.caption, color: colors.textSecondary },
-  recentEditBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
-  recentEditText: { fontSize: fontSizes.caption, color: colors.primaryText, fontWeight: '700' },
+  recentLabel: { flex: 1, fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary },
+  recentEditBtn: { paddingHorizontal: t.spacing.sm, paddingVertical: 4 },
+  recentEditText: { fontSize: t.typography.fontSizes.caption, color: t.colors.primaryText, fontWeight: '700' },
   scroll: { flex: 1 },
-  content: { padding: spacing.lg, paddingBottom: 48 },
-  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxxl, backgroundColor: colors.background },
-  gateTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
-  gateSub: { fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xxl },
+  content: { padding: t.spacing.lg, paddingBottom: 48 },
+  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xxxl, backgroundColor: t.colors.background },
+  gateTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.sm },
+  gateSub: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center', marginBottom: t.spacing.xxl },
 });

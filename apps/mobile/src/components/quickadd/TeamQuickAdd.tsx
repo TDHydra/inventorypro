@@ -20,7 +20,9 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { TaxonomyChips } from '../pickers';
 import { ROLE_DEFAULTS, UserRole, Permission } from '../../constants/roles';
-import { colors, spacing, radii, fontSizes } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -43,6 +45,8 @@ interface PendingMember {
 }
 
 export default function TeamQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -276,7 +280,7 @@ export default function TeamQuickAdd({ onSaved }: Props) {
         label="Save & add another"
         onPress={handleSave}
         disabled={locked}
-        style={{ marginTop: spacing.md }}
+        style={{ marginTop: t.spacing.md }}
       />
       {locked && <MaintenanceBanner />}
       <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
@@ -303,7 +307,7 @@ export default function TeamQuickAdd({ onSaved }: Props) {
                 <Switch
                   value={value}
                   onValueChange={() => togglePermDraft(perm)}
-                  trackColor={{ true: colors.primary, false: colors.border }}
+                  trackColor={{ true: t.colors.primary, false: t.colors.border }}
                 />
               </View>
             );
@@ -315,30 +319,30 @@ export default function TeamQuickAdd({ onSaved }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { gap: 10 },
-  inputError: { borderColor: colors.danger },
-  errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
-  doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
+  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 
   addMemberBtn: {
-    alignSelf: 'flex-start', backgroundColor: colors.primaryBg, borderRadius: radii.md,
+    alignSelf: 'flex-start', backgroundColor: t.colors.primaryBg, borderRadius: t.radii.md,
     paddingHorizontal: 12, paddingVertical: 6, marginTop: 4,
   },
   addMemberBtnOff: { opacity: 0.4 },
-  addMemberBtnText: { color: colors.primaryText, fontWeight: '700', fontSize: fontSizes.sm },
+  addMemberBtnText: { color: t.colors.primaryText, fontWeight: '700', fontSize: t.typography.fontSizes.sm },
 
-  pendingList: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
+  pendingList: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border },
   pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 10 },
-  pendingDivider: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  pendingName: { flex: 1, fontSize: fontSizes.body2, color: colors.textPrimary, fontWeight: '600' },
-  pendingOverrideBadge: { fontSize: fontSizes.caption, color: colors.warning, fontWeight: '600' },
-  pendingLink: { fontSize: fontSizes.sm, color: colors.primary, fontWeight: '700' },
-  pendingRemove: { color: colors.danger },
+  pendingDivider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
+  pendingName: { flex: 1, fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, fontWeight: '600' },
+  pendingOverrideBadge: { fontSize: t.typography.fontSizes.caption, color: t.colors.warning, fontWeight: '600' },
+  pendingLink: { fontSize: t.typography.fontSizes.sm, color: t.colors.primary, fontWeight: '700' },
+  pendingRemove: { color: t.colors.danger },
 
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 14 },
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
-  permLabel: { fontSize: 14, color: colors.textPrimary },
-  modifiedBadge: { fontSize: 11, color: colors.warning, fontWeight: '600', marginTop: 2 },
+  permLabel: { fontSize: 14, color: t.colors.textPrimary },
+  modifiedBadge: { fontSize: 11, color: t.colors.warning, fontWeight: '600', marginTop: 2 },
 });

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View, Text } from 'react-native';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import {
   getTaxonomyTypes,
   getTaxonomyTypesWithFallback,
@@ -47,6 +48,7 @@ export function TaxonomyChips({
   deselectable?: boolean;      // JobQuickAdd's re-tap-clears; the other three never clear
   disabled?: boolean;
 }) {
+  const s = useThemedStyles(makeStyles);
   // Options exactly as each screen sources them — strict active list, or the
   // never-empty fallback list. Both spellings appear across the four call sites.
   const types = useMemo(
@@ -120,15 +122,15 @@ export function TaxonomyChips({
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   scrollWrap: { position: 'relative' },
-  chipRow: { gap: 8, paddingRight: 8 },
+  chipRow: { gap: t.spacing.sm, paddingRight: t.spacing.sm },
   disabled: { opacity: 0.5 },
   moreHint: {
     alignSelf: 'flex-end',
-    marginTop: 4,
-    paddingRight: 8,
-    fontSize: 11,
-    color: colors.textSecondary,
+    marginTop: t.spacing.xs,
+    paddingRight: t.spacing.sm,
+    fontSize: t.typography.fontSizes.sm,
+    color: t.colors.textSecondary,
   },
 });

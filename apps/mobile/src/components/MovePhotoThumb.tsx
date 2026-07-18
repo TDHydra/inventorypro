@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import {
   Text, Image, Modal, ScrollView, TouchableOpacity, StyleSheet, Dimensions,
 } from 'react-native';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { getPrimaryMedia, getMediaForEntity, MediaRecord } from '../db/queries/media';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -15,6 +17,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
  * any log list row (e.g. the global activity feed) without screen-level state.
  */
 export function MovePhotoThumb({ logId }: { logId: string }) {
+  const s = useThemedStyles(makeStyles);
   const primary = useMemo<MediaRecord | null>(
     () => getPrimaryMedia('activity_log', logId),
     [logId],
@@ -57,9 +60,9 @@ export function MovePhotoThumb({ logId }: { logId: string }) {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   thumbBtn: { marginLeft: 8 },
-  thumbImg: { width: 36, height: 36, borderRadius: 6, backgroundColor: '#E2E8F0' },
+  thumbImg: { width: 36, height: 36, borderRadius: 6, backgroundColor: t.colors.border },
   lightbox: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.92)',

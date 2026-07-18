@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
 
 export interface ScanReceiptEntry {
@@ -27,6 +28,7 @@ function formatTime(iso: string): string {
 // destination, time) plus "Add more" and "Done" actions. Mirrors checkout's
 // confirmCard/confirmRow styling.
 export function ScanReceipt({ entries, onAddMore, onDone }: Props) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.wrap}>
       <Text style={s.title}>Scan summary</Text>
@@ -69,29 +71,29 @@ export function ScanReceipt({ entries, onAddMore, onDone }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: '700', color: colors.brand, padding: 16 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  wrap: { flex: 1, backgroundColor: t.colors.background },
+  title: { fontSize: 22, fontWeight: '700', color: t.colors.brand, padding: 16 },
   list: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingBottom: 16, gap: 12 },
-  empty: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: 24 },
+  empty: { fontSize: 14, color: t.colors.textSecondary, textAlign: 'center', marginTop: 24 },
   confirmCard: {
-    backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1,
-    borderColor: colors.border, padding: 16, gap: 12,
+    backgroundColor: t.colors.surface, borderRadius: 12, borderWidth: 1,
+    borderColor: t.colors.border, padding: 16, gap: 12,
   },
   confirmRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  confirmLabel: { fontSize: 14, color: colors.textSecondary },
-  confirmValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary, flex: 1, textAlign: 'right' },
-  itemName: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, flex: 1 },
+  confirmLabel: { fontSize: 14, color: t.colors.textSecondary },
+  confirmValue: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary, flex: 1, textAlign: 'right' },
+  itemName: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, flex: 1 },
   badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 },
-  badgeOut: { backgroundColor: colors.accentBg },
-  badgeIn: { backgroundColor: colors.primaryBg },
+  badgeOut: { backgroundColor: t.colors.accentBg },
+  badgeIn: { backgroundColor: t.colors.primaryBg },
   badgeText: { fontSize: 12, fontWeight: '700' },
-  badgeTextOut: { color: colors.accent },
-  badgeTextIn: { color: colors.primaryText },
+  badgeTextOut: { color: t.colors.accent },
+  badgeTextIn: { color: t.colors.primaryText },
   actions: {
     flexDirection: 'row', gap: 12, padding: 16,
-    borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface,
+    borderTopWidth: 1, borderTopColor: t.colors.border, backgroundColor: t.colors.surface,
   },
   actionBtn: { flex: 1 },
 });

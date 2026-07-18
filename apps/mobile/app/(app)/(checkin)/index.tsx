@@ -26,7 +26,8 @@ import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -47,6 +48,7 @@ interface Checkout {
 }
 
 export default function CheckinScreen() {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const router = useRouter();
   const { locked } = useMaintenanceMode();
@@ -593,52 +595,52 @@ export default function CheckinScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, padding: 16 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background, padding: 16 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.textMuted },
-  emptyText: { fontSize: 14, color: colors.textDisabled, textAlign: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textMuted },
+  emptyText: { fontSize: 14, color: t.colors.textDisabled, textAlign: 'center' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  count: { fontSize: 14, color: colors.textSecondary },
-  selectAll: { fontSize: 14, color: colors.primary, fontWeight: '600' },
+  count: { fontSize: 14, color: t.colors.textSecondary },
+  selectAll: { fontSize: 14, color: t.colors.primary, fontWeight: '600' },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: colors.surface, padding: 14, borderRadius: 10,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, padding: 14, borderRadius: 10,
+    borderWidth: 1, borderColor: t.colors.border,
   },
-  rowSelected: { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+  rowSelected: { borderColor: t.colors.primary, backgroundColor: t.colors.primaryBg },
   checkbox: {
-    width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: colors.textDisabled,
+    width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: t.colors.textDisabled,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkboxChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  itemName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  itemSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  qty: { fontSize: 14, fontWeight: '600', color: colors.success },
+  checkboxChecked: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
+  checkMark: { color: t.colors.onPrimary, fontSize: 13, fontWeight: '700' },
+  itemName: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  itemSub: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
+  qty: { fontSize: 14, fontWeight: '600', color: t.colors.success },
   sep: { height: 6 },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.brand },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.brand },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
-  qtyItemName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  qtyMax: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
+  qtyItemName: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
+  qtyMax: { fontSize: 11, color: t.colors.textMuted, marginTop: 1 },
   qtyInput: {
-    width: 80, backgroundColor: colors.background, borderRadius: 8, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: 10, height: 40, fontSize: 15, color: colors.textPrimary, textAlign: 'right',
+    width: 80, backgroundColor: t.colors.background, borderRadius: 8, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: 10, height: 40, fontSize: 15, color: t.colors.textPrimary, textAlign: 'right',
   },
   cancel: { alignItems: 'center', paddingVertical: 10 },
-  cancelText: { color: colors.textSecondary, fontSize: 15 },
+  cancelText: { color: t.colors.textSecondary, fontSize: 15 },
   // Units section
-  sectionDivider: { height: 1, backgroundColor: colors.border, marginVertical: 20 },
+  sectionDivider: { height: 1, backgroundColor: t.colors.border, marginVertical: 20 },
   sectionHeader: { marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.brand },
-  unitBadge: { backgroundColor: colors.primaryBgStrong, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  unitBadgeText: { fontSize: 12, fontWeight: '700', color: colors.primaryText },
-  mediaLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 8, marginBottom: 4 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: t.colors.brand },
+  unitBadge: { backgroundColor: t.colors.primaryBgStrong, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  unitBadgeText: { fontSize: 12, fontWeight: '700', color: t.colors.primaryText },
+  mediaLabel: { fontSize: 13, fontWeight: '600', color: t.colors.textSecondary, marginTop: 8, marginBottom: 4 },
   scanAddBtn: {
-    alignSelf: 'flex-start', backgroundColor: colors.primaryBg, borderRadius: 8,
+    alignSelf: 'flex-start', backgroundColor: t.colors.primaryBg, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 8, marginTop: 6,
-    borderWidth: 1, borderColor: colors.border,
+    borderWidth: 1, borderColor: t.colors.border,
   },
-  scanAddText: { color: colors.primaryText, fontWeight: '700', fontSize: 14 },
-  permNote: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  scanAddText: { color: t.colors.primaryText, fontWeight: '700', fontSize: 14 },
+  permNote: { fontSize: 12, color: t.colors.textMuted, textAlign: 'center' },
 });

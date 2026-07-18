@@ -29,7 +29,8 @@ import {
 } from '../../../src/constants/typeColors';
 import { loadClassConfigCache } from '../../../src/constants/units';
 import { ICON_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
-import { colors, spacing, radii, fontSizes } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
@@ -58,6 +59,7 @@ function IconPicker({
   selected: string | null;
   onSelect: (icon: string) => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <View style={s.iconGrid}>
       {ICON_OPTIONS.map(icon => (
@@ -84,6 +86,7 @@ function ColorPicker({
   selected: string | null;
   onSelect: (color: string) => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   const sel = selected?.toLowerCase();
   return (
     <View style={s.colorGrid}>
@@ -141,6 +144,7 @@ function DragRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   // Mirror per-render values into a ref so the PanResponder (created once) always
   // reads this row's current index / locked flag / callbacks.
   const cfg = useRef({ index, locked, onDragStart, onDragMove, onDragEnd });
@@ -227,6 +231,7 @@ function DraggableTypeList({
   onMoveDown: (index: number) => void;
   onDraggingChange: (dragging: boolean) => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   const dragY = useRef(new Animated.Value(0)).current;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [targetIndex, setTargetIndex] = useState<number | null>(null);
@@ -321,6 +326,7 @@ const CATEGORY_NOUN: Record<string, string> = {
 };
 
 export default function ManageTypesScreen() {
+  const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   const { locked } = useMaintenanceMode();
@@ -1031,56 +1037,56 @@ export default function ManageTypesScreen() {
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 48 },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
 
   unauthorizedWrap: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl,
+    flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl,
   },
   unauthorizedText: {
-    fontSize: fontSizes.body, color: colors.textSecondary, textAlign: 'center',
+    fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center',
   },
 
   // Sections
-  section: { gap: spacing.sm },
+  section: { gap: t.spacing.sm },
   sectionTitle: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 4,
   },
 
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
   },
-  divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
+  divider: { height: 1, backgroundColor: t.colors.border, marginHorizontal: t.spacing.base },
 
   // Type row
   typeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.md,
     gap: 10,
   },
   typeRowMuted: { opacity: 0.55 },
   typeRowIcon: { fontSize: 20, width: 28, textAlign: 'center' },
   typeRowLabel: {
-    flex: 1, fontSize: fontSizes.body, fontWeight: '500', color: colors.textPrimary,
+    flex: 1, fontSize: t.typography.fontSizes.body, fontWeight: '500', color: t.colors.textPrimary,
   },
-  typeRowLabelMuted: { color: colors.textMuted },
+  typeRowLabelMuted: { color: t.colors.textMuted },
   archivedBadge: {
-    fontSize: fontSizes.xs,
+    fontSize: t.typography.fontSizes.xs,
     fontWeight: '700',
-    color: colors.textMuted,
-    backgroundColor: '#F1F5F9',
+    color: t.colors.textMuted,
+    backgroundColor: t.colors.surfaceAlt,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -1096,11 +1102,11 @@ const s = StyleSheet.create({
     height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.base,
+    paddingHorizontal: t.spacing.base,
     gap: 8,
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
   },
-  dragRowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+  dragRowBorder: { borderTopWidth: 1, borderTopColor: t.colors.border },
   dragRowLifted: {
     zIndex: 10,
     elevation: 6,
@@ -1110,87 +1116,87 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
   },
   dragHandle: { paddingHorizontal: 4, paddingVertical: 8, marginRight: 2 },
-  dragHandleGlyph: { fontSize: 18, color: colors.textMuted, fontWeight: '700' },
+  dragHandleGlyph: { fontSize: 18, color: t.colors.textMuted, fontWeight: '700' },
 
   reorderBtn: { padding: 4 },
-  reorderArrow: { fontSize: 12, color: colors.textSecondary, fontWeight: '700' },
-  arrowDisabled: { color: colors.textDisabled },
+  reorderArrow: { fontSize: 12, color: t.colors.textSecondary, fontWeight: '700' },
+  arrowDisabled: { color: t.colors.textDisabled },
   editBtn: {
-    backgroundColor: colors.primaryBg,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
+    backgroundColor: t.colors.primaryBg,
+    borderRadius: t.radii.sm,
+    paddingHorizontal: t.spacing.sm,
     paddingVertical: 5,
     marginLeft: 4,
   },
-  editBtnText: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primaryText },
+  editBtnText: { fontSize: t.typography.fontSizes.sm, fontWeight: '600', color: t.colors.primaryText },
   editBtnDisabled: { opacity: 0.4 },
 
   emptyText: {
-    textAlign: 'center', padding: spacing.lg,
-    color: colors.textMuted, fontSize: fontSizes.body2,
+    textAlign: 'center', padding: t.spacing.lg,
+    color: t.colors.textMuted, fontSize: t.typography.fontSizes.body2,
   },
 
-  addRow: { alignItems: 'center', paddingVertical: spacing.md },
-  addRowText: { fontSize: fontSizes.body, fontWeight: '600', color: colors.primary },
-  addRowTextDisabled: { color: colors.textDisabled },
+  addRow: { alignItems: 'center', paddingVertical: t.spacing.md },
+  addRowText: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.primary },
+  addRowTextDisabled: { color: t.colors.textDisabled },
 
   // Product-class units editor
-  unitsEmpty: { fontSize: fontSizes.body2, color: colors.textMuted },
-  classChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+  unitsEmpty: { fontSize: t.typography.fontSizes.body2, color: t.colors.textMuted },
+  classChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing.xs },
 
   // Reorderable units list
   unitList: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     overflow: 'hidden',
   },
   unitListRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: spacing.base,
+    paddingHorizontal: t.spacing.base,
     paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopColor: t.colors.border,
   },
   unitListText: {
     flex: 1,
-    fontSize: fontSizes.body2,
+    fontSize: t.typography.fontSizes.body2,
     fontWeight: '600',
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
   },
   unitReorderBtn: { padding: 4 },
-  unitReorderArrow: { fontSize: 13, color: colors.textSecondary, fontWeight: '700' },
-  unitListRemove: { fontSize: 18, lineHeight: 18, fontWeight: '700', color: colors.danger },
+  unitReorderArrow: { fontSize: 13, color: t.colors.textSecondary, fontWeight: '700' },
+  unitListRemove: { fontSize: 18, lineHeight: 18, fontWeight: '700', color: t.colors.danger },
   addUnitRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   addUnitBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.base,
+    backgroundColor: t.colors.primary,
+    borderRadius: t.radii.md,
+    paddingHorizontal: t.spacing.base,
     paddingVertical: 12,
   },
   addUnitBtnDisabled: { opacity: 0.4 },
-  addUnitBtnText: { fontSize: fontSizes.body2, fontWeight: '700', color: colors.surface },
+  addUnitBtnText: { fontSize: t.typography.fontSizes.body2, fontWeight: '700', color: t.colors.surface },
   decimalsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: spacing.sm,
+    paddingVertical: t.spacing.sm,
   },
-  rowLabel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
-  rowSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
+  rowLabel: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
+  rowSub: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted, marginTop: 1 },
 
   // Modal
   modalContent: { gap: 12, paddingBottom: 16 },
   modalTitle: {
-    fontSize: fontSizes.lg, fontWeight: '700', color: colors.brand, marginBottom: 4,
+    fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.brand, marginBottom: 4,
   },
   fieldLabel: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -1199,7 +1205,7 @@ const s = StyleSheet.create({
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 
   // Color picker (palette swatches)
-  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: spacing.xs },
+  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: t.spacing.xs },
   colorSwatch: {
     width: 34,
     height: 34,
@@ -1209,37 +1215,37 @@ const s = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  colorSwatchActive: { borderColor: colors.textPrimary },
+  colorSwatchActive: { borderColor: t.colors.textPrimary },
   colorSwatchCheck: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   colorHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: spacing.xs,
+    marginTop: t.spacing.xs,
   },
-  resetColorText: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primary },
+  resetColorText: { fontSize: t.typography.fontSizes.sm, fontWeight: '600', color: t.colors.primary },
 
   // Archive / restore action button
   archiveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: colors.background,
-    borderRadius: radii.md,
+    backgroundColor: t.colors.background,
+    borderRadius: t.radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+    borderColor: t.colors.border,
+    padding: t.spacing.md,
   },
   archiveBtnDanger: { borderColor: '#FECACA', backgroundColor: '#FEF2F2' },
   archiveBtnGood: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
   archiveBtnLocked: { opacity: 0.4 },
   archiveBtnIcon: { fontSize: 20 },
-  archiveBtnLabel: { fontSize: fontSizes.body, fontWeight: '600', color: colors.textPrimary },
-  archiveBtnSub: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 1 },
-  systemTypeNote: { fontSize: fontSizes.sm, color: colors.textMuted, marginTop: 6, lineHeight: 18 },
-  dangerText: { color: colors.danger },
-  goodText: { color: colors.success },
+  archiveBtnLabel: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
+  archiveBtnSub: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted, marginTop: 1 },
+  systemTypeNote: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted, marginTop: 6, lineHeight: 18 },
+  dangerText: { color: t.colors.danger },
+  goodText: { color: t.colors.success },
 
   cancelBtn: { alignItems: 'center', paddingVertical: 10 },
-  cancelText: { fontSize: fontSizes.body, color: colors.textSecondary, fontWeight: '500' },
+  cancelText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontWeight: '500' },
 });

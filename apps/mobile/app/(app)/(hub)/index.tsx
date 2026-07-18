@@ -39,11 +39,13 @@ import { formatQuantity } from '../../../src/constants/units';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
-import { colors } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 type Mode = 'browse' | 'scanning' | 'inout' | 'destination' | 'receipt';
 
 export default function HubScreen() {
+  const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const { user } = useSession();
   const { coords, request } = useCurrentPosition();
@@ -573,6 +575,7 @@ function SearchResults({
   onJob: (id: string) => void;
   onUser: (id: string) => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   const total =
     results.items.length + results.equipment.length + results.locations.length +
     results.jobs.length + results.users.length;
@@ -619,6 +622,7 @@ function SearchResults({
 }
 
 function ResultRow({ label, sub, onPress }: { label: string; sub?: string; onPress: () => void }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.7}>
       <View style={{ flex: 1 }}>
@@ -630,33 +634,33 @@ function ResultRow({ label, sub, onPress }: { label: string; sub?: string; onPre
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   list: { flex: 1 },
   listContent: { padding: 12, paddingBottom: 80 },
   sectionHeader: {
-    fontSize: 13, fontWeight: '700', color: colors.textSecondary,
+    fontSize: 13, fontWeight: '700', color: t.colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 12, marginBottom: 4,
   },
   row: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, padding: 14,
-    borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: t.colors.surface, padding: 14,
+    borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
   },
-  rowName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  rowSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  rowChevron: { fontSize: 22, color: colors.textMuted, marginLeft: 8 },
-  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 24 },
-  label: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 6 },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+  rowName: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  rowSub: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
+  rowChevron: { fontSize: 22, color: t.colors.textMuted, marginLeft: 8 },
+  empty: { textAlign: 'center', color: t.colors.textMuted, marginTop: 24 },
+  label: { fontSize: 13, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 6 },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
   headerScan: { paddingHorizontal: 8, paddingVertical: 4 },
   headerScanIcon: { fontSize: 22 },
   hidButton: {
     marginHorizontal: 12, marginTop: 10, paddingVertical: 10, paddingHorizontal: 14,
-    borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface,
+    borderRadius: 8, borderWidth: 1, borderColor: t.colors.border, backgroundColor: t.colors.surface,
     alignItems: 'center',
   },
-  hidButtonText: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  hidButtonText: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
   batchBar: {
     position: 'absolute', bottom: 40, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -668,10 +672,10 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   batchDone: {
-    backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8,
+    backgroundColor: t.colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8,
   },
-  batchDoneText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: colors.background },
-  gateTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8 },
-  gateSub: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 },
+  batchDoneText: { color: t.colors.onPrimary, fontSize: 15, fontWeight: '700' },
+  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: t.colors.background },
+  gateTitle: { fontSize: 20, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 8 },
+  gateSub: { fontSize: 15, color: t.colors.textSecondary, textAlign: 'center', marginBottom: 24 },
 });

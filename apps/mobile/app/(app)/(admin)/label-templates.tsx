@@ -12,7 +12,9 @@ import {
   getLabelTemplates, upsertLabelTemplate, deleteLabelTemplate,
 } from '../../../src/db/queries/labelTemplates';
 import type { LabelTemplateModel, LabelField, LabelFieldType } from '../../../src/labels/positioned';
-import { colors, spacing, fontSizes, radii } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { DraggableResizableBox } from '../../../src/components/DraggableResizableBox';
 
@@ -54,6 +56,7 @@ function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange, onDra
   /** Called when a drag/resize gesture ends or is cancelled. */
   onDragEnd: () => void;
 }) {
+  const s = useThemedStyles(makeStyles);
   return (
     <DraggableResizableBox
       id={field.id}
@@ -77,6 +80,8 @@ function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange, onDra
 function Editor({ initial, userId, onDone }: {
   initial: LabelTemplateModel; userId: string | null; onDone: () => void;
 }) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { width } = useWindowDimensions();
   const [model, setModel] = useState<LabelTemplateModel>(initial);
   const [selectedId, setSelectedId] = useState<string | null>(initial.fields[0]?.id ?? null);
@@ -84,7 +89,7 @@ function Editor({ initial, userId, onDone }: {
   // ScrollView cannot steal the PanResponder mid-gesture.
   const [dragging, setDragging] = useState(false);
 
-  const canvasW = width - spacing.base * 2 - 2; // page padding + border
+  const canvasW = width - t.spacing.base * 2 - 2; // page padding + border
   const canvasH = canvasW * (model.heightIn / model.widthIn);
   const selected = model.fields.find(f => f.id === selectedId) ?? null;
 
@@ -117,11 +122,11 @@ function Editor({ initial, userId, onDone }: {
   return (
     <ScrollView
       scrollEnabled={!dragging}
-      contentContainerStyle={{ padding: spacing.base, paddingBottom: spacing.xxl }}
+      contentContainerStyle={{ padding: t.spacing.base, paddingBottom: t.spacing.xxl }}
       keyboardShouldPersistTaps="handled"
     >
       <FieldLabel text="Template name" />
-      <TextInput style={s.input} value={model.name} onChangeText={t => setModel(m => ({ ...m, name: t }))} placeholder="e.g. Warehouse 4×2" placeholderTextColor={colors.textMuted} />
+      <TextInput style={s.input} value={model.name} onChangeText={t => setModel(m => ({ ...m, name: t }))} placeholder="e.g. Warehouse 4×2" placeholderTextColor={t.colors.textMuted} />
 
       <FieldLabel text="Media size" />
       <View style={s.chipRow}>
@@ -157,7 +162,7 @@ function Editor({ initial, userId, onDone }: {
           {selected.type === 'static_text' && (
             <>
               <FieldLabel text="Text" />
-              <TextInput style={s.input} value={selected.text ?? ''} onChangeText={t => patchField(selected.id, { text: t })} placeholder="Static text" placeholderTextColor={colors.textMuted} />
+              <TextInput style={s.input} value={selected.text ?? ''} onChangeText={t => patchField(selected.id, { text: t })} placeholder="Static text" placeholderTextColor={t.colors.textMuted} />
             </>
           )}
           {(selected.type === 'static_text' || selected.type === 'item_name' || selected.type === 'asset_tag') && (
@@ -189,11 +194,14 @@ function Editor({ initial, userId, onDone }: {
 }
 
 function FieldLabel({ text }: { text: string }) {
+  const s = useThemedStyles(makeStyles);
   return <Text style={s.fieldLabel}>{text}</Text>;
 }
 
 // ── Screen: list ↔ editor ───────────────────────────────────────────────────
 export default function LabelTemplatesScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const isAdmin = usePermission('system_settings');
   const { user } = useSession();
   const [editing, setEditing] = useState<LabelTemplateModel | null>(null);
@@ -233,7 +241,7 @@ export default function LabelTemplatesScreen() {
   return (
     <View style={s.container}>
       <Stack.Screen options={{ title: 'Label Designer' }} />
-      <ScrollView contentContainerStyle={{ padding: spacing.base }}>
+      <ScrollView contentContainerStyle={{ padding: t.spacing.base }}>
         <TouchableOpacity style={s.newBtn} onPress={newTemplate}><Text style={s.newBtnText}>+ New template</Text></TouchableOpacity>
         {templates.length === 0 ? (
           <Text style={s.muted}>No custom templates yet. Create one to design a label layout.</Text>
@@ -252,35 +260,35 @@ export default function LabelTemplatesScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  muted: { color: colors.textMuted, fontSize: fontSizes.body, marginTop: spacing.base },
-  fieldLabel: { fontSize: fontSizes.caption, color: colors.textSecondary, fontWeight: '600', marginTop: spacing.base, marginBottom: spacing.xs },
-  input: { backgroundColor: colors.surface, borderRadius: radii.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: 10, color: colors.textPrimary, fontSize: fontSizes.body },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  canvas: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.border, borderRadius: 2, marginTop: spacing.xs, position: 'relative', overflow: 'hidden', alignSelf: 'center' },
-  canvasHint: { position: 'absolute', alignSelf: 'center', top: '45%', color: '#94A3B8', fontSize: 13 },
-  field: { position: 'absolute', borderWidth: 1, borderColor: '#94A3B8', borderStyle: 'dashed', backgroundColor: 'rgba(37,99,235,0.06)', alignItems: 'center', justifyContent: 'center', padding: 2 },
-  fieldSelected: { borderColor: colors.primary, borderStyle: 'solid', backgroundColor: 'rgba(37,99,235,0.14)' },
-  fieldPreview: { fontSize: 10, color: '#334155', textAlign: 'center' },
-  resizeHandle: { position: 'absolute', right: -7, bottom: -7, width: 16, height: 16, borderRadius: 8, backgroundColor: colors.primary, borderWidth: 2, borderColor: '#fff' },
-  addBtn: { alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: spacing.xs, paddingHorizontal: spacing.base, borderRadius: radii.sm, backgroundColor: colors.primaryBg },
-  addBtnText: { color: colors.primaryText, fontWeight: '700' },
-  panel: { marginTop: spacing.base, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.base, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  panelTitle: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },
-  removeBtn: { marginTop: spacing.base, alignSelf: 'flex-start' },
-  removeBtnText: { color: colors.danger, fontWeight: '600' },
-  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
-  cancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  cancelText: { color: colors.textSecondary, fontWeight: '600' },
-  saveBtn: { flex: 2, alignItems: 'center', paddingVertical: 12, borderRadius: radii.md, backgroundColor: colors.primary },
-  saveText: { color: '#fff', fontWeight: '800' },
-  newBtn: { alignSelf: 'flex-start', paddingVertical: spacing.sm, paddingHorizontal: spacing.base, borderRadius: radii.md, backgroundColor: colors.primary, marginBottom: spacing.base },
-  newBtnText: { color: '#fff', fontWeight: '800' },
-  card: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.base, marginBottom: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  cardName: { fontSize: fontSizes.body, fontWeight: '700', color: colors.textPrimary },
-  cardSub: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: 2 },
-  edit: { color: colors.primaryText, fontWeight: '700', paddingHorizontal: spacing.xs },
-  del: { color: colors.danger, fontWeight: '600', paddingHorizontal: spacing.xs },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl },
+  muted: { color: t.colors.textMuted, fontSize: t.typography.fontSizes.body, marginTop: t.spacing.base },
+  fieldLabel: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, fontWeight: '600', marginTop: t.spacing.base, marginBottom: t.spacing.xs },
+  input: { backgroundColor: t.colors.surface, borderRadius: t.radii.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, paddingHorizontal: t.spacing.sm, paddingVertical: 10, color: t.colors.textPrimary, fontSize: t.typography.fontSizes.body },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.xs },
+  canvas: { backgroundColor: '#fff', borderWidth: 1, borderColor: t.colors.border, borderRadius: 2, marginTop: t.spacing.xs, position: 'relative', overflow: 'hidden', alignSelf: 'center' },
+  canvasHint: { position: 'absolute', alignSelf: 'center', top: '45%', color: t.colors.textMuted, fontSize: 13 },
+  field: { position: 'absolute', borderWidth: 1, borderColor: t.colors.textMuted, borderStyle: 'dashed', backgroundColor: 'rgba(37,99,235,0.06)', alignItems: 'center', justifyContent: 'center', padding: 2 },
+  fieldSelected: { borderColor: t.colors.primary, borderStyle: 'solid', backgroundColor: 'rgba(37,99,235,0.14)' },
+  fieldPreview: { fontSize: 10, color: t.colors.textStrong, textAlign: 'center' },
+  resizeHandle: { position: 'absolute', right: -7, bottom: -7, width: 16, height: 16, borderRadius: 8, backgroundColor: t.colors.primary, borderWidth: 2, borderColor: '#fff' },
+  addBtn: { alignSelf: 'flex-start', marginTop: t.spacing.sm, paddingVertical: t.spacing.xs, paddingHorizontal: t.spacing.base, borderRadius: t.radii.sm, backgroundColor: t.colors.primaryBg },
+  addBtnText: { color: t.colors.primaryText, fontWeight: '700' },
+  panel: { marginTop: t.spacing.base, backgroundColor: t.colors.surface, borderRadius: t.radii.md, padding: t.spacing.base, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border },
+  panelTitle: { fontSize: t.typography.fontSizes.body, fontWeight: '700', color: t.colors.textPrimary },
+  removeBtn: { marginTop: t.spacing.base, alignSelf: 'flex-start' },
+  removeBtnText: { color: t.colors.danger, fontWeight: '600' },
+  actions: { flexDirection: 'row', gap: t.spacing.sm, marginTop: t.spacing.lg },
+  cancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: t.radii.md, backgroundColor: t.colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border },
+  cancelText: { color: t.colors.textSecondary, fontWeight: '600' },
+  saveBtn: { flex: 2, alignItems: 'center', paddingVertical: 12, borderRadius: t.radii.md, backgroundColor: t.colors.primary },
+  saveText: { color: t.colors.onPrimary, fontWeight: '800' },
+  newBtn: { alignSelf: 'flex-start', paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.base, borderRadius: t.radii.md, backgroundColor: t.colors.primary, marginBottom: t.spacing.base },
+  newBtnText: { color: t.colors.onPrimary, fontWeight: '800' },
+  card: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, backgroundColor: t.colors.surface, borderRadius: t.radii.md, padding: t.spacing.base, marginBottom: t.spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border },
+  cardName: { fontSize: t.typography.fontSizes.body, fontWeight: '700', color: t.colors.textPrimary },
+  cardSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 2 },
+  edit: { color: t.colors.primaryText, fontWeight: '700', paddingHorizontal: t.spacing.xs },
+  del: { color: t.colors.danger, fontWeight: '600', paddingHorizontal: t.spacing.xs },
 });

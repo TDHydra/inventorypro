@@ -4,7 +4,8 @@ import { Alert } from '../lib/themedAlert';
 import { ModalSheet } from './ui/ModalSheet';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FilterChip } from './ui/FilterChip';
-import { colors, spacing, fontSizes } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import {
   printLabel,
   printLabelsWithModel,
@@ -43,6 +44,7 @@ type Selection =
   | { kind: 'custom'; id: string };
 
 export function LabelPrintSheet({ visible, onClose, title, code, qrUrl, payload }: Props) {
+  const s = useThemedStyles(makeStyles);
   // Custom templates are org-synced; re-read whenever the sheet opens so a newly
   // designed template shows up without remounting.
   const customTemplates = useMemo<LabelTemplateModel[]>(
@@ -134,33 +136,33 @@ export function LabelPrintSheet({ visible, onClose, title, code, qrUrl, payload 
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   heading: {
-    fontSize: fontSizes.lg,
+    fontSize: t.typography.fontSizes.lg,
     fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    color: t.colors.textPrimary,
+    marginBottom: t.spacing.xs,
   },
   subheading: {
-    fontSize: fontSizes.body,
-    color: colors.textSecondary,
-    marginBottom: spacing.xl,
+    fontSize: t.typography.fontSizes.body,
+    color: t.colors.textSecondary,
+    marginBottom: t.spacing.xl,
   },
   sectionLabel: {
-    fontSize: fontSizes.caption,
+    fontSize: t.typography.fontSizes.caption,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: t.colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: spacing.sm,
+    marginBottom: t.spacing.sm,
   },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
+    gap: t.spacing.sm,
+    marginBottom: t.spacing.xl,
   },
   footer: {
-    marginTop: spacing.sm,
+    marginTop: t.spacing.sm,
   },
 });

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 
 interface Props {
   value: string;
@@ -12,6 +13,7 @@ interface Props {
 const KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
 
 export function PINPad({ value, onChange, requiredLength, error }: Props) {
+  const s = useThemedStyles(makeStyles);
   const handleKey = (key: string) => {
     if (key === '⌫') {
       onChange(value.slice(0, -1));
@@ -44,38 +46,38 @@ export function PINPad({ value, onChange, requiredLength, error }: Props) {
   });
 
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       {/* Dots */}
-      <View style={styles.dots}>
+      <View style={s.dots}>
         {Array.from({ length: requiredLength }).map((_, i) => (
           <View
             key={i}
             style={[
-              styles.dot,
-              i < value.length && styles.dotFilled,
-              error && styles.dotError,
+              s.dot,
+              i < value.length && s.dotFilled,
+              error && s.dotError,
             ]}
           />
         ))}
       </View>
 
       {error ? (
-        <Text style={styles.error}>{error}</Text>
+        <Text style={s.error}>{error}</Text>
       ) : (
-        <Text style={styles.hint}>{requiredLength}-digit PIN</Text>
+        <Text style={s.hint}>{requiredLength}-digit PIN</Text>
       )}
 
       {/* Keypad */}
-      <View style={styles.grid}>
+      <View style={s.grid}>
         {KEYS.map((key, idx) => (
           <TouchableOpacity
             key={idx}
-            style={[styles.key, key === '' && styles.keyEmpty]}
+            style={[s.key, key === '' && s.keyEmpty]}
             onPress={() => handleKey(key)}
             disabled={key === ''}
             activeOpacity={0.6}
           >
-            <Text style={[styles.keyText, key === '⌫' && styles.backspace]}>
+            <Text style={[s.keyText, key === '⌫' && s.backspace]}>
               {key}
             </Text>
           </TouchableOpacity>
@@ -85,7 +87,7 @@ export function PINPad({ value, onChange, requiredLength, error }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { alignItems: 'center', width: '100%' },
   dots: {
     flexDirection: 'row',
@@ -97,19 +99,19 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     borderWidth: 2,
-    borderColor: colors.textMuted,
+    borderColor: t.colors.textMuted,
     backgroundColor: 'transparent',
   },
   dotFilled: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: t.colors.primary,
+    borderColor: t.colors.primary,
   },
   dotError: {
-    borderColor: colors.danger,
-    backgroundColor: colors.dangerBg,
+    borderColor: t.colors.danger,
+    backgroundColor: t.colors.dangerBg,
   },
-  hint: { fontSize: 13, color: colors.textMuted, marginBottom: 24 },
-  error: { fontSize: 13, color: colors.danger, marginBottom: 24 },
+  hint: { fontSize: 13, color: t.colors.textMuted, marginBottom: 24 },
+  error: { fontSize: 13, color: t.colors.danger, marginBottom: 24 },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -120,11 +122,11 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: colors.borderDetail,
+    backgroundColor: t.colors.borderDetail,
     alignItems: 'center',
     justifyContent: 'center',
   },
   keyEmpty: { backgroundColor: 'transparent' },
-  keyText: { fontSize: 22, fontWeight: '500', color: colors.textPrimary },
-  backspace: { fontSize: 18, color: colors.textSecondary },
+  keyText: { fontSize: 22, fontWeight: '500', color: t.colors.textPrimary },
+  backspace: { fontSize: 18, color: t.colors.textSecondary },
 });

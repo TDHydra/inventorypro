@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Animated, StyleSheet } from 'react-native';
-import { colors } from '../../theme';
+import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
+import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 interface Props {
   value: string;
@@ -12,6 +14,8 @@ interface Props {
 // A collapsible search bar. Collapsed: a thin "Search ▾" handle. Open: a full
 // search input + "▴" to collapse. Height animates so it conserves space.
 export function SearchFlap({ value, onChangeText, open, onToggle }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const h = useRef(new Animated.Value(open ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(h, { toValue: open ? 1 : 0, duration: 200, useNativeDriver: false }).start();
@@ -29,7 +33,7 @@ export function SearchFlap({ value, onChangeText, open, onToggle }: Props) {
           <TextInput
             style={s.input}
             placeholder="Search items, equipment, jobs, locations, people…"
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor={t.colors.textMuted}
             value={value}
             onChangeText={onChangeText}
             autoCapitalize="none"
@@ -42,18 +46,18 @@ export function SearchFlap({ value, onChangeText, open, onToggle }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  wrap: { backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  wrap: { backgroundColor: t.colors.background },
   handle: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     paddingVertical: 8,
   },
-  handleText: { fontSize: 14, fontWeight: '700', color: colors.textSecondary },
-  handleArrow: { fontSize: 14, color: colors.textSecondary },
+  handleText: { fontSize: 14, fontWeight: '700', color: t.colors.textSecondary },
+  handleArrow: { fontSize: 14, color: t.colors.textSecondary },
   barWrap: { overflow: 'hidden', justifyContent: 'center', paddingHorizontal: 12 },
   searchBox: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface,
-    borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: t.colors.surface,
+    borderRadius: 10, borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: 12,
   },
-  input: { flex: 1, height: 42, fontSize: 15, color: colors.textPrimary },
+  input: { flex: 1, height: 42, fontSize: 15, color: t.colors.textPrimary },
 });

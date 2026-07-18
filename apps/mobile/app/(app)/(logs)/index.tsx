@@ -25,8 +25,11 @@ import { getValidJwt } from '../../../src/auth/session';
 import { syncNow } from '../../../src/sync/engine';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
+import { SearchInput } from '../../../src/components/ui/SearchInput';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
-import { colors, radii } from '../../../src/theme';
+import type { Theme } from '../../../src/themes/types';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 // Local ACTION_ICONS removed — imported from ActivityFeed (single source of truth).
 
@@ -102,6 +105,8 @@ function serverRowToLog(r: ServerLogRow): LogEntry {
 }
 
 export default function LogsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
   const { user } = useSession();
   const canViewAll = usePermission('view_all_logs');
   const canViewTeam = usePermission('view_team_activity');
@@ -371,14 +376,11 @@ export default function LogsScreen() {
             list (server rows don't carry those columns). */}
         {filter !== 'unsynced' && (
           <View style={s.filterControls}>
-            <TextInput
+            <SearchInput
               style={s.searchInput}
               placeholder="Search note or name…"
-              placeholderTextColor={colors.textMuted}
               value={search}
               onChangeText={setSearch}
-              autoCapitalize="none"
-              returnKeyType="search"
             />
             {serverMode && (
               <SearchablePicker
@@ -422,7 +424,7 @@ export default function LogsScreen() {
               <TextInput
                 style={[s.dateInput, s.flex1]}
                 placeholder="From YYYY-MM-DD"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={t.colors.textMuted}
                 value={filterSince}
                 onChangeText={setFilterSince}
                 keyboardType="numbers-and-punctuation"
@@ -431,7 +433,7 @@ export default function LogsScreen() {
               <TextInput
                 style={[s.dateInput, s.flex1]}
                 placeholder="To YYYY-MM-DD"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={t.colors.textMuted}
                 value={filterUntil}
                 onChangeText={setFilterUntil}
                 keyboardType="numbers-and-punctuation"
@@ -450,7 +452,7 @@ export default function LogsScreen() {
         {serverMode ? (
           serverLoading ? (
             <View style={s.empty}>
-              <ActivityIndicator size="large" color={colors.primary} />
+              <ActivityIndicator size="large" color={t.colors.primary} />
             </View>
           ) : serverError ? (
             <View style={s.empty}>
@@ -467,8 +469,8 @@ export default function LogsScreen() {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  tintColor={colors.primary}
-                  colors={[colors.primary]}
+                  tintColor={t.colors.primary}
+                  colors={[t.colors.primary]}
                 />
               }
               renderItem={({ item: log }) => {
@@ -646,18 +648,18 @@ export default function LogsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
   filterRow: { flexDirection: 'row', gap: 8, padding: 12, flexWrap: 'wrap' },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: t.colors.surfaceAlt,
     borderRadius: 20,
   },
-  chipActive: { backgroundColor: colors.primaryBgStrong },
-  chipText: { fontSize: 13, color: colors.textSecondary },
-  chipTextActive: { color: colors.primaryText, fontWeight: '600' },
+  chipActive: { backgroundColor: t.colors.primaryBgStrong },
+  chipText: { fontSize: 13, color: t.colors.textSecondary },
+  chipTextActive: { color: t.colors.primaryText, fontWeight: '600' },
 
   // All-Activity filter panel
   filterControls: {
@@ -665,39 +667,35 @@ const s = StyleSheet.create({
     paddingBottom: 8,
     gap: 8,
   },
+  // Compact sizing kept as overrides on the SearchInput primitive (box/border/
+  // height come from the input descriptor).
   searchInput: {
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
     paddingHorizontal: 12,
-    height: 44,
     fontSize: 13,
-    color: colors.textPrimary,
   },
   dateRow: { flexDirection: 'row', gap: 8 },
   dateInput: {
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
     paddingHorizontal: 12,
     height: 44,
     fontSize: 13,
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
   },
   flex1: { flex: 1 },
   clearBtn: { alignSelf: 'flex-end', paddingVertical: 4 },
-  clearBtnText: { fontSize: 13, color: colors.primaryText, fontWeight: '600' },
+  clearBtnText: { fontSize: 13, color: t.colors.primaryText, fontWeight: '600' },
 
   // Log rows
   list: { padding: 12, gap: 8 },
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: t.colors.surface,
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.colors.border,
   },
   row: {
     flexDirection: 'row',
@@ -709,19 +707,19 @@ const s = StyleSheet.create({
   action: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
     textTransform: 'capitalize',
   },
-  user: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  subtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  qty: { fontSize: 12, color: colors.success, marginTop: 2 },
-  note: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  user: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
+  subtitle: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
+  qty: { fontSize: 12, color: t.colors.success, marginTop: 2 },
+  note: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
   right: { alignItems: 'flex-end', gap: 4 },
-  date: { fontSize: 11, color: colors.textMuted },
+  date: { fontSize: 11, color: t.colors.textMuted },
   pending: { fontSize: 10, color: '#F59E0B', fontWeight: '600' },
-  chevron: { fontSize: 11, color: colors.textMuted },
+  chevron: { fontSize: 11, color: t.colors.textMuted },
   empty: { alignItems: 'center', paddingTop: 40 },
-  emptyText: { fontSize: 14, color: colors.textMuted },
+  emptyText: { fontSize: 14, color: t.colors.textMuted },
 
   // Log-detail map modal
   modalBackdrop: {
@@ -730,9 +728,9 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalCard: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
+    backgroundColor: t.colors.surface,
+    borderTopLeftRadius: t.radii.xl,
+    borderTopRightRadius: t.radii.xl,
     padding: 16,
     gap: 12,
   },
@@ -744,11 +742,11 @@ const s = StyleSheet.create({
   modalTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: t.colors.textPrimary,
     textTransform: 'capitalize',
   },
-  modalClose: { fontSize: 18, color: colors.textMuted, padding: 4 },
+  modalClose: { fontSize: 18, color: t.colors.textMuted, padding: 4 },
   modalDetails: { gap: 4 },
-  modalDetailText: { fontSize: 13, color: colors.textSecondary },
-  modalAccuracy: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  modalDetailText: { fontSize: 13, color: t.colors.textSecondary },
+  modalAccuracy: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
 });

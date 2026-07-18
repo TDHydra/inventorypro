@@ -3,7 +3,8 @@ import {
   View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
-import { colors } from '../theme';
+import type { Theme } from '../themes/types';
+import { useThemedStyles } from '../hooks/useThemedStyles';
 import { sanitizeScan } from '../scan/sanitize';
 
 interface Props {
@@ -18,6 +19,7 @@ const FRAME_H = 210;
 const TOP_INSET = (Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 44) + 8;
 
 export function BarcodeScanner({ active, onScanned, onClose }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const [permission, requestPermission] = useCameraPermissions();
   const [torch, setTorch] = useState(false);
   const lastScanTime = useRef<number>(0);
@@ -134,7 +136,7 @@ const CORNER = 30;
 const CT = 4;
 const MASK = 'rgba(0,0,0,0.55)';
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, position: 'relative', backgroundColor: '#000' },
   overlay: { ...StyleSheet.absoluteFill },
   maskTop: { flex: 1, backgroundColor: MASK },
@@ -142,15 +144,15 @@ const styles = StyleSheet.create({
   maskSide: { flex: 1, backgroundColor: MASK },
   maskBottom: { flex: 1, backgroundColor: MASK, alignItems: 'center', paddingTop: 28 },
   frame: { width: FRAME_W, height: FRAME_H, borderRadius: 18, overflow: 'hidden' },
-  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: colors.primary },
+  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: t.colors.primary },
   cornerTL: { top: 0, left: 0, borderTopWidth: CT, borderLeftWidth: CT, borderTopLeftRadius: 18 },
   cornerTR: { top: 0, right: 0, borderTopWidth: CT, borderRightWidth: CT, borderTopRightRadius: 18 },
   cornerBL: { bottom: 0, left: 0, borderBottomWidth: CT, borderLeftWidth: CT, borderBottomLeftRadius: 18 },
   cornerBR: { bottom: 0, right: 0, borderBottomWidth: CT, borderRightWidth: CT, borderBottomRightRadius: 18 },
   scanLine: {
     position: 'absolute', left: 10, right: 10, height: 2.5, borderRadius: 2,
-    backgroundColor: colors.accent,
-    shadowColor: colors.accent, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
+    backgroundColor: t.colors.accent,
+    shadowColor: t.colors.accent, shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
   },
   hintPill: {
     backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 999,
@@ -170,25 +172,25 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.2)',
   },
-  iconBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  iconBtnActive: { backgroundColor: t.colors.accent, borderColor: t.colors.accent },
   iconBtnText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   // Permission screen
   permBox: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 32, gap: 14, backgroundColor: colors.background,
+    padding: 32, gap: 14, backgroundColor: t.colors.background,
   },
   permIconWrap: {
-    width: 88, height: 88, borderRadius: 44, backgroundColor: colors.accentBg,
+    width: 88, height: 88, borderRadius: 44, backgroundColor: t.colors.accentBg,
     alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
   permIcon: { fontSize: 40 },
-  permTitle: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
-  permText: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, maxWidth: 300 },
+  permTitle: { fontSize: 20, fontWeight: '800', color: t.colors.textPrimary },
+  permText: { fontSize: 15, color: t.colors.textSecondary, textAlign: 'center', lineHeight: 22, maxWidth: 300 },
   btn: {
-    backgroundColor: colors.primary, borderRadius: 12,
+    backgroundColor: t.colors.primary, borderRadius: 12,
     paddingHorizontal: 28, paddingVertical: 14, marginTop: 8, minWidth: 220, alignItems: 'center',
   },
-  btnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  btnText: { color: t.colors.onPrimary, fontWeight: '800', fontSize: 16 },
   btnSecondary: { paddingVertical: 10 },
-  btnSecondaryText: { color: colors.textSecondary, fontSize: 15, fontWeight: '600' },
+  btnSecondaryText: { color: t.colors.textSecondary, fontSize: 15, fontWeight: '600' },
 });
