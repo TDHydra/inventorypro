@@ -44,7 +44,8 @@ export const original: Theme = {
   shadows: {
     none: {},
     card: { elevation: 1, shadowColor: '#0F172A', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    fab: { elevation: 4, shadowColor: '#0F172A', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+    // Matches the pre-theme inline FAB shadow exactly (screens' parity baseline).
+    fab: { elevation: 5, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
     sheet: { elevation: 8, shadowColor: '#0F172A', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: -4 } },
   },
   motion: {
