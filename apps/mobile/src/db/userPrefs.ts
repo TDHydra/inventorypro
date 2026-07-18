@@ -1,7 +1,11 @@
 import { getDb } from './schema';
 import { appendOutbox } from '../sync/outbox';
-import { setThemeId } from '../themes/store';
+import { getTheme, setThemeId } from '../themes/store';
 import { resolveTheme } from '../themes/registry';
+import { appAlertBus } from '../lib/alertBus';
+
+/** Tag so repeated pulls can't stack duplicate theme prompts (bus dedupes). */
+const THEME_SYNC_TAG = 'theme-sync';
 
 /**
  * Per-user synced preferences (user_prefs, migration 040). One row per user;
@@ -38,12 +42,32 @@ export function chooseTheme(userId: string, themeId: string): void {
 }
 
 /**
- * Apply the user's synced theme choice (login + after every pull). No-op when
- * they never picked one — the device keeps whatever theme_last / default it
- * already shows. setThemeId only notifies on an actual change, so calling this
- * every sync cycle is cheap.
+ * Apply the user's synced theme choice. No-op when they never picked one —
+ * the device keeps whatever theme_last / default it already shows.
+ *
+ * `prompt` (the post-pull path): a theme that differs from what this device
+ * is showing means it was changed on ANOTHER device — ask before re-skinning
+ * mid-use. "Keep current" writes this device's theme back to user_prefs, so
+ * declining also reverts the originating device (a real cancel, not a local
+ * ignore that the next pull would re-prompt). Login and same-device changes
+ * stay silent: chooseTheme() already applied locally, so synced == active.
  */
-export function applyUserTheme(userId: string): void {
-  const theme = getUserTheme(userId);
-  if (theme) setThemeId(theme);
+export function applyUserTheme(userId: string, opts: { prompt?: boolean } = {}): void {
+  const synced = getUserTheme(userId);
+  if (!synced) return;
+  const incoming = resolveTheme(synced);
+  const active = getTheme();
+  if (!opts.prompt || incoming.id === active.id) {
+    setThemeId(incoming.id);
+    return;
+  }
+  appAlertBus.alert({
+    tag: THEME_SYNC_TAG,
+    title: 'Theme changed',
+    message: `Your theme was switched to "${incoming.name}" on another device. Apply it here too?`,
+    buttons: [
+      { text: 'Keep current', style: 'cancel', onPress: () => chooseTheme(userId, active.id) },
+      { text: 'Apply', onPress: () => setThemeId(incoming.id) },
+    ],
+  });
 }

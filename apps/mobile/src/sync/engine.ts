@@ -251,8 +251,9 @@ async function runDrainAndPull(): Promise<void> {
     // so HidableField components re-render without waiting for a focus event.
     notifyHiddenFieldsChanged();
     // A pull may also have delivered a theme change made on the user's other
-    // device — re-apply so this device re-skins live (no-op when unchanged).
-    void getSavedUserId().then(id => { if (id) applyUserTheme(id); });
+    // device — prompt before re-skinning mid-use ("Keep current" reverts the
+    // change everywhere). No-op / silent when unchanged or chosen locally.
+    void getSavedUserId().then(id => { if (id) applyUserTheme(id, { prompt: true }); });
     // Fire-and-forget local alert checks (low stock / temp-employee expiry).
     // It swallows its own errors and resolves void, so it can't disturb the
     // existing try/catch/return behaviour of this cycle.
