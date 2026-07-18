@@ -1,7 +1,7 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet,
-  PanResponder, Animated, useWindowDimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -14,8 +14,7 @@ import {
 import type { LabelTemplateModel, LabelField, LabelFieldType } from '../../../src/labels/positioned';
 import { colors, spacing, fontSizes, radii } from '../../../src/theme';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
-
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+import { DraggableResizableBox } from '../../../src/components/DraggableResizableBox';
 
 const SIZE_PRESETS = [
   { label: '2.25×1.25', widthIn: 2.25, heightIn: 1.25, dpi: 203 },
@@ -44,6 +43,8 @@ function fieldPreview(f: LabelField): string {
 }
 
 // ── One draggable + resizable field box on the canvas ──────────────────────
+// Thin wrapper over the reusable DraggableResizableBox: gesture arbitration
+// (corner resizes, body drags) lives there; here we just render the preview.
 function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange, onDragStart, onDragEnd }: {
   field: LabelField; canvasW: number; canvasH: number; selected: boolean;
   onSelect: (id: string) => void;
@@ -53,73 +54,22 @@ function FieldBox({ field, canvasW, canvasH, selected, onSelect, onChange, onDra
   /** Called when a drag/resize gesture ends or is cancelled. */
   onDragEnd: () => void;
 }) {
-  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  // Ref mirror so the once-created PanResponders always read fresh props.
-  const cfg = useRef({ field, canvasW, canvasH, onChange, onSelect, onDragStart, onDragEnd });
-  cfg.current = { field, canvasW, canvasH, onChange, onSelect, onDragStart, onDragEnd };
-  const startSize = useRef({ w: 0, h: 0 });
-
-  const drag = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    // Claim the responder on any move so the parent ScrollView cannot steal it.
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => {
-      cfg.current.onDragStart();
-      cfg.current.onSelect(cfg.current.field.id);
-    },
-    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-    onPanResponderRelease: (_e, g) => {
-      const c = cfg.current;
-      c.onDragEnd();
-      pan.setValue({ x: 0, y: 0 });
-      c.onChange(c.field.id, {
-        x: clamp(c.field.x + g.dx / c.canvasW, 0, 1 - c.field.w),
-        y: clamp(c.field.y + g.dy / c.canvasH, 0, 1 - c.field.h),
-      });
-    },
-    onPanResponderTerminate: () => {
-      cfg.current.onDragEnd();
-      pan.setValue({ x: 0, y: 0 });
-    },
-  }), [pan]);
-
-  // Resize commits live (state) — anchor to the size captured on grant so the
-  // cumulative gesture delta isn't double-counted as field.w/h grows.
-  const resize = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => {
-      const c = cfg.current;
-      c.onDragStart();
-      c.onSelect(c.field.id);
-      startSize.current = { w: c.field.w, h: c.field.h };
-    },
-    onPanResponderMove: (_e, g) => {
-      const c = cfg.current;
-      c.onChange(c.field.id, {
-        w: clamp(startSize.current.w + g.dx / c.canvasW, 0.06, 1 - c.field.x),
-        h: clamp(startSize.current.h + g.dy / c.canvasH, 0.06, 1 - c.field.y),
-      });
-    },
-    onPanResponderRelease: () => cfg.current.onDragEnd(),
-    onPanResponderTerminate: () => cfg.current.onDragEnd(),
-  }), []);
-
   return (
-    <Animated.View
-      {...drag.panHandlers}
-      style={[
-        s.field, selected && s.fieldSelected,
-        {
-          left: field.x * canvasW, top: field.y * canvasH,
-          width: field.w * canvasW, height: field.h * canvasH,
-          transform: pan.getTranslateTransform(),
-        },
-      ]}
+    <DraggableResizableBox
+      id={field.id}
+      x={field.x} y={field.y} w={field.w} h={field.h}
+      canvasW={canvasW} canvasH={canvasH}
+      selected={selected}
+      onSelect={onSelect}
+      onChange={onChange}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      style={s.field}
+      selectedStyle={s.fieldSelected}
+      handleStyle={s.resizeHandle}
     >
       <Text style={s.fieldPreview} numberOfLines={2}>{fieldPreview(field)}</Text>
-      {selected && <View {...resize.panHandlers} style={s.resizeHandle} />}
-    </Animated.View>
+    </DraggableResizableBox>
   );
 }
 
