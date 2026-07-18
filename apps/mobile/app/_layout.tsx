@@ -8,6 +8,7 @@ import { clearSession, getSavedUserId } from '../src/auth/session';
 import { loadChatCache } from '../src/chat/store';
 import { TEST_SESSION_FLAG } from '../src/auth/finishLogin';
 import { setSandboxActive } from '../src/sync/sandbox';
+import { stopLocation } from '../src/location/positionCache';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
 import { loadClassConfigCache } from '../src/constants/units';
 import { loadRolePermissionCache } from '../src/auth/permissions';
@@ -63,6 +64,9 @@ export default function RootLayout() {
 
   const logout = async () => {
     const wasTestSession = !!user?.is_test;
+    // Stop the foreground location watch and forget the last fix (#33) so no
+    // stale position bleeds into the next session on this device.
+    stopLocation();
     // Unregister the push token first — the /push/unregister route is authed,
     // so it must run BEFORE clearSession() deletes the JWT. Best-effort.
     // (Test sessions never registered one and can't call mutating routes.)
