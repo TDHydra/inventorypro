@@ -29,6 +29,13 @@ interface OutboxEntry {
   created_at: string;
 }
 
+// Thrown by applyEntry when applyWritePolicy rejects columns a client may not
+// write (SENSITIVE_DENY or non-real columns). A dedicated type so the push
+// handler's catch can distinguish a schema-probing write from an ordinary
+// rejection and flag it for the audit trail (outcome 'injection_attempt'),
+// without brittle message-string matching.
+class ForbiddenColumnsError extends Error {}
+
 interface PushBody {
   entries: OutboxEntry[];
 }
@@ -346,7 +353,7 @@ async function applyEntry(
     // Filter to real columns, strip server-controlled cols, drop attribution
     // reassignment, and reject the whole entry if it touched a sensitive column.
     const { row, rejected } = applyWritePolicy(table_name, 'UPDATE', payload, callerUserId, realColumns, can);
-    if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
+    if (rejected.length) throw new ForbiddenColumnsError(`Forbidden columns: ${rejected.join(', ')}`);
     // media: a client may not mint a SECOND primary for an entity (bug #50) —
     // a losing claim is coerced to false. Today's only client UPDATE touching
     // is_primary is the move feature, which always clears it, so this is a no-op
@@ -468,7 +475,7 @@ async function applyEntry(
   // sensitive cols reject the entry, and non-column keys are dropped; build the
   // row from the resulting policy-filtered `row`.
   const { row, rejected } = applyWritePolicy(table_name, 'INSERT', payload, callerUserId, realColumns, can);
-  if (rejected.length) throw new Error(`Forbidden columns: ${rejected.join(', ')}`);
+  if (rejected.length) throw new ForbiddenColumnsError(`Forbidden columns: ${rejected.join(', ')}`);
   // approval_requests: a client INSERT may only CREATE an OPEN request. The
   // decision fields are reachable ONLY through the guarded UPDATE path — otherwise
   // an INSERT carrying an EXISTING id would upsert (ON CONFLICT DO UPDATE) straight
@@ -731,6 +738,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
     for (const entry of entries) {
       if (!ALLOWED_TABLES.has(entry.table_name)) {
+        // A write aimed at a table outside the allowlist is a crafted payload, not
+        // a client typo — flag the request for the audit trail (see outcomeFor).
+        (request as unknown as { auditInjectionAttempt?: boolean }).auditInjectionAttempt = true;
+        request.log.warn(
+          { userId: (request.user as { sub?: string })?.sub, table: entry.table_name, operation: entry.operation },
+          'sync push entry rejected (table not allowlisted)',
+        );
         conflicts.push({ id: entry.id, error: 'Table not allowed' });
         continue;
       }
@@ -1136,6 +1150,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
           })();
         }
       } catch (err) {
+        // A rejected write of a forbidden/unknown column is a schema-probing
+        // signal (not a benign conflict) — flag the request for the audit trail.
+        if (err instanceof ForbiddenColumnsError) {
+          (request as unknown as { auditInjectionAttempt?: boolean }).auditInjectionAttempt = true;
+        }
         // Log the offending entry so a stuck/rejected outbox row is diagnosable
         // (the client only stores the reason locally; conflicts aren't otherwise
         // visible server-side). Include table + operation + payload keys.
