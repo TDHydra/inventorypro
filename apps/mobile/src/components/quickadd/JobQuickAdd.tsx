@@ -4,7 +4,6 @@ import { Alert } from '../../lib/themedAlert';
 import { generateUUID } from '../../utils/uuid';
 import {
   upsertJob, Job,
-  getDistinctCustomerNames, getDistinctInsuranceCarriers, getDistinctSiteAddresses,
   getLatestJobByCustomer,
 } from '../../db/queries/jobs';
 import { appendOutbox } from '../../sync/outbox';
@@ -15,13 +14,13 @@ import { isWriteBlocked } from '../../db/maintenance';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import { PickerOption } from '../SearchablePicker';
 import { LocationPicker, TaxonomyChips } from '../pickers';
-import { SuggestInput } from '../SuggestInput';
 import { colors, spacing, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { AutofillTextField } from '../ui/AutofillTextField';
 import { track } from '../../telemetry';
 import { validateName, validateText } from '../../lib/validation';
 
@@ -54,11 +53,6 @@ export default function JobQuickAdd({ onSaved }: Props) {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;
   });
-
-  // Prior values for the typeahead dropdowns.
-  const customerOptions = useMemo(() => getDistinctCustomerNames(), []);
-  const carrierOptions = useMemo(() => getDistinctInsuranceCarriers(), []);
-  const addressOptions = useMemo(() => getDistinctSiteAddresses(), []);
 
   // When an existing customer is picked, offer (with confirmation) to fill in that
   // customer's last-job details — only fields that are still empty.
@@ -230,26 +224,24 @@ export default function JobQuickAdd({ onSaved }: Props) {
       )}
 
       <AdvancedFields>
-        <View style={s.fieldWrap}>
-          <FieldLabel>Customer Name</FieldLabel>
-          <SuggestInput
-            value={customerName}
-            onChange={setCustomerName}
-            onPick={offerCrossFill}
-            suggestions={customerOptions}
-            placeholder="Customer or company name"
-          />
-        </View>
+        <AutofillTextField
+          label="Customer Name"
+          table="jobs"
+          column="customer_name"
+          value={customerName}
+          onChangeText={setCustomerName}
+          onPick={offerCrossFill}
+          placeholder="Customer or company name"
+        />
 
-        <View style={s.fieldWrap}>
-          <FieldLabel>Site Address</FieldLabel>
-          <SuggestInput
-            value={siteAddress}
-            onChange={setSiteAddress}
-            suggestions={addressOptions}
-            placeholder="Street address or description"
-          />
-        </View>
+        <AutofillTextField
+          label="Site Address"
+          table="jobs"
+          column="site_address"
+          value={siteAddress}
+          onChangeText={setSiteAddress}
+          placeholder="Street address or description"
+        />
 
         <LocationPicker
           label="Site Location"
@@ -258,25 +250,24 @@ export default function JobQuickAdd({ onSaved }: Props) {
           onChange={setSiteLocation}
         />
 
-        <View style={s.fieldWrap}>
-          <FieldLabel>Reference # (external)</FieldLabel>
-          <AppInput
-            value={referenceNumber}
-            onChangeText={setReferenceNumber}
-            placeholder="Insurance claim / customer PO #"
-            autoCapitalize="characters"
-          />
-        </View>
+        <AutofillTextField
+          label="Reference # (external)"
+          table="jobs"
+          column="reference_number"
+          value={referenceNumber}
+          onChangeText={setReferenceNumber}
+          placeholder="Insurance claim / customer PO #"
+          autoCapitalize="characters"
+        />
 
-        <View style={s.fieldWrap}>
-          <FieldLabel>Insurance carrier</FieldLabel>
-          <SuggestInput
-            value={insuranceCarrier}
-            onChange={setInsuranceCarrier}
-            suggestions={carrierOptions}
-            placeholder="Insurance company"
-          />
-        </View>
+        <AutofillTextField
+          label="Insurance carrier"
+          table="jobs"
+          column="insurance_carrier"
+          value={insuranceCarrier}
+          onChangeText={setInsuranceCarrier}
+          placeholder="Insurance company"
+        />
 
         <View style={s.fieldWrap}>
           <FieldLabel>Description</FieldLabel>

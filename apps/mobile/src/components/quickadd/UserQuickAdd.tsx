@@ -10,8 +10,8 @@ import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { colors, spacing, radii, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
-import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { SelectField } from '../ui/SelectField';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
 
@@ -115,17 +115,12 @@ export default function UserQuickAdd({ onSaved }: Props) {
         </View>
       )}
 
-      <FieldLabel>Role</FieldLabel>
-      <View style={s.chipWrap}>
-        {ALL_ROLES.map(r => (
-          <FilterChip
-            key={r}
-            label={ROLE_DISPLAY_NAMES[r]}
-            active={role === r}
-            onPress={() => setRole(r)}
-          />
-        ))}
-      </View>
+      <SelectField
+        label="Role"
+        value={role}
+        options={ALL_ROLES.map(r => ({ id: r, label: ROLE_DISPLAY_NAMES[r] }))}
+        onSelect={id => setRole(id as UserRole)}
+      />
 
       <Text style={s.pinNote}>🔒 The employee sets their own PIN at first sign-in.</Text>
 
@@ -150,7 +145,6 @@ const s = StyleSheet.create({
     backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
   },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   matches: { backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, marginTop: -2, overflow: 'hidden' },
   matchesHint: { fontSize: fontSizes.xs, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
   matchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },

@@ -1,6 +1,6 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../db/queries/items';
@@ -13,13 +13,14 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-import { colors, spacing, radii, fontSizes } from '../../theme';
+import { colors, spacing, fontSizes } from '../../theme';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
-import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { SegmentedControl } from '../ui/SegmentedControl';
+import { QuantityStepper } from '../ui/QuantityStepper';
 import { track } from '../../telemetry';
-import { parseStockQuantity } from '../../lib/validation';
+import { parseStockQuantity, MAX_QUANTITY } from '../../lib/validation';
 import type { QuickAddSaveMeta } from './justAdded';
 
 interface Props {
@@ -43,13 +44,21 @@ export default function StockQuickAdd({ onSaved }: Props) {
   // that the server silently rejects. Gate the Set toggle on the same perm the
   // server enforces; Delta (ADJUST) stays available regardless.
   const canRecount = usePermission('checkin_inventory');
-  const qtyRef = useRef<TextInput>(null);
 
   const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null); // sticky
   const [shelfValue, setShelfValue] = useState<PickerOption | null>(null);
   const [selectedItemOpt, setSelectedItemOpt] = useState<PickerOption | null>(null);
   const [mode, setMode] = useState<Mode>('delta');
-  const [qty, setQty] = useState('');
+  // Numeric state driving QuantityStepper. Submit validation still runs through
+  // parseStockQuantity (same rules/messages as before: delta > 0, set ≥ 0, both
+  // ≤ MAX_QUANTITY) — the stepper only changes how the number is entered.
+  const [qty, setQty] = useState(0);
+  // Invariant: untouched must fail parseStockQuantity's required-field check —
+  // 'set' mode treats 0 as a legal explicit recount, so the numeric `qty`
+  // state alone can't tell "never touched" from "explicitly set to 0". Feed
+  // '' into parseStockQuantity while untouched so the old string-state
+  // behavior (empty input ⇒ required error) is preserved.
+  const [qtyTouched, setQtyTouched] = useState(false);
   const [error, setError] = useState('');
 
   // Current on-hand qty for the hint shown when recounting ("Set") — only looked
@@ -91,7 +100,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
     // Delta must be a positive addition; Set is an absolute recount, so 0 is a
     // valid "nothing here" reading. parseStockQuantity keeps the historical
     // parseFloat + copy, adding the overflow bound.
-    const qtyResult = parseStockQuantity(qty, mode);
+    const qtyResult = parseStockQuantity(qtyTouched ? String(qty) : '', mode);
     if (!qtyResult.ok) {
       trackReject('stock.qty', qtyResult.rule);
       setError(qtyResult.error);
@@ -179,7 +188,8 @@ export default function StockQuickAdd({ onSaved }: Props) {
 
     // Clear item+qty; keep location sticky
     setSelectedItemOpt(null);
-    setQty('');
+    setQty(0);
+    setQtyTouched(false);
   }
 
   return (
@@ -207,37 +217,29 @@ export default function StockQuickAdd({ onSaved }: Props) {
       />
 
       <FieldLabel>Mode</FieldLabel>
-      <View style={s.chipRow}>
-        <FilterChip
-          label="Delta (add/remove)"
-          active={mode === 'delta'}
-          onPress={() => { setMode('delta'); if (error) setError(''); }}
-        />
-        {/* Recount is a server-gated check-in; only offer it to roles that can
-            actually complete it, otherwise the save is silently rejected. */}
-        {canRecount && (
-          <FilterChip
-            label="Set exact (recount)"
-            active={mode === 'set'}
-            onPress={() => { setMode('set'); if (error) setError(''); }}
-          />
-        )}
-      </View>
+      <SegmentedControl
+        segments={[
+          { id: 'delta', label: 'Delta (add/remove)' },
+          // Recount is a server-gated check-in; only offer it to roles that can
+          // actually complete it, otherwise the save is silently rejected.
+          ...(canRecount ? [{ id: 'set', label: 'Set exact (recount)' }] : []),
+        ]}
+        value={mode}
+        onChange={id => { setMode(id as Mode); if (error) setError(''); }}
+      />
 
       {mode === 'set' && currentOnHand !== null && (
         <Text style={s.hint}>Currently {currentOnHand} on hand</Text>
       )}
 
-      <TextInput
-        ref={qtyRef}
-        style={[s.input, !!error && s.inputError]}
-        placeholder={mode === 'set' ? 'New quantity *' : 'Quantity *'}
-        placeholderTextColor={colors.textMuted}
+      <FieldLabel>{mode === 'set' ? 'New quantity' : 'Quantity'}</FieldLabel>
+      <QuantityStepper
         value={qty}
-        onChangeText={t => { setQty(t); if (error) setError(''); }}
-        keyboardType="decimal-pad"
-        returnKeyType="done"
-        onSubmitEditing={handleSave}
+        onChange={n => { setQty(n); setQtyTouched(true); if (error) setError(''); }}
+        min={0}
+        max={MAX_QUANTITY}
+        allowDecimal
+        unit={selectedItemOpt?.sublabel}
       />
       {!!error && <Text style={s.errorText}>{error}</Text>}
 
@@ -257,13 +259,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
 
 const s = StyleSheet.create({
   container: { gap: 10 },
-  input: {
-    backgroundColor: colors.surface, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.base, height: 44, fontSize: fontSizes.body, color: colors.textPrimary,
-  },
-  inputError: { borderColor: colors.danger },
   errorText: { fontSize: fontSizes.caption, color: colors.danger, marginTop: -4 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   hint: { fontSize: fontSizes.caption, color: colors.textSecondary, marginTop: -4 },
   doneBtn: { alignItems: 'center', paddingVertical: spacing.md },
   doneBtnText: { color: colors.textSecondary, fontSize: fontSizes.md, fontWeight: '600' },

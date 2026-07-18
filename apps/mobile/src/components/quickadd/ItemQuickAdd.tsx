@@ -24,6 +24,8 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { AutofillTextField } from '../ui/AutofillTextField';
+import { SelectField } from '../ui/SelectField';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
@@ -348,8 +350,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </View>
       )}
 
-      <AppInput
-        placeholder="Item # / Part # (recommended)"
+      <AutofillTextField
+        label="Item # / Part #"
+        table="inventory_items"
+        column="sku"
+        placeholder="Recommended"
         value={sku}
         onChangeText={setSku}
         autoCapitalize="characters"
@@ -405,24 +410,22 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         </>
       )}
 
-      <FieldLabel>Unit</FieldLabel>
       {unitOptions.length > 0 ? (
-        <View style={s.chipRow}>
-          {unitOptions.map(u => (
-            <FilterChip
-              key={u}
-              label={u}
-              active={unit === u}
-              onPress={() => setUnit(u)}
-            />
-          ))}
-        </View>
-      ) : (
-        <AppInput
-          placeholder="Unit (e.g. each)"
+        <SelectField
+          label="Unit"
           value={unit}
-          onChangeText={setUnit}
+          options={unitOptions.map(u => ({ id: u, label: u }))}
+          onSelect={setUnit}
         />
+      ) : (
+        <>
+          <FieldLabel>Unit</FieldLabel>
+          <AppInput
+            placeholder="Unit (e.g. each)"
+            value={unit}
+            onChangeText={setUnit}
+          />
+        </>
       )}
 
       <FieldLabel>Pack size (optional)</FieldLabel>
