@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
-  View, TextInput, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
+  View, FlatList, StyleSheet, TouchableOpacity, Text, ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -12,6 +12,8 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { SearchHeader } from '../../../src/components/ui/SearchHeader';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -85,7 +87,6 @@ export default function InventoryScreen() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback((q: string, cat: string, newOffset: number, append = false) => {
     setLoading(true);
@@ -123,10 +124,7 @@ export default function InventoryScreen() {
 
   const handleSearch = (text: string) => {
     setQuery(text);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      runSearch(text, filter, 0);
-    }, 150);
+    runSearch(text, filter, 0);
   };
 
   const handleFilter = (cat: string) => {
@@ -239,28 +237,22 @@ export default function InventoryScreen() {
   // Permanently delete the selected items (+ their stock & tracked units). Gated by
   // delete_inventory (the action is hidden without it); the server re-checks the
   // permission on the sync DELETE. Irreversible — hence the explicit confirm.
-  const handleBulkDelete = useCallback(() => {
+  const handleBulkDelete = useCallback(async () => {
     if (isWriteBlocked()) return;
     const ids = Array.from(ms.selected);
     if (ids.length === 0) { ms.exit(); return; }
-    Alert.alert(
-      `Delete ${ids.length} item${ids.length === 1 ? '' : 's'}?`,
-      'This permanently removes the selected items along with their stock and any tracked units. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: `Delete ${ids.length}`,
-          style: 'destructive',
-          onPress: () => {
-            for (const id of ids) logItem(id, 'Item deleted');
-            deleteItems(ids);
-            reloadList();
-            ms.exit();
-            void syncNow().catch(() => { /* offline — deletes flush on next sync */ });
-          },
-        },
-      ],
-    );
+    const ok = await confirmSheet({
+      title: `Delete ${ids.length} item${ids.length === 1 ? '' : 's'}?`,
+      message: 'This permanently removes the selected items along with their stock and any tracked units. This cannot be undone.',
+      confirmLabel: `Delete ${ids.length}`,
+      destructive: true,
+    });
+    if (!ok) return;
+    for (const id of ids) logItem(id, 'Item deleted');
+    deleteItems(ids);
+    reloadList();
+    ms.exit();
+    void syncNow().catch(() => { /* offline — deletes flush on next sync */ });
   }, [ms, reloadList, logItem]);
 
   const bulkActions = useMemo<BulkAction[]>(() => [
@@ -269,7 +261,7 @@ export default function InventoryScreen() {
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
     { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
     ...(canDelete
-      ? [{ key: 'delete', label: 'Delete', destructive: true, onPress: () => { handleBulkDelete(); } } as BulkAction]
+      ? [{ key: 'delete', label: 'Delete', destructive: true, onPress: () => { void handleBulkDelete(); } } as BulkAction]
       : []),
   ], [handlePrintLabels, canDelete, handleBulkDelete]);
 
@@ -278,17 +270,12 @@ export default function InventoryScreen() {
       <Stack.Screen options={{ title: 'Inventory', headerShown: true }} />
       <View style={styles.container}>
         <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search items or barcode..."
-              placeholderTextColor={colors.textMuted}
+          <View style={styles.searchBoxWrap}>
+            <SearchHeader
               value={query}
-              onChangeText={handleSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
+              onChange={handleSearch}
+              placeholder="Search items or barcode..."
+              debounceMs={150}
             />
           </View>
           <TouchableOpacity
@@ -461,6 +448,7 @@ export default function InventoryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   searchRow: { flexDirection: 'row', gap: 10, padding: 12, paddingBottom: 6 },
+  searchBoxWrap: { flex: 1, justifyContent: 'center' },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
     backgroundColor: colors.surface, borderRadius: 10,

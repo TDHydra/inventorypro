@@ -34,6 +34,10 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { SearchHeader } from '../../../src/components/ui/SearchHeader';
+import { StatusBadge } from '../../../src/components/ui/StatusBadge';
+import { SelectField } from '../../../src/components/ui/SelectField';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -191,8 +195,6 @@ export default function AdminUsersScreen() {
   const [editRole, setEditRole] = useState<UserRole>('mitigation_technician');
   const [editExpiry, setEditExpiry] = useState<string | null>(null);
   const [editDashboardPresetId, setEditDashboardPresetId] = useState<string | null>(null);
-  const [showRolePicker, setShowRolePicker] = useState(false);
-  const [showDashboardPicker, setShowDashboardPicker] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const roleMinPins = useMemo(() => getRoleSettings(), [users]);
@@ -233,8 +235,6 @@ export default function AdminUsersScreen() {
     setEditRole(u.role);
     setEditExpiry(u.expires_at);
     setEditDashboardPresetId(u.dashboard_preset_id ?? null);
-    setShowRolePicker(false);
-    setShowDashboardPicker(false);
   }
 
   // Normalize email edits: trim, and treat "" as null so a cleared field diffs
@@ -382,83 +382,73 @@ export default function AdminUsersScreen() {
     setEditUser(null);
   }
 
-  function toggleActive() {
+  async function toggleActive() {
     if (!editUser) return;
     const next = editUser.active ? 0 : 1;
     const verb = next ? 'Reactivate' : 'Deactivate';
-    Alert.alert(
-      `${verb} ${editUser.name}?`,
-      next
+    const ok = await confirmSheet({
+      title: `${verb} ${editUser.name}?`,
+      message: next
         ? 'They will be able to sign in again.'
         : 'They will be signed out and hidden from the login picker. You can reactivate them later.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: verb, style: next ? 'default' : 'destructive',
-          onPress: () => {
-            // Row + outbox + log commit atomically; only mirror the new state
-            // locally once the write succeeds, otherwise revert by doing nothing.
-            try {
-              runInTransaction(() => {
-                const now = updateUserLocal(editUser.id, { active: next } as never);
-                appendOutbox('UPDATE', 'users', { id: editUser.id, active: !!next, updated_at: now });
-                appendLog({
-                  action: 'user_updated',
-                  entity_type: 'user',
-                  entity_id: editUser.id,
-                  user_id: sessionUser?.id ?? null,
-                  note: `${editUser.name}: ${next ? 'reactivated' : 'deactivated'}`,
-                  team_id: null, from_location_id: null, to_location_id: null,
-                  quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-                });
-              });
-            } catch (err) {
-              Alert.alert(`Could not ${verb.toLowerCase()} user`, (err as Error).message);
-              return;
-            }
-            const updated = { ...editUser, active: next };
-            setEditUser(updated);
-            refresh();
-          },
-        },
-      ],
-    );
+      confirmLabel: verb,
+      destructive: !next,
+    });
+    if (!ok) return;
+    // Row + outbox + log commit atomically; only mirror the new state
+    // locally once the write succeeds, otherwise revert by doing nothing.
+    try {
+      runInTransaction(() => {
+        const now = updateUserLocal(editUser.id, { active: next } as never);
+        appendOutbox('UPDATE', 'users', { id: editUser.id, active: !!next, updated_at: now });
+        appendLog({
+          action: 'user_updated',
+          entity_type: 'user',
+          entity_id: editUser.id,
+          user_id: sessionUser?.id ?? null,
+          note: `${editUser.name}: ${next ? 'reactivated' : 'deactivated'}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+        });
+      });
+    } catch (err) {
+      Alert.alert(`Could not ${verb.toLowerCase()} user`, (err as Error).message);
+      return;
+    }
+    const updated = { ...editUser, active: next };
+    setEditUser(updated);
+    refresh();
   }
 
-  function resetPin() {
+  async function resetPin() {
     if (!editUser) return;
-    Alert.alert(
-      `Reset ${editUser.name}'s PIN?`,
-      'Their current PIN stops working immediately. They will set and confirm a brand-new PIN themselves the next time they sign in.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset PIN', style: 'destructive',
-          onPress: async () => {
-            setBusy(true);
-            try {
-              await resetUserPinOnline(editUser.id);
-              appendLog({
-                action: 'user_pin_reset',
-                entity_type: 'user',
-                entity_id: editUser.id,
-                user_id: sessionUser?.id ?? null,
-                note: editUser.name,
-                team_id: null, from_location_id: null, to_location_id: null,
-                quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-              });
-              setEditUser({ ...editUser, pin_set: 0 });
-              refresh();
-              Alert.alert('PIN reset', `${editUser.name} will set a new PIN at next sign-in.`);
-            } catch (err) {
-              Alert.alert('Could not reset PIN', (err as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          },
-        },
-      ],
-    );
+    const ok = await confirmSheet({
+      title: `Reset ${editUser.name}'s PIN?`,
+      message: 'Their current PIN stops working immediately. They will set and confirm a brand-new PIN themselves the next time they sign in.',
+      confirmLabel: 'Reset PIN',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await resetUserPinOnline(editUser.id);
+      appendLog({
+        action: 'user_pin_reset',
+        entity_type: 'user',
+        entity_id: editUser.id,
+        user_id: sessionUser?.id ?? null,
+        note: editUser.name,
+        team_id: null, from_location_id: null, to_location_id: null,
+        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+      });
+      setEditUser({ ...editUser, pin_set: 0 });
+      refresh();
+      Alert.alert('PIN reset', `${editUser.name} will set a new PIN at next sign-in.`);
+    } catch (err) {
+      Alert.alert('Could not reset PIN', (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Reissue a one-time access code for a user who hasn't set a PIN yet.
@@ -711,55 +701,50 @@ export default function AdminUsersScreen() {
     Alert.alert('Added to team', `${added} user${added === 1 ? '' : 's'} added to ${teamLabel}.`);
   }
 
-  function bulkResetPin() {
+  async function bulkResetPin() {
     if (isWriteBlocked()) return;
     const ids = [...sel.selected];
     if (ids.length === 0) return;
-    Alert.alert(
-      `Reset PIN for ${ids.length} user${ids.length === 1 ? '' : 's'}?`,
-      'Their current PINs stop working immediately. Each user sets and confirms a new PIN at next sign-in. This requires a connection to the server.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset PIN', style: 'destructive',
-          onPress: async () => {
-            setBusy(true);
-            const adminId = sessionUser?.id ?? null;
-            let ok = 0, fail = 0;
-            let lastErr = '';
-            // Sequential — PIN reset is an online round-trip per user; surface a
-            // success/failure tally (and the error if everything failed offline).
-            for (const id of ids) {
-              const u = users.find(x => x.id === id);
-              try {
-                await resetUserPinOnline(id); // already marks pin_set=0 locally
-                appendLog({
-                  action: 'user_pin_reset',
-                  entity_type: 'user',
-                  entity_id: id,
-                  user_id: adminId,
-                  note: u?.name ?? id,
-                  team_id: null, from_location_id: null, to_location_id: null,
-                  quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-                });
-                ok++;
-              } catch (err) {
-                fail++;
-                lastErr = (err as Error).message;
-              }
-            }
-            setBusy(false);
-            refresh();
-            sel.exit();
-            if (ok === 0 && fail > 0) {
-              Alert.alert('Could not reset PINs', lastErr || 'Reset failed.');
-            } else {
-              Alert.alert('PIN reset', `${ok} reset${fail ? `, ${fail} failed` : ''}.`);
-            }
-          },
-        },
-      ],
-    );
+    const ok0 = await confirmSheet({
+      title: `Reset PIN for ${ids.length} user${ids.length === 1 ? '' : 's'}?`,
+      message: 'Their current PINs stop working immediately. Each user sets and confirms a new PIN at next sign-in. This requires a connection to the server.',
+      confirmLabel: 'Reset PIN',
+      destructive: true,
+    });
+    if (!ok0) return;
+    setBusy(true);
+    const adminId = sessionUser?.id ?? null;
+    let ok = 0, fail = 0;
+    let lastErr = '';
+    // Sequential — PIN reset is an online round-trip per user; surface a
+    // success/failure tally (and the error if everything failed offline).
+    for (const id of ids) {
+      const u = users.find(x => x.id === id);
+      try {
+        await resetUserPinOnline(id); // already marks pin_set=0 locally
+        appendLog({
+          action: 'user_pin_reset',
+          entity_type: 'user',
+          entity_id: id,
+          user_id: adminId,
+          note: u?.name ?? id,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+        });
+        ok++;
+      } catch (err) {
+        fail++;
+        lastErr = (err as Error).message;
+      }
+    }
+    setBusy(false);
+    refresh();
+    sel.exit();
+    if (ok === 0 && fail > 0) {
+      Alert.alert('Could not reset PINs', lastErr || 'Reset failed.');
+    } else {
+      Alert.alert('PIN reset', `${ok} reset${fail ? `, ${fail} failed` : ''}.`);
+    }
   }
 
   const bulkActions: BulkAction[] = [
@@ -886,12 +871,14 @@ export default function AdminUsersScreen() {
       <Stack.Screen options={{ title: 'Users & Permissions', headerShown: true }} />
       <View style={s.container}>
         <View style={s.topBar}>
-          <AppInput
-            style={{ flex: 1 }}
-            placeholder="Search users..."
-            value={search}
-            onChangeText={setSearch}
-          />
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <SearchHeader
+              value={search}
+              onChange={setSearch}
+              placeholder="Search users..."
+              debounceMs={150}
+            />
+          </View>
           <TouchableOpacity style={s.addBtn} onPress={() => setShowCreate(true)}>
             <Text style={s.addBtnText}>+ New</Text>
           </TouchableOpacity>
@@ -931,9 +918,7 @@ export default function AdminUsersScreen() {
                   </View>
                 </View>
                 {st !== 'active' && (
-                  <View style={[s.statusPill, { backgroundColor: STATUS_META[st].bg }]}>
-                    <Text style={[s.statusText, { color: STATUS_META[st].color }]}>{STATUS_META[st].label}</Text>
-                  </View>
+                  <StatusBadge label={STATUS_META[st].label} tone={st === 'inactive' ? 'danger' : 'warning'} />
                 )}
                 {!sel.active && u.id !== sessionUser?.id && (
                   <TouchableOpacity
@@ -1023,9 +1008,10 @@ export default function AdminUsersScreen() {
                 <>
                   <View style={s.sheetHead}>
                     <Text style={s.modalTitle}>{editUser.name}</Text>
-                    <View style={[s.statusPill, { backgroundColor: STATUS_META[st].bg }]}>
-                      <Text style={[s.statusText, { color: STATUS_META[st].color }]}>{STATUS_META[st].label}</Text>
-                    </View>
+                    <StatusBadge
+                      label={STATUS_META[st].label}
+                      tone={st === 'active' ? 'success' : st === 'inactive' ? 'danger' : 'warning'}
+                    />
                   </View>
 
                   {/* At-a-glance info */}
@@ -1048,62 +1034,40 @@ export default function AdminUsersScreen() {
                     keyboardType="email-address"
                   />
 
-                  <FieldLabel>Role</FieldLabel>
                   {!canActOnUser && (
                     <Text style={s.lockNote}>
                       🔒 This user is at or above your access level — you can't change their role or permissions.
                     </Text>
                   )}
-                  <TouchableOpacity
-                    style={[s.selectRow, !canActOnUser && s.rowDisabled]}
-                    onPress={() => { if (canActOnUser) setShowRolePicker(v => !v); }}
-                    disabled={!canActOnUser}
-                  >
-                    <Text style={s.selectText}>{ROLE_DISPLAY_NAMES[editRole]}</Text>
-                    <Text style={s.selectChevron}>{showRolePicker ? '▾' : '▸'}</Text>
-                  </TouchableOpacity>
-                  {canActOnUser && showRolePicker && (
-                    <View style={s.rolePicker}>
-                      {/* Only offer roles the caller may assign (at/below their own
-                          effective tier). The current role stays visible so the
-                          selection still shows even if it's above what they can grant. */}
-                      {ALL_ROLES.filter(r => canAssignRole(callerRole, r) || r === editRole).map(r => (
-                        <TouchableOpacity
-                          key={r}
-                          style={[s.roleRow, editRole === r && s.roleRowActive]}
-                          onPress={() => { setEditRole(r); setShowRolePicker(false); }}
-                        >
-                          <Text style={[s.roleText, editRole === r && s.roleTextActive]}>{ROLE_DISPLAY_NAMES[r]}</Text>
-                          <Text style={s.roleTierHint}>T{ROLE_TIER[r]}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                  {canActOnUser ? (
+                    <SelectField
+                      label="Role"
+                      value={editRole}
+                      // Only offer roles the caller may assign (at/below their own
+                      // effective tier). The current role stays visible so the
+                      // selection still shows even if it's above what they can grant.
+                      options={ALL_ROLES.filter(r => canAssignRole(callerRole, r) || r === editRole)
+                        .map(r => ({ id: r, label: ROLE_DISPLAY_NAMES[r], sublabel: `Tier ${ROLE_TIER[r]}` }))}
+                      onSelect={id => setEditRole(id as UserRole)}
+                    />
+                  ) : (
+                    <>
+                      <FieldLabel>Role</FieldLabel>
+                      <View style={[s.selectRow, s.rowDisabled]}>
+                        <Text style={s.selectText}>{ROLE_DISPLAY_NAMES[editRole]}</Text>
+                      </View>
+                    </>
                   )}
 
                   {/* Per-user home-screen dashboard assignment (Wave C). null =
-                      fall back to the user's role dashboard. Same collapsible
-                      picker + offline outbox save path as Role above. */}
-                  <FieldLabel>Dashboard</FieldLabel>
-                  <Text style={s.hint}>Which home-screen layout this user sees; Role default falls back to their role's dashboard.</Text>
-                  <TouchableOpacity style={s.selectRow} onPress={() => setShowDashboardPicker(v => !v)}>
-                    <Text style={s.selectText}>
-                      {dashboardOptions.find(o => o.id === editDashboardPresetId)?.label ?? 'Role default'}
-                    </Text>
-                    <Text style={s.selectChevron}>{showDashboardPicker ? '▾' : '▸'}</Text>
-                  </TouchableOpacity>
-                  {showDashboardPicker && (
-                    <View style={s.rolePicker}>
-                      {dashboardOptions.map(o => (
-                        <TouchableOpacity
-                          key={o.id ?? '__role_default__'}
-                          style={[s.roleRow, editDashboardPresetId === o.id && s.roleRowActive]}
-                          onPress={() => { setEditDashboardPresetId(o.id); setShowDashboardPicker(false); }}
-                        >
-                          <Text style={[s.roleText, editDashboardPresetId === o.id && s.roleTextActive]}>{o.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
+                      fall back to the user's role dashboard. */}
+                  <SelectField
+                    label="Dashboard"
+                    hint="Which home-screen layout this user sees; Role default falls back to their role's dashboard."
+                    value={editDashboardPresetId ?? '__role_default__'}
+                    options={dashboardOptions.map(o => ({ id: o.id ?? '__role_default__', label: o.label }))}
+                    onSelect={id => setEditDashboardPresetId(id === '__role_default__' ? null : id)}
+                  />
 
                   {/* Temporary employees can be given/changed an auto-deactivation date */}
                   {isTemp && (

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, FlatList, StyleSheet,
+  View, Text, FlatList, StyleSheet,
   TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
@@ -13,6 +13,8 @@ import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { SearchHeader } from '../../../src/components/ui/SearchHeader';
+import { StatusBadge, TypeBadge } from '../../../src/components/ui/StatusBadge';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -42,7 +44,6 @@ export default function EquipmentScreen() {
   const [query, setQuery] = useState('');
   const [models, setModels] = useState<EquipmentModel[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Ref so useFocusEffect can always read the latest query without re-registering
   const queryRef = useRef('');
   queryRef.current = query;
@@ -140,10 +141,7 @@ export default function EquipmentScreen() {
 
   const handleSearch = (text: string) => {
     setQuery(text);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      load(text.trim() || undefined);
-    }, 200);
+    load(text.trim() || undefined);
   };
 
   const onRefresh = useCallback(async () => {
@@ -160,17 +158,12 @@ export default function EquipmentScreen() {
       <View style={s.container}>
 
         <View style={s.searchRow}>
-          <View style={s.searchBox}>
-            <Text style={s.searchIcon}>🔍</Text>
-            <TextInput
-              style={s.searchInput}
-              placeholder="Search equipment..."
-              placeholderTextColor={colors.textMuted}
+          <View style={s.searchBoxWrap}>
+            <SearchHeader
               value={query}
-              onChangeText={handleSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
+              onChange={handleSearch}
+              placeholder="Search equipment..."
+              debounceMs={200}
             />
           </View>
           {canAdd && (
@@ -213,26 +206,18 @@ export default function EquipmentScreen() {
                     <Text style={s.name} numberOfLines={1}>{m.name}</Text>
                     {!!m.category && (
                       <View style={s.catRow}>
-                        <View style={[s.catBadge, { backgroundColor: catColor }]}>
-                          <Text style={s.catBadgeText} numberOfLines={1}>{m.category}</Text>
-                        </View>
+                        <TypeBadge type={m.category} />
                       </View>
                     )}
                     <View style={s.chips}>
                       {m.counts.available > 0 && (
-                        <View style={[s.chip, s.chipAvail]}>
-                          <Text style={s.chipText}>{m.counts.available} avail</Text>
-                        </View>
+                        <StatusBadge label={`${m.counts.available} avail`} tone="success" />
                       )}
                       {m.counts.deployed > 0 && (
-                        <View style={[s.chip, s.chipDeploy]}>
-                          <Text style={s.chipText}>{m.counts.deployed} out</Text>
-                        </View>
+                        <StatusBadge label={`${m.counts.deployed} out`} tone="primary" />
                       )}
                       {m.counts.in_repair > 0 && (
-                        <View style={[s.chip, s.chipRepair]}>
-                          <Text style={s.chipText}>{m.counts.in_repair} repair</Text>
-                        </View>
+                        <StatusBadge label={`${m.counts.in_repair} repair`} tone="warning" />
                       )}
                       {m.counts.available + m.counts.deployed +
                         m.counts.in_repair + m.counts.retired === 0 && (
@@ -335,6 +320,7 @@ const s = StyleSheet.create({
   searchRow: {
     flexDirection: 'row', gap: 10, padding: spacing.md, paddingBottom: spacing.sm,
   },
+  searchBoxWrap: { flex: 1, justifyContent: 'center' },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
     backgroundColor: colors.surface, borderRadius: radii.md,

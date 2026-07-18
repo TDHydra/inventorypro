@@ -33,6 +33,9 @@ import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { Card } from '../../../src/components/ui/Card';
+import { KeyValueRow } from '../../../src/components/ui/KeyValueRow';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -310,51 +313,45 @@ export default function LocationDetailScreen() {
 
   // ── Archive handler (existing, now with logging) ────────────────────────────
 
-  function handleArchive() {
+  async function handleArchive() {
     if (!location) return;
-    Alert.alert(
-      'Archive Location',
-      `Archive "${location.name}"? It will be hidden from active lists.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Archive',
-          style: 'destructive',
-          onPress: () => {
-            const now = new Date().toISOString();
-            try {
-              runInTransaction(() => {
-                getDb().executeSync(
-                  `UPDATE locations SET active=0, updated_at=? WHERE id=?`,
-                  [now, id]
-                );
-                appendOutbox('UPDATE', 'locations', { id, active: false, updated_at: now });
-                appendLog({
-                  action: 'location_archived',
-                  entity_type: 'location',
-                  entity_id: id,
-                  user_id: user?.id ?? null,
-                  team_id: null,
-                  job_id: null,
-                  note: location.name,
-                  from_location_id: null,
-                  to_location_id: null,
-                  quantity: null,
-                  unit: null,
-                  metadata: null,
-                  device_id: null,
-                });
-              });
-            } catch (e) {
-              Alert.alert('Archive failed', `Couldn't archive this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
-              return;
-            }
-            // Navigate away only after the archive actually committed.
-            router.back();
-          },
-        },
-      ]
-    );
+    const ok = await confirmSheet({
+      title: 'Archive Location',
+      message: `Archive "${location.name}"? It will be hidden from active lists.`,
+      confirmLabel: 'Archive',
+      destructive: true,
+    });
+    if (!ok) return;
+    const now = new Date().toISOString();
+    try {
+      runInTransaction(() => {
+        getDb().executeSync(
+          `UPDATE locations SET active=0, updated_at=? WHERE id=?`,
+          [now, id]
+        );
+        appendOutbox('UPDATE', 'locations', { id, active: false, updated_at: now });
+        appendLog({
+          action: 'location_archived',
+          entity_type: 'location',
+          entity_id: id,
+          user_id: user?.id ?? null,
+          team_id: null,
+          job_id: null,
+          note: location.name,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Archive failed', `Couldn't archive this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
+      return;
+    }
+    // Navigate away only after the archive actually committed.
+    router.back();
   }
 
   return (
@@ -363,7 +360,7 @@ export default function LocationDetailScreen() {
       <ScrollView contentContainerStyle={s.content}>
 
         {/* ── Header card ─────────────────────────────────────────────────── */}
-        <View style={s.card}>
+        <Card variant="detail">
           {location.active === 0 && (
             <View style={s.archivedBanner}>
               <Text style={s.archivedText}>Archived</Text>
@@ -378,26 +375,14 @@ export default function LocationDetailScreen() {
             )}
           </View>
           {!!location.type && (
-            <View style={[s.attrRow, s.divider]}>
-              <Text style={s.attrKey}>Type</Text>
-              <Text style={s.attrVal}>
-                {renderIcon(typeIconByLabel.get(location.type) ?? null)} {location.type}
-              </Text>
-            </View>
+            <KeyValueRow
+              label="Type"
+              value={`${renderIcon(typeIconByLabel.get(location.type) ?? null)} ${location.type}`}
+            />
           )}
-          {!!parentName && (
-            <View style={[s.attrRow, s.divider]}>
-              <Text style={s.attrKey}>Sub-area of</Text>
-              <Text style={s.attrVal}>{parentName}</Text>
-            </View>
-          )}
-          {!!ownerName && (
-            <View style={s.attrRow}>
-              <Text style={s.attrKey}>Owner</Text>
-              <Text style={s.attrVal}>{ownerName}</Text>
-            </View>
-          )}
-        </View>
+          {!!parentName && <KeyValueRow label="Sub-area of" value={parentName} />}
+          {!!ownerName && <KeyValueRow label="Owner" value={ownerName} />}
+        </Card>
 
         {/* ── Stock here ──────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Stock here</Text>

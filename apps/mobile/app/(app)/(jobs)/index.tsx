@@ -20,7 +20,9 @@ import { colors } from '../../../src/theme';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
-import { AppInput } from '../../../src/components/ui/AppInput';
+import { SearchHeader } from '../../../src/components/ui/SearchHeader';
+import { StatusBadge, TypeBadge } from '../../../src/components/ui/StatusBadge';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
@@ -128,43 +130,38 @@ export default function JobsScreen() {
   const doClose = useCallback(() => bulkSetStatus('closed'), [bulkSetStatus]);
   const doReopen = useCallback(() => bulkSetStatus('open'), [bulkSetStatus]);
 
-  const doArchive = useCallback(() => {
+  const doArchive = useCallback(async () => {
     if (isWriteBlocked()) return;
     const ids = Array.from(ms.selected);
     if (ids.length === 0) return;
-    Alert.alert(
-      'Archive Jobs',
-      `Archive ${ids.length} job${ids.length === 1 ? '' : 's'}? They will be hidden from active lists.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Archive', style: 'destructive',
-          onPress: () => {
-            if (isWriteBlocked()) return;
-            // Atomic batch: a mid-loop failure rolls back every archive so the
-            // list isn't left partially archived; report which job failed.
-            let failedId: string | null = null;
-            try {
-              runInTransaction(() => {
-                for (const id of ids) {
-                  failedId = id;
-                  archiveJob(id);
-                  logJob(id, 'job_archived', 'Bulk archive');
-                }
-              });
-            } catch (e) {
-              Alert.alert(
-                'Could not archive jobs',
-                `Failed on job ${failedId ?? ''}: ${e instanceof Error ? e.message : 'unknown error'}. No jobs were changed.`,
-              );
-              return;
-            }
-            reloadLocalData();
-            ms.exit();
-          },
-        },
-      ],
-    );
+    const ok = await confirmSheet({
+      title: 'Archive Jobs',
+      message: `Archive ${ids.length} job${ids.length === 1 ? '' : 's'}? They will be hidden from active lists.`,
+      confirmLabel: 'Archive',
+      destructive: true,
+    });
+    if (!ok) return;
+    if (isWriteBlocked()) return;
+    // Atomic batch: a mid-loop failure rolls back every archive so the
+    // list isn't left partially archived; report which job failed.
+    let failedId: string | null = null;
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          failedId = id;
+          archiveJob(id);
+          logJob(id, 'job_archived', 'Bulk archive');
+        }
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not archive jobs',
+        `Failed on job ${failedId ?? ''}: ${e instanceof Error ? e.message : 'unknown error'}. No jobs were changed.`,
+      );
+      return;
+    }
+    reloadLocalData();
+    ms.exit();
   }, [ms, reloadLocalData, logJob]);
 
   const applyType = useCallback((type: string) => {
@@ -268,11 +265,11 @@ export default function JobsScreen() {
           <>
             {/* Search */}
             <View style={s.searchBox}>
-              <AppInput
-                placeholder="Search jobs..."
+              <SearchHeader
                 value={search}
-                onChangeText={setSearch}
-                autoCapitalize="none"
+                onChange={setSearch}
+                placeholder="Search jobs..."
+                debounceMs={0}
               />
             </View>
 
@@ -333,17 +330,12 @@ export default function JobsScreen() {
                         <Text style={s.cardName}>{job.name}</Text>
                       </View>
                       <View style={s.cardRow}>
-                        <View style={[
-                          s.statusDot,
-                          job.status === 'open' ? s.statusOpen
-                            : job.status === 'archived' ? s.statusArchived
-                            : undefined,
-                        ]} />
-                        <Text style={s.cardSub}>{job.status}</Text>
+                        <StatusBadge
+                          label={job.status}
+                          tone={job.status === 'open' ? 'success' : job.status === 'archived' ? 'warning' : 'default'}
+                        />
                         {!!job.type && (
-                          <Text style={s.cardSub}>
-                            · {typeIcon ? `${typeIcon} ${job.type}` : job.type}
-                          </Text>
+                          <TypeBadge type={typeIcon ? `${typeIcon} ${job.type}` : job.type} />
                         )}
                         <Text style={s.cardDate}>
                           {new Date(job.created_at).toLocaleDateString()}

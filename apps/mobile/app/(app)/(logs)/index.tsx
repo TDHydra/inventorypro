@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator,
   RefreshControl, Modal,
 } from 'react-native';
+import { SearchHeader } from '../../../src/components/ui/SearchHeader';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -371,14 +372,11 @@ export default function LogsScreen() {
             list (server rows don't carry those columns). */}
         {filter !== 'unsynced' && (
           <View style={s.filterControls}>
-            <TextInput
-              style={s.searchInput}
-              placeholder="Search note or name…"
-              placeholderTextColor={colors.textMuted}
+            <SearchHeader
               value={search}
-              onChangeText={setSearch}
-              autoCapitalize="none"
-              returnKeyType="search"
+              onChange={setSearch}
+              placeholder="Search note or name…"
+              debounceMs={150}
             />
             {serverMode && (
               <SearchablePicker

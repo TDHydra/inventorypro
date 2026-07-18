@@ -6,6 +6,7 @@ import { getTypeIcon, isTerminalStatus } from '../../../src/db/queries/taxonomy'
 import { colors } from '../../../src/theme';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
+import { StatusBadge } from '../../../src/components/ui/StatusBadge';
 import { ListScreenShell, ShellFilter } from '../../../src/components/ui/ListScreenShell';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
@@ -69,22 +70,11 @@ export default function RepairsScreen() {
               <Card variant="list">
                 <Text style={s.cardName}>{item.entity_label ?? '(unlabeled)'}</Text>
                 <View style={s.cardRow}>
-                  <View style={[
-                    s.statusBadge,
-                    terminal ? s.statusBadgeDone : s.statusBadgeOpen,
-                  ]}>
-                    <Text style={[
-                      s.statusBadgeText,
-                      terminal ? s.statusBadgeTextDone : s.statusBadgeTextOpen,
-                    ]}>
-                      {icon ? `${icon} ` : ''}{item.status}
-                    </Text>
-                  </View>
-                  {overdue && (
-                    <View style={s.overdueBadge}>
-                      <Text style={s.overdueBadgeText}>Overdue</Text>
-                    </View>
-                  )}
+                  <StatusBadge
+                    label={`${icon ? `${icon} ` : ''}${item.status}`}
+                    tone={terminal ? 'success' : 'primary'}
+                  />
+                  {overdue && <StatusBadge label="Overdue" tone="danger" />}
                   <Text style={s.cardDate}>{ageLabel(item.created_at)}</Text>
                 </View>
               </Card>

@@ -26,6 +26,8 @@ import { AppInput } from '../../../src/components/ui/AppInput';
 import { TaxonomyChips } from '../../../src/components/pickers';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
+import { KeyValueRow } from '../../../src/components/ui/KeyValueRow';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { EntityEditSheet } from '../../../src/components/ui/EntityEditSheet';
 import { QuickCreateSheet } from '../../../src/components/quickadd/QuickCreateSheet';
@@ -249,53 +251,47 @@ export default function TeamDetailScreen() {
 
   // ── Remove member ──────────────────────────────────────────────────────────
 
-  function handleRemoveMember(member: TeamMember) {
+  async function handleRemoveMember(member: TeamMember) {
     if (!team) return;
     if (isWriteBlocked()) return;
     const memberName = member.user_name ?? member.user_id;
-    Alert.alert(
-      'Remove Member',
-      `Remove ${memberName} from this team?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            try {
-              runInTransaction(() => {
-                removeTeamMember(team.id, member.user_id);
-                // Composite-key DELETE: server matches by {team_id, user_id}
-                appendOutbox('DELETE', 'team_members', {
-                  team_id: team.id,
-                  user_id: member.user_id,
-                });
-                appendLog({
-                  user_id: user?.id ?? null,
-                  team_id: team.id,
-                  action: 'team_member_removed',
-                  entity_type: 'team',
-                  entity_id: team.id,
-                  from_location_id: null,
-                  to_location_id: null,
-                  quantity: null,
-                  unit: null,
-                  job_id: null,
-                  note: memberName,
-                  metadata: JSON.stringify({ member_user_id: member.user_id }),
-                  device_id: null,
-                });
-              });
-            } catch (e) {
-              Alert.alert('Could not remove member', `${memberName} was not removed. Please try again.`);
-              return;
-            }
-            // Refresh only after the write committed.
-            setMembers(getTeamMembers(team.id));
-          },
-        },
-      ],
-    );
+    const ok = await confirmSheet({
+      title: 'Remove Member',
+      message: `Remove ${memberName} from this team?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      runInTransaction(() => {
+        removeTeamMember(team.id, member.user_id);
+        // Composite-key DELETE: server matches by {team_id, user_id}
+        appendOutbox('DELETE', 'team_members', {
+          team_id: team.id,
+          user_id: member.user_id,
+        });
+        appendLog({
+          user_id: user?.id ?? null,
+          team_id: team.id,
+          action: 'team_member_removed',
+          entity_type: 'team',
+          entity_id: team.id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: memberName,
+          metadata: JSON.stringify({ member_user_id: member.user_id }),
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not remove member', `${memberName} was not removed. Please try again.`);
+      return;
+    }
+    // Refresh only after the write committed.
+    setMembers(getTeamMembers(team.id));
   }
 
   // ── Promote / demote manager ────────────────────────────────────────────────
@@ -457,23 +453,23 @@ export default function TeamDetailScreen() {
         {/* Header card */}
         <Card variant="detail">
           <Text style={s.teamName}>{team.name}</Text>
-          <View style={s.attrRow}>
-            <Text style={s.attrKey}>Type</Text>
-            <Text style={s.attrVal}>{(() => { const icon = getTypeIcon('team', team.type); return icon ? `${icon} ${team.type}` : team.type; })()}</Text>
-          </View>
+          <KeyValueRow
+            label="Type"
+            value={(() => { const icon = getTypeIcon('team', team.type); return icon ? `${icon} ${team.type}` : team.type; })()}
+          />
           {managers.length > 0 && (
-            <View style={[s.attrRow, s.divider]}>
-              <Text style={s.attrKey}>
-                Manager{managers.length === 1 ? '' : 's'}
-              </Text>
-              <View style={s.mgrChips}>
-                {managers.map(mgr => (
-                  <View key={mgr.user_id} style={s.mgrChip}>
-                    <Text style={s.mgrChipText}>{mgr.user_name ?? mgr.user_id}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+            <KeyValueRow
+              label={`Manager${managers.length === 1 ? '' : 's'}`}
+              badge={
+                <View style={s.mgrChips}>
+                  {managers.map(mgr => (
+                    <View key={mgr.user_id} style={s.mgrChip}>
+                      <Text style={s.mgrChipText}>{mgr.user_name ?? mgr.user_id}</Text>
+                    </View>
+                  ))}
+                </View>
+              }
+            />
           )}
           {canManageRoster && (
             <TouchableOpacity
