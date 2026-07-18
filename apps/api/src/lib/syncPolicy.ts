@@ -148,6 +148,10 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   // a message — both are stamped to the authenticated caller on INSERT.
   conversations: ['created_by'],
   messages: ['sender_id'],
+  // user_prefs is keyed ON its attribution column: forcing user_id to the caller
+  // means the upsert (ON CONFLICT user_id) can only ever land on the caller's own
+  // row — self-write enforced structurally, no dedicated guard needed.
+  user_prefs: ['user_id'],
 };
 
 export function applyWritePolicy(
@@ -318,6 +322,10 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   conversations:             { INSERT: null, UPDATE: null },
   conversation_participants: { INSERT: null, UPDATE: null, DELETE: null },
   messages:                  { INSERT: null, UPDATE: null },
+  // user_prefs: any authed user may set their own prefs (attribution pins the
+  // row to the caller). Clients only ever INSERT (upsert on user_id); UPDATE/
+  // DELETE are absent → fail closed.
+  user_prefs:                { INSERT: null },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -408,6 +416,7 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'equipment_units') return canViewFinancial ? EQUIPMENT_UNITS_BASE + EQUIPMENT_UNITS_SENSITIVE : EQUIPMENT_UNITS_BASE;
   if (table === 'maintenance_events') return canViewFinancial ? MAINTENANCE_EVENTS_BASE + MAINTENANCE_EVENTS_SENSITIVE : MAINTENANCE_EVENTS_BASE;
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
+  if (table === 'user_prefs') return 'user_id, theme, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;

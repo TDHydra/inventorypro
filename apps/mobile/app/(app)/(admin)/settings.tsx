@@ -33,6 +33,9 @@ import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { QrSigningSection } from '../../../src/components/QrSigningSection';
 import { colors, spacing, radii, fontSizes } from '../../../src/theme';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
+import { useTheme } from '../../../src/hooks/useTheme';
+import { themeList } from '../../../src/themes/registry';
+import { chooseTheme } from '../../../src/db/userPrefs';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -106,6 +109,7 @@ export default function SettingsScreen() {
   const canBroadcast = usePermission('send_notifications');
   const canViewAudit = usePermission('view_audit_log');
   const { user, logout } = useSession();
+  const activeThemeId = useTheme().id;
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
   // Demo-accounts kill switch is apex-only — full_admin exactly, NOT tier-4 peers.
   const isApex = user?.role === 'full_admin';
@@ -505,6 +509,43 @@ export default function SettingsScreen() {
                 value={notifEnabled}
                 onValueChange={(v) => { void handleToggleNotifications(v); }}
               />
+            </View>
+          </View>
+        </View>
+
+        {/* ── Theme (per user, synced) ──────────────────────────────────── */}
+        <View>
+          <Text style={s.sectionTitle}>Theme</Text>
+          <View style={s.card}>
+            {themeList().map((th, i) => (
+              <View key={th.id}>
+                {i > 0 && <View style={s.divider} />}
+                <TouchableOpacity
+                  style={s.row}
+                  onPress={() => { if (user) chooseTheme(user.id, th.id); }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.rowLabel}>{th.name}</Text>
+                  </View>
+                  {/* Palette preview: bg / surface / primary / accent */}
+                  {[th.colors.background, th.colors.surface, th.colors.primary, th.colors.accent].map((c, j) => (
+                    <View
+                      key={j}
+                      style={{
+                        width: 18, height: 18, borderRadius: 9, backgroundColor: c,
+                        borderWidth: 1, borderColor: th.colors.border, marginLeft: 4,
+                      }}
+                    />
+                  ))}
+                  <Text style={[s.rowSub, { marginLeft: spacing.md, width: 18 }]}>
+                    {activeThemeId === th.id ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={s.divider} />
+            <View style={s.infoBlock}>
+              <Text style={s.rowSub}>Synced to your account — follows you across devices.</Text>
             </View>
           </View>
         </View>

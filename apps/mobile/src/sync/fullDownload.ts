@@ -15,6 +15,9 @@ const SYNC_TABLES = [
   // /sync/pull — added so a fresh device has full state after enrollment.
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
   'maintenance_events', 'label_templates', 'dashboard_presets',
+  // user_prefs is SCOPED_TABLES server-side (only the caller's own row comes
+  // back) — per-user theme choice follows the user onto a fresh device.
+  'user_prefs',
   // notifications is SCOPED_TABLES (server returns only the caller's own rows);
   // approval_requests is unscoped but /sync/pull already returns all rows to
   // every user, so a full backfill is consistent (no new exposure).
