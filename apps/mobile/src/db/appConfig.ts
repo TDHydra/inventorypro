@@ -1,5 +1,8 @@
 import { getDb } from './schema';
 
+/** app_config key for the org-wide default theme (Phase E, #138). */
+export const ORG_THEME_KEY = 'default_theme_id';
+
 /** Reads a synced app_config value, or null if unset. */
 export function getAppConfig(key: string): string | null {
   try {

@@ -14,6 +14,7 @@ import { loadChatCache } from '../chat/store';
 import { notifyHiddenFieldsChanged } from '../db/hiddenFields';
 import { notifyUnitAccessDefaultsChanged } from '../db/unitAccessDefaults';
 import { applyUserTheme } from '../db/userPrefs';
+import { applyOrgDefaultTheme } from '../db/orgTheme';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
 import { prefetchNewMediaThumbnails } from './mediaPrefetch';
 import { track } from '../telemetry';
@@ -252,10 +253,14 @@ async function runDrainAndPull(): Promise<void> {
     // so HidableField components re-render without waiting for a focus event.
     notifyHiddenFieldsChanged();
     notifyUnitAccessDefaultsChanged();
-    // A pull may also have delivered a theme change made on the user's other
-    // device — prompt before re-skinning mid-use ("Keep current" reverts the
-    // change everywhere). No-op / silent when unchanged or chosen locally.
-    void getSavedUserId().then(id => { if (id) applyUserTheme(id, { prompt: true }); });
+    // A pull may also have changed the org default theme (app_config
+    // 'default_theme_id') — silently re-theme users who never picked their own
+    // (no prompt: they never chose, so following the org default is the intent),
+    // then run the personal-theme prompt path for users who did.
+    void getSavedUserId().then(id => {
+      applyOrgDefaultTheme(id ?? null);
+      if (id) applyUserTheme(id, { prompt: true });
+    });
     // Fire-and-forget local alert checks (low stock / temp-employee expiry).
     // It swallows its own errors and resolves void, so it can't disturb the
     // existing try/catch/return behaviour of this cycle.

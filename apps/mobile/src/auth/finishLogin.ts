@@ -8,6 +8,7 @@ import { setSandboxActive } from '../sync/sandbox';
 import { discardPendingOutbox } from '../sync/outbox';
 import { setAppSetting, deleteAppSetting } from '../db/appSettings';
 import { applyUserTheme } from '../db/userPrefs';
+import { applyOrgDefaultTheme } from '../db/orgTheme';
 
 /** app_settings flag: a test session is (or was) live on this device. Read at
  * startup so a demo session killed mid-run still gets wiped on next launch. */
@@ -88,9 +89,9 @@ export function finishLogin(userId: string, setUser: (s: UserSession) => void): 
     /* maintenance lock or transient write error — sign-in proceeds regardless */
   }
 
-  // Apply this user's synced theme choice (their pick from another device may
-  // already be in user_prefs). Best-effort; no-op when they never chose one.
-  try { applyUserTheme(session.id); } catch { /* keep the device theme */ }
+  // Theme precedence at login: org default (app_config, arrived with the full
+  // download) unless this user picked their own; then their synced pick.
+  try { applyOrgDefaultTheme(session.id); applyUserTheme(session.id); } catch { /* keep the device theme */ }
 
   setUser(session);
 
