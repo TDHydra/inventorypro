@@ -307,6 +307,29 @@ export default function HubScreen() {
     setMode('destination');
   }
 
+  // #139: scoped check-out to a chosen destination (another location / vehicle
+  // / locker / job) instead of "take it with me". Source is the loc-context, so
+  // no source-picker step — jump straight to the DestinationPicker.
+  function onInOutToDestination(dir: 'in' | 'out', qty: number) {
+    if (!pendingItem || dir !== 'out' || !locContext) return;
+    if (!canCheckout) {
+      Alert.alert('Not authorized', 'You don’t have permission to check out inventory.');
+      return;
+    }
+    if (getStockQuantity(pendingItem.id, locContext.id) < qty) {
+      Alert.alert(
+        'Not enough here',
+        `Only ${formatQuantity(getStockQuantity(pendingItem.id, locContext.id), pendingItem.unit, pendingItem.unit_category as any)} at ${locContext.name}.`,
+      );
+      return;
+    }
+    setPendingAction({ item: pendingItem, dir: 'out', qty });
+    setNeedSource(false);
+    setSourceId(locContext.id);
+    setSourceSel(null);
+    setMode('destination');
+  }
+
   // #127 fast checkout: deduct from the loc-context source with no destination
   // (the tech takes it into the field). Same failure discipline as the
   // destination path — an error must not show a receipt or "scan another?".
@@ -700,6 +723,10 @@ export default function HubScreen() {
         item={pendingItem}
         onChoose={onInOutChosen}
         onClose={() => { resetConsumable(); setMode('browse'); }}
+        // #139: from a scoped source, offer a destination (another location /
+        // vehicle / locker / job) alongside the one-tap "take it with me".
+        secondaryLabel={locContext ? 'Send somewhere…' : undefined}
+        onSecondary={locContext ? onInOutToDestination : undefined}
       />
 
       {/* Destination resolve (consumable + equipment batch) */}

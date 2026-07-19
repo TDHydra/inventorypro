@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ModalSheet } from '../ui/ModalSheet';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FilterChip } from '../ui/FilterChip';
@@ -14,11 +14,16 @@ interface Props {
   item: InventoryItem | null;
   onChoose: (dir: 'in' | 'out', qty: number) => void;
   onClose: () => void;
+  // #139: an optional secondary action for scoped check-outs — "take it with
+  // me" stays the one-tap primary, this opens the destination picker (another
+  // location / vehicle / locker / job). Only shown for a check-OUT.
+  secondaryLabel?: string;
+  onSecondary?: (dir: 'in' | 'out', qty: number) => void;
 }
 
 // "Check In or Check Out?" + qty stepper. Default direction Out, default qty 1.
 // "Continue" parses qty (NaN + MAX_QUANTITY bound) and reports the choice.
-export function InOutSheet({ visible, item, onChoose, onClose }: Props) {
+export function InOutSheet({ visible, item, onChoose, onClose, secondaryLabel, onSecondary }: Props) {
   const s = useThemedStyles(makeStyles);
   const [direction, setDirection] = useState<'in' | 'out'>('out');
   const [qty, setQty] = useState('1');
@@ -33,7 +38,9 @@ export function InOutSheet({ visible, item, onChoose, onClose }: Props) {
     }
   }, [visible]);
 
-  const onContinue = () => {
+  // Parse+validate qty once, then hand off to primary (onChoose) or the
+  // optional secondary (onSecondary) action.
+  const dispatch = (fn: (dir: 'in' | 'out', qty: number) => void) => {
     // Reject NaN / ≤0 / overflow (e.g. "1e308") with a clear inline message
     // instead of silently doing nothing.
     const parsed = parseQuantity(qty);
@@ -42,8 +49,12 @@ export function InOutSheet({ visible, item, onChoose, onClose }: Props) {
       return;
     }
     setError(null);
-    onChoose(direction, parsed.value);
+    fn(direction, parsed.value);
   };
+  const onContinue = () => dispatch(onChoose);
+
+  // The secondary destination action only makes sense for a check-OUT.
+  const showSecondary = !!onSecondary && !!secondaryLabel && direction === 'out';
 
   return (
     <ModalSheet visible={visible} onClose={onClose}>
@@ -62,11 +73,20 @@ export function InOutSheet({ visible, item, onChoose, onClose }: Props) {
       />
       {error && <Text style={s.error}>{error}</Text>}
       <PrimaryButton
-        label="Continue"
+        label={showSecondary ? 'Take it with me' : 'Continue'}
         onPress={onContinue}
         disabled={!parseQuantity(qty).ok}
         style={{ marginTop: 12 }}
       />
+      {showSecondary && (
+        <TouchableOpacity
+          onPress={() => dispatch(onSecondary!)}
+          disabled={!parseQuantity(qty).ok}
+          style={s.secondaryBtn}
+        >
+          <Text style={s.secondaryText}>{secondaryLabel!}</Text>
+        </TouchableOpacity>
+      )}
     </ModalSheet>
   );
 }
@@ -76,4 +96,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   chipRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   label: { fontSize: 13, fontWeight: '600', color: t.colors.textSecondary, marginBottom: 6 },
   error: { fontSize: 13, color: t.colors.danger, marginTop: 6 },
+  secondaryBtn: { marginTop: 10, paddingVertical: 10, alignItems: 'center' },
+  secondaryText: { fontSize: 15, fontWeight: '600', color: t.colors.brand },
 });

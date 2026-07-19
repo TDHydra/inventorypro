@@ -90,3 +90,26 @@ test('a can_view=0 grant and a legacy locker_access-only row do not grant access
   assert.ok(!ids.includes('lock-nv'), 'can_view=0 must not grant day-to-day access');
   assert.ok(!ids.includes('lock-old'), 'deprecated locker_access must no longer be read');
 });
+
+test('#139: getCheckoutSourceLocations adds stock-holding main locations, keeps units', () => {
+  const db = testDb.getDb();
+  db.executeSync(`
+    INSERT INTO locations (id, name, type, owner_user_id, active, updated_at) VALUES
+      ('loc-shop',  'Main Shop',   'Shop',  NULL, 1, '2026-07-19T00:00:00.000Z'),
+      ('loc-empty', 'Empty Bay',   'Shop',  NULL, 1, '2026-07-19T00:00:00.000Z'),
+      ('loc-inact', 'Closed Yard', 'Shop',  NULL, 0, '2026-07-19T00:00:00.000Z');
+    INSERT INTO inventory_items (id, name, active) VALUES ('it-1','Air mover',1);
+    INSERT INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES
+      ('it-1','loc-shop', 5, '2026-07-19T00:00:00.000Z'),
+      ('it-1','lock-g',   2, '2026-07-19T00:00:00.000Z'),
+      ('it-1','loc-inact',9, '2026-07-19T00:00:00.000Z');
+  `);
+  const src = access.getCheckoutSourceLocations('user-a');
+  // Main locations: only active ones holding stock; NOT empty, NOT inactive, NOT units.
+  assert.deepEqual(src.locations.map(l => l.id), ['loc-shop']);
+  // Unit partitions are unchanged (still the accessible locker/vehicle).
+  assert.deepEqual(src.lockers.map(l => l.id), ['lock-g']);
+  assert.deepEqual(src.vehicles.map(v => v.id), ['veh-g']);
+  // A Locker holding stock must NOT leak into the main-locations list.
+  assert.ok(!src.locations.some(l => l.id === 'lock-g'), 'units never appear as main locations');
+});

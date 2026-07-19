@@ -258,6 +258,28 @@ export function searchLocations(q: string, limit = 20): Location[] {
 
 // "Office" destinations — locations tagged Shop or Office (the franchise base).
 // Backs the scan check-out flow's Office quick-destination.
+/**
+ * #139: active, stock-holding MAIN locations usable as a fast-checkout source —
+ * the explicit Location half of the Location ∪ Vehicle ∪ Locker source union.
+ * NOT the A2 exclusion-filtered browse query: this is built directly, excluding
+ * only units (Vehicle/Locker, which have their own access path) and child
+ * shelves (roll up to their parent). A location with no positive stock is not a
+ * source. Access is role-only (checkout_inventory, gated at the screen) — main
+ * locations carry no per-object ACL.
+ */
+export function getStockHoldingSourceLocations(): Location[] {
+  const db = getDb();
+  return rowsAs<Location>(db.executeSync(
+    `SELECT DISTINCT l.* FROM locations l
+       JOIN stock_by_location s ON s.location_id = l.id
+       JOIN inventory_items i ON i.id = s.item_id AND i.active = 1
+      WHERE l.active = 1 AND s.quantity > 0
+        AND l.type NOT IN ('Vehicle', 'Locker')
+        AND NOT (l.type = 'Shelf' AND l.parent_id IS NOT NULL)
+      ORDER BY l.name`,
+  ).rows);
+}
+
 export function getOfficeLocations(): Location[] {
   const db = getDb();
   const result = db.executeSync(
