@@ -107,34 +107,39 @@ Re-audit with:
 each registration's `schema` carries a `body` (or `params` for a body-less
 DELETE).
 
-## Dependency audit (`pnpm audit --prod`, 2026-07-18)
+## Dependency audit (`pnpm audit --prod`, updated 2026-07-19)
 
 `scripts/security-audit.sh` (no artifact arg) runs `pnpm audit --prod` per
-workspace. As of 2026-07-18 it reports **19 prod advisories** in `apps/api`,
-all in **transitive** deps pulled by the Fastify 4.x line:
+workspace.
 
-| Package | Installed | Severity | Fixed in | Notes |
-|---|---|---|---|---|
-| `fast-jwt` | 4.0.5 (via `@fastify/jwt@8`) | **critical** | ≥6.2.4 | See exposure note below |
-| `fast-uri` | 2.4.0 (via fastify/ajv) | high | ≥3.1.2 | 3.1.2 also present (deduped elsewhere) |
-| `fastify` | 4.29.1 | high/mod/low | ≥5.7.3 | v4→v5 is a **major** migration |
-| `tar` | 6.2.1 (via bcrypt→node-pre-gyp) | high | ≥7.5.16 | 6→7 major; transitive build dep |
-| `uuid` | 7.0.3 (transitive) / 10.0.0 (direct) | moderate | ≥11.1.1 | |
+**2026-07-19 (#93 Fastify 5 upgrade):** the Fastify 4.x advisory backlog is
+**cleared**. `apps/api` moved to Fastify 5 (`fastify@^5`, `@fastify/cors@^11`,
+`@fastify/helmet@^13`, `@fastify/jwt@^10`, `@fastify/postgres@^6`,
+`uuid@^11`; unused `@fastify/multipart` removed). This resolves:
 
-**Why not patched in this pass:** every fix is entangled with a **major**
-upgrade — the critical `fast-jwt` bump requires a newer `@fastify/jwt`, which
-requires **Fastify 5** (breaking changes across every route plugin). That is a
-migration with real integration + on-device test surface, not a hardening
-one-liner, so it is tracked as its own backlog item rather than bundled here.
+- **`fast-jwt` critical** (JWT auth bypass via empty HMAC secret, CVE-2023-48223
+  incomplete fix, cacheKeyBuilder cache confusion) — now `fast-jwt@6.2.4` via
+  `@fastify/jwt@10` (verify with `pnpm why fast-jwt`).
+- All `fastify` 4.x advisories (Content-Type tab-character high,
+  protocol/host spoofing moderate, sendWebStream DoS low) and the `fast-uri`
+  highs pulled by the 4.x line.
+- The `tar` highs (via bcrypt→node-pre-gyp): a root `pnpm.overrides`
+  entry `"tar": ">=7"` forces `tar@7.x` for the transitive build dep.
+- Direct `uuid` moderate (now `uuid@11.1.1`, which ships its own types —
+  `@types/uuid` dropped).
 
-**`fast-jwt` exposure (mitigating context):** `@fastify/jwt` is registered with
-a **symmetric secret only** (HS256; boot refuses a secret `< 32` chars —
-`index.ts:110-120`). No asymmetric keys are configured and no `iss`/`aud`
-claim-array validation is used, so the algorithm-confusion / claim-bypass class
-that the critical `fast-jwt` advisories describe is **not reached** by this
-configuration. The upgrade is still the right long-term fix; the practical
-exposure today is low. Refresh tokens are additionally rejected as access
-tokens via an explicit `type` check (`index.ts:122-125`).
+**Remaining known advisory:** 1 moderate — transitive `uuid@7.0.3` via
+`expo → @expo/cli → @expo/config-plugins → xcode@3.0.1` in `apps/mobile`.
+That is prebuild-time tooling only (never shipped in the app bundle or run
+server-side); it clears whenever Expo bumps its `xcode` dependency. Because
+of it `scripts/security-audit.sh` still exits non-zero.
+
+Historical context (pre-upgrade, 2026-07-18): 19 prod advisories in
+`apps/api`, all transitive via the Fastify 4.x line, headlined by the
+`fast-jwt@4.0.5` criticals. Practical exposure was low — `@fastify/jwt` is
+registered with a symmetric secret only (HS256; boot refuses a secret `< 32`
+chars) and refresh tokens are rejected as access tokens via an explicit
+`type` check — but the major upgrade was the correct fix and has now landed.
 
 **Bundle secret scan** (`scripts/check-bundle-secrets.sh`) requires a built
 artifact (APK/AAB + web dist); run it as part of a release build:
