@@ -463,3 +463,22 @@ test('users exposes enrollment_code_public only through the is_test CASE guard',
   // never as a bare projection that would leak a value planted on a real row
   assert.ok(!cols.includes(', enrollment_code_public,'));
 });
+
+// ── #122 Phase A1: unit_access sync policy + two-tank vehicle columns ────────
+
+test('unit_access: ops open to any authed user (real gate is the per-row owner guard in sync.ts)', () => {
+  assert.equal(requiredOperationPerm('unit_access', 'INSERT'), null);
+  assert.equal(requiredOperationPerm('unit_access', 'UPDATE'), null);
+  assert.equal(requiredOperationPerm('unit_access', 'DELETE'), null);
+});
+
+test('unit_access: granted_by is attribution-forced to the caller', () => {
+  const cols = new Map([['unit_access', new Set(['location_id', 'user_id', 'can_view', 'can_add', 'can_remove', 'can_move', 'can_edit_details', 'can_grant', 'granted_by', 'created_at', 'updated_at'])]]);
+  const { row } = applyWritePolicy('unit_access', 'INSERT', { location_id: 'l1', user_id: 'u2', can_view: true, granted_by: 'someone-else' }, 'caller-1', cols, () => true);
+  assert.equal(row.granted_by, 'caller-1');
+});
+
+test('selectColumnsFor: unit_access + two-tank vehicle columns', () => {
+  assert.equal(selectColumnsFor('unit_access', false), 'location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at');
+  assert.match(selectColumnsFor('vehicles', false), /water_tank, waste_tank/);
+});

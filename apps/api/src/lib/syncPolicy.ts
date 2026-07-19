@@ -158,6 +158,7 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   // vehicle_checkouts this doubles as a guard: the close-only takeover UPDATE
   // (routes/sync.ts) cannot steal the row because user_id is dropped here.
   locker_access: ['granted_by'],
+  unit_access: ['granted_by'],
   vehicle_checkouts: ['user_id'],
   vehicle_service_records: ['created_by'],
   on_call_shifts: ['created_by'],
@@ -347,6 +348,9 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   vehicle_service_records:   { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   vehicle_checkouts:         { INSERT: 'checkout_inventory', UPDATE: 'checkout_inventory' },
   locker_access:             { INSERT: null, UPDATE: null, DELETE: null },
+  // unit_access (#122 Phase A1): all-null like locker_access — the real gate is
+  // the per-row owner-or-org-authority guard in routes/sync.ts.
+  unit_access:               { INSERT: null, UPDATE: null, DELETE: null },
   on_call_shifts:            { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
 };
 
@@ -442,11 +446,12 @@ const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at
 // vehicle_service_records.cost is financial (gated behind view_financial_data,
 // the maintenance_events pattern); the other five carry no financial columns.
 const SUBTEAMS_COLS = 'id, team_id, name, active, created_at, updated_at';
-const VEHICLES_COLS = 'location_id, truck_mount, water_state, model, model_id, notes, updated_at';
+const VEHICLES_COLS = 'location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank';
 const VEHICLE_SERVICE_RECORDS_BASE = 'id, vehicle_location_id, target, event_date, type, notes, odometer, created_by, created_at, updated_at';
 const VEHICLE_SERVICE_RECORDS_SENSITIVE = ', cost';
 const VEHICLE_CHECKOUTS_COLS = 'id, vehicle_location_id, user_id, job_id, checked_out_at, checked_in_at, created_at, updated_at';
 const LOCKER_ACCESS_COLS = 'location_id, user_id, granted_by, created_at, updated_at';
+const UNIT_ACCESS_COLS = 'location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at';
 const ON_CALL_SHIFTS_COLS = 'id, subteam_id, week_start, created_by, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
@@ -469,6 +474,7 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'vehicle_service_records') return canViewFinancial ? VEHICLE_SERVICE_RECORDS_BASE + VEHICLE_SERVICE_RECORDS_SENSITIVE : VEHICLE_SERVICE_RECORDS_BASE;
   if (table === 'vehicle_checkouts') return VEHICLE_CHECKOUTS_COLS;
   if (table === 'locker_access') return LOCKER_ACCESS_COLS;
+  if (table === 'unit_access') return UNIT_ACCESS_COLS;
   if (table === 'on_call_shifts') return ON_CALL_SHIFTS_COLS;
   return '*';
 }

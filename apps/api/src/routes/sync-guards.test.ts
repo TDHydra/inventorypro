@@ -44,6 +44,7 @@ const COLUMNS: Record<string, string[]> = {
   vehicles: ['location_id', 'truck_mount', 'water_state', 'model', 'model_id', 'notes', 'updated_at'],
   vehicle_checkouts: ['id', 'vehicle_location_id', 'user_id', 'job_id', 'checked_out_at', 'checked_in_at', 'created_at', 'updated_at'],
   locker_access: ['location_id', 'user_id', 'granted_by', 'created_at', 'updated_at'],
+  unit_access: ['location_id', 'user_id', 'can_view', 'can_add', 'can_remove', 'can_move', 'can_edit_details', 'can_grant', 'granted_by', 'created_at', 'updated_at'],
   on_call_shifts: ['id', 'subteam_id', 'week_start', 'created_by', 'created_at', 'updated_at'],
   locations: ['id', 'name', 'type', 'type_id', 'owner_user_id', 'active', 'updated_at'],
 };
@@ -429,6 +430,37 @@ test('locker_access: org authority may manage access to any locker', async () =>
   const pg = fakePg({ callerRole: 'full_admin', lockerOwner: OTHER });
   const body = await push(pg, [
     { operation: 'INSERT', table_name: 'locker_access', payload: { location_id: 'loc-1', user_id: CALLER } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+// ── #122 Phase A1: unit_access rides the same owner-or-org-authority guard ───
+
+test('unit_access: the unit OWNER may grant, and granted_by is forced to the caller', async () => {
+  const pg = fakePg({ callerRole: 'mitigation_technician', lockerOwner: CALLER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: OTHER, can_view: true, can_add: true, can_remove: false, can_move: false, can_edit_details: false, can_grant: false, granted_by: OTHER, created_at: NOW, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO unit_access'));
+  assert.ok(ins && ins.params.includes(CALLER), 'granted_by forced to caller');
+});
+
+test('unit_access: a non-owner without org authority is a permanent rejection', async () => {
+  const pg = fakePg({ callerRole: 'mitigation_technician', lockerOwner: OTHER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: CALLER, can_view: true, created_at: NOW, updated_at: NOW } },
+    { operation: 'DELETE', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: OTHER } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 2);
+  for (const c of body.conflicts) assert.match(c.error, PERMANENT);
+});
+
+test('unit_access: org authority may manage access to any unit', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', lockerOwner: OTHER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: CALLER, can_view: true, can_grant: true, created_at: NOW, updated_at: NOW } },
   ]);
   assert.deepEqual(body.ok, ['e1']);
 });

@@ -49,7 +49,7 @@ const ALLOWED_TABLES = new Set([
   'conversations', 'conversation_participants', 'messages',
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
-  'locker_access', 'on_call_shifts',
+  'locker_access', 'on_call_shifts', 'unit_access',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -91,6 +91,7 @@ const CONFLICT_TARGETS: Record<string, string> = {
   messages: 'id',
   vehicles: 'location_id',
   locker_access: 'location_id, user_id',
+  unit_access: 'location_id, user_id',
   // Keyed on the WEEK, not the row id: one crew per week, and a reassignment
   // from any device upserts over the standing assignment instead of duplicating.
   on_call_shifts: 'week_start',
@@ -254,7 +255,7 @@ const FULL_TABLES = [
   'conversations', 'conversation_participants', 'messages',
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
-  'locker_access', 'on_call_shifts',
+  'locker_access', 'on_call_shifts', 'unit_access',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
@@ -1240,12 +1241,13 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // locker_access (#126): these rows GRANT stock access (the ADJUST locker
-      // guard trusts them), so writes are owner-or-org-authority only. The
-      // owner is the DB's locations.owner_user_id — never the payload's — and a
-      // grant against a location the server doesn't have fails closed with
-      // permanent wording (the location itself was likely rejected upstream).
-      if (entry.table_name === 'locker_access') {
+      // locker_access (#126) / unit_access (#122 Phase A1): these rows GRANT
+      // stock access (the ADJUST locker guard trusts them), so writes are
+      // owner-or-org-authority only. The owner is the DB's
+      // locations.owner_user_id — never the payload's — and a grant against a
+      // location the server doesn't have fails closed with permanent wording
+      // (the location itself was likely rejected upstream).
+      if (entry.table_name === 'locker_access' || entry.table_name === 'unit_access') {
         let ownerId: string | null = null;
         let locExists = false;
         try {
@@ -1258,15 +1260,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
           }
         } catch { locExists = false; }
         if (!locExists) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: locker location does not exist' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist' });
           continue;
         }
         if (!isOrgAuthority(caller.role) && (ownerId == null || String(ownerId) !== userId)) {
           request.log.warn(
             { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
-            'sync push locker_access denied (not the owner)',
+            'sync push locker_access/unit_access denied (not the owner)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: only the locker owner can manage access' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: only the unit owner can manage access' });
           continue;
         }
       }
