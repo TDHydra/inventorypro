@@ -58,12 +58,23 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD} &&
-      mc mb --ignore-existing local/${MINIO_BUCKET:-inventorypro-media} &&
-      mc anonymous set download local/${MINIO_BUCKET:-inventorypro-media}
-      "
+    # SEC-L #46: anonymous GetObject only — NOT `mc anonymous set download`,
+    # which also grants s3:ListBucket and lets anyone enumerate every media key.
+    # Media keys are <entity>/<uuid>/<random-uuid>.jpg, so without listing a
+    # client must already hold the exact (unguessable) key to fetch — the app
+    # stores those keys in the synced, auth-gated media table. (List form + a
+    # heredoc avoids the nested-quote parse errors a folded JSON policy hits.)
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD}
+        mc mb --ignore-existing local/${MINIO_BUCKET:-inventorypro-media}
+        cat > /tmp/anon-getobject.json <<'JSON'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${MINIO_BUCKET:-inventorypro-media}/*"]}]}
+        JSON
+        mc anonymous set-json /tmp/anon-getobject.json local/${MINIO_BUCKET:-inventorypro-media}
     restart: "no"
 
   api:

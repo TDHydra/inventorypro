@@ -47,12 +47,21 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD} &&
-      mc mb --ignore-existing local/${MINIO_BUCKET:-inventorypro-media} &&
-      mc anonymous set download local/${MINIO_BUCKET:-inventorypro-media}
-      "
+    # SEC-L #46: anonymous GetObject only — `mc anonymous set download` also
+    # grants s3:ListBucket, letting anyone enumerate every media key. Keys are
+    # unguessable (<entity>/<uuid>/<random-uuid>.jpg), so no-listing = a client
+    # needs the exact key (held only in the auth-gated synced media table).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD}
+        mc mb --ignore-existing local/${MINIO_BUCKET:-inventorypro-media}
+        cat > /tmp/anon-getobject.json <<'JSON'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${MINIO_BUCKET:-inventorypro-media}/*"]}]}
+        JSON
+        mc anonymous set-json /tmp/anon-getobject.json local/${MINIO_BUCKET:-inventorypro-media}
     restart: "no"
 
   api:

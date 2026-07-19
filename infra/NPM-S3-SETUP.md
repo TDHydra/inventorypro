@@ -64,3 +64,35 @@ smoke test against prod, then media works on your phone.
 
 > If the `inventorypro-media` bucket doesn't exist on prod yet, I can create it
 > via the `unraid` skill in one command (mirrors the dev setup).
+
+---
+
+## 4. Anonymous access policy (SEC-L #46)
+
+The bucket's anonymous policy must be **GetObject-only** — never `mc anonymous
+set download`, which additionally grants `s3:ListBucket` and lets anyone
+enumerate every media key. Clients render `PUBLIC_MEDIA_URL/<key>` directly, so
+anonymous object read is required; listing is not. Keys are
+`<entity>/<uuid>/<random-uuid>.jpg`, so with listing disabled a client must
+already hold the exact (unguessable) key — and those live only in the synced,
+auth-gated `media` table.
+
+The compose `minio-init` service now applies this automatically. To (re)apply it
+by hand on prod — e.g. after wiping the MinIO volume:
+
+```bash
+ssh root@<UNRAID-IP> 'docker exec inventorypro-minio-1 sh -c "
+  mc alias set local http://localhost:9000 \$MINIO_ROOT_USER \$MINIO_ROOT_PASSWORD
+  printf %s \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Principal\\\":{\\\"AWS\\\":[\\\"*\\\"]},\\\"Action\\\":[\\\"s3:GetObject\\\"],\\\"Resource\\\":[\\\"arn:aws:s3:::inventorypro-media/*\\\"]}]}\" > /tmp/anon.json
+  mc anonymous set-json /tmp/anon.json local/inventorypro-media"'
+```
+
+Verify: a known object still returns `200`, but bucket listing returns
+`AccessDenied`:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" "https://s3.invenpro.app/inventorypro-media/<known/key>.jpg"  # 200
+curl -s "https://s3.invenpro.app/inventorypro-media/?list-type=2" | head -c 80                          # AccessDenied
+```
+
+> Applied to prod 2026-07-19 (was `download`/ListBucket — now GetObject-only).
