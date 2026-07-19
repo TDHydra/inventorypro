@@ -128,7 +128,8 @@ async function loadMigrations(): Promise<Migration[]> {
   const { migration: m042 } = await import('./migrations/042_vehicles');
   const { migration: m043 } = await import('./migrations/043_locker_access');
   const { migration: m044 } = await import('./migrations/044_on_call');
-  return [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m040, m041, m042, m043, m044].sort((a, b) => a.version - b.version);
+  const { migration: m045 } = await import('./migrations/045_two_tanks');
+  return [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m040, m041, m042, m043, m044, m045].sort((a, b) => a.version - b.version);
 }
 
 // Type-safe cast helper — accepts any array (raw op-sqlite rows or pre-typed query results)
