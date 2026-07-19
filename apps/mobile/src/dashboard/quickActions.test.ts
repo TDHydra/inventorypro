@@ -28,8 +28,10 @@ const NONE = {
   lowStockCount: 0,
 };
 
-test('#144: nothing contextual → no actions', () => {
-  assert.deepEqual(computeQuickActions(NONE), []);
+test('#149: nothing contextual → only the check-out CTA remains', () => {
+  assert.deepEqual(computeQuickActions(NONE), [
+    { key: 'vehicle-checkin', mode: 'check_out', label: 'Check Out a Vehicle' },
+  ]);
 });
 
 test('#144: active vehicle checkout → check-in action with vehicle name', () => {
@@ -40,6 +42,7 @@ test('#144: active vehicle checkout → check-in action with vehicle name', () =
   assert.equal(actions.length, 1);
   assert.deepEqual(actions[0], {
     key: 'vehicle-checkin',
+    mode: 'check_in',
     vehicleLocationId: 'v1',
     label: 'Check In Van 2',
   });
@@ -53,15 +56,19 @@ test('#144: checkout without a name falls back to generic label', () => {
   assert.equal(a.label, 'Check In Vehicle');
 });
 
+// Non-vehicle actions in the results (the vehicle card is always present, #149).
+const rest = (actions: ReturnType<typeof computeQuickActions>) =>
+  actions.filter(a => a.key !== 'vehicle-checkin');
+
 test('#144: past-due needs edit_inventory; counts combine repairs + service', () => {
   // Without the permission the counts are invisible.
   assert.deepEqual(
-    computeQuickActions({ ...NONE, overdueRepairCount: 2, serviceDueCount: 1 }),
+    rest(computeQuickActions({ ...NONE, overdueRepairCount: 2, serviceDueCount: 1 })),
     [],
   );
-  const actions = computeQuickActions({
+  const actions = rest(computeQuickActions({
     ...NONE, canEditInventory: true, overdueRepairCount: 2, serviceDueCount: 1,
-  });
+  }));
   assert.equal(actions.length, 1);
   assert.equal(actions[0].key, 'past-due');
   assert.equal((actions[0] as { count: number }).count, 3);
@@ -70,20 +77,20 @@ test('#144: past-due needs edit_inventory; counts combine repairs + service', ()
 });
 
 test('#144: past-due with only service due routes to equipment', () => {
-  const [a] = computeQuickActions({ ...NONE, canEditInventory: true, serviceDueCount: 2 });
+  const [a] = rest(computeQuickActions({ ...NONE, canEditInventory: true, serviceDueCount: 2 }));
   assert.equal(a.key, 'past-due');
   assert.equal((a as { target: string }).target, 'equipment');
 });
 
 test('#144: low stock needs edit_inventory AND a non-empty list', () => {
-  assert.deepEqual(computeQuickActions({ ...NONE, lowStockCount: 4 }), []);
-  assert.deepEqual(computeQuickActions({ ...NONE, canEditInventory: true }), []);
-  const [a] = computeQuickActions({ ...NONE, canEditInventory: true, lowStockCount: 4 });
+  assert.deepEqual(rest(computeQuickActions({ ...NONE, lowStockCount: 4 })), []);
+  assert.deepEqual(rest(computeQuickActions({ ...NONE, canEditInventory: true })), []);
+  const [a] = rest(computeQuickActions({ ...NONE, canEditInventory: true, lowStockCount: 4 }));
   assert.deepEqual(a, { key: 'low-stock-catalog', count: 4, label: '4 low stock items' });
 });
 
 test('#144: singular label for one low stock item', () => {
-  const [a] = computeQuickActions({ ...NONE, canEditInventory: true, lowStockCount: 1 });
+  const [a] = rest(computeQuickActions({ ...NONE, canEditInventory: true, lowStockCount: 1 }));
   assert.equal(a.label, '1 low stock item');
 });
 
@@ -96,4 +103,5 @@ test('#144: all three conditions → all three actions, checkin first', () => {
     lowStockCount: 2,
   });
   assert.deepEqual(actions.map(a => a.key), ['vehicle-checkin', 'past-due', 'low-stock-catalog']);
+  assert.equal((actions[0] as { mode: string }).mode, 'check_in');
 });
