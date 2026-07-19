@@ -13,7 +13,7 @@ import { isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { computeQuickActions, isOverdueRepair, type QuickAction } from '../../../src/dashboard/quickActions';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { roleColor } from '../../../src/db/queries/users';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/roles';
 import { track } from '../../../src/telemetry';
 import type { Theme } from '../../../src/themes/types';
@@ -150,11 +150,15 @@ export default function DashboardScreen() {
       </TouchableOpacity>
     );
 
-    // requiredPermission is always present for tile widgets; gate on it.
+    // Most tile widgets carry a requiredPermission; the fast-checkout/-checkin
+    // pair (data-driven access) do not. Both wrappers must be transparent to the
+    // row's flex layout — PermissionGate already renders a Fragment, so the
+    // ungated branch uses one too (a plain <View> here breaks the half tiles'
+    // flex:1, collapsing them to content width instead of an even 50/50 split).
     return def.requiredPermission ? (
       <PermissionGate key={key} permission={def.requiredPermission}>{tile}</PermissionGate>
     ) : (
-      <View key={key}>{tile}</View>
+      <Fragment key={key}>{tile}</Fragment>
     );
   };
 
