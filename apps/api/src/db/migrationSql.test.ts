@@ -36,3 +36,20 @@ test('058: copies locker_access grants as view+add+remove+move with NOW() waterm
   assert.match(sql, /ON CONFLICT \(location_id, user_id\) DO NOTHING/);
   assert.doesNotMatch(sql, /DROP TABLE/i); // locker_access stays
 });
+
+test('059: flatten re-points stock with a summed upsert and zeroes+retires children with NOW()', () => {
+  const sql = read('059_flatten_and_dedupe.sql');
+  assert.match(sql, /WITH RECURSIVE/);
+  assert.match(sql, /GROUP BY s\.item_id, uc\.unit_id/); // pre-aggregated: ON CONFLICT DO UPDATE may not hit a row twice
+  assert.match(sql, /SET quantity = stock_by_location\.quantity \+ EXCLUDED\.quantity, updated_at = NOW\(\)/);
+  assert.match(sql, /SET quantity = 0, updated_at = NOW\(\)/);
+  assert.match(sql, /SET active = FALSE, updated_at = NOW\(\)/);
+});
+
+test('059: vehicle dedupe survivor choice matches mobile 047 (updated_at ASC, id::text ASC)', () => {
+  const sql = read('059_flatten_and_dedupe.sql');
+  assert.match(sql, /PARTITION BY LOWER\(TRIM\(name\)\) ORDER BY updated_at ASC, id::text ASC/);
+  for (const t of ['vehicle_checkouts', 'vehicle_service_records', 'equipment_units']) {
+    assert.ok(sql.includes(t), `${t} re-pointed`);
+  }
+});
