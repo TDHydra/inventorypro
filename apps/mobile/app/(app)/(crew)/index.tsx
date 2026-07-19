@@ -15,10 +15,11 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
-import { getAccessibleSourceLocations } from '../../../src/db/queries/access';
+import { getCheckoutSourceLocations } from '../../../src/db/queries/access';
 import { getStockAtLocation, type Location } from '../../../src/db/queries/locations';
 import { getUserById } from '../../../src/db/queries/users';
 import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { useVehicleIntake } from '../../../src/hooks/useVehicleIntake';
 import type { Theme } from '../../../src/themes/types';
@@ -34,11 +35,17 @@ export default function CrewSourcePickerScreen() {
   const params = useLocalSearchParams<{ dir?: string }>();
   const checkin = params.dir === 'in';
 
+  // #139: main Locations join lockers/vehicles as a first-class source type,
+  // but only for users whose role can check inventory out (units are access-
+  // gated inside the query; main locations have no per-object ACL so the role
+  // gate is the only guard). Check-in reuses the same sources.
+  const canCheckout = usePermission('checkout_inventory');
   const sources = useMemo(
-    () => (user ? getAccessibleSourceLocations(user.id) : { lockers: [], vehicles: [] }),
+    () => (user ? getCheckoutSourceLocations(user.id) : { locations: [], lockers: [], vehicles: [] }),
     [user?.id, refreshKey],
   );
-  const total = sources.lockers.length + sources.vehicles.length;
+  const locations = canCheckout ? sources.locations : [];
+  const total = locations.length + sources.lockers.length + sources.vehicles.length;
 
   // #84 gate — re-resolve flag + proximity on every focus/sync bump so walking
   // on-site (or an admin flipping the flag) shows the button without a restart.
@@ -59,7 +66,7 @@ export default function CrewSourcePickerScreen() {
   // Exactly one accessible source → no question to ask, replace straight into
   // the hub (back skips this screen). Guarded so a focus-refresh can't bounce.
   const autoAdvanced = useRef(false);
-  const only = total === 1 ? (sources.lockers[0] ?? sources.vehicles[0]) : null;
+  const only = total === 1 ? (locations[0] ?? sources.lockers[0] ?? sources.vehicles[0]) : null;
   useEffect(() => {
     if (only && !autoAdvanced.current) {
       autoAdvanced.current = true;
@@ -81,6 +88,14 @@ export default function CrewSourcePickerScreen() {
         ) : (
           <>
             <Text style={s.prompt}>{checkin ? 'Where are you returning to?' : 'Where are you working from?'}</Text>
+            {locations.length > 0 && (
+              <>
+                <Text style={s.sectionHeader}>Locations</Text>
+                {locations.map(loc => (
+                  <SourceCard key={loc.id} location={loc} onPress={() => goToHub(loc)} />
+                ))}
+              </>
+            )}
             {sources.lockers.length > 0 && (
               <>
                 <Text style={s.sectionHeader}>Lockers</Text>
@@ -119,18 +134,22 @@ export default function CrewSourcePickerScreen() {
 function SourceCard({ location, onPress }: { location: Location; onPress: () => void }) {
   const s = useThemedStyles(makeStyles);
   const isVehicle = location.type === 'Vehicle';
+  const isUnit = isVehicle || location.type === 'Locker';
   // Owner + stock count re-read whenever the parent re-renders (its refreshKey
   // recomputed the source list) — cheap single-row/single-location queries.
   const owner = location.owner_user_id ? getUserById(location.owner_user_id) : null;
   const stock = getStockAtLocation(location.id);
+  const defaultIcon = isVehicle ? '🚐' : location.type === 'Locker' ? '🔒' : '📍';
+  const itemCount = `${stock.length} item${stock.length === 1 ? '' : 's'}`;
 
   return (
     <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.7}>
-      <Text style={s.cardIcon}>{location.icon || (isVehicle ? '🚐' : '🔒')}</Text>
+      <Text style={s.cardIcon}>{location.icon || defaultIcon}</Text>
       <View style={{ flex: 1 }}>
         <Text style={s.cardName} numberOfLines={1}>{location.name}</Text>
         <Text style={s.cardSub} numberOfLines={1}>
-          {owner ? owner.name : 'No owner'} · {stock.length} item{stock.length === 1 ? '' : 's'}
+          {/* Main locations have no owner concept — show stock only. */}
+          {isUnit ? `${owner ? owner.name : 'No owner'} · ${itemCount}` : itemCount}
         </Text>
         {isVehicle && <VehicleInlineStatus locationId={location.id} />}
       </View>

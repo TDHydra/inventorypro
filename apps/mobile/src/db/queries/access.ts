@@ -6,7 +6,10 @@ import {
   AccessGrantRow,
   TeamMemberRow,
 } from '../../access/accessResolution';
-import { getAllLocations, getUnitLocations, isUnitLocation, Location } from './locations';
+import {
+  getAllLocations, getUnitLocations, isUnitLocation,
+  getStockHoldingSourceLocations, Location,
+} from './locations';
 import { ROLE_TIER } from '../../constants/roles';
 import type { UserSession } from '../../auth/permissions';
 import { canManageUnitAccess } from '../../access/unitAccessPolicy';
@@ -62,6 +65,29 @@ export function getAccessibleSourceLocations(userId: string): AccessibleSourceLo
     else lockers.push(loc);
   }
   return { lockers, vehicles };
+}
+
+export interface CheckoutSources {
+  /** Main stock-holding locations (role-gated at the screen; no per-object ACL). */
+  locations: Location[];
+  lockers: Location[];
+  vehicles: Location[];
+}
+
+/**
+ * #139 source taxonomy: the full Location ∪ Vehicle ∪ Locker source set for the
+ * fast-checkout picker. Units come from the access-gated resolver (owned ∪
+ * granted ∪ teammate); main locations are added explicitly (getStockHoldingSourceLocations)
+ * and gated by role only. Kept separate from getAccessibleSourceLocations so
+ * Manage My Team / getVisibleUnits (units only) are unaffected.
+ */
+export function getCheckoutSourceLocations(userId: string): CheckoutSources {
+  const units = getAccessibleSourceLocations(userId);
+  return {
+    locations: getStockHoldingSourceLocations(),
+    lockers: units.lockers,
+    vehicles: units.vehicles,
+  };
 }
 
 // ── Unit visibility (#130) ───────────────────────────────────────────────────
