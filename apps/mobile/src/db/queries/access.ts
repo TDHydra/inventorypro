@@ -1,7 +1,4 @@
-import { getDb, rowsAs, bindParams } from '../schema';
-import { appendOutbox } from '../../sync/outbox';
-import { appendLog } from './log';
-import { runInTransaction } from '../tx';
+import { getDb, rowsAs } from '../schema';
 import {
   getAccessibleLocationIds,
   canSeeAllUnitsInManage,
@@ -19,8 +16,9 @@ import { canManageUnitAccess } from '../../access/unitAccessPolicy';
 // server's negative-delta ADJUST guard on Locker-typed locations exactly
 // (owned ∪ granted ∪ owned-by-anyone-sharing-a-parent-team ∪ org authority is
 // server-side only), so what these queries surface locally is what the server
-// will accept on push. locker_access writes are hard-enforced server-side:
-// only locations.owner_user_id or tier-3+ org authority may grant/revoke.
+// will accept on push. Grants live in unit_access (#122 Phase A1/B; the old
+// locker_access read/write trio was deleted in Phase B — queries/unitAccess.ts
+// and access/unitGrants.ts own grant writes now).
 
 // ── Access resolution ────────────────────────────────────────────────────────
 
@@ -102,32 +100,6 @@ export function getVisibleUnits(user: UserSession, kind: 'Vehicle' | 'Locker'): 
 
 // ── Access list ──────────────────────────────────────────────────────────────
 
-export interface LockerAccessEntry {
-  location_id: string;
-  user_id: string;
-  granted_by: string | null;
-  created_at: string;
-  updated_at: string;
-  // Joined from users (null when the user row hasn't synced yet)
-  user_name: string | null;
-  granted_by_name: string | null;
-}
-
-/** Explicit locker_access grants for a location, with user names, name order. */
-export function getLockerAccessList(locationId: string): LockerAccessEntry[] {
-  const db = getDb();
-  return rowsAs<LockerAccessEntry>(db.executeSync(
-    `SELECT la.location_id, la.user_id, la.granted_by, la.created_at, la.updated_at,
-            u.name AS user_name, gb.name AS granted_by_name
-       FROM locker_access la
-       LEFT JOIN users u ON u.id = la.user_id
-       LEFT JOIN users gb ON gb.id = la.granted_by
-      WHERE la.location_id = ?
-      ORDER BY u.name NULLS LAST, la.user_id`,
-    [locationId],
-  ).rows);
-}
-
 /** User ids who share a team on which `callerId` is a manager (is_manager=1). */
 export function getManagedOwnerIds(callerId: string): Set<string> {
   const db = getDb();
@@ -192,89 +164,3 @@ export function canManageLockerAccess(
   return (ROLE_TIER[user.role] ?? 0) >= 3;
 }
 
-// ── Grant / revoke ───────────────────────────────────────────────────────────
-
-function lookupUserName(userId: string): string | null {
-  const db = getDb();
-  const rows = rowsAs<{ name: string }>(
-    db.executeSync(`SELECT name FROM users WHERE id = ?`, [userId]).rows,
-  );
-  return rows[0]?.name ?? null;
-}
-
-/**
- * Grant `userId` access to the locker/vehicle location. Local upsert (composite
- * PK — re-granting refreshes the row) + outbox INSERT + activity log, atomic.
- * The server re-forces granted_by to the authenticated caller (attribution)
- * and rejects the write unless the caller is the location owner or tier-3+.
- */
-export function grantLockerAccess(locationId: string, userId: string, actorUserId: string | null): void {
-  const now = new Date().toISOString();
-  const granteeName = lookupUserName(userId);
-  runInTransaction(() => {
-    const db = getDb();
-    db.executeSync(
-      `INSERT OR REPLACE INTO locker_access (location_id, user_id, granted_by, created_at, updated_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, NULL)`,
-      bindParams([locationId, userId, actorUserId, now, now]),
-    );
-    appendOutbox('INSERT', 'locker_access', {
-      location_id: locationId,
-      user_id: userId,
-      granted_by: actorUserId,
-      created_at: now,
-      updated_at: now,
-    });
-    appendLog({
-      action: 'locker_access_granted',
-      entity_type: 'location',
-      entity_id: locationId,
-      user_id: actorUserId,
-      team_id: null,
-      job_id: null,
-      note: granteeName,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: JSON.stringify({ grantee_user_id: userId }),
-      device_id: null,
-    });
-  });
-}
-
-/**
- * Revoke `userId`'s access grant. Composite-key DELETE (server matches by
- * {location_id, user_id}) + activity log, atomic. Same server-side guard as
- * grant. Revoking a non-existent grant is a harmless no-op locally; the
- * outbox DELETE converges server-side.
- */
-export function revokeLockerAccess(locationId: string, userId: string, actorUserId: string | null): void {
-  const revokeeName = lookupUserName(userId);
-  runInTransaction(() => {
-    const db = getDb();
-    db.executeSync(
-      `DELETE FROM locker_access WHERE location_id = ? AND user_id = ?`,
-      bindParams([locationId, userId]),
-    );
-    appendOutbox('DELETE', 'locker_access', {
-      location_id: locationId,
-      user_id: userId,
-    });
-    appendLog({
-      action: 'locker_access_revoked',
-      entity_type: 'location',
-      entity_id: locationId,
-      user_id: actorUserId,
-      team_id: null,
-      job_id: null,
-      note: revokeeName,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: JSON.stringify({ grantee_user_id: userId }),
-      device_id: null,
-    });
-  });
-}

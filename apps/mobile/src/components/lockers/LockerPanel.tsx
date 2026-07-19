@@ -11,8 +11,9 @@ import { getLocationById, getLocationPath } from '../../db/queries/locations';
 import { getUserById, getAllActiveUsers } from '../../db/queries/users';
 import { canManageLockerAccess } from '../../db/queries/access';
 import {
-  getUnitAccessRows, getUserUnitPerms, upsertUnitAccess, revokeUnitAccess,
+  getUnitAccessRows, getUserUnitPerms, revokeUnitAccess,
 } from '../../db/queries/unitAccess';
+import { grantUnitAccessWithDefaults } from '../../access/unitGrants';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
@@ -91,17 +92,12 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
   }, [showAccessEditor, editorEntries, key]);
 
   // AccessListEditor owns the confirm/alert UX; these just do the writes and
-  // refresh. Throwing keeps the editor open with an alert. Grants created here
-  // default to view+add+remove+move (matches A1's locker_access copy
-  // semantics; the unit_access_defaults app_config template is Phase B).
+  // refresh. Throwing keeps the editor open with an alert. Grant CREATION
+  // applies the admin's per-role unit_access_defaults template (#122 Phase B);
+  // per-action edits live in the Teams-tab Member Permissions sheet.
   function handleGrant(opt: PickerOption) {
     if (isWriteBlocked()) throw new Error('write blocked');
-    const now = new Date().toISOString();
-    upsertUnitAccess({
-      location_id: locationId, user_id: opt.id,
-      can_view: 1, can_add: 1, can_remove: 1, can_move: 1, can_edit_details: 0, can_grant: 0,
-      granted_by: user?.id ?? null, created_at: now, updated_at: now,
-    });
+    grantUnitAccessWithDefaults(locationId, opt.id, getUserById(opt.id)?.role ?? '', user?.id ?? null);
     setLocalBump(b => b + 1);
   }
   function handleRevoke(entry: AccessEntry) {

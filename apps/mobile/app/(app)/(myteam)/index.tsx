@@ -11,12 +11,11 @@ import {
   getMyCrews, renameSubteam, setSubteamMembership, clearSubteamMembership, Crew,
 } from '../../../src/db/queries/subteams';
 import { getTeamMembers } from '../../../src/db/queries/teams';
-import {
-  getAccessibleSourceLocations, getLockerAccessList, grantLockerAccess,
-  revokeLockerAccess,
-} from '../../../src/db/queries/access';
+import { getAccessibleSourceLocations } from '../../../src/db/queries/access';
+import { getUnitAccessRows, revokeUnitAccess } from '../../../src/db/queries/unitAccess';
+import { grantUnitAccessWithDefaults } from '../../../src/access/unitGrants';
 import { getStockAtLocation, Location } from '../../../src/db/queries/locations';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { getAllActiveUsers, getUserById } from '../../../src/db/queries/users';
 import { getVehicle, VEHICLE_MODEL_CATEGORY } from '../../../src/db/queries/vehicles';
 import { getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../../src/constants/roles';
@@ -51,7 +50,7 @@ export default function ManageMyTeamScreen() {
   // own writes (local writes don't tick dataVersion). Sheet-hosted edits
   // (LockerPanel's own access editor) also land on close via the bump there.
   const version = useTableVersion([
-    'locations', 'locker_access', 'team_members', 'subteams', 'vehicles', 'vehicle_checkouts',
+    'locations', 'unit_access', 'team_members', 'subteams', 'vehicles', 'vehicle_checkouts',
   ]);
   const [localBump, setLocalBump] = useState(0);
   const key = version + localBump;
@@ -83,7 +82,7 @@ export default function ManageMyTeamScreen() {
     () => myLockers.map(location => {
       const stock = getStockAtLocation(location.id);
       // People with access = me (owner) + explicit grants (minus an owner dupe).
-      const grants = getLockerAccessList(location.id).filter(g => g.user_id !== location.owner_user_id);
+      const grants = getUnitAccessRows(location.id).filter(g => g.user_id !== location.owner_user_id);
       return { location, itemCount: stock.length, accessCount: grants.length + 1 };
     }),
     [myLockers, key],
@@ -158,12 +157,13 @@ export default function ManageMyTeamScreen() {
     const entries: AccessEntry[] = [
       { userId: user.id, name: user.name, sublabel: 'Owner', fixed: true },
     ];
-    for (const g of getLockerAccessList(accessLocker.id)) {
+    for (const g of getUnitAccessRows(accessLocker.id)) {
       if (g.user_id === user.id) continue;
+      const grantedByName = g.granted_by ? getUserById(g.granted_by)?.name : null;
       entries.push({
         userId: g.user_id,
         name: g.user_name ?? g.user_id,
-        sublabel: g.granted_by_name ? `Granted by ${g.granted_by_name}` : null,
+        sublabel: grantedByName ? `Granted by ${grantedByName}` : null,
       });
     }
     return entries;
@@ -178,14 +178,17 @@ export default function ManageMyTeamScreen() {
   }, [accessLocker, accessEntries, key]);
 
   // AccessListEditor owns the confirm/alert UX; throwing keeps it open.
+  // Grant CREATION applies the admin's per-role defaults template (#122
+  // Phase B); per-action edits happen in the unit's own access editors.
   function handleGrant(opt: PickerOption) {
     if (!accessLocker || isWriteBlocked()) throw new Error('write blocked');
-    grantLockerAccess(accessLocker.id, opt.id, user?.id ?? null);
+    const grantee = getAllActiveUsers().find(u => u.id === opt.id);
+    grantUnitAccessWithDefaults(accessLocker.id, opt.id, grantee?.role ?? '', user?.id ?? null);
     bump();
   }
   function handleRevoke(entry: AccessEntry) {
     if (!accessLocker || isWriteBlocked()) throw new Error('write blocked');
-    revokeLockerAccess(accessLocker.id, entry.userId, user?.id ?? null);
+    revokeUnitAccess(accessLocker.id, entry.userId);
     bump();
   }
 

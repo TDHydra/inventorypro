@@ -1,12 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
-  setMemberManagerOnline, setMemberPermissionOverridesOnline,
-  TEAM_OVERRIDABLE_PERMISSIONS, TEAM_PERMISSION_LABELS, Team, TeamMember,
+  setMemberManagerOnline, Team, TeamMember,
 } from '../../../src/db/queries/teams';
 import {
   getSubteamsForTeam, createSubteam, renameSubteam, deleteSubteam,
@@ -14,6 +13,7 @@ import {
 } from '../../../src/db/queries/subteams';
 import { CrewCard } from '../../../src/components/crew/CrewCard';
 import { CrewEditor, CrewDraft } from '../../../src/components/crew/CrewEditor';
+import { MemberPermissionsSheet } from '../../../src/components/crew/MemberPermissionsSheet';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
@@ -21,13 +21,11 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
-import { getAllActiveUsers, roleColor, getRoleColorMap, getRolePermissionOverrides } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, ROLE_TIER, UserRole, Permission, canActOnTarget } from '../../../src/constants/roles';
-import { parsePermissionOverrides } from '../../../src/auth/permissions';
+import { getAllActiveUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
+import { ROLE_DISPLAY_NAMES, ROLE_TIER, UserRole, canActOnTarget } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTypeIcon } from '../../../src/db/queries/taxonomy';
 import type { Theme } from '../../../src/themes/types';
-import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -52,7 +50,6 @@ function trackReject(field: string, rule: string) {
 
 export default function TeamDetailScreen() {
   const s = useThemedStyles(makeStyles);
-  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -115,17 +112,13 @@ export default function TeamDetailScreen() {
   const [showCrewEditor, setShowCrewEditor] = useState(false);
   const [editingCrew, setEditingCrew] = useState<Crew | null>(null);
 
-  // Per-member permission override editor
+  // Per-member permission editor (team overrides + unit grants) — the sheet
+  // itself is MemberPermissionsSheet (#122 Phase B); this screen only picks
+  // the member.
   const [permMember, setPermMember] = useState<TeamMember | null>(null);
-  const [permDraft, setPermDraft] = useState<Record<string, boolean>>({});
-  const [savingPerms, setSavingPerms] = useState(false);
 
   const allUsers = useMemo(() => getAllActiveUsers(), []);
   const roleColors = useMemo(() => getRoleColorMap(), []);
-  // Role-level permission deviations, used as the "base" a team override is
-  // relative to (mirrors the resolution order in auth/permissions.ts: role
-  // default → role override → [team override, edited here] → user override).
-  const roleOverrides = useMemo(() => getRolePermissionOverrides(), []);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
@@ -363,68 +356,12 @@ export default function TeamDetailScreen() {
     router.push({ pathname: '/(app)/(chat)/[id]', params: { id: convId } });
   }
 
-  // ── Per-member permission overrides ─────────────────────────────────────────
+  // ── Per-member permissions ─────────────────────────────────────────────────
 
-  // Effective value BEFORE any team override — role default merged with the
-  // role-level deviation (same as roles.tsx's effectivePerm, minus the team layer
-  // we're editing here). Used both as the Switch's "off" baseline and to decide
-  // whether a toggle should store an override key or clear it (clean reset).
-  function baseTeamPermValue(role: string | null | undefined, perm: Permission): boolean {
-    const r = (role ?? '') as UserRole;
-    const def = ROLE_DEFAULTS[r]?.[perm] ?? false;
-    const ov = roleOverrides[r];
-    return ov && perm in ov ? ov[perm] : def;
-  }
-
+  // Draft state, baseline resolution, and save/log now live inside
+  // MemberPermissionsSheet (team overrides + unit_access grants, #122 Phase B).
   function openPermEditor(member: TeamMember) {
     setPermMember(member);
-    setPermDraft(parsePermissionOverrides(member.team_permission_overrides));
-  }
-
-  function togglePermDraft(perm: Permission) {
-    if (!permMember) return;
-    const base = baseTeamPermValue(permMember.user_role, perm);
-    const cur = perm in permDraft ? permDraft[perm] : base;
-    const next = !cur;
-    setPermDraft(prev => {
-      const copy = { ...prev };
-      if (next === base) delete copy[perm]; else copy[perm] = next;
-      return copy;
-    });
-  }
-
-  async function handleSavePermDraft() {
-    if (!permMember || !team) return;
-    if (isWriteBlocked()) return;
-    setSavingPerms(true);
-    try {
-      await setMemberPermissionOverridesOnline(team.id, permMember.user_id, permDraft);
-    } catch (e) {
-      setSavingPerms(false);
-      Alert.alert('Could not update permissions', (e as Error).message);
-      return;
-    }
-    // Activity log is best-effort (and never blocks the change already committed above).
-    try {
-      appendLog({
-        user_id: user?.id ?? null,
-        team_id: team.id,
-        action: 'user_permission_changed',
-        entity_type: 'user',
-        entity_id: permMember.user_id,
-        from_location_id: null,
-        to_location_id: null,
-        quantity: null,
-        unit: null,
-        job_id: null,
-        note: `${permMember.user_name ?? permMember.user_id} · ${team.name} team permissions updated`,
-        metadata: JSON.stringify({ team_id: team.id, overrides: permDraft }),
-        device_id: null,
-      });
-    } catch { /* logging is non-critical */ }
-    setSavingPerms(false);
-    setMembers(getTeamMembers(team.id));
-    setPermMember(null);
   }
 
   // ── Crews (subteams, #123) ─────────────────────────────────────────────────
@@ -838,58 +775,17 @@ export default function TeamDetailScreen() {
         }}
       />
 
-      {/* Per-member team permission override editor — onClose only hides;
-          unsaved toggles are discarded on outside-tap dismiss (draft-only until Save). */}
-      <ModalSheet visible={!!permMember} onClose={() => setPermMember(null)}>
-        <Text style={s.modalTitle}>
-          {permMember ? `${permMember.user_name ?? permMember.user_id} · Team Permissions` : 'Team Permissions'}
-        </Text>
-        {/* flexShrink:1 lets this ScrollView shrink within ModalSheet's maxHeight cap so it actually scrolls (RN defaults flexShrink:0). */}
-        <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
-          <Text style={s.permsIntro}>
-            Overrides apply only within {team.name}. Toggling a permission back to its
-            default removes the override.
-          </Text>
-          {(() => {
-            // Mirror the row-level hierarchy gate inside the editor as a safety net
-            // (the Perms button is already disabled for out-of-tier members).
-            const permMemberLocked = !canActOnTarget((user?.role ?? '') as UserRole, (permMember?.user_role ?? '') as UserRole);
-            return permMember && TEAM_OVERRIDABLE_PERMISSIONS.map(perm => {
-              const base = baseTeamPermValue(permMember.user_role, perm);
-              const value = perm in permDraft ? permDraft[perm] : base;
-              const modified = perm in permDraft;
-              return (
-                <View key={perm} style={s.permRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.permLabel}>{TEAM_PERMISSION_LABELS[perm]}</Text>
-                    {modified && <Text style={s.modifiedBadge}>overridden</Text>}
-                  </View>
-                  <Switch
-                    value={value}
-                    disabled={locked || savingPerms || permMemberLocked}
-                    onValueChange={() => togglePermDraft(perm)}
-                    trackColor={{ true: t.colors.primary, false: t.colors.border }}
-                  />
-                </View>
-              );
-            });
-          })()}
-
-          <PrimaryButton
-            label={savingPerms ? 'Saving…' : 'Save Permissions'}
-            onPress={handleSavePermDraft}
-            disabled={locked || savingPerms}
-            style={{ marginTop: 8 }}
-          />
-          {locked && <MaintenanceBanner />}
-          <TouchableOpacity
-            style={s.cancelRow}
-            onPress={() => setPermMember(null)}
-          >
-            <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </ModalSheet>
+      {/* Per-member permissions (team overrides + unit_access grants) — the
+          Perms button's row gate stays above; the sheet re-checks the
+          canActOnTarget hierarchy internally as a safety net. */}
+      <MemberPermissionsSheet
+        visible={!!permMember}
+        onClose={() => setPermMember(null)}
+        teamId={team.id}
+        teamName={team.name}
+        member={permMember}
+        onChanged={() => setMembers(getTeamMembers(team.id))}
+      />
     </>
   );
 }
@@ -961,11 +857,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4,
   },
   msgText: { color: t.colors.primary, fontSize: 12, fontWeight: '700' },
-
-  permsIntro: { fontSize: 13, color: t.colors.textSecondary, lineHeight: 18, marginBottom: 8 },
-  permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
-  permLabel: { fontSize: 14, color: t.colors.textPrimary },
-  modifiedBadge: { fontSize: 11, color: t.colors.warning, fontWeight: '600', marginTop: 2 },
 
   mgrToggle: {
     borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
