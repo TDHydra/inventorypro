@@ -479,6 +479,85 @@ export function findOrCreateVehicleByName(name: string): string | null {
   return id;
 }
 
+// Find (or reactivate) the Locker OWNED by `userId`, or create one named after
+// them, returning its id (#146 personal locker — follow-up to #130's untyped
+// sub-area lockers). Mirrors findOrCreateVehicleByName, but keyed on
+// owner_user_id rather than name: a user has at most one personal locker, and a
+// retired one (active=0 — locations are NEVER hard-deleted) is reactivated
+// instead of duplicated.
+//
+// CONTRACT: returns null if the locker could NOT be created/reactivated (the
+// local write + outbox enqueue are one transaction and the error is swallowed
+// here rather than thrown). Callers MUST null-check.
+export function findOrCreateLockerForUser(userId: string, userName: string): string | null {
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE type = 'Locker' AND owner_user_id = ?
+      ORDER BY active DESC LIMIT 1`,
+    [userId],
+  ).rows)[0];
+  if (existing?.active === 1) return existing.id;
+  const now = new Date().toISOString();
+  if (existing) {
+    // Retired personal locker — flip it back on rather than create a duplicate.
+    try {
+      runInTransaction(() => {
+        db.executeSync(`UPDATE locations SET active = 1, updated_at = ? WHERE id = ?`, [now, existing.id]);
+        appendOutbox('UPDATE', 'locations', { id: existing.id, active: true, updated_at: now });
+      });
+    } catch (err) {
+      console.warn('findOrCreateLockerForUser: failed to reactivate locker', err);
+      return null;
+    }
+    return existing.id;
+  }
+
+  const id = generateUUID();
+  const trimmed = userName.trim();
+  const name = trimmed ? `${trimmed}'s Locker` : 'Personal Locker';
+  const locker: Location = {
+    id, name, parent_id: null, color: null, icon: '🔒',
+    owner_user_id: userId, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Locker', has_shelves: 0,
+  };
+  try {
+    // Atomic (mirrors findOrCreateVehicleByName) — never a local locker the
+    // server won't hear about, or vice-versa.
+    runInTransaction(() => {
+      upsertLocation(locker);
+      appendOutbox('INSERT', 'locations', {
+        id, name, parent_id: null, color: null, icon: '🔒',
+        owner_user_id: userId, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Locker', has_shelves: false,
+      });
+    });
+  } catch (err) {
+    console.warn('findOrCreateLockerForUser: failed to create locker', err);
+    return null;
+  }
+  return id;
+}
+
+// Retire a Locker: active=FALSE (locations are NEVER hard-deleted) through the
+// same local UPDATE + outbox path, with a fresh updated_at watermark. Returns
+// false (no-op) on an unknown id, a non-Locker location, or a failed write.
+// Stock checks are the caller's job — see access/personalLocker.ts.
+export function retireLocker(lockerId: string): boolean {
+  const locker = getLocationById(lockerId);
+  if (!locker || locker.type !== 'Locker') return false;
+  const now = new Date().toISOString();
+  try {
+    runInTransaction(() => {
+      getDb().executeSync(`UPDATE locations SET active = 0, updated_at = ? WHERE id = ?`, [now, lockerId]);
+      appendOutbox('UPDATE', 'locations', { id: lockerId, active: false, updated_at: now });
+    });
+  } catch (err) {
+    console.warn('retireLocker: failed to retire locker', err);
+    return false;
+  }
+  return true;
+}
+
 export function upsertLocation(location: Location): void {
   const db = getDb();
   // Dual-write the taxonomy FK (#74): prefer an explicit type_id (pulled rows),

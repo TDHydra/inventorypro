@@ -23,6 +23,9 @@ import { getValidJwt } from '../../../src/auth/session';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
+import {
+  enablePersonalLocker, disablePersonalLocker, getPersonalLocker,
+} from '../../../src/access/personalLocker';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
@@ -176,6 +179,10 @@ export default function AdminUsersScreen() {
   const { user: sessionUser } = useSession();
   const router = useRouter();
   const canManageUsers = usePermission('manage_users');
+  // Personal-locker provisioning is a locations write — gate the toggle on the
+  // CURRENT session's manage_locations or /sync/push would reject the outbox
+  // UPDATE server-side (#146).
+  const canManageLocations = usePermission('manage_locations');
   const { locked } = useMaintenanceMode();
   const sel = useMultiSelect<User>();
   // Re-read on sync pull so a user added/edited on another device shows while
@@ -222,6 +229,25 @@ export default function AdminUsersScreen() {
     ],
     [configVersion],
   );
+
+  // The edit-sheet user's ACTIVE owned locker — keyed on the locations table so
+  // the toggle re-reads after our own enable/disable write and after sync pulls.
+  const locationsVersion = useTableVersion(['locations']);
+  const editUserLocker = useMemo(
+    () => (editUser ? getPersonalLocker(editUser.id) : null),
+    [editUser?.id, locationsVersion],
+  );
+
+  function togglePersonalLocker() {
+    if (!editUser || isWriteBlocked()) return;
+    if (editUserLocker) {
+      const res = disablePersonalLocker(editUser.id);
+      if (!res.ok) Alert.alert('Could not turn off locker', res.reason);
+    } else {
+      const res = enablePersonalLocker(editUser.id, editUser.name, editUser.role, sessionUser?.id ?? null);
+      if (!res.ok) Alert.alert('Could not create locker', res.reason);
+    }
+  }
 
   // Find-or-create a DM with this user and open the thread (mirrors the team
   // roster's Message action; createDmConversation reuses an existing 1:1).
@@ -1236,6 +1262,32 @@ export default function AdminUsersScreen() {
                       </>
                     );
                   })()}
+
+                  {/* Personal locker (#146) — find-or-create/retire an owned
+                      type='Locker' unit. Rendered only with manage_locations:
+                      without it /sync/push rejects the locations write. */}
+                  {canManageLocations && (
+                    <>
+                      <FieldLabel>Personal locker</FieldLabel>
+                      <View style={s.permRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.permName}>Personal locker</Text>
+                          <Text style={s.hint}>
+                            {editUserLocker
+                              ? `${editUserLocker.name} — turning off retires the locker (stock must be moved out first).`
+                              : "Creates a locker owned by this user with their role's unit-access defaults."}
+                          </Text>
+                        </View>
+                        <Switch
+                          value={!!editUserLocker}
+                          disabled={locked || busy}
+                          onValueChange={togglePersonalLocker}
+                          trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                          accessibilityLabel={`Personal locker, ${editUserLocker ? 'on' : 'off'}`}
+                        />
+                      </View>
+                    </>
+                  )}
 
                   <TouchableOpacity style={s.cancel} onPress={() => setEditUser(null)}>
                     <Text style={[s.cancelText, s.cancelStrong]}>Close</Text>

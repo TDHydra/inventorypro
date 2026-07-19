@@ -5,6 +5,7 @@ import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../db/maintenance';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -23,6 +24,9 @@ import {
 } from '../../db/queries/access';
 import { upsertUnitAccess, revokeUnitAccess } from '../../db/queries/unitAccess';
 import { grantUnitAccessWithDefaults } from '../../access/unitGrants';
+import {
+  enablePersonalLocker, disablePersonalLocker, getPersonalLocker,
+} from '../../access/personalLocker';
 import { canManageUnitAccess } from '../../access/unitAccessPolicy';
 import { appendLog } from '../../db/queries/log';
 import { useTableVersion } from '../../hooks/useDataVersion';
@@ -173,6 +177,30 @@ export function MemberPermissionsSheet(props: {
     onChanged();
   }
 
+  // Personal locker (#146) — provisioning is a locations write, so the toggle
+  // only renders when the CURRENT session carries manage_locations (otherwise
+  // the outbox UPDATE would be rejected server-side by syncPolicy). `version`
+  // already tracks the locations table, so the state re-reads after each flip.
+  const canManageLocations = usePermission('manage_locations');
+  const personalLocker = useMemo(
+    () => (member ? getPersonalLocker(member.user_id) : null),
+    [member?.user_id, version],
+  );
+
+  function togglePersonalLocker() {
+    if (!member || isWriteBlocked()) return;
+    if (personalLocker) {
+      const res = disablePersonalLocker(member.user_id);
+      if (!res.ok) { Alert.alert('Could not turn off locker', res.reason); return; }
+    } else {
+      const res = enablePersonalLocker(
+        member.user_id, member.user_name ?? '', member.user_role ?? '', user?.id ?? null,
+      );
+      if (!res.ok) { Alert.alert('Could not create locker', res.reason); return; }
+    }
+    onChanged();
+  }
+
   // Units the caller may grant on for this member, minus units already granted.
   const grantableOptions = useMemo<PickerOption[]>(() => {
     if (!user || !member) return [];
@@ -288,6 +316,31 @@ export function MemberPermissionsSheet(props: {
           </>
         )}
 
+        {/* Personal locker (#146) — manage_locations only (see comment above). */}
+        {canManageLocations && member && (
+          <>
+            <View style={s.sectionDivider} />
+            <Text style={s.sectionLabel}>Personal locker</Text>
+            <View style={s.permRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.permLabel}>Personal locker</Text>
+                <Text style={s.lockerHint}>
+                  {personalLocker
+                    ? `${personalLocker.name} — turning off retires it (stock must be moved out first).`
+                    : "Creates a locker owned by this member with their role's unit-access defaults."}
+                </Text>
+              </View>
+              <Switch
+                value={!!personalLocker}
+                disabled={locked}
+                onValueChange={togglePersonalLocker}
+                trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                accessibilityLabel={`Personal locker, ${personalLocker ? 'on' : 'off'}`}
+              />
+            </View>
+          </>
+        )}
+
         {locked && <MaintenanceBanner />}
         <TouchableOpacity style={s.cancelRow} onPress={onClose}>
           <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
@@ -304,6 +357,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   permsIntro: { fontSize: 13, color: t.colors.textSecondary, lineHeight: 18, marginBottom: 8 },
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
   permLabel: { fontSize: 14, color: t.colors.textPrimary },
+  lockerHint: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2, lineHeight: 16 },
   modifiedBadge: { fontSize: 11, color: t.colors.warning, fontWeight: '600', marginTop: 2 },
 
   sectionDivider: { borderTopWidth: 1, borderTopColor: t.colors.surfaceAlt, marginTop: 12 },
