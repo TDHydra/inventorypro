@@ -11,7 +11,7 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
@@ -29,6 +29,10 @@ export default function CrewSourcePickerScreen() {
   const router = useRouter();
   const { user } = useSession();
   const refreshKey = useFocusOrDataRefresh();
+  // #83: the same picker drives fast check-IN when dir=in ("return to your
+  // locker/vehicle") — same accessible-source list, opposite hub direction.
+  const params = useLocalSearchParams<{ dir?: string }>();
+  const checkin = params.dir === 'in';
 
   const sources = useMemo(
     () => (user ? getAccessibleSourceLocations(user.id) : { lockers: [], vehicles: [] }),
@@ -46,7 +50,10 @@ export default function CrewSourcePickerScreen() {
   // Always replace: whether auto-advanced or tapped, "back" from the hub
   // should skip re-asking the question and land wherever the user came from.
   function goToHub(loc: Location) {
-    router.replace({ pathname: '/(app)/(hub)', params: { loc: loc.id, scan: '1' } });
+    router.replace({
+      pathname: '/(app)/(hub)',
+      params: { loc: loc.id, scan: '1', ...(checkin ? { dir: 'in' } : null) },
+    });
   }
 
   // Exactly one accessible source → no question to ask, replace straight into
@@ -63,17 +70,17 @@ export default function CrewSourcePickerScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Check out', headerShown: true }} />
+      <Stack.Screen options={{ title: checkin ? 'Check in' : 'Check out', headerShown: true }} />
       <ScrollView style={s.screen} contentContainerStyle={s.content}>
         {only ? null : total === 0 ? (
           <EmptyState
             icon="🔑"
             title="No locker or vehicle access yet"
-            subtitle="You can check out from a locker or vehicle once its owner or a manager gives you access — or when a teammate on your team owns one."
+            subtitle="You can check in or out from a locker or vehicle once its owner or a manager gives you access — or when a teammate on your team owns one."
           />
         ) : (
           <>
-            <Text style={s.prompt}>Where are you working from?</Text>
+            <Text style={s.prompt}>{checkin ? 'Where are you returning to?' : 'Where are you working from?'}</Text>
             {sources.lockers.length > 0 && (
               <>
                 <Text style={s.sectionHeader}>Lockers</Text>

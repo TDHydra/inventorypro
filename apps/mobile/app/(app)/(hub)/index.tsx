@@ -283,6 +283,13 @@ export default function HubScreen() {
       commitSelfCheckout(item, qty, locContext.id, locContext.name);
       return;
     }
+    // #83 symmetric fast check-IN: "put it back in my locker/vehicle" — the
+    // loc-context IS the destination, so deposit immediately with no picker
+    // (mirror of the fast check-out path above).
+    if (dir === 'in' && locContext) {
+      commitSelfCheckin(item, qty, locContext.id, locContext.name);
+      return;
+    }
     let need = false;
     let src: string | null = null;
     if (dir === 'out') {
@@ -333,6 +340,42 @@ export default function HubScreen() {
     });
     resetConsumable();
     setMode('browse'); // leave the inout overlay before the "scan another?" prompt
+    askAnythingElse();
+  }
+
+  // #83 fast check-in: deposit into the loc-context destination with no source
+  // (returning field stock to a locker/vehicle). Same failure discipline as
+  // commitSelfCheckout — an error must not show a receipt or "scan another?".
+  function commitSelfCheckin(item: InventoryItem, qty: number, destId: string, destName: string) {
+    try {
+      applyConsumableAction({
+        itemId: item.id, unit: item.unit, direction: 'in', qty,
+        sourceLocationId: null,
+        destLocationId: destId,
+        jobId: null,
+        userId: user?.id ?? null,
+        note: `Returned to ${destName}`,
+        coords: coords
+          ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy }
+          : undefined,
+      });
+    } catch (err) {
+      Alert.alert(
+        'Could not save',
+        ((err as Error)?.message || 'The stock change failed.') +
+          '\n\nNothing was changed. Please try again.',
+      );
+      resetConsumable();
+      setMode('browse');
+      return;
+    }
+    pushReceiptEntry({
+      id: generateUUID(), itemName: item.name, direction: 'in',
+      qtyLabel: formatQuantity(qty, item.unit, item.unit_category as any),
+      destLabel: `Returned · to ${destName}`, at: new Date().toISOString(),
+    });
+    resetConsumable();
+    setMode('browse');
     askAnythingElse();
   }
 
