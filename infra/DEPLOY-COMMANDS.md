@@ -6,6 +6,10 @@ behind Nginx Proxy Manager (NPM). Replace the two placeholders before running:
 - `<UNRAID-IP>` — your Unraid box's LAN IP (e.g. `10.0.20.5`)
 - `invenpro.app` — your domain (already set in the env if you use this one)
 
+> Self-hosting on your own box instead of this Unraid/NPM setup? See
+> [DEPLOY-SELFHOST.md](DEPLOY-SELFHOST.md) (root `docker compose up -d` stack or
+> the all-in-one API+Postgres image).
+
 The tarball was rebuilt **2026-06-26** and includes: user edit/roles screens,
 `reset_pin`, and the `role_settings` sync fix.
 

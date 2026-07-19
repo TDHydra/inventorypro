@@ -1,0 +1,70 @@
+# InventoryPro — ALL-IN-ONE self-host image: Fastify API + Postgres 16 in a
+# single container, supervised by supervisord.
+#
+# Build (from the repo root):
+#   docker build -f infra/Dockerfile.allinone -t inventorypro-allinone .
+# Run:
+#   docker run -d -p 3000:3000 -v inventorypro-pgdata:/var/lib/postgresql/data \
+#     -e JWT_SECRET=... -e MINIO_ACCESS_KEY=... -e MINIO_SECRET_KEY=... \
+#     -e MINIO_ENDPOINT=... inventorypro-allinone
+#
+# MINIO_ACCESS_KEY / MINIO_SECRET_KEY are REQUIRED: the API fails closed and
+# refuses to boot without S3 credentials (no bundled MinIO here — point at an
+# external MinIO/S3).
+#
+# Tradeoffs vs the compose stack (use docker-compose.yml if these matter):
+#   - Coupled restarts: restarting/upgrading the API container also restarts
+#     Postgres (supervisord restarts a crashed process in-place, but a `docker
+#     restart`/image upgrade bounces both).
+#   - The pg data dir lives in an in-container volume; if you run without -v,
+#     Docker still creates an anonymous volume (VOLUME below) but it's easy to
+#     lose track of — always name the volume.
+#   - No MinIO: the API requires MINIO_ACCESS_KEY/MINIO_SECRET_KEY at boot
+#     (fails closed) — you must point MINIO_* at an external S3/MinIO.
+
+# --- Build stage (mirrors apps/api/Dockerfile) ---
+FROM node:20-alpine AS builder
+WORKDIR /app
+RUN npm install -g pnpm
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/api/package.json ./apps/api/
+RUN pnpm install --frozen-lockfile --filter api...
+
+COPY apps/api ./apps/api
+RUN cd apps/api && pnpm build
+
+# --- Runtime: node + postgres16 + supervisord ---
+FROM node:20-alpine AS runner
+WORKDIR /app
+RUN npm install -g pnpm && \
+    apk add --no-cache postgresql16 postgresql16-client postgresql16-contrib supervisor su-exec && \
+    # postgres refuses to run as root; the apk package normally creates the
+    # user, but guard in case the package split changes.
+    (getent passwd postgres >/dev/null || adduser -D -H -s /sbin/nologin postgres) && \
+    mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/api/package.json ./apps/api/
+RUN pnpm install --frozen-lockfile --prod --filter api...
+
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+
+COPY infra/allinone/supervisord.conf /etc/supervisord.conf
+COPY infra/allinone/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Postgres only listens on loopback inside the container (see supervisord.conf),
+# so trust auth + a passwordless local DATABASE_URL is acceptable here.
+# Override DATABASE_URL to use an external Postgres instead of the bundled one.
+ENV PGDATA=/var/lib/postgresql/data \
+    POSTGRES_DB=inventorypro \
+    POSTGRES_USER=inventorypro \
+    DATABASE_URL=postgresql://inventorypro@127.0.0.1:5432/inventorypro \
+    PORT=3000 \
+    HOST=0.0.0.0
+
+VOLUME /var/lib/postgresql/data
+
+EXPOSE 3000
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
