@@ -69,6 +69,17 @@ test('getNonShelfLocations excludes parented AND top-level shelves', () => {
   assert.ok(!ids.includes('shelf-top'), 'top-level shelf must not be a first-class option');
 });
 
+test('type-less locations are hidden from item/checkout pickers but stay browsable', () => {
+  // A legacy/malformed row with no resolved type (no type_id). JS null-comparison
+  // (`null !== 'Shelf'`) let these slip into getNonShelfLocations before the guard.
+  seedLocation({ id: 'typeless-1', name: 'Warehouser', type: null });
+  const pickerIds = loc.getNonShelfLocations().map(l => l.id);
+  assert.ok(!pickerIds.includes('typeless-1'), 'a type-less location is not a picker option');
+  // …but it must remain in the Locations browser so it can be given a type or retired.
+  const browsable = loc.getBrowsableLocations().map(l => l.id);
+  assert.ok(browsable.includes('typeless-1'), 'type-less location stays browsable/fixable');
+});
+
 test('units excluded from browse/tree and picker lists (#122 A2)', () => {
   const browsable = loc.getBrowsableLocations().map(l => l.id);
   assert.ok(!browsable.includes('van-1'));

@@ -75,10 +75,15 @@ export function getBrowsableLocations(): Location[] {
 
 // Locations with NO shelves at all — stricter than getBrowsableLocations (which
 // deliberately keeps top-level shelves visible for the Locations browser). Backs
-// the item-assign pickers, where a shelf is only ever reached through the Shelf
-// sub-field of its has_shelves parent, never as a first-class option.
+// the item-assign / checkout pickers, where a shelf is only ever reached through
+// the Shelf sub-field of its has_shelves parent, never as a first-class option.
+// Also drops TYPE-LESS locations (no type_id, or one that no longer resolves):
+// these are malformed/legacy rows, and JS null-comparisons let them slip past a
+// bare `type !== 'Shelf'` test, so they'd otherwise pollute every picker. They
+// stay visible in getBrowsableLocations (the Locations browser) so they can be
+// given a type or retired — this only hides them from item/checkout selection.
 export function getNonShelfLocations(): Location[] {
-  return getAllLocations().filter(l => l.type !== 'Shelf' && !isUnitLocation(l));
+  return getAllLocations().filter(l => !!l.type && l.type !== 'Shelf' && !isUnitLocation(l));
 }
 
 export interface LocationShelfPick {

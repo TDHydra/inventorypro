@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
-import { useCurrentPosition } from '../../hooks/useCurrentPosition';
-import { sortByProximity } from '../../location/proximity';
+import { LocationShelfPicker } from '../pickers/LocationShelfPicker';
 import { getOpenJobs, upsertJob, type Job } from '../../db/queries/jobs';
 import { getManagerTierUsers } from '../../db/queries/users';
 import {
-  getOfficeLocations, getLocationsByOwner, searchLocations, type Location,
+  getOfficeLocations, getLocationsByOwner, getLocationById,
+  resolveLocationShelfSelection, type Location,
 } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -40,12 +40,11 @@ export function DestinationPicker({ onResolved }: Props) {
   const { user } = useSession();
   const canCreateJobs = usePermission('create_jobs');
 
-  // Position: request once when the Location picker opens (fire-and-forget; never
-  // blocks UI). Coords feed the searchFn's proximity sort below.
-  const { coords, request } = useCurrentPosition();
-
   const [destType, setDestType] = useState<DestType | null>(null);
   const [locationValue, setLocationValue] = useState<PickerOption | null>(null);
+  // Optional shelf within a has_shelves location — the dynamic sub-field of
+  // LocationShelfPicker. Held here so the caller can resolve it at commit.
+  const [shelfValue, setShelfValue] = useState<PickerOption | null>(null);
   const [jobValue, setJobValue] = useState<PickerOption | null>(null);
   const [managerValue, setManagerValue] = useState<PickerOption | null>(null);
   const [managerLocs, setManagerLocs] = useState<Location[]>([]);
@@ -70,15 +69,9 @@ export function DestinationPicker({ onResolved }: Props) {
     [officeLocations],
   );
 
-  // Ask for the device position once the Location picker is opened, so its
-  // searchFn can proximity-sort results. Fire-and-forget; degrades silently.
-  useEffect(() => {
-    if (destType === 'location') void request();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [destType]);
-
   function resetAll() {
     setLocationValue(null);
+    setShelfValue(null);
     setJobValue(null);
     setManagerValue(null);
     setManagerLocs([]);
@@ -99,10 +92,41 @@ export function DestinationPicker({ onResolved }: Props) {
     onResolved(null);
   }
 
-  // ── Location ───────────────────────────────────────────────────────────────
-  function selectLocation(opt: PickerOption) {
+  // ── Location (+ optional dynamic shelf) ──────────────────────────────────────
+  // The location list is shelf-free and unit-free (LocationShelfPicker reads
+  // getNonShelfLocations): shelves come back only as the Shelf sub-field of a
+  // has_shelves parent, and vehicles/lockers never appear here (they're reached
+  // via Manager). Because selecting a destination IS the commit in this flow, a
+  // has_shelves location must NOT auto-commit on the location tap — it waits for
+  // a shelf pick (or the explicit "no shelf" button). Shelf-free locations keep
+  // the one-tap behaviour.
+  function commitLocation(loc: PickerOption, shelf: PickerOption | null) {
+    const res = resolveLocationShelfSelection(
+      { id: loc.id, label: loc.label },
+      shelf ? { id: shelf.id, label: shelf.label } : null,
+    );
+    if (!res.ok) {
+      Alert.alert('Couldn’t create shelf', `Something went wrong saving shelf “${res.shelfLabel}”. Please try again.`);
+      onResolved(null);
+      return;
+    }
+    if (res.id == null) { onResolved(null); return; }
+    const label = shelf ? `${loc.label} › ${shelf.label}` : loc.label;
+    onResolved({ type: 'location', label, toLocationId: res.id, jobId: null });
+  }
+  function changeLocation(opt: PickerOption | null) {
     setLocationValue(opt);
-    onResolved({ type: 'location', label: opt.label, toLocationId: opt.id, jobId: null });
+    setShelfValue(null);
+    if (!opt) { onResolved(null); return; }
+    // Defer commit until a shelf (or "no shelf") is chosen for shelf-bearing
+    // locations; commit straight away for the shelf-free common case.
+    if (getLocationById(opt.id)?.has_shelves === 1) { onResolved(null); return; }
+    commitLocation(opt, null);
+  }
+  function changeShelf(opt: PickerOption | null) {
+    setShelfValue(opt);
+    if (locationValue && opt) commitLocation(locationValue, opt);
+    else onResolved(null);
   }
 
   // ── Job ────────────────────────────────────────────────────────────────────
@@ -208,26 +232,18 @@ export function DestinationPicker({ onResolved }: Props) {
 
       {destType === 'location' && (
         <View style={{ marginTop: 12 }}>
-          <SearchablePicker
-            placeholder="Search location..."
-            value={locationValue}
-            onSelect={selectLocation}
-            searchFn={(q) => {
-              const results = searchLocations(q);
-              // Without coords yet, keep the existing (name-ordered) behaviour.
-              if (!coords) return results.map(l => ({ id: l.id, label: l.name }));
-              // Proximity-sort this keystroke's results; un-anchored locations
-              // (no lat/lng) sink to the bottom in their original order.
-              return sortByProximity(
-                results.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
-                coords,
-              ).map(l => ({
-                id: l.id,
-                label: l.name,
-                sublabel: l.distanceM != null ? `~${Math.round(l.distanceM)} m` : undefined,
-              }));
-            }}
+          <LocationShelfPicker
+            proximitySort
+            locationValue={locationValue}
+            shelfValue={shelfValue}
+            onChangeLocation={changeLocation}
+            onChangeShelf={changeShelf}
           />
+          {locationValue && getLocationById(locationValue.id)?.has_shelves === 1 && (
+            <TouchableOpacity style={s.noShelfBtn} onPress={() => commitLocation(locationValue, null)}>
+              <Text style={s.noShelfBtnText}>Send to {locationValue.label} (no shelf)</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -293,4 +309,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   forBtnActive: { backgroundColor: t.colors.primaryBgStrong },
   forBtnText: { fontSize: 14, color: t.colors.textSecondary, fontWeight: '600' },
   forBtnTextActive: { color: t.colors.primaryText },
+  noShelfBtn: {
+    marginTop: 10, paddingVertical: 10, borderRadius: 8,
+    backgroundColor: t.colors.surfaceAlt, alignItems: 'center',
+  },
+  noShelfBtnText: { fontSize: 14, color: t.colors.textSecondary, fontWeight: '600' },
 });
