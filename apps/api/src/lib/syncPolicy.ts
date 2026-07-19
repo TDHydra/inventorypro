@@ -162,6 +162,7 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   vehicle_checkouts: ['user_id'],
   vehicle_service_records: ['created_by'],
   on_call_shifts: ['created_by'],
+  on_call_coverage: ['created_by'],
 };
 
 export function applyWritePolicy(
@@ -352,6 +353,8 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   // the per-row owner-or-org-authority guard in routes/sync.ts.
   unit_access:               { INSERT: null, UPDATE: null, DELETE: null },
   on_call_shifts:            { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
+  // Coverage rows change who is effectively on call → same roster gate.
+  on_call_coverage:          { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -396,7 +399,7 @@ export const ACTIVITY_ACTIONS = new Set([
   'vehicle_checkout', 'vehicle_checkin', 'vehicle_state_changed', 'vehicle_service_logged',
   'locker_access_granted', 'locker_access_revoked',
   'unit_access_granted', 'unit_access_revoked', 'unit_access_changed',
-  'subteam_created', 'subteam_updated', 'on_call_assigned',
+  'subteam_created', 'subteam_updated', 'on_call_assigned', 'on_call_coverage_added',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
@@ -454,6 +457,7 @@ const VEHICLE_CHECKOUTS_COLS = 'id, vehicle_location_id, user_id, job_id, checke
 const LOCKER_ACCESS_COLS = 'location_id, user_id, granted_by, created_at, updated_at';
 const UNIT_ACCESS_COLS = 'location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at';
 const ON_CALL_SHIFTS_COLS = 'id, subteam_id, week_start, created_by, created_at, updated_at';
+const ON_CALL_COVERAGE_COLS = 'id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
@@ -477,5 +481,6 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'locker_access') return LOCKER_ACCESS_COLS;
   if (table === 'unit_access') return UNIT_ACCESS_COLS;
   if (table === 'on_call_shifts') return ON_CALL_SHIFTS_COLS;
+  if (table === 'on_call_coverage') return ON_CALL_COVERAGE_COLS;
   return '*';
 }

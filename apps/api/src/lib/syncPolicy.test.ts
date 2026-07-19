@@ -493,3 +493,28 @@ test('selectColumnsFor: unit_access + two-tank vehicle columns', () => {
 test('role_settings projection carries dashboard_preset_id (role assignment syncs to all devices)', () => {
   assert.match(selectColumnsFor('role_settings', false), /dashboard_preset_id/);
 });
+
+// ── #122 Phase C: on_call_coverage sync policy ───────────────────────────────
+
+test('on_call_coverage: all ops gated on manage_teams', () => {
+  assert.equal(requiredOperationPerm('on_call_coverage', 'INSERT'), 'manage_teams');
+  assert.equal(requiredOperationPerm('on_call_coverage', 'UPDATE'), 'manage_teams');
+  assert.equal(requiredOperationPerm('on_call_coverage', 'DELETE'), 'manage_teams');
+});
+
+test('on_call_coverage: created_by is attribution-forced to the caller', () => {
+  const realColumns = new Map([[ 'on_call_coverage', new Set(['id','date_start','date_end','user_off','covering_user','note','created_by','created_at','updated_at']) ]]);
+  const { row } = applyWritePolicy('on_call_coverage', 'INSERT',
+    { id: 'c1', date_start: '2026-07-20', date_end: '2026-07-22', user_off: 'u1', covering_user: 'u2', created_by: 'forged' },
+    'caller-1', realColumns, () => true);
+  assert.equal(row.created_by, 'caller-1');
+});
+
+test('on_call_coverage: explicit pull projection, never *', () => {
+  assert.equal(selectColumnsFor('on_call_coverage', false),
+    'id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at');
+});
+
+test('on_call_coverage_added is an allowed activity against team', () => {
+  assert.equal(isAllowedActivity('on_call_coverage_added', 'team'), true);
+});

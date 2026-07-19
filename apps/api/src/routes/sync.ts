@@ -50,7 +50,7 @@ const ALLOWED_TABLES = new Set([
   'conversations', 'conversation_participants', 'messages',
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
-  'locker_access', 'on_call_shifts', 'unit_access',
+  'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -256,7 +256,7 @@ const FULL_TABLES = [
   'conversations', 'conversation_participants', 'messages',
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
-  'locker_access', 'on_call_shifts', 'unit_access',
+  'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
