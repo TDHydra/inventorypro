@@ -41,6 +41,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { partitionBySourceStock } from '../../../src/hooks/locScope';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
@@ -86,8 +87,10 @@ export default function HubScreen() {
   // Unknown/stale ids (or a location deleted mid-session) resolve to null and
   // scope nothing — the banner simply doesn't render.
   const locContext = useMemo(() => (locId ? getLocationById(locId) : null), [locId, dataVersion]);
-  const locItemIds = useMemo(
-    () => (locContext ? new Set(getStockAtLocation(locContext.id).map(r => r.item_id)) : null),
+  // #140: quantity map, not a visibility filter — the catalog/search below must
+  // stay browsable even when the source has no stock rows yet (fresh vehicle).
+  const locQtyByItem = useMemo(
+    () => (locContext ? new Map(getStockAtLocation(locContext.id).map(r => [r.item_id, r.quantity] as const)) : null),
     [locContext?.id, dataVersion],
   );
 
@@ -146,15 +149,19 @@ export default function HubScreen() {
   );
   const hasQuery = query.trim().length > 0;
 
-  // Scope item results (browse catalog + search) to stock at the loc context.
-  const scopedCatalogItems = useMemo(
-    () => (locItemIds ? catalogItems.filter(i => locItemIds.has(i.id)) : catalogItems),
-    [catalogItems, locItemIds],
+  // Scope item results (browse catalog + search) to the loc context by
+  // PARTITION, never by dropping (#140): at-source items lead, the rest of the
+  // catalog stays reachable. The commit-time "Not enough here" guard is what
+  // keeps writes honest.
+  const scopedCatalog = useMemo(
+    () => (locQtyByItem ? partitionBySourceStock(catalogItems, locQtyByItem) : null),
+    [catalogItems, locQtyByItem],
   );
-  const results: GlobalSearchResults = useMemo(
-    () => (locItemIds ? { ...rawResults, items: rawResults.items.filter(i => locItemIds.has(i.id)) } : rawResults),
-    [rawResults, locItemIds],
-  );
+  const results: GlobalSearchResults = useMemo(() => {
+    if (!locQtyByItem) return rawResults;
+    const { atSource, elsewhere } = partitionBySourceStock(rawResults.items, locQtyByItem);
+    return { ...rawResults, items: [...atSource, ...elsewhere] };
+  }, [rawResults, locQtyByItem]);
 
   // ── helpers ──────────────────────────────────────────────────────────────
   function resetConsumable() {
@@ -574,6 +581,8 @@ export default function HubScreen() {
           {hasQuery ? (
             <SearchResults
               results={results}
+              sourceQty={locQtyByItem}
+              sourceName={locContext?.name}
               onItem={goItem}
               onEquipment={goEquipment}
               onLocation={goLocation}
@@ -582,13 +591,41 @@ export default function HubScreen() {
             />
           ) : (
             <View style={{ gap: 10 }}>
-              {scopedCatalogItems.map(item => (
-                <ItemCard
-                  key={item.id}
-                  item={item}
-                  onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
-                />
-              ))}
+              {scopedCatalog ? (
+                <>
+                  {scopedCatalog.atSource.length > 0 && (
+                    <Text style={s.sectionHeader}>At {locContext?.name}</Text>
+                  )}
+                  {scopedCatalog.atSource.length === 0 && catalogItems.length > 0 && (
+                    <Text style={s.empty}>Nothing in stock at {locContext?.name} — full catalog below.</Text>
+                  )}
+                  {scopedCatalog.atSource.map(item => (
+                    <ItemCard
+                      key={item.id}
+                      item={item}
+                      onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
+                    />
+                  ))}
+                  {scopedCatalog.elsewhere.length > 0 && (
+                    <Text style={s.sectionHeader}>Elsewhere in catalog</Text>
+                  )}
+                  {scopedCatalog.elsewhere.map(item => (
+                    <ItemCard
+                      key={item.id}
+                      item={item}
+                      onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
+                    />
+                  ))}
+                </>
+              ) : (
+                catalogItems.map(item => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
+                  />
+                ))
+              )}
               {!locContext && catalogEquipment.length > 0 && (
                 <>
                   <Text style={s.sectionHeader}>Equipment</Text>
@@ -603,8 +640,8 @@ export default function HubScreen() {
                 </>
               )}
               {locContext
-                ? scopedCatalogItems.length === 0 && (
-                    <Text style={s.empty}>Nothing in stock at {locContext.name}.</Text>
+                ? catalogItems.length === 0 && (
+                    <Text style={s.empty}>No catalog items yet.</Text>
                   )
                 : catalogItems.length === 0 && catalogEquipment.length === 0 && (
                     <Text style={s.empty}>No catalog items yet.</Text>
@@ -663,9 +700,12 @@ export default function HubScreen() {
 
 // ── grouped search results ─────────────────────────────────────────────────────
 function SearchResults({
-  results, onItem, onEquipment, onLocation, onJob, onUser,
+  results, sourceQty, sourceName, onItem, onEquipment, onLocation, onJob, onUser,
 }: {
   results: GlobalSearchResults;
+  /** #140 loc context: per-item quantity at the source location (null = no context). */
+  sourceQty?: ReadonlyMap<string, number> | null;
+  sourceName?: string;
   onItem: (id: string) => void;
   onEquipment: (id: string) => void;
   onLocation: (id: string) => void;
@@ -681,14 +721,18 @@ function SearchResults({
   return (
     <View style={{ gap: 6 }}>
       {results.items.length > 0 && <Text style={s.sectionHeader}>Items</Text>}
-      {results.items.map(i => (
-        <ResultRow
-          key={i.id}
-          label={i.name}
-          sub={i.barcode ? `${i.barcode} · ${formatQuantity(i.total_stock, i.unit, i.unit_category as any)}` : formatQuantity(i.total_stock, i.unit, i.unit_category as any)}
-          onPress={() => onItem(i.id)}
-        />
-      ))}
+      {results.items.map(i => {
+        let sub = i.barcode
+          ? `${i.barcode} · ${formatQuantity(i.total_stock, i.unit, i.unit_category as any)}`
+          : formatQuantity(i.total_stock, i.unit, i.unit_category as any);
+        if (sourceQty && sourceName) {
+          const here = sourceQty.get(i.id) ?? 0;
+          sub += here > 0
+            ? ` · ${formatQuantity(here, i.unit, i.unit_category as any)} at ${sourceName}`
+            : ` · none at ${sourceName}`;
+        }
+        return <ResultRow key={i.id} label={i.name} sub={sub} onPress={() => onItem(i.id)} />;
+      })}
 
       {results.equipment.length > 0 && <Text style={s.sectionHeader}>Equipment</Text>}
       {results.equipment.map((e: EquipmentModel) => (
