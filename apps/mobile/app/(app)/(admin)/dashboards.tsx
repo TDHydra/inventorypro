@@ -60,6 +60,10 @@ const BLOCK_NAMES: Record<string, string> = {
   search: 'Pinned Search',
   'quick-add': 'Quick Add CTA',
   'low-stock': 'Low-Stock List',
+  // Contextual quick-actions (#144) — only render when their condition holds.
+  'vehicle-checkin': 'Check-In Vehicle (contextual)',
+  'past-due': 'Past Due (contextual)',
+  'low-stock-catalog': 'Low-Stock Button (contextual)',
 };
 
 function widgetDisplay(block: LayoutBlock): { icon: string; label: string } {

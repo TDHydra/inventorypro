@@ -16,7 +16,8 @@ export type WidgetType =
   | 'fast-checkout' | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
-  | 'section' | 'search' | 'quick-add' | 'low-stock' | 'on-call';            // non-tile blocks
+  | 'section' | 'search' | 'quick-add' | 'low-stock' | 'on-call'             // non-tile blocks
+  | 'vehicle-checkin' | 'past-due' | 'low-stock-catalog';                    // contextual quick-actions (#144)
 
 export type LayoutBlock = {
   widget: WidgetType;
@@ -84,6 +85,15 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // On-call block (#128): fully self-contained <OnCallWidget/> (owns its data reads,
   // modal + calendar; self-gates editing on manage_teams internally).
   'on-call':     { label: '', kind: 'block' },
+
+  // Contextual quick-actions (#144): visibility is DATA-driven (computed by
+  // src/dashboard/quickActions.ts from the user's open vehicle session, past-due
+  // repairs/service and the low-stock list), so like the other blocks they carry
+  // no requiredPermission — past-due and low-stock self-gate on edit_inventory
+  // inside the compute, mirroring localAlerts' scoping.
+  'vehicle-checkin':   { label: '', kind: 'block' },
+  'past-due':          { label: '', kind: 'block' },
+  'low-stock-catalog': { label: '', kind: 'block' },
 };
 
 // The built-in default dashboard, expressed as blocks in the EXACT order/width the
@@ -94,6 +104,12 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
 export const DEFAULT_LAYOUT: Layout = [
   { widget: 'search', width: 'full' },
   { widget: 'quick-add', width: 'full' },
+  // Contextual quick-actions (#144) sit above the tiles: they render nothing at
+  // all unless their condition holds, so the default dashboard is unchanged for
+  // anyone without an open vehicle session / past-due work / low stock.
+  { widget: 'vehicle-checkin', width: 'full' },
+  { widget: 'past-due', width: 'full' },
+  { widget: 'low-stock-catalog', width: 'full' },
   // Fast checkout leads the dashboard (#127): the field tech's first option on login.
   { widget: 'fast-checkout', width: 'full' },
   { widget: 'checkout', width: 'full' },

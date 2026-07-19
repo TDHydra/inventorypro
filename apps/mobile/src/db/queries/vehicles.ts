@@ -252,6 +252,25 @@ export function getActiveCheckout(locationId: string): VehicleCheckout | null {
   return rows[0] ?? null;
 }
 
+/**
+ * The current user's open vehicle session (if any), with the vehicle's name
+ * joined in — feeds the #144 dashboard check-in quick-action.
+ */
+export function getActiveCheckoutForUser(
+  userId: string,
+): (VehicleCheckout & { vehicle_name: string }) | null {
+  const db = getDb();
+  const rows = rowsAs<VehicleCheckout & { vehicle_name: string }>(db.executeSync(
+    `SELECT c.*, l.name AS vehicle_name
+       FROM vehicle_checkouts c
+       JOIN locations l ON l.id = c.vehicle_location_id
+      WHERE c.user_id = ? AND c.checked_in_at IS NULL
+      ORDER BY c.checked_out_at DESC LIMIT 1`,
+    [userId],
+  ).rows);
+  return rows[0] ?? null;
+}
+
 /** Recent sessions (open first, then newest), with holder/job names joined in. */
 export function getCheckoutHistory(locationId: string, limit = 5): VehicleCheckout[] {
   const db = getDb();
