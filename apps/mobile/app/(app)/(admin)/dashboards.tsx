@@ -11,6 +11,7 @@ import {
   type LayoutBlock,
 } from '../../../src/dashboard/widgets';
 import { parsePresetLayout } from '../../../src/dashboard/resolve';
+import { loadDashboardCache } from '../../../src/dashboard/store';
 import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
 import { roleHasPermission } from '../../../src/auth/permissions';
 import {
@@ -281,6 +282,7 @@ export default function DashboardsScreen() {
     try {
       setRoleDashboardPreset(role, presetId);
       setRoleMap(getRoleDashboardPresetIds());
+      loadDashboardCache(); // notify subscribers → the assigner's own dashboard updates live
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
