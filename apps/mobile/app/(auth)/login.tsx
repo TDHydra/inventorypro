@@ -18,7 +18,8 @@ import { fetchRoster, RosterUser } from '../../src/auth/roster';
 import { getPendingCount } from '../../src/sync/outbox';
 import { pushPendingLogs } from '../../src/sync/engine';
 import { prepareForDemoLogin } from '../../src/sync/demoHandoff';
-import { getAppConfig } from '../../src/db/appConfig';
+import { getAppConfig, setAppConfigLocal, ORG_THEME_KEY } from '../../src/db/appConfig';
+import { applyOrgDefaultTheme } from '../../src/db/orgTheme';
 import { Alert } from '../../src/lib/themedAlert';
 
 type Screen = 'pick' | 'pin' | 'setpin';
@@ -89,7 +90,18 @@ export default function LoginScreen() {
     // picker. /auth/roster already omits demo rows when the switch is off, but
     // filter here too so a stale cached response can't resurface them.
     fetchRoster()
-      .then(r => { setUsers(hideDemo(r)); setNeedsFullSync(true); })
+      .then(({ users: fetched, default_theme_id }) => {
+        setUsers(hideDemo(fetched));
+        setNeedsFullSync(true);
+        // Fresh install: cache the org default in the local app_config table
+        // (the DB opens pre-auth) so later offline boots theme the sign-in
+        // screen, and apply it now — setThemeId notifies useTheme, so this
+        // very screen re-skins without a remount.
+        if (default_theme_id) {
+          try { setAppConfigLocal(ORG_THEME_KEY, default_theme_id); } catch { /* DB not ready */ }
+          applyOrgDefaultTheme(null);
+        }
+      })
       .catch(e => setRosterError((e as Error).message || 'Could not reach the server. Connect to the internet to set up this device.'))
       .finally(() => setRosterLoading(false));
   }, []);

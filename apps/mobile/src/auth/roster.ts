@@ -14,10 +14,16 @@ export interface RosterUser {
   test_code?: string | null; // demo access code, shown under the login fields
 }
 
+export interface RosterResponse {
+  users: RosterUser[];
+  /** Org default theme id (app_config 'default_theme_id'); null when unset. */
+  default_theme_id: string | null;
+}
+
 /** Fetches the sign-in roster. Used only when the local DB is empty (new device). */
-export async function fetchRoster(): Promise<RosterUser[]> {
+export async function fetchRoster(): Promise<RosterResponse> {
   const res = await fetch(`${API_BASE}/auth/roster`);
   if (!res.ok) throw new Error(`Could not load the sign-in list (${res.status}).`);
-  const data = (await res.json()) as { users: RosterUser[] };
-  return data.users ?? [];
+  const data = (await res.json()) as { users: RosterUser[]; default_theme_id?: string | null };
+  return { users: data.users ?? [], default_theme_id: data.default_theme_id ?? null };
 }
