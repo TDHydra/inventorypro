@@ -12,13 +12,13 @@ import { ServiceRecordList } from './ServiceRecordList';
 import { VehicleCheckoutSheet, type CheckoutSheetMode } from './VehicleCheckoutSheet';
 import {
   getVehicle, upsertVehicleState, getActiveCheckout, getCheckoutHistory,
-  checkInVehicle, VEHICLE_MODEL_CATEGORY, type WaterState,
+  checkInVehicle, VEHICLE_MODEL_CATEGORY, type WaterTank, type WasteTank,
 } from '../../db/queries/vehicles';
 import { getLocationById } from '../../db/queries/locations';
 import { getUserById } from '../../db/queries/users';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import {
-  resolveCheckoutAction, formatSince, waterStateLabel,
+  resolveCheckoutAction, formatSince, waterTankLabel, wasteTankLabel,
 } from './vehicleSessionLogic';
 import { renderIcon } from '../../constants/locationStyles';
 import { useSession } from '../../hooks/useSession';
@@ -49,8 +49,12 @@ interface Props {
 }
 
 const WATER_SEGMENTS = [
-  { id: 'full', label: 'Full of water' },
-  { id: 'empty_clean', label: 'Empty + clean tank' },
+  { id: 'full', label: 'Full' },
+  { id: 'empty', label: 'Empty' },
+];
+const WASTE_SEGMENTS = [
+  { id: 'clean', label: 'Clean' },
+  { id: 'dirty', label: 'Dirty' },
 ];
 
 export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
@@ -101,9 +105,14 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const isOut = action.kind !== 'check_out';
   const isMine = action.kind === 'check_in';
 
-  function setWater(id: string) {
+  function setWaterTank(id: string) {
     if (isWriteBlocked()) return;
-    upsertVehicleState(locationId, { water_state: id as WaterState }, user?.id ?? null);
+    upsertVehicleState(locationId, { water_tank: id as WaterTank }, user?.id ?? null);
+  }
+
+  function setWasteTank(id: string) {
+    if (isWriteBlocked()) return;
+    upsertVehicleState(locationId, { waste_tank: id as WasteTank }, user?.id ?? null);
   }
 
   function toggleTruckMount() {
@@ -150,12 +159,15 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const statusPills = (
     <View style={s.pillRow}>
       {!!vehicle?.truck_mount && <StatusPill label="Truck mount" tone="primary" />}
-      {!!vehicle?.water_state && (
-        <StatusPill
-          label={waterStateLabel(vehicle.water_state)}
-          tone={vehicle.water_state === 'full' ? 'primary' : 'neutral'}
-        />
-      )}
+      <StatusPill
+        label={waterTankLabel(vehicle?.water_tank ?? 'empty')}
+        tone={vehicle?.water_tank === 'full' ? 'primary' : 'neutral'}
+      />
+      <StatusPill
+        label={wasteTankLabel(vehicle?.waste_tank ?? 'clean')}
+        tone={vehicle?.waste_tank === 'dirty' ? 'warning' : 'neutral'}
+      />
+
       <StatusPill
         label={isOut ? `Out · ${holderName}` : 'Available'}
         tone={isOut ? 'warning' : 'success'}
@@ -196,12 +208,23 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
         </Pressable>
         <FieldLabel style={s.waterLabel}>Water tank</FieldLabel>
         {locked ? (
-          <Text style={s.muted}>{waterStateLabel(vehicle?.water_state) || 'Not set'}</Text>
+          <Text style={s.muted}>{waterTankLabel(vehicle?.water_tank ?? 'empty')}</Text>
         ) : (
           <SegmentedControl
             segments={WATER_SEGMENTS}
-            value={vehicle?.water_state ?? ''}
-            onChange={setWater}
+            value={vehicle?.water_tank ?? 'empty'}
+            onChange={setWaterTank}
+            size="sm"
+          />
+        )}
+        <FieldLabel style={s.waterLabel}>Waste tank</FieldLabel>
+        {locked ? (
+          <Text style={s.muted}>{wasteTankLabel(vehicle?.waste_tank ?? 'clean')}</Text>
+        ) : (
+          <SegmentedControl
+            segments={WASTE_SEGMENTS}
+            value={vehicle?.waste_tank ?? 'clean'}
+            onChange={setWasteTank}
             size="sm"
           />
         )}

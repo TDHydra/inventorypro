@@ -18,18 +18,15 @@ export function VehicleInlineStatus({ locationId }: { locationId: string }) {
   const status = useMemo(() => getVehicleInlineStatus(locationId), [locationId, version]);
 
   const hasHolder = !!status.holder_name;
-  const hasWater = status.water_state === 'full' || status.water_state === 'empty_clean';
-  if (!hasHolder && !hasWater) return null;
+  const waterFull = status.water_tank === 'full';
+  const wasteDirty = status.waste_tank === 'dirty';
+  if (!hasHolder && !waterFull && !wasteDirty) return null;
 
   return (
     <View style={s.row}>
       {hasHolder && <StatusPill label={`Out · ${status.holder_name}`} tone="warning" />}
-      {hasWater && (
-        <StatusPill
-          label={status.water_state === 'full' ? '💧 Full' : 'Empty·clean'}
-          tone={status.water_state === 'full' ? 'primary' : 'neutral'}
-        />
-      )}
+      {waterFull && <StatusPill label="💧 Water full" tone="primary" />}
+      {wasteDirty && <StatusPill label="⚠️ Waste dirty" tone="warning" />}
     </View>
   );
 }

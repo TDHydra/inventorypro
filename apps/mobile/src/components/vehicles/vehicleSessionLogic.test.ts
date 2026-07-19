@@ -4,7 +4,8 @@ import {
   resolveCheckoutAction,
   buildClosePayload,
   formatSince,
-  waterStateLabel,
+  waterTankLabel,
+  wasteTankLabel,
   serviceTargetLabel,
 } from './vehicleSessionLogic';
 
@@ -62,10 +63,20 @@ test('formatSince: future/garbage input → empty string', () => {
   assert.equal(formatSince('not-a-date', '2026-07-18T00:00:00Z'), '');
 });
 
-test('labels: water state + service target', () => {
-  assert.equal(waterStateLabel('full'), 'Full of water');
-  assert.equal(waterStateLabel('empty_clean'), 'Empty + clean tank');
-  assert.equal(waterStateLabel(null), '');
+test('waterTankLabel maps full/empty and blanks unknowns', () => {
+  assert.equal(waterTankLabel('full'), 'Water: full');
+  assert.equal(waterTankLabel('empty'), 'Water: empty');
+  assert.equal(waterTankLabel(null), '');
+  assert.equal(waterTankLabel('empty_clean'), ''); // legacy value never reaches labels
+});
+
+test('wasteTankLabel maps clean/dirty and blanks unknowns', () => {
+  assert.equal(wasteTankLabel('clean'), 'Waste: clean');
+  assert.equal(wasteTankLabel('dirty'), 'Waste: dirty');
+  assert.equal(wasteTankLabel(undefined), '');
+});
+
+test('labels: service target', () => {
   assert.equal(serviceTargetLabel('vehicle'), 'Vehicle');
   assert.equal(serviceTargetLabel('truck_mount'), 'Truck mount');
   assert.equal(serviceTargetLabel('both'), 'Both');

@@ -28,15 +28,16 @@ import { buildClosePayload } from '../../components/vehicles/vehicleSessionLogic
 
 export const VEHICLE_MODEL_CATEGORY = 'vehicle_model';
 
-export type WaterState = 'full' | 'empty_clean';
+export type WaterTank = 'full' | 'empty';
+export type WasteTank = 'dirty' | 'clean';
 export type ServiceTarget = 'vehicle' | 'truck_mount' | 'both';
 
 export interface VehicleRow {
   location_id: string;
   truck_mount: number; // 0/1
-  water_state: WaterState | null;
-  water_tank: 'full' | 'empty';
-  waste_tank: 'dirty' | 'clean';
+  water_state: string | null; // DEPRECATED (#122 A2): legacy single-tank column — kept in the table, never read/written
+  water_tank: WaterTank;
+  waste_tank: WasteTank;
   model: string | null;
   model_id: string | null;
   notes: string | null;
@@ -87,9 +88,8 @@ export function getVehicle(locationId: string): VehicleRow | null {
 
 export interface VehicleStatePatch {
   truck_mount?: number;
-  water_state?: WaterState | null;
-  water_tank?: 'full' | 'empty';
-  waste_tank?: 'dirty' | 'clean';
+  water_tank?: WaterTank;
+  waste_tank?: WasteTank;
   model?: string | null;
   model_id?: string | null;
   notes?: string | null;
@@ -112,7 +112,7 @@ export function upsertVehicleState(
     const merged: VehicleRow = {
       location_id: locationId,
       truck_mount: patch.truck_mount ?? existing?.truck_mount ?? 0,
-      water_state: patch.water_state !== undefined ? patch.water_state : existing?.water_state ?? null,
+      water_state: existing?.water_state ?? null, // carried through, never patched
       water_tank: patch.water_tank ?? existing?.water_tank ?? 'empty',
       waste_tank: patch.waste_tank ?? existing?.waste_tank ?? 'clean',
       model: patch.model !== undefined ? patch.model : existing?.model ?? null,
@@ -127,7 +127,7 @@ export function upsertVehicleState(
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank]),
     );
-    const { synced_at: _s, ...row } = merged;
+    const { synced_at: _s, water_state: _w, ...row } = merged;
     appendOutbox('INSERT', 'vehicles', row);
     appendLog({
       action: 'vehicle_state_changed',
@@ -167,7 +167,7 @@ export function ensureVehicleRow(
       bindParams([locationId, init?.model ?? null, init?.model_id ?? null, now]),
     );
     appendOutbox('INSERT', 'vehicles', {
-      location_id: locationId, truck_mount: 0, water_state: null,
+      location_id: locationId, truck_mount: 0,
       model: init?.model ?? null, model_id: init?.model_id ?? null,
       notes: null, updated_at: now, water_tank: 'empty', waste_tank: 'clean',
     });
@@ -378,7 +378,8 @@ export function takeOverVehicle(locationId: string, jobId: string | null, userId
 // ── list-row status (VehicleInlineStatus) ──────────────────────────────────
 
 export interface VehicleInlineStatusRow {
-  water_state: WaterState | null;
+  water_tank: WaterTank | null;
+  waste_tank: WasteTank | null;
   truck_mount: number | null;
   holder_name: string | null; // open session holder, or null
 }
@@ -388,13 +389,14 @@ export function getVehicleInlineStatus(locationId: string): VehicleInlineStatusR
   const db = getDb();
   const rows = rowsAs<VehicleInlineStatusRow>(db.executeSync(
     `SELECT
-       (SELECT water_state FROM vehicles WHERE location_id = ?) AS water_state,
+       (SELECT water_tank FROM vehicles WHERE location_id = ?) AS water_tank,
+       (SELECT waste_tank FROM vehicles WHERE location_id = ?) AS waste_tank,
        (SELECT truck_mount FROM vehicles WHERE location_id = ?) AS truck_mount,
        (SELECT COALESCE(u.name, c.user_id) FROM vehicle_checkouts c
           LEFT JOIN users u ON u.id = c.user_id
          WHERE c.vehicle_location_id = ? AND c.checked_in_at IS NULL
          ORDER BY c.checked_out_at DESC LIMIT 1) AS holder_name`,
-    [locationId, locationId, locationId],
+    [locationId, locationId, locationId, locationId],
   ).rows);
-  return rows[0] ?? { water_state: null, truck_mount: null, holder_name: null };
+  return rows[0] ?? { water_tank: null, waste_tank: null, truck_mount: null, holder_name: null };
 }

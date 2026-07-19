@@ -62,10 +62,17 @@ export function formatSince(fromIso: string, nowIso: string): string {
   return remH > 0 ? `${days}d ${remH}h` : `${days}d`;
 }
 
-/** Display label for a water state ('' for unset). */
-export function waterStateLabel(state: string | null | undefined): string {
-  if (state === 'full') return 'Full of water';
-  if (state === 'empty_clean') return 'Empty + clean tank';
+/** Display label for the water tank ('' for unset/unknown — legacy values never reach labels). */
+export function waterTankLabel(tank: string | null | undefined): string {
+  if (tank === 'full') return 'Water: full';
+  if (tank === 'empty') return 'Water: empty';
+  return '';
+}
+
+/** Display label for the waste tank ('' for unset/unknown). */
+export function wasteTankLabel(tank: string | null | undefined): string {
+  if (tank === 'clean') return 'Waste: clean';
+  if (tank === 'dirty') return 'Waste: dirty';
   return '';
 }
 
