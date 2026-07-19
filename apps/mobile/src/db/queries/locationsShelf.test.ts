@@ -173,3 +173,10 @@ test('getBrowsableLocations/getLocationTree exclude Vehicle- and Locker-typed ro
   const topIds = loc.getLocationTree().map(n => n.id);
   assert.ok(!topIds.includes('van-1') && !topIds.includes('locker-frank'));
 });
+
+test('getRoomsForParent lists non-shelf children only', () => {
+  seedLocation({ id: 'room-maint', name: 'Maintenance Room', parent_id: 'shop-1', type: 'Storage' });
+  const rooms = loc.getRoomsForParent('shop-1');
+  assert.ok(rooms.some(r => r.id === 'room-maint'), 'a room child is listed');
+  assert.ok(!rooms.some(r => r.id === 'shelf-a1'), 'shelf children are not rooms');
+});

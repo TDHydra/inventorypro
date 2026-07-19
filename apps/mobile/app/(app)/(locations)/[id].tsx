@@ -6,7 +6,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getLocationById, getStockAtLocation, upsertLocation,
   getBrowsableLocations, getLocationPath, getDescendantIds,
-  getShelvesForParent, setShelfColor,
+  getShelvesForParent, setShelfColor, getRoomsForParent,
   StockAtLocation, Location,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -128,6 +128,9 @@ export default function LocationDetailScreen() {
   // after any color change or focus refresh.
   const [shelves, setShelves] = useState<Location[]>(() => getShelvesForParent(id));
   useEffect(() => { setShelves(getShelvesForParent(id)); }, [id, refreshKey]);
+  // Non-shelf children ("rooms") for the Sub-areas section.
+  const [rooms, setRooms] = useState<Location[]>(() => getRoomsForParent(id));
+  useEffect(() => { setRooms(getRoomsForParent(id)); }, [id, refreshKey]);
   // Which shelf's color-picker row is expanded, if any.
   const [coloringShelfId, setColoringShelfId] = useState<string | null>(null);
 
@@ -439,6 +442,41 @@ export default function LocationDetailScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* ── Sub-areas (rooms) ───────────────────────────────────────────── */}
+        {/* Non-shelf children — the rooms of a building. Units (Vehicle/Locker)
+            can't contain rooms (A1's server guard), so the affordance is gated. */}
+        {(rooms.length > 0 || (canManage && location.active === 1 && location.type !== 'Vehicle' && location.type !== 'Locker')) && (
+          <>
+            <Text style={s.sectionLabel}>Sub-areas</Text>
+            <View style={s.card}>
+              {rooms.length === 0 ? (
+                <Text style={s.muted}>No sub-areas yet. Add rooms (e.g. Maintenance Room, Product Room, Garage) to organize this place.</Text>
+              ) : (
+                rooms.map((room, i) => (
+                  <TouchableOpacity
+                    key={room.id}
+                    style={[s.stockRow, i < rooms.length - 1 && s.divider]}
+                    onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: room.id } })}
+                  >
+                    <Text style={s.stockName} numberOfLines={1}>
+                      {room.type ? `${renderIcon(typeIconByLabel.get(room.type) ?? null)} ` : ''}{room.name}
+                    </Text>
+                    <Text style={s.attrVal}>›</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+              {canManage && location.active === 1 && location.type !== 'Vehicle' && location.type !== 'Locker' && (
+                <TouchableOpacity
+                  style={s.addStockBtn}
+                  onPress={() => router.push({ pathname: '/(app)/(locations)', params: { createUnder: id } })}
+                >
+                  <Text style={s.addStockBtnText}>+ Add Sub-area</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        )}
 
         {/* ── Shelves ──────────────────────────────────────────────────────── */}
         {/* Shelves are a sub-level of this location, not first-class locations, so

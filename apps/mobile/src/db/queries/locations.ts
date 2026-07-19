@@ -125,6 +125,13 @@ export function getSubAreas(parentId: string): Location[] {
   return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
+// Non-shelf children of a location — the "rooms" of a building (Maintenance
+// Room, Product Room, Garage, …) for the detail screen's Sub-areas section.
+// Shelves are excluded: they have their own dedicated section + queries.
+export function getRoomsForParent(parentId: string): Location[] {
+  return getSubAreas(parentId).filter(l => l.type !== 'Shelf');
+}
+
 // Full recursive tree (arbitrary depth). `depth` is the 0-based nesting level,
 // for indentation. A visited set guards against any cyclic parent_id data so the
 // recursion can't loop forever.

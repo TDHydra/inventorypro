@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
   getLocationTree, upsertLocation, getLocationById, getBrowsableLocations, getLocationPath,
@@ -54,6 +54,16 @@ export default function LocationsScreen() {
   useEffect(() => {
     setTree(getLocationTree());
   }, [dataVersion]);
+
+  const { createUnder } = useLocalSearchParams<{ createUnder?: string }>();
+  // Deep-link from a location detail's "+ Add Sub-area": open the create modal
+  // preset to that parent, then clear the param so re-focusing doesn't re-open.
+  useEffect(() => {
+    if (createUnder && canManage) {
+      openCreate(createUnder);
+      router.setParams({ createUnder: undefined });
+    }
+  }, [createUnder, canManage]);
 
   // Location-type taxonomy (Shop, Office, …) for the create-form picker, the
   // list section filter, and per-row type badges. Active types only. 'Shelf' is
