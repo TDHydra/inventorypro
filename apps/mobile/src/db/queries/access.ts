@@ -29,7 +29,9 @@ export interface AccessibleSourceLocations {
 
 /**
  * The Locker- and Vehicle-typed locations `userId` may work from, partitioned
- * by type. Access = owned by them ∪ granted via locker_access ∪ owned by any
+ * by type. Access = owned by them ∪ granted via unit_access (can_view = 1;
+ * #122 Phase A1 — locker_access stays on disk, deprecated, no longer read
+ * here) ∪ owned by any
  * user sharing a parent team with them (user decision 2026-07-18: whole team,
  * not just the subteam). Backs the fast-checkout source picker and Manage My
  * Team. NOTE: org-authority (tier 3+) bypass is deliberately NOT applied here
@@ -44,7 +46,7 @@ export function getAccessibleSourceLocations(userId: string): AccessibleSourceLo
     ownerUserId: l.owner_user_id,
   }));
   const grants: AccessGrantRow[] = rowsAs<{ location_id: string; user_id: string }>(
-    db.executeSync(`SELECT location_id, user_id FROM locker_access`).rows,
+    db.executeSync(`SELECT location_id, user_id FROM unit_access WHERE can_view = 1`).rows,
   ).map(g => ({ locationId: g.location_id, userId: g.user_id }));
   const teamMembers: TeamMemberRow[] = rowsAs<{ team_id: string; user_id: string }>(
     db.executeSync(`SELECT team_id, user_id FROM team_members`).rows,
