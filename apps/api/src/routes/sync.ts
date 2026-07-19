@@ -607,6 +607,36 @@ async function applyEntry(
       } catch { /* never disrupt sync */ }
     })();
   }
+
+  // New coverage row → notify the other PMs + notify_route_on_call once
+  // (deduped on the coverage id so a retried push doesn't re-notify).
+  if (table_name === 'on_call_coverage' && row.id) {
+    const covId = String(row.id);
+    const dateStart = String(row.date_start ?? '');
+    const dateEnd = String(row.date_end ?? '');
+    const offId = row.user_off != null ? String(row.user_off) : null;
+    const coverId = row.covering_user != null ? String(row.covering_user) : null;
+    void (async () => {
+      try {
+        if (!(await getNotifyConfig(pg)).enabled) return;
+        if (await claimEvent(pg, dedupKeys.coverage(covId))) {
+          const { rows: nameRows } = await pg.query(
+            `SELECT id, name FROM users WHERE id = ANY($1)`,
+            [[offId, coverId].filter(Boolean)]);
+          const nameOf = (id: string | null) =>
+            (nameRows as { id: string; name: string }[]).find(r => String(r.id) === id)?.name ?? 'Someone';
+          const to = await resolveRecipients(pg, 'on_call', { actorId: callerUserId });
+          await deliver(pg, to, {
+            type: 'on_call',
+            title: 'On-call coverage',
+            body: `${nameOf(coverId)} is covering for ${nameOf(offId)} (${dateStart} – ${dateEnd}).`,
+            data: { screen: 'dashboard' },
+            createdBy: callerUserId,
+          });
+        }
+      } catch { /* never disrupt sync */ }
+    })();
+  }
 }
 
 // Resolve the caller's *current* role + permission overrides from the DB — not

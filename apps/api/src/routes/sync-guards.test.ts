@@ -47,6 +47,7 @@ const COLUMNS: Record<string, string[]> = {
   locker_access: ['location_id', 'user_id', 'granted_by', 'created_at', 'updated_at'],
   unit_access: ['location_id', 'user_id', 'can_view', 'can_add', 'can_remove', 'can_move', 'can_edit_details', 'can_grant', 'granted_by', 'created_at', 'updated_at'],
   on_call_shifts: ['id', 'subteam_id', 'week_start', 'created_by', 'created_at', 'updated_at'],
+  on_call_coverage: ['id', 'date_start', 'date_end', 'user_off', 'covering_user', 'note', 'created_by', 'created_at', 'updated_at'],
   locations: ['id', 'name', 'type', 'type_id', 'owner_user_id', 'active', 'updated_at'],
 };
 
@@ -76,6 +77,8 @@ interface FakePgOpts {
   vehicleDupSurvivor?: string;
   /** parent-type lookup for the no-sub-areas guard. */
   parentType?: string;
+  /** #122 C: active-PM roster for the on_call fan-out (resolveRoleRecipients). */
+  pmRoster?: string[];
 }
 
 // Dispatching fake pg (auth-demo.test.ts pattern). Records every query so the
@@ -102,6 +105,21 @@ function fakePg(opts: FakePgOpts = {}) {
       // resolveCaller — the only query that selects u.is_test.
       if (sql.includes('u.is_test')) {
         return { rows: [{ role: opts.callerRole ?? 'full_admin', permission_overrides: null, role_overrides: null, is_test: false }] };
+      }
+      // #122 C fan-out: getNotifyConfig reads app_config (enabled), claimEvent
+      // wins the dedup ledger, resolveRoleRecipients returns the PM roster, and
+      // resolveRecipients' final active-only pass echoes the ids back as active.
+      if (sql.includes('FROM app_config WHERE key = ANY')) {
+        return { rows: [{ key: 'notify_enabled', value: '1' }] };
+      }
+      if (sql.includes('INSERT INTO notification_dedup')) {
+        return { rows: [{ event_key: params[0] }] }; // newly inserted → claim won
+      }
+      if (sql.includes('FROM users WHERE role = ANY')) {
+        return { rows: (opts.pmRoster ?? []).map(id => ({ id })) };
+      }
+      if (sql.includes('id = ANY') && sql.includes('NOT is_test')) {
+        return { rows: (params[0] as string[]).map(id => ({ id })) };
       }
       if (sql.includes(`key = 'maintenance_mode'`)) return { rows: [] };
       if (sql.includes(`key = 'crew_add_vehicle_enabled'`)) {
@@ -682,6 +700,45 @@ test('on_call_shifts writes require manage_teams (crew cannot self-assign the on
   assert.deepEqual(body.ok, []);
   assert.match(body.conflicts[0].error, PERMANENT);
   assert.match(body.conflicts[0].error, /manage_teams/);
+});
+
+// ── #122 Phase C: on_call_coverage INSERT fan-out through /sync/push ─────────
+// Pins the applyEntry hook wiring itself (right table check, claimEvent key,
+// deliver reached with the resolved PM recipients) — the resolver units in
+// lib/notifications.test.ts can't catch a swallowed error or a dead hook here.
+
+test('on_call_coverage INSERT: fan-out claims the coverage dedup key and delivers to the PM roster', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', pmRoster: ['pm1', 'pm2'] });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'on_call_coverage', payload: {
+      id: 'cov-1', date_start: '2026-07-20', date_end: '2026-07-22',
+      user_off: 'u-off', covering_user: 'u-cover', created_at: NOW, updated_at: NOW,
+    } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO on_call_coverage')), 'the coverage row must reach SQL');
+  // The fan-out is fire-and-forget: every fake-pg await settles in microtasks,
+  // so a setImmediate hop (twice, for safety) lets the whole chain finish.
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  const claim = pg.queries.find(q => q.sql.includes('INSERT INTO notification_dedup'));
+  assert.ok(claim, 'the fan-out must claim the dedup ledger');
+  assert.deepEqual(claim!.params, ['oncall:coverage:cov-1']);
+  const inbox = pg.queries.filter(q => q.sql.includes('INSERT INTO notifications'));
+  assert.deepEqual(inbox.map(q => q.params[1]).sort(), ['pm1', 'pm2'], 'every resolved PM gets an inbox row');
+  for (const q of inbox) assert.equal(q.params[2], 'on_call');
+});
+
+test('on_call_coverage writes require manage_teams (crew cannot author coverage)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', pmRoster: ['pm1'] });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'on_call_coverage', payload: { id: 'cov-2', date_start: '2026-07-20', date_end: '2026-07-22' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_teams/);
+  await new Promise(r => setImmediate(r));
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO notification_dedup')), 'a rejected write must never notify');
 });
 
 // ── #129 / #122 A1: vehicle name-merge + no sub-areas under units ────────────

@@ -10,12 +10,12 @@ import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
 
 // ── Channels ──────────────────────────────────────────────────────────────
-// The four server-side notification channels. Each is persisted as an
+// The five server-side notification channels. Each is persisted as an
 // `app_config` value under `notify_route_<key>` holding a `RouteConfig` JSON.
 // These are *additive* recipients: the server unions them with each channel's
 // intrinsic recipients (see resolveRecipients in apps/api/src/lib/notifications).
 
-export type RoutingChannel = 'assignment' | 'low_stock' | 'checkout_idle' | 'approvals';
+export type RoutingChannel = 'assignment' | 'low_stock' | 'checkout_idle' | 'approvals' | 'on_call';
 
 interface RouteConfig {
   roles: string[];
@@ -28,6 +28,7 @@ const CHANNELS: { key: RoutingChannel; label: string; note: string }[] = [
   { key: 'low_stock', label: 'Low stock', note: 'Added to the default admins & franchise managers.' },
   { key: 'checkout_idle', label: 'Checkout idle', note: "Added to the user's team manager." },
   { key: 'approvals', label: 'Approval requests', note: 'Who reviews approval requests (defaults to team managers).' },
+  { key: 'on_call', label: 'On-call coverage', note: 'Added to the other Production Managers.' },
 ];
 
 const ROLE_KEYS = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
