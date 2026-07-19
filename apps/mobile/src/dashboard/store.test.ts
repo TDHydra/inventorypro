@@ -87,6 +87,10 @@ test('field-crew registry entries: kinds, routes, no permission gates', () => {
   assert.equal(WIDGET_REGISTRY['fast-checkout'].kind, 'tile');
   assert.equal(WIDGET_REGISTRY['fast-checkout'].route, '/(app)/(crew)');
   assert.equal(WIDGET_REGISTRY['fast-checkout'].requiredPermission, undefined);
+  // Fast check-in (#83): same crew picker in return mode, also data-driven.
+  assert.equal(WIDGET_REGISTRY['fast-checkin'].kind, 'tile');
+  assert.equal(WIDGET_REGISTRY['fast-checkin'].route, '/(app)/(crew)?dir=in');
+  assert.equal(WIDGET_REGISTRY['fast-checkin'].requiredPermission, undefined);
   assert.equal(WIDGET_REGISTRY['manage-my-team'].kind, 'tile');
   assert.equal(WIDGET_REGISTRY['manage-my-team'].route, '/(app)/(myteam)');
   assert.equal(WIDGET_REGISTRY['manage-my-team'].requiredPermission, undefined);
@@ -97,7 +101,7 @@ test('DEFAULT_LAYOUT: fast-checkout is the first tile; new widgets present once'
   const widgets = DEFAULT_LAYOUT.map(b => b.widget);
   const firstTile = DEFAULT_LAYOUT.find(b => WIDGET_REGISTRY[b.widget].kind === 'tile');
   assert.equal(firstTile?.widget, 'fast-checkout');
-  for (const w of ['fast-checkout', 'manage-my-team', 'on-call'] as const) {
+  for (const w of ['fast-checkout', 'fast-checkin', 'manage-my-team', 'on-call'] as const) {
     assert.equal(widgets.filter(x => x === w).length, 1, `${w} appears exactly once`);
   }
   // manage-my-team lives in the Operations section (after its header, before Admin's).

@@ -13,7 +13,7 @@ import type { Permission } from '../constants/roles';
 // today; QuickAddBanner self-gates internally).
 
 export type WidgetType =
-  | 'fast-checkout' | 'checkout' | 'checkin' | 'my-checkouts'
+  | 'fast-checkout' | 'fast-checkin' | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'search' | 'quick-add' | 'low-stock' | 'on-call'             // non-tile blocks
@@ -45,6 +45,9 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // No requiredPermission — access is data-driven (accessible lockers/vehicles);
   // the screen renders an EmptyState when the user has none.
   'fast-checkout': { label: 'Fast Checkout',         icon: '⚡', route: '/(app)/(crew)', kind: 'tile' },
+  // Fast check-in (#83): same source picker in return mode. No requiredPermission
+  // (data-driven access, like fast-checkout); the picker gates on accessible sources.
+  'fast-checkin':  { label: 'Fast Check-In',         icon: '↩', route: '/(app)/(crew)?dir=in', kind: 'tile' },
   checkout:      { label: 'Check Out Item',          icon: '📦', route: '/(app)/(checkout)', requiredPermission: 'checkout_inventory', kind: 'tile' },
   checkin:       { label: 'Check In',                icon: '↩',  route: '/(app)/(checkin)',  requiredPermission: 'checkin_inventory',  kind: 'tile' },
   'my-checkouts':{ label: 'My Active Checkouts',     icon: '📋', route: '/(app)/(jobs)',     requiredPermission: 'checkout_inventory', kind: 'tile' },
@@ -110,8 +113,9 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
-  // Fast checkout leads the dashboard (#127): the field tech's first option on login.
-  { widget: 'fast-checkout', width: 'full' },
+  // Fast checkout leads the dashboard (#127); fast check-in (#83) pairs with it.
+  { widget: 'fast-checkout', width: 'half' },
+  { widget: 'fast-checkin', width: 'half' },
   { widget: 'checkout', width: 'full' },
   { widget: 'checkin', width: 'full' },
   { widget: 'my-checkouts', width: 'full' },
