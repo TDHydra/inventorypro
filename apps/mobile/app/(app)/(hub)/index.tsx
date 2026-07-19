@@ -59,7 +59,10 @@ export default function HubScreen() {
   const canAdd = usePermission('add_inventory');
   const canScanAct = canCheckout || canCheckin || canAdd;
 
-  const params = useLocalSearchParams<{ scan?: string; q?: string; loc?: string }>();
+  const params = useLocalSearchParams<{ scan?: string; q?: string; loc?: string; dir?: string }>();
+  // #83: Fast Check-In enters with dir=in so the scan flow runs a check-IN
+  // (item sheet opens on 'in'); everything else defaults to check-out.
+  const flowDir: 'in' | 'out' = params.dir === 'in' ? 'in' : 'out';
   const [mode, setMode] = useState<Mode>('browse');
   const [query, setQuery] = useState('');
   const [flapOpen, setFlapOpen] = useState(false);
@@ -214,6 +217,18 @@ export default function HubScreen() {
     if (c.kind === 'rejected') { Alert.alert('Unverified code', 'This code couldn’t be verified — it may be damaged, forged, or not an InventoryPro label.'); return; }
     if (c.kind === 'unknown') { promptAddNewItem(c.code); return; }       // Task 14 (c.code is the sanitized scan)
     if (c.kind === 'consumable') { setPendingItem(c.item); setMode('inout'); return; }
+    // Equipment batch flow is check-OUT only (deploy/transfer). In a check-IN
+    // flow, don't misroute a scanned unit into a checkout — tell the user where
+    // equipment check-in lives instead. (Bidirectional equipment scan-in is a
+    // separate feature — see the smart-scan backlog item.)
+    if (flowDir === 'in') {
+      setMode('browse');
+      Alert.alert(
+        'Check in equipment from its page',
+        'Fast check-in handles stock items. To check a piece of equipment back in, open it from the Equipment screen.',
+      );
+      return;
+    }
     // equipment-unit / equipment-model → batch checkout (Task 15)
     enqueueEquipment(c);
   }
@@ -723,6 +738,7 @@ export default function HubScreen() {
         item={pendingItem}
         onChoose={onInOutChosen}
         onClose={() => { resetConsumable(); setMode('browse'); }}
+        defaultDirection={flowDir}
         // #139: from a scoped source, offer a destination (another location /
         // vehicle / locker / job) alongside the one-tap "take it with me".
         secondaryLabel={locContext ? 'Send somewhere…' : undefined}
