@@ -767,6 +767,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const { entries } = request.body;
     const ok: string[] = [];
     const conflicts: Array<{ id: string; error: string }> = [];
+    // #129: merge map + response for duplicate Vehicle-typed location INSERTs.
+    const merged: Array<{ id: string; duplicate_id: string; survivor_id: string }> = [];
+    const vehicleAlias = new Map<string, string>(); // duplicate location id -> survivor id
 
     // Resolve the caller's *current* permissions from the DB — not the JWT role
     // claim, which can be stale or forged-stale within the 15m token window.
@@ -1209,6 +1212,63 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // Remap in-batch references from an already-merged duplicate vehicle to its
+      // survivor, so the batch's follow-up rows (vehicles ext, stock, checkouts,
+      // activity) land on the row the server actually kept.
+      if (vehicleAlias.size > 0) {
+        const refCols = ['location_id', 'vehicle_location_id', 'site_location_id', 'current_location_id', 'home_location_id', 'from_location_id', 'to_location_id', 'parent_id'];
+        const cols = entry.table_name === 'locations' ? [...refCols, 'id'] : refCols;
+        for (const col of cols) {
+          const v = entry.payload[col];
+          if (typeof v === 'string' && vehicleAlias.has(v)) entry.payload[col] = vehicleAlias.get(v);
+        }
+      }
+
+      // No sub-areas under vehicles/lockers (#122 A1): migration 059 flattened the
+      // existing ones; block re-creation. Parent type comes from the DB, never the
+      // payload. Wording matches the mobile permanent-rejection regex.
+      if (entry.table_name === 'locations'
+          && (entry.operation === 'INSERT' || entry.operation === 'UPDATE')
+          && entry.payload.parent_id != null) {
+        let parentType: string | null = null;
+        try {
+          const { rows: pRows } = await fastify.pg.query(
+            `SELECT type FROM locations WHERE id = $1`, [entry.payload.parent_id],
+          );
+          parentType = pRows[0] ? String((pRows[0] as { type: string | null }).type ?? '') : null;
+        } catch { parentType = null; }
+        if (parentType === 'Vehicle' || parentType === 'Locker') {
+          conflicts.push({ id: entry.id, error: 'Forbidden: vehicles and lockers cannot contain sub-areas' });
+          continue;
+        }
+      }
+
+      // #129: server-side normalized-name uniqueness for Vehicle-typed locations.
+      // A duplicate INSERT is MERGED into the existing row: the entry is ok'd (the
+      // client outbox clears), nothing is inserted, and the dup id aliases to the
+      // survivor for the rest of the batch + the merged[] response (the client
+      // re-points its local rows — see mobile engine).
+      if (entry.table_name === 'locations' && entry.operation === 'INSERT'
+          && String(entry.payload.type ?? '') === 'Vehicle') {
+        let survivorId: string | null = null;
+        try {
+          const { rows: dupRows } = await fastify.pg.query(
+            `SELECT id FROM locations
+              WHERE type = 'Vehicle' AND active = TRUE
+                AND LOWER(TRIM(name)) = LOWER(TRIM($1)) AND id <> $2
+              LIMIT 1`,
+            [String(entry.payload.name ?? ''), entry.payload.id],
+          );
+          survivorId = dupRows[0] ? String((dupRows[0] as { id: string }).id) : null;
+        } catch { survivorId = null; }
+        if (survivorId) {
+          vehicleAlias.set(String(entry.payload.id), survivorId);
+          ok.push(entry.id);
+          merged.push({ id: entry.id, duplicate_id: String(entry.payload.id), survivor_id: survivorId });
+          continue;
+        }
+      }
+
       // subteams (#123): the manage_teams table gate above is not enough — a
       // tier-2 crew lead holds manage_teams but may only shape crews of a team
       // they actually MANAGE. resolveTeamAuthority (the teams source of truth):
@@ -1438,7 +1498,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       })();
     }
 
-    return { ok, conflicts };
+    return { ok, conflicts, merged };
   });
 };
 

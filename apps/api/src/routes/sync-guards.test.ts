@@ -66,6 +66,10 @@ interface FakePgOpts {
   checkoutRow?: { user_id: string | null; checked_in_at: string | null };
   /** ADJUST locker guard facts; absent → location row missing. */
   adjustLoc?: { type: string | null; is_owner: boolean; has_grant: boolean; shares_team: boolean };
+  /** Vehicle name-uniqueness lookup: existing active Vehicle with same normalized name. */
+  vehicleDupSurvivor?: string;
+  /** parent-type lookup for the no-sub-areas guard. */
+  parentType?: string;
 }
 
 // Dispatching fake pg (auth-demo.test.ts pattern). Records every query so the
@@ -100,6 +104,14 @@ function fakePg(opts: FakePgOpts = {}) {
       // subteams UPDATE/DELETE team resolution.
       if (sql.includes('SELECT team_id FROM subteams')) {
         return { rows: opts.subteamTeamId ? [{ team_id: opts.subteamTeamId }] : [] };
+      }
+      // #129 vehicle name-uniqueness lookup.
+      if (sql.includes('LOWER(TRIM(name))')) {
+        return { rows: opts.vehicleDupSurvivor ? [{ id: opts.vehicleDupSurvivor }] : [] };
+      }
+      // no-sub-areas guard parent lookup.
+      if (sql.includes('SELECT type FROM locations')) {
+        return { rows: opts.parentType ? [{ type: opts.parentType }] : [] };
       }
       // locker_access owner guard.
       if (sql.includes('SELECT owner_user_id FROM locations')) {
@@ -631,4 +643,60 @@ test('on_call_shifts writes require manage_teams (crew cannot self-assign the on
   assert.deepEqual(body.ok, []);
   assert.match(body.conflicts[0].error, PERMANENT);
   assert.match(body.conflicts[0].error, /manage_teams/);
+});
+
+// ── #129 / #122 A1: vehicle name-merge + no sub-areas under units ────────────
+
+test('#129: a duplicate Vehicle INSERT is merged — ok\'d, reported in merged[], never inserted', async () => {
+  const pg = fakePg({ vehicleDupSurvivor: 'veh-survivor' });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'veh-dup', name: ' van 7 ', type: 'Vehicle', active: true, updated_at: NOW } },
+    { operation: 'INSERT', table_name: 'vehicles', payload: { location_id: 'veh-dup', truck_mount: false, updated_at: NOW } },
+  ]) });
+  const body = res.json() as { ok: string[]; conflicts: unknown[]; merged: Array<{ id: string; duplicate_id: string; survivor_id: string }> };
+  assert.deepEqual(body.ok, ['e1', 'e2']);
+  assert.deepEqual(body.merged, [{ id: 'e1', duplicate_id: 'veh-dup', survivor_id: 'veh-survivor' }]);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')), 'dup row never inserted');
+  // In-batch remap: the follow-up vehicles row landed on the survivor.
+  const veh = pg.queries.find(q => q.sql.includes('INSERT INTO vehicles'));
+  assert.ok(veh && veh.params.includes('veh-survivor') && !veh.params.includes('veh-dup'));
+  await app.close();
+});
+
+test('#129: a Vehicle INSERT with a fresh name applies normally and merged[] is empty', async () => {
+  const pg = fakePg();
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'veh-new', name: 'Van 9', type: 'Vehicle', active: true, updated_at: NOW } },
+  ]) });
+  const body = res.json() as { ok: string[]; merged: unknown[] };
+  assert.deepEqual(body.ok, ['e1']);
+  assert.deepEqual(body.merged, []);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+  await app.close();
+});
+
+test('no sub-areas: parenting a location under a Vehicle/Locker is a permanent rejection', async () => {
+  const pg = fakePg({ parentType: 'Vehicle' });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'room-x', name: 'Back Shelf', parent_id: 'veh-1', type: 'Room', active: true, updated_at: NOW } },
+    { operation: 'UPDATE', table_name: 'locations', payload: { id: 'room-y', parent_id: 'veh-1' } },
+  ]) });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ error: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 2);
+  for (const c of body.conflicts) { assert.match(c.error, PERMANENT); assert.match(c.error, /sub-area/); }
+  await app.close();
+});
+
+test('no sub-areas: a normal parent (Building) still accepts children', async () => {
+  const pg = fakePg({ parentType: 'Building' });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'room-z', name: 'Product Room', parent_id: 'bldg-1', type: 'Room', active: true, updated_at: NOW } },
+  ]) });
+  assert.deepEqual((res.json() as { ok: string[] }).ok, ['e1']);
+  await app.close();
 });
