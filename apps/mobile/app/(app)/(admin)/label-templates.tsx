@@ -7,6 +7,7 @@ import { Stack } from 'expo-router';
 import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
   getLabelTemplates, upsertLabelTemplate, deleteLabelTemplate,
@@ -205,10 +206,10 @@ export default function LabelTemplatesScreen() {
   const isAdmin = usePermission('system_settings');
   const { user } = useSession();
   const [editing, setEditing] = useState<LabelTemplateModel | null>(null);
-  const [version, setVersion] = useState(0);
+  // Re-read on any local or synced change to label_templates (bus-driven; own
+  // writes tick it too, so no manual reload after save/delete).
+  const version = useTableVersion(['label_templates']);
   const templates = useMemo(() => (isAdmin ? getLabelTemplates() : []), [isAdmin, version]);
-
-  const reload = () => setVersion(v => v + 1);
 
   if (!isAdmin) {
     return (
@@ -223,7 +224,7 @@ export default function LabelTemplatesScreen() {
     return (
       <View style={s.container}>
         <Stack.Screen options={{ title: editing.name || 'New template' }} />
-        <Editor initial={editing} userId={user?.id ?? null} onDone={() => { setEditing(null); reload(); }} />
+        <Editor initial={editing} userId={user?.id ?? null} onDone={() => setEditing(null)} />
       </View>
     );
   }
@@ -234,7 +235,7 @@ export default function LabelTemplatesScreen() {
   function confirmDelete(t: LabelTemplateModel) {
     Alert.alert('Delete template', `Delete “${t.name}”?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => { deleteLabelTemplate(t.id); reload(); } },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteLabelTemplate(t.id) },
     ]);
   }
 

@@ -8,14 +8,15 @@ import { SearchablePicker } from './SearchablePicker';
 import type { PickerOption } from './SearchablePicker';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useTableVersion } from '../hooks/useDataVersion';
 
 // ── Channels ──────────────────────────────────────────────────────────────
-// The four server-side notification channels. Each is persisted as an
+// The five server-side notification channels. Each is persisted as an
 // `app_config` value under `notify_route_<key>` holding a `RouteConfig` JSON.
 // These are *additive* recipients: the server unions them with each channel's
 // intrinsic recipients (see resolveRecipients in apps/api/src/lib/notifications).
 
-export type RoutingChannel = 'assignment' | 'low_stock' | 'checkout_idle' | 'approvals';
+export type RoutingChannel = 'assignment' | 'low_stock' | 'checkout_idle' | 'approvals' | 'on_call';
 
 interface RouteConfig {
   roles: string[];
@@ -28,6 +29,7 @@ const CHANNELS: { key: RoutingChannel; label: string; note: string }[] = [
   { key: 'low_stock', label: 'Low stock', note: 'Added to the default admins & franchise managers.' },
   { key: 'checkout_idle', label: 'Checkout idle', note: "Added to the user's team manager." },
   { key: 'approvals', label: 'Approval requests', note: 'Who reviews approval requests (defaults to team managers).' },
+  { key: 'on_call', label: 'On-call coverage', note: 'Added to the other Production Managers.' },
 ];
 
 const ROLE_KEYS = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
@@ -58,10 +60,12 @@ interface Props {
 // synced app_config path so the server resolver can read it.
 export function NotificationRoutingEditor({ onSave }: Props) {
   const s = useThemedStyles(makeStyles);
-  const teams = useMemo(() => getAllTeams(), []);
+  // Re-read the routing-target pickers when a sync pull touches teams/users.
+  const version = useTableVersion(['teams', 'users']);
+  const teams = useMemo(() => getAllTeams(), [version]);
   const userOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
-    [],
+    [version],
   );
   const userNameById = useMemo(
     () => new Map(userOptions.map(o => [o.id, o.label])),

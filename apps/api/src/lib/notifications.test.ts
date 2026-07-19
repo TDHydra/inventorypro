@@ -112,6 +112,39 @@ test('assignment dedup: an identical (repair, assignee) claim is suppressed on r
   assert.equal(await claimEvent(pg as any, key), true);  // first assignment: claim won → notify
   assert.equal(await claimEvent(pg as any, key), false); // duplicate: key present → suppressed
 });
+// #122 Phase C: the on_call channel — coverage saves fan out to the other PMs.
+test('resolveRecipients on_call: other production managers, actor excluded', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('app_config')) return { rows: [] as any[] };
+    if (sql.includes('FROM users WHERE role = ANY')) {
+      assert.deepEqual(params[0], ['production_manager']);
+      return { rows: [{ id: 'pm1' }, { id: 'pm2' }] };
+    }
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual(await resolveRecipients(pg as any, 'on_call', { actorId: 'pm1' }), ['pm2']);
+});
+
+test('resolveRecipients on_call: unions notify_route_on_call users', async () => {
+  const cfg = JSON.stringify({ roles: [], teams: [], users: ['boss1'] });
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('app_config')) return { rows: [{ value: cfg }] };
+    if (sql.includes('FROM users WHERE role = ANY')) return { rows: [{ id: 'pm2' }] };
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual((await resolveRecipients(pg as any, 'on_call', { actorId: 'pm1' })).sort(), ['boss1', 'pm2']);
+});
+
+test('dedupKeys.coverage is stable', () => {
+  assert.equal(dedupKeys.coverage('c1'), 'oncall:coverage:c1');
+});
+
 test('getNotifyConfig applies defaults + parses + clamps + disable flag', async () => {
   const pgEmpty = { query: async () => ({ rows: [] }) };
   assert.deepEqual(await getNotifyConfig(pgEmpty as any), { enabled: true, pollMin: 5, idleMin: 15 });

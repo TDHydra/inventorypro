@@ -16,6 +16,7 @@ import {
   MediaHubRow,
 } from '../db/queries/media';
 import { getAllJobs, Job } from '../db/queries/jobs';
+import { useDataVersion } from '../hooks/useDataVersion';
 
 interface Props {
   mediaId: string | null;
@@ -38,6 +39,7 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
   const [locationNote, setLocationNote] = useState('');
   const [moveOpen, setMoveOpen] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
+  const dataVersion = useDataVersion();
 
   const reload = useCallback(() => {
     setDetail(mediaId ? getMediaDetail(mediaId) : null);
@@ -52,6 +54,15 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
     setJobSearch('');
   }, [visible, reload]);
 
+  // Re-read while open when a sync pull applies (kept SEPARATE from the effect
+  // above so a bump doesn't reset editing/moveOpen/jobSearch and kick the user
+  // out of edit mode). Skipped mid-edit so the caption/locationNote buffers
+  // aren't reseeded under the user's typing.
+  useEffect(() => {
+    if (visible && !editing) reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion]);
+
   // Suggest location notes already used on the same job (fresh per edit session).
   const noteSuggestions = useMemo(
     () => (editing && detail?.entity_type === 'job' ? getLocationNoteSuggestions(detail.entity_id) : []),
@@ -63,7 +74,7 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
     if (!moveOpen) return [];
     const all = getAllJobs(false).filter(j => j.id !== detail?.entity_id);
     return [...all.filter(j => j.status === 'open'), ...all.filter(j => j.status !== 'open')];
-  }, [moveOpen, detail]);
+  }, [moveOpen, detail, dataVersion]);
   const filteredJobs = useMemo(() => {
     const q = jobSearch.trim().toLowerCase();
     if (!q) return jobs;

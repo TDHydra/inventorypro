@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useTableVersion } from '../hooks/useDataVersion';
 import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
 import { getStockByItem, getItemById, InventoryItem } from '../db/queries/items';
@@ -61,6 +62,17 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
     }
     setExpanded(e => !e);
   }
+
+  // Keep an expanded card's lazily-loaded detail fresh: re-read when a local
+  // write or sync pull touches stock/items (first load stays lazy in toggle()).
+  const v = useTableVersion(['stock_by_location', 'inventory_items']);
+  useEffect(() => {
+    if (expanded && stock !== null) {
+      setStock(getStockByItem(item.id) as unknown as StockRow[]);
+      setFull(getItemById(item.id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only on data change, not expand/collapse
+  }, [v]);
 
   const totalDisplay = formatQuantity(item.total_stock, item.unit, item.unit_category as any);
   const lowStock = item.total_stock <= 0;

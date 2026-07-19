@@ -11,10 +11,17 @@ import {
   getRoleColorMap, setRoleColor,
 } from '../../../src/db/queries/users';
 import { loadRolePermissionCache, canEditRolePermission } from '../../../src/auth/permissions';
+import {
+  getDashboardPresets, getRoleDashboardPresetIds, setRoleDashboardPreset,
+} from '../../../src/db/queries/dashboards';
+import { loadDashboardCache } from '../../../src/dashboard/store';
+import { dashboardPresetOptions } from '../../../src/dashboard/presetOptions';
+import { SelectField } from '../../../src/components/ui/SelectField';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
 import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -75,13 +82,19 @@ export default function RolesScreen() {
   const { user: sessionUser } = useSession();
   const { locked } = useMaintenanceMode();
   const canManage = usePermission('manage_roles_permissions');
-  const [minPins, setMinPins] = useState<Record<string, number>>(() => getRoleSettings());
+  // Re-read when a local write or sync pull touches the tables this screen
+  // renders — replaces the old manual post-write setState re-reads.
+  const version = useTableVersion(['role_settings', 'dashboard_presets']);
+  const minPins = useMemo<Record<string, number>>(() => getRoleSettings(), [version]);
   // Per-role permission deviations from ROLE_DEFAULTS ({role: {perm: bool}}).
-  const [overrides, setOverrides] = useState<Record<string, Record<string, boolean>>>(
-    () => getRolePermissionOverrides()
+  const overrides = useMemo<Record<string, Record<string, boolean>>>(
+    () => getRolePermissionOverrides(),
+    [version],
   );
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [roleColors, setRoleColors] = useState<Record<string, string>>(() => getRoleColorMap());
+  const roleColors = useMemo<Record<string, string>>(() => getRoleColorMap(), [version]);
+  const rolePresets = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
+  const presets = useMemo(() => getDashboardPresets(), [version]);
 
   // Effective value of a role→permission cell: ROLE_DEFAULTS merged with the
   // role override (when a key exists). `modified` flags an active override.
@@ -146,10 +159,9 @@ export default function RolesScreen() {
       );
       return;
     }
-    // Commit succeeded — refresh the permission cache + local override map so the UI
-    // reflects the committed change.
+    // Commit succeeded — refresh the permission cache so gates elsewhere see the
+    // change; the overrides memo re-reads via the role_settings table version.
     loadRolePermissionCache();
-    setOverrides(getRolePermissionOverrides());
   }
 
   function effectiveMinPin(role: UserRole): number {
@@ -182,7 +194,39 @@ export default function RolesScreen() {
       );
       return;
     }
-    setRoleColors(getRoleColorMap()); // refresh local map (after commit) → preview + swatches update
+    // roleColors memo re-reads via the role_settings table version → preview + swatches update
+  }
+
+  function changeRolePreset(role: UserRole, presetId: string | null) {
+    if (!canManage) return;
+    if (isWriteBlocked()) return;
+    const presetName = presetId ? (presets.find(x => x.id === presetId)?.name ?? presetId) : 'default';
+    try {
+      // Write + log land atomically. setRoleDashboardPreset already mirrors the
+      // role_settings UPDATE to the sync outbox internally (see queries/dashboards.ts)
+      // — do NOT appendOutbox here or the row double-syncs.
+      runInTransaction(() => {
+        setRoleDashboardPreset(role, presetId);
+        appendLog({
+          action: 'role_dashboard_preset_changed',
+          entity_type: 'role_settings',
+          // Role keys aren't UUIDs — entity_id must stay null (see role_permission_changed above).
+          entity_id: null,
+          user_id: sessionUser?.id ?? null,
+          note: `${role} dashboard → ${presetName}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not change dashboard preset',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
+    // rolePresets memo re-reads via the role_settings table version
+    loadDashboardCache(); // notify subscribers → affected dashboards re-render live (no remount)
   }
 
   function changeMinPin(role: UserRole, delta: number) {
@@ -214,7 +258,7 @@ export default function RolesScreen() {
       );
       return;
     }
-    setMinPins(prev => ({ ...prev, [role]: next })); // refresh local state after commit
+    // minPins memo re-reads via the role_settings table version after commit
   }
 
   return (
@@ -314,6 +358,22 @@ export default function RolesScreen() {
                 );
               })()}
 
+              {/* Per-role dashboard preset (users.dashboard_preset_id overrides win; NULL → built-in default) */}
+              {isOpen && (
+                <View style={s.presetSection}>
+                  <SelectField
+                    label="Dashboard preset"
+                    hint="The dashboard this role sees. Per-user assignments override it."
+                    placeholder="Default"
+                    value={rolePresets[role] ?? null}
+                    options={dashboardPresetOptions(presets, rolePresets[role] ?? null)}
+                    onSelect={(id) => changeRolePreset(role, id)}
+                    onClear={rolePresets[role] ? () => changeRolePreset(role, null) : undefined}
+                    disabled={!canManage || locked || !canActThisRole}
+                  />
+                </View>
+              )}
+
               {/* Editable permission matrix */}
               {isOpen && (
                 <View style={s.matrix}>
@@ -411,4 +471,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   colorCellDisabled: { opacity: 0.4 },
   colorCheck: { color: '#fff', fontSize: t.typography.fontSizes.body, fontWeight: '800' },
   colorReset: { fontSize: t.typography.fontSizes.caption, color: t.colors.primaryText, fontWeight: '600' },
+
+  presetSection: { paddingHorizontal: t.spacing.base, paddingBottom: t.spacing.sm },
 });

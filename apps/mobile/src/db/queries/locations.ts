@@ -4,6 +4,7 @@ import { resolveTypeId, resolveLabels, LOCATION_TYPE } from './taxonomy';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../tx';
 import { appendLog } from './log';
+import { ensureVehicleRow } from './vehicles';
 
 export interface Location {
   id: string;
@@ -46,6 +47,17 @@ export function getAllLocations(): Location[] {
   return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
 }
 
+// Vehicles & lockers are UNITS (#122 A2 — their own system, not places). This is
+// THE central exclusion: every browse/tree/picker surface flows through
+// getBrowsableLocations/getNonShelfLocations, so filtering here removes units
+// from the Locations tab, parent pickers, and main-location pickers everywhere.
+export function isUnitLocation(l: Pick<Location, 'type'>): boolean {
+  return l.type === 'Vehicle' || l.type === 'Locker';
+}
+export function getUnitLocations(kind: 'Vehicle' | 'Locker'): Location[] {
+  return getAllLocations().filter(l => l.type === kind);
+}
+
 // "Real" browsable locations — everything EXCEPT shelves (type='Shelf'). Shelves
 // are a sub-level of a has_shelves location (created via findOrCreateShelf), not
 // first-class locations: they're excluded from the Locations browser tree/list
@@ -58,7 +70,7 @@ export function getBrowsableLocations(): Location[] {
   // location's detail). Keep TOP-LEVEL shelves (parent_id null) — e.g. ones a
   // findOrCreateShelfByName home-location quick-create made — visible, or they'd
   // become unreachable/unmanageable anywhere in the Locations UI.
-  return getAllLocations().filter(l => !(l.type === 'Shelf' && l.parent_id != null));
+  return getAllLocations().filter(l => !(l.type === 'Shelf' && l.parent_id != null) && !isUnitLocation(l));
 }
 
 // Locations with NO shelves at all — stricter than getBrowsableLocations (which
@@ -66,7 +78,7 @@ export function getBrowsableLocations(): Location[] {
 // the item-assign pickers, where a shelf is only ever reached through the Shelf
 // sub-field of its has_shelves parent, never as a first-class option.
 export function getNonShelfLocations(): Location[] {
-  return getAllLocations().filter(l => l.type !== 'Shelf');
+  return getAllLocations().filter(l => l.type !== 'Shelf' && !isUnitLocation(l));
 }
 
 export interface LocationShelfPick {
@@ -111,6 +123,13 @@ export function getSubAreas(parentId: string): Location[] {
     [parentId]
   );
   return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
+}
+
+// Non-shelf children of a location — the "rooms" of a building (Maintenance
+// Room, Product Room, Garage, …) for the detail screen's Sub-areas section.
+// Shelves are excluded: they have their own dedicated section + queries.
+export function getRoomsForParent(parentId: string): Location[] {
+  return getSubAreas(parentId).filter(l => l.type !== 'Shelf');
 }
 
 // Full recursive tree (arbitrary depth). `depth` is the 0-based nesting level,
@@ -270,6 +289,13 @@ export function getShelvesForParent(parentId: string): Location[] {
 export function findOrCreateShelf(parentId: string, name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return parentId;
+  // Units (Vehicle/Locker) can't contain shelves/sub-areas (#122 A2). Mirrors the
+  // server-side rejection — the server rule alone leaves a hole: a legacy deep
+  // link, preset parent param, or future code path could still write a child
+  // under a unit locally, producing a permanent push rejection and a
+  // stuck-looking local row.
+  const parentLoc = getLocationById(parentId);
+  if (parentLoc && isUnitLocation(parentLoc)) return null;
   const db = getDb();
   const existing = rowsAs<Location>(db.executeSync(
     `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ?
@@ -433,12 +459,23 @@ export function findOrCreateVehicleByName(name: string): string | null {
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Vehicle', has_shelves: 0,
   };
-  upsertLocation(vehicle);
-  appendOutbox('INSERT', 'locations', {
-    id, name: trimmed, parent_id: null, color: null, icon: '🚐',
-    owner_user_id: null, active: true, updated_at: now,
-    latitude: null, longitude: null, subareas_require_owner: false, type: 'Vehicle', has_shelves: false,
-  });
+  try {
+    // Atomic (mirrors findOrCreateShelfByName), and every Vehicle-typed
+    // location gets its 1:1 `vehicles` extension row at creation (#125) so
+    // VehiclePanel/state writes have a base row to converge on.
+    runInTransaction(() => {
+      upsertLocation(vehicle);
+      appendOutbox('INSERT', 'locations', {
+        id, name: trimmed, parent_id: null, color: null, icon: '🚐',
+        owner_user_id: null, active: true, updated_at: now,
+        latitude: null, longitude: null, subareas_require_owner: false, type: 'Vehicle', has_shelves: false,
+      });
+      ensureVehicleRow(id);
+    });
+  } catch (err) {
+    console.warn('findOrCreateVehicleByName: failed to create vehicle', err);
+    return null;
+  }
   return id;
 }
 

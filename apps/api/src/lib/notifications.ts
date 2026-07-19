@@ -20,6 +20,7 @@ export const dedupKeys = {
   session: (userId: string, lastTs: string) => `session:user:${userId}:${lastTs}`,
   approval: (id: string) => `approval:req:${id}`,
   apprDecision: (id: string, status: string) => `approval:dec:${id}:${status}`,
+  coverage: (id: string) => `oncall:coverage:${id}`,
 };
 
 // Returns true only if this key was newly inserted (i.e. the caller "won" the
@@ -121,6 +122,12 @@ const INTRINSIC: Record<string, (pg: Pg, ctx: RecipientCtx) => Promise<string[]>
   low_stock:     async (pg) => resolveRoleRecipients(pg, ['full_admin', 'franchise_manager']),
   checkout_idle: async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   approvals:     async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
+  // Coverage saves concern the PM bench: every other active production_manager
+  // (the actor already knows — they wrote it). notify_route_on_call unions on top.
+  on_call:       async (pg, ctx) => {
+    const pms = await resolveRoleRecipients(pg, ['production_manager']);
+    return ctx.actorId ? pms.filter(id => id !== ctx.actorId) : pms;
+  },
 };
 
 // Merges a channel's intrinsic recipients with the admin-configured routing rule

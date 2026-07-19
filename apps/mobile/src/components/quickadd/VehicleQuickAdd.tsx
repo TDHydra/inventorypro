@@ -1,12 +1,15 @@
 import { useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, Pressable, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertLocation } from '../../db/queries/locations';
 import type { Location } from '../../db/queries/locations';
+import { ensureVehicleRow, VEHICLE_MODEL_CATEGORY } from '../../db/queries/vehicles';
+import { runInTransaction } from '../../db/tx';
 import { getAllActiveUsers } from '../../db/queries/users';
+import { TaxonomyChips } from '../pickers';
 import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -14,12 +17,14 @@ import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { getTheme } from '../../themes/store';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
+import { StatusPill } from '../ui/StatusPill';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { track } from '../../telemetry';
@@ -44,11 +49,19 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
 
   const [name, setName] = useState('');
   const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null); // optional, sticky
+  // vehicle_model taxonomy (#81) — optional, sticky like owner (fleets are
+  // usually added a model at a time). id + label both kept (dual-write, #74).
+  const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
+  // Truck mount is set here at creation (or later in the vehicle Edit sheet) —
+  // it's equipment spec, not day-to-day state, so it doesn't live on the panel.
+  // Sticky like model/owner: fleets are usually added a spec at a time.
+  const [truckMount, setTruckMount] = useState(false);
   const [nameError, setNameError] = useState('');
 
+  const usersVersion = useTableVersion(['users']);
   const ownerOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
-    [],
+    [usersVersion],
   );
 
   function handleSave() {
@@ -79,24 +92,29 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
       type: 'Vehicle',
     };
 
-    upsertLocation(loc);
-    // synced_at is local-only — strip from the outbox payload (server has no such column).
-    const { synced_at: _s, ...locRow } = loc;
-    appendOutbox('INSERT', 'locations', { ...locRow, active: true });
-    appendLog({
-      action: 'location_created',
-      entity_type: 'location',
-      entity_id: id,
-      user_id: user?.id ?? null,
-      team_id: null,
-      job_id: null,
-      note: trimmedName,
-      from_location_id: null,
-      to_location_id: null,
-      quantity: null,
-      unit: null,
-      metadata: null,
-      device_id: null,
+    // Atomic (#125): the location, its vehicles extension row (state/model),
+    // both outbox entries, and the log land together or not at all.
+    runInTransaction(() => {
+      upsertLocation(loc);
+      // synced_at is local-only — strip from the outbox payload (server has no such column).
+      const { synced_at: _s, ...locRow } = loc;
+      appendOutbox('INSERT', 'locations', { ...locRow, active: true });
+      ensureVehicleRow(id, { model: model.label, model_id: model.id, truck_mount: truckMount ? 1 : 0 });
+      appendLog({
+        action: 'location_created',
+        entity_type: 'location',
+        entity_id: id,
+        user_id: user?.id ?? null,
+        team_id: null,
+        job_id: null,
+        note: trimmedName,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
     });
 
     onSaved(trimmedName, id);
@@ -118,6 +136,23 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
         onSubmitEditing={handleSave}
       />
       {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
+
+      <TaxonomyChips
+        category={VEHICLE_MODEL_CATEGORY}
+        label="Model (optional)"
+        deselectable
+        valueId={model.id}
+        valueLabel={model.label}
+        onChange={setModel}
+      />
+
+      <Pressable onPress={() => setTruckMount(v => !v)} style={s.truckRow}>
+        <StatusPill
+          label={truckMount ? 'Truck mount' : 'No truck mount'}
+          tone={truckMount ? 'primary' : 'neutral'}
+        />
+        <Text style={s.toggleHint}>tap to toggle</Text>
+      </Pressable>
 
       <AdvancedFields>
         <FieldLabel>Owner (optional)</FieldLabel>
@@ -151,6 +186,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   inputError: { borderColor: t.colors.danger },
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  truckRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  toggleHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
   doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
   doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

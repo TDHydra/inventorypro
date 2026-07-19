@@ -1,7 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
-import { isOrgAuthority } from '../lib/teamAuthority';
+import { isOrgAuthority, resolveTeamAuthority } from '../lib/teamAuthority';
 import { participantWriteAllowed, ChatConversationFacts } from '../lib/chatPolicy';
+import { canManageUnitAccess } from '../lib/unitAccessPolicy';
 import {
   loadTableColumns,
   applyWritePolicy,
@@ -48,6 +49,8 @@ const ALLOWED_TABLES = new Set([
   'dashboard_presets',
   'conversations', 'conversation_participants', 'messages',
   'user_prefs',
+  'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
+  'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -67,6 +70,10 @@ const PRIVILEGED_TABLE_PERM: Record<string, string> = {
   app_config:    'system_settings',
   teams:         'manage_teams',
   team_members:  'manage_teams',
+  // Crews are roster structure — same gate as teams, PLUS the per-row
+  // resolveTeamAuthority guard below (a tier-2 lead may only shape crews of a
+  // team they actually manage).
+  subteams:      'manage_teams',
 };
 
 // Upsert conflict target per table. Most are keyed by `id`, but a few use a
@@ -83,6 +90,12 @@ const CONFLICT_TARGETS: Record<string, string> = {
   conversations: 'id',
   conversation_participants: 'conversation_id, user_id',
   messages: 'id',
+  vehicles: 'location_id',
+  locker_access: 'location_id, user_id',
+  unit_access: 'location_id, user_id',
+  // Keyed on the WEEK, not the row id: one crew per week, and a reassignment
+  // from any device upserts over the standing assignment instead of duplicating.
+  on_call_shifts: 'week_start',
 };
 
 // Tables whose INSERT must NOT upsert: the generic INSERT is ON CONFLICT DO
@@ -135,6 +148,34 @@ function mediaScopeSql(callerParam: string): string {
   return `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
 }
 
+// #84: may a caller WITHOUT manage_locations INSERT this locations row? Only
+// when the org has opted in (app_config crew_add_vehicle_enabled = '1' —
+// system_settings-gated, read server-side like maintenance_mode) AND the row
+// resolves to a Vehicle-type location (label, or type_id when the label is
+// absent). Fails closed on any lookup error — this is an exemption, not a right.
+async function crewVehicleInsertAllowed(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const { rows } = await pg.query(
+      `SELECT value FROM app_config WHERE key = 'crew_add_vehicle_enabled'`, [],
+    );
+    if (!rows[0] || (rows[0] as { value: string }).value !== '1') return false;
+    if (payload.type != null) return String(payload.type) === 'Vehicle';
+    if (payload.type_id != null) {
+      const { rows: t } = await pg.query(
+        `SELECT 1 FROM taxonomy_types WHERE id = $1 AND category = 'location_type' AND label = 'Vehicle'`,
+        [payload.type_id],
+      );
+      return !!t[0];
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // Resolve the caller's relationship to a conversation for the chat write guards
 // (lib/chatPolicy.ts decides; this only gathers facts). Fails closed: a missing
 // row, a null id, or a malformed uuid (the cast throws) all come back as
@@ -179,6 +220,10 @@ function teamScopeSql(table: string, callerParam: string): string | null {
     case 'teams': return `id IN (${mine})`;
     case 'team_members': return `team_id IN (${mine})`;
     case 'jobs': return `(team_id IS NULL OR team_id IN (${mine}))`;
+    // Crews of my teams (mirrors team_members). vehicles/service records/
+    // checkouts/locker_access/on_call stay UNSCOPED deliberately: fast checkout
+    // needs teammates' assets locally, and none of those rows are secret.
+    case 'subteams': return `team_id IN (${mine})`;
     default: return null;
   }
 }
@@ -210,6 +255,8 @@ const FULL_TABLES = [
   'dashboard_presets',
   'conversations', 'conversation_participants', 'messages',
   'user_prefs',
+  'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
+  'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
@@ -226,6 +273,7 @@ const TAXONOMY_FK_COLUMNS: Record<string, Array<{ label: string; id: string; cat
   ],
   locations: [{ label: 'type', id: 'type_id', category: 'location_type' }],
   repairs: [{ label: 'status', id: 'status_id', category: 'repair_status' }], // #74 Phase 3b
+  vehicles: [{ label: 'model', id: 'model_id', category: 'vehicle_model' }], // #81/#125
 };
 
 async function applyEntry(
@@ -559,6 +607,36 @@ async function applyEntry(
       } catch { /* never disrupt sync */ }
     })();
   }
+
+  // New coverage row → notify the other PMs + notify_route_on_call once
+  // (deduped on the coverage id so a retried push doesn't re-notify).
+  if (table_name === 'on_call_coverage' && row.id) {
+    const covId = String(row.id);
+    const dateStart = String(row.date_start ?? '');
+    const dateEnd = String(row.date_end ?? '');
+    const offId = row.user_off != null ? String(row.user_off) : null;
+    const coverId = row.covering_user != null ? String(row.covering_user) : null;
+    void (async () => {
+      try {
+        if (!(await getNotifyConfig(pg)).enabled) return;
+        if (await claimEvent(pg, dedupKeys.coverage(covId))) {
+          const { rows: nameRows } = await pg.query(
+            `SELECT id, name FROM users WHERE id = ANY($1)`,
+            [[offId, coverId].filter(Boolean)]);
+          const nameOf = (id: string | null) =>
+            (nameRows as { id: string; name: string }[]).find(r => String(r.id) === id)?.name ?? 'Someone';
+          const to = await resolveRecipients(pg, 'on_call', { actorId: callerUserId });
+          await deliver(pg, to, {
+            type: 'on_call',
+            title: 'On-call coverage',
+            body: `${nameOf(coverId)} is covering for ${nameOf(offId)} (${dateStart} – ${dateEnd}).`,
+            data: { screen: 'dashboard' },
+            createdBy: callerUserId,
+          });
+        }
+      } catch { /* never disrupt sync */ }
+    })();
+  }
 }
 
 // Resolve the caller's *current* role + permission overrides from the DB — not
@@ -720,6 +798,9 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const { entries } = request.body;
     const ok: string[] = [];
     const conflicts: Array<{ id: string; error: string }> = [];
+    // #129: merge map + response for duplicate Vehicle-typed location INSERTs.
+    const merged: Array<{ id: string; duplicate_id: string; survivor_id: string }> = [];
+    const vehicleAlias = new Map<string, string>(); // duplicate location id -> survivor id
 
     // Resolve the caller's *current* permissions from the DB — not the JWT role
     // claim, which can be stale or forged-stale within the 15m token window.
@@ -863,6 +944,50 @@ const routes: FastifyPluginAsync = async (fastify) => {
           conflicts.push({ id: entry.id, error: 'Forbidden: stock adjust requires checkin/checkout permission' });
           continue;
         }
+        // Hard locker enforcement (#126, user decision 2026-07-18): a NEGATIVE
+        // delta (taking stock) from a Locker-typed location is allowed only for
+        // the owner ∪ an explicit locker_access grantee ∪ someone who shares a
+        // TEAM with the owner ∪ org authority (tier 3+, checked first so the
+        // lookup is skipped). Positive deltas (restocking a locker) stay open,
+        // and non-Locker locations are untouched. The rejection wording matches
+        // /forbidden|cannot|not allowed/i so the mobile engine classifies it
+        // permanent and DROPS the entry (an offline-revoked checkout must not
+        // retry-loop — accepted race, the activity log still records it).
+        const adjDelta = Number((entry.payload as { delta?: unknown }).delta);
+        if (Number.isFinite(adjDelta) && adjDelta < 0 && !isOrgAuthority(caller.role)) {
+          let lockerDenied = false;
+          try {
+            const { rows: lockRows } = await fastify.pg.query(
+              `SELECT l.type,
+                      (l.owner_user_id = $2) AS is_owner,
+                      EXISTS (SELECT 1 FROM locker_access la
+                               WHERE la.location_id = l.id AND la.user_id = $2) AS has_grant,
+                      EXISTS (SELECT 1 FROM team_members om
+                                JOIN team_members cm ON cm.team_id = om.team_id
+                               WHERE om.user_id = l.owner_user_id AND cm.user_id = $2) AS shares_team
+                 FROM locations l WHERE l.id = $1`,
+              [entry.payload.location_id, userId],
+            );
+            const lock = lockRows[0] as
+              | { type: string | null; is_owner: boolean | null; has_grant: boolean; shares_team: boolean }
+              | undefined;
+            lockerDenied = !!lock && lock.type === 'Locker'
+              && lock.is_owner !== true && !lock.has_grant && !lock.shares_team;
+          } catch {
+            // Lookup failure is transient — surface a NON-permanent conflict so
+            // the entry retries instead of being silently dropped.
+            conflicts.push({ id: entry.id, error: 'locker access check failed' });
+            continue;
+          }
+          if (lockerDenied) {
+            request.log.warn(
+              { userId, role: caller.role, locationId: entry.payload.location_id, delta: adjDelta },
+              'sync push ADJUST denied (locker access)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: you do not have access to this locker' });
+            continue;
+          }
+        }
       } else if (entry.table_name === 'inventory_items' && entry.operation === 'UPDATE' && entry.payload.active === false) {
         // Deactivating an item IS the delete (items are soft-deleted, never row-
         // deleted). The generic UPDATE op-perm is only `edit_inventory`, so gate
@@ -880,12 +1005,20 @@ const routes: FastifyPluginAsync = async (fastify) => {
           continue;
         }
         if (opPerm && !can(opPerm)) {
-          request.log.warn(
-            { userId, role: caller.role, table: entry.table_name, operation: entry.operation, opPerm },
-            'sync push op denied (authz)',
-          );
-          conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} requires ${opPerm}` });
-          continue;
+          // #84: a crew member without manage_locations may still INSERT a
+          // location when the org flag is on AND the row is a Vehicle ("add a
+          // vehicle" from the fast-checkout source picker). Everything else
+          // stays gated exactly as before.
+          const crewVehicleOk = entry.table_name === 'locations' && entry.operation === 'INSERT'
+            && await crewVehicleInsertAllowed(fastify.pg, entry.payload);
+          if (!crewVehicleOk) {
+            request.log.warn(
+              { userId, role: caller.role, table: entry.table_name, operation: entry.operation, opPerm },
+              'sync push op denied (authz)',
+            );
+            conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} requires ${opPerm}` });
+            continue;
+          }
         }
       }
 
@@ -1110,6 +1243,207 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // Remap in-batch references from an already-merged duplicate vehicle to its
+      // survivor, so the batch's follow-up rows (vehicles ext, stock, checkouts,
+      // activity) land on the row the server actually kept.
+      if (vehicleAlias.size > 0) {
+        const refCols = ['location_id', 'vehicle_location_id', 'site_location_id', 'current_location_id', 'home_location_id', 'from_location_id', 'to_location_id', 'parent_id'];
+        const cols = entry.table_name === 'locations' ? [...refCols, 'id'] : refCols;
+        for (const col of cols) {
+          const v = entry.payload[col];
+          if (typeof v === 'string' && vehicleAlias.has(v)) entry.payload[col] = vehicleAlias.get(v);
+        }
+      }
+
+      // No sub-areas under vehicles/lockers (#122 A1): migration 059 flattened the
+      // existing ones; block re-creation. Parent type comes from the DB, never the
+      // payload. Wording matches the mobile permanent-rejection regex.
+      if (entry.table_name === 'locations'
+          && (entry.operation === 'INSERT' || entry.operation === 'UPDATE')
+          && entry.payload.parent_id != null) {
+        let parentType: string | null = null;
+        try {
+          const { rows: pRows } = await fastify.pg.query(
+            `SELECT type FROM locations WHERE id = $1`, [entry.payload.parent_id],
+          );
+          parentType = pRows[0] ? String((pRows[0] as { type: string | null }).type ?? '') : null;
+        } catch { parentType = null; }
+        if (parentType === 'Vehicle' || parentType === 'Locker') {
+          conflicts.push({ id: entry.id, error: 'Forbidden: vehicles and lockers cannot contain sub-areas' });
+          continue;
+        }
+      }
+
+      // #129: server-side normalized-name uniqueness for Vehicle-typed locations.
+      // A duplicate INSERT is MERGED into the existing row: the entry is ok'd (the
+      // client outbox clears), nothing is inserted, and the dup id aliases to the
+      // survivor for the rest of the batch + the merged[] response (the client
+      // re-points its local rows — see mobile engine).
+      if (entry.table_name === 'locations' && entry.operation === 'INSERT'
+          && String(entry.payload.type ?? '') === 'Vehicle') {
+        let survivorId: string | null = null;
+        try {
+          const { rows: dupRows } = await fastify.pg.query(
+            `SELECT id FROM locations
+              WHERE type = 'Vehicle' AND active = TRUE
+                AND LOWER(TRIM(name)) = LOWER(TRIM($1)) AND id <> $2
+              LIMIT 1`,
+            [String(entry.payload.name ?? ''), entry.payload.id],
+          );
+          survivorId = dupRows[0] ? String((dupRows[0] as { id: string }).id) : null;
+        } catch { survivorId = null; }
+        if (survivorId) {
+          vehicleAlias.set(String(entry.payload.id), survivorId);
+          ok.push(entry.id);
+          merged.push({ id: entry.id, duplicate_id: String(entry.payload.id), survivor_id: survivorId });
+          continue;
+        }
+      }
+
+      // subteams (#123): the manage_teams table gate above is not enough — a
+      // tier-2 crew lead holds manage_teams but may only shape crews of a team
+      // they actually MANAGE. resolveTeamAuthority (the teams source of truth):
+      // org authority (tier 3+) OR is_manager of THAT team. The team id comes
+      // from the payload when present (INSERT/UPDATE) or the existing row
+      // (partial UPDATE / DELETE keyed on id); a subteam whose team cannot be
+      // resolved fails closed with permanent wording.
+      if (entry.table_name === 'subteams') {
+        let teamId = entry.payload.team_id == null ? null : String(entry.payload.team_id);
+        if (teamId == null) {
+          try {
+            const { rows: stRows } = await fastify.pg.query(
+              `SELECT team_id FROM subteams WHERE id = $1`, [entry.payload.id],
+            );
+            teamId = stRows[0] ? String((stRows[0] as { team_id: string }).team_id) : null;
+          } catch { teamId = null; }
+        }
+        if (teamId == null) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: subteam team could not be resolved' });
+          continue;
+        }
+        const auth = await resolveTeamAuthority(fastify.pg, userId, teamId);
+        if (!auth.orgAdmin && !auth.managerOnly) {
+          request.log.warn(
+            { userId, role: caller.role, teamId, operation: entry.operation },
+            'sync push subteams denied (not a manager of this team)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: you do not manage this team' });
+          continue;
+        }
+      }
+
+      // locker_access (#126): these rows GRANT stock access (the ADJUST locker
+      // guard trusts them), so writes are owner-or-org-authority only. The
+      // owner is the DB's locations.owner_user_id — never the payload's — and
+      // a grant against a location the server doesn't have fails closed with
+      // permanent wording (the location itself was likely rejected upstream).
+      if (entry.table_name === 'locker_access') {
+        let ownerId: string | null = null;
+        let locExists = false;
+        try {
+          const { rows: locRows } = await fastify.pg.query(
+            `SELECT owner_user_id FROM locations WHERE id = $1`, [entry.payload.location_id],
+          );
+          if (locRows[0]) {
+            locExists = true;
+            ownerId = (locRows[0] as { owner_user_id: string | null }).owner_user_id;
+          }
+        } catch { locExists = false; }
+        if (!locExists) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist' });
+          continue;
+        }
+        if (!isOrgAuthority(caller.role) && (ownerId == null || String(ownerId) !== userId)) {
+          request.log.warn(
+            { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
+            'sync push locker_access denied (not the owner)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: only the unit owner can manage access' });
+          continue;
+        }
+      }
+
+      // unit_access (#122 Phase B): per-action grants gate vehicle/locker stock
+      // access, so writes are owner ∪ manager-of-owner's-team ∪ production
+      // manager ∪ tier-3+ — and every non-owner editor must out-tier the
+      // GRANTEE (canManageUnitAccess, lib/unitAccessPolicy.ts). All facts come
+      // from the DB, never the payload; a missing location fails closed with
+      // permanent wording (matches the mobile engine's drop regex).
+      if (entry.table_name === 'unit_access') {
+        let uaFacts:
+          | { owner_user_id: string | null; grantee_role: string | null; manages_owner_team: boolean }
+          | undefined;
+        try {
+          const { rows: uaRows } = await fastify.pg.query(
+            `SELECT l.owner_user_id,
+                    (SELECT role FROM users WHERE id = $2) AS grantee_role,
+                    EXISTS (SELECT 1 FROM team_members om
+                              JOIN team_members cm ON cm.team_id = om.team_id AND cm.is_manager = TRUE
+                             WHERE om.user_id = l.owner_user_id AND cm.user_id = $3) AS manages_owner_team
+               FROM locations l WHERE l.id = $1`,
+            [entry.payload.location_id, entry.payload.user_id, userId],
+          );
+          uaFacts = uaRows[0] as typeof uaFacts;
+        } catch { uaFacts = undefined; }
+        if (!uaFacts) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist' });
+          continue;
+        }
+        const allowed = canManageUnitAccess({
+          callerId: userId,
+          callerRole: caller.role,
+          ownerUserId: uaFacts.owner_user_id == null ? null : String(uaFacts.owner_user_id),
+          callerManagesOwnersTeam: uaFacts.manages_owner_team === true,
+          granteeRole: uaFacts.grantee_role == null ? null : String(uaFacts.grantee_role),
+        });
+        if (!allowed) {
+          request.log.warn(
+            { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
+            'sync push unit_access denied (not owner/team-manager/PM)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: you cannot manage access to this unit' });
+          continue;
+        }
+      }
+
+      // vehicle_checkouts UPDATE (#125/#127): own row, OR manage_teams, OR the
+      // close-only takeover — the payload sets ONLY checked_in_at on an OPEN
+      // session (warn-and-take-over: any checkout_inventory holder may CLOSE a
+      // stale session to take the vehicle, but may not edit its job/vehicle or
+      // reopen it; user_id itself is attribution-protected, so the closed row
+      // keeps its original holder). Row facts come from the DB, never the
+      // payload; a missing row fails closed with permanent wording.
+      if (entry.table_name === 'vehicle_checkouts' && entry.operation === 'UPDATE') {
+        let vcRow: { user_id: string | null; checked_in_at: string | null } | undefined;
+        try {
+          const { rows: vcRows } = await fastify.pg.query(
+            `SELECT user_id, checked_in_at FROM vehicle_checkouts WHERE id = $1`, [entry.payload.id],
+          );
+          vcRow = vcRows[0] as { user_id: string | null; checked_in_at: string | null } | undefined;
+        } catch { vcRow = undefined; }
+        if (!vcRow) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: vehicle checkout session does not exist' });
+          continue;
+        }
+        const ownRow = vcRow.user_id != null && String(vcRow.user_id) === userId;
+        if (!ownRow && !can('manage_teams')) {
+          const touched = Object.keys(entry.payload)
+            .filter(k => !['id', 'user_id', 'updated_at', 'synced_at', '__version'].includes(k));
+          const closeOnly = vcRow.checked_in_at == null
+            && entry.payload.checked_in_at != null
+            && touched.length > 0
+            && touched.every(k => k === 'checked_in_at');
+          if (!closeOnly) {
+            request.log.warn(
+              { userId, role: caller.role, checkoutId: entry.payload.id },
+              'sync push vehicle_checkouts update denied (not the holder)',
+            );
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot modify another user\'s vehicle checkout' });
+            continue;
+          }
+        }
+      }
+
       try {
         await applyEntry(fastify.pg, entry, userId, realColumns, can, touchedItems);
         ok.push(entry.id);
@@ -1237,7 +1571,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
       })();
     }
 
-    return { ok, conflicts };
+    return { ok, conflicts, merged };
   });
 };
 

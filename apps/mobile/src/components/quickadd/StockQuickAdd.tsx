@@ -13,6 +13,7 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -66,13 +67,15 @@ export default function StockQuickAdd({ onSaved }: Props) {
   const [error, setError] = useState('');
 
   // Current on-hand qty for the hint shown when recounting ("Set") — only looked
-  // up once both a location and item are picked.
+  // up once both a location and item are picked. stockVersion keeps the figure
+  // live if stock changes while the sheet is open.
+  const stockVersion = useTableVersion(['stock_by_location']);
   const currentOnHand = useMemo(
     () =>
       mode === 'set' && selectedLocation && selectedItemOpt
         ? getStockQuantity(selectedItemOpt.id, selectedLocation.id)
         : null,
-    [mode, selectedLocation, selectedItemOpt],
+    [mode, selectedLocation, selectedItemOpt, stockVersion],
   );
 
   // DB-backed search (not a capped pre-load) so the full catalog is reachable.

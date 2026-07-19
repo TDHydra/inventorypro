@@ -38,14 +38,54 @@ const MEDIA_ROWS = [
 // Boot-time column introspection result — just the tables these tests write to.
 const COLUMNS: Record<string, string[]> = {
   app_config: ['key', 'value', 'updated_at'],
+  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at'],
   messages: ['id', 'conversation_id', 'sender_id', 'body', 'urgency', 'created_at', 'updated_at', 'edited_at', 'deleted_at'],
+  // field-crew (#122)
+  subteams: ['id', 'team_id', 'name', 'active', 'created_at', 'updated_at'],
+  vehicles: ['location_id', 'truck_mount', 'water_state', 'model', 'model_id', 'notes', 'updated_at'],
+  vehicle_checkouts: ['id', 'vehicle_location_id', 'user_id', 'job_id', 'checked_out_at', 'checked_in_at', 'created_at', 'updated_at'],
+  locker_access: ['location_id', 'user_id', 'granted_by', 'created_at', 'updated_at'],
+  unit_access: ['location_id', 'user_id', 'can_view', 'can_add', 'can_remove', 'can_move', 'can_edit_details', 'can_grant', 'granted_by', 'created_at', 'updated_at'],
+  on_call_shifts: ['id', 'subteam_id', 'week_start', 'created_by', 'created_at', 'updated_at'],
+  on_call_coverage: ['id', 'date_start', 'date_end', 'user_off', 'covering_user', 'note', 'created_by', 'created_at', 'updated_at'],
+  locations: ['id', 'name', 'type', 'type_id', 'owner_user_id', 'active', 'updated_at'],
 };
+
+interface FakePgOpts {
+  messageSender?: string;
+  callerRole?: string;
+  /** resolveTeamAuthority: is the caller a manager of the queried team? */
+  isManager?: boolean;
+  /** subteams UPDATE/DELETE team lookup (SELECT team_id FROM subteams). */
+  subteamTeamId?: string;
+  /** #84 flag row value ('1' enables); absent → no row (off). */
+  crewAddVehicle?: boolean;
+  /** locker_access guard: locations.owner_user_id (null = ownerless row). */
+  lockerOwner?: string | null;
+  /** locker_access guard: location row missing entirely. */
+  lockerMissing?: boolean;
+  /** unit_access guard facts (single fact query, aliased manages_owner_team). */
+  unitOwner?: string | null;
+  unitLocMissing?: boolean;
+  granteeRole?: string | null;
+  managesOwnerTeam?: boolean;
+  /** vehicle_checkouts UPDATE pre-read row; absent → no row. */
+  checkoutRow?: { user_id: string | null; checked_in_at: string | null };
+  /** ADJUST locker guard facts; absent → location row missing. */
+  adjustLoc?: { type: string | null; is_owner: boolean; has_grant: boolean; shares_team: boolean };
+  /** Vehicle name-uniqueness lookup: existing active Vehicle with same normalized name. */
+  vehicleDupSurvivor?: string;
+  /** parent-type lookup for the no-sub-areas guard. */
+  parentType?: string;
+  /** #122 C: active-PM roster for the on_call fan-out (resolveRoleRecipients). */
+  pmRoster?: string[];
+}
 
 // Dispatching fake pg (auth-demo.test.ts pattern). Records every query so the
 // tests can assert what SQL actually ran. The media stub HONORS the scope built
 // into the query TEXT — an unscoped media query returns everything, so a
 // missing mediaScopeSql would surface as a leak in the assertions.
-function fakePg(opts: { messageSender?: string; callerRole?: string } = {}) {
+function fakePg(opts: FakePgOpts = {}) {
   const queries: Array<{ sql: string; params: unknown[] }> = [];
   return {
     queries,
@@ -58,11 +98,65 @@ function fakePg(opts: { messageSender?: string; callerRole?: string } = {}) {
         }
         return { rows };
       }
+      // resolveTeamAuthority (subteams per-row guard) — selects tm.is_manager.
+      if (sql.includes('COALESCE(tm.is_manager')) {
+        return { rows: [{ role: opts.callerRole ?? 'full_admin', permission_overrides: null, role_overrides: null, is_manager: opts.isManager ?? false }] };
+      }
       // resolveCaller — the only query that selects u.is_test.
       if (sql.includes('u.is_test')) {
         return { rows: [{ role: opts.callerRole ?? 'full_admin', permission_overrides: null, role_overrides: null, is_test: false }] };
       }
+      // #122 C fan-out: getNotifyConfig reads app_config (enabled), claimEvent
+      // wins the dedup ledger, resolveRoleRecipients returns the PM roster, and
+      // resolveRecipients' final active-only pass echoes the ids back as active.
+      if (sql.includes('FROM app_config WHERE key = ANY')) {
+        return { rows: [{ key: 'notify_enabled', value: '1' }] };
+      }
+      if (sql.includes('INSERT INTO notification_dedup')) {
+        return { rows: [{ event_key: params[0] }] }; // newly inserted → claim won
+      }
+      if (sql.includes('FROM users WHERE role = ANY')) {
+        return { rows: (opts.pmRoster ?? []).map(id => ({ id })) };
+      }
+      if (sql.includes('id = ANY') && sql.includes('NOT is_test')) {
+        return { rows: (params[0] as string[]).map(id => ({ id })) };
+      }
       if (sql.includes(`key = 'maintenance_mode'`)) return { rows: [] };
+      if (sql.includes(`key = 'crew_add_vehicle_enabled'`)) {
+        return { rows: opts.crewAddVehicle ? [{ value: '1' }] : [] };
+      }
+      // subteams UPDATE/DELETE team resolution.
+      if (sql.includes('SELECT team_id FROM subteams')) {
+        return { rows: opts.subteamTeamId ? [{ team_id: opts.subteamTeamId }] : [] };
+      }
+      // #129 vehicle name-uniqueness lookup.
+      if (sql.includes('LOWER(TRIM(name))')) {
+        return { rows: opts.vehicleDupSurvivor ? [{ id: opts.vehicleDupSurvivor }] : [] };
+      }
+      // no-sub-areas guard parent lookup.
+      if (sql.includes('SELECT type FROM locations')) {
+        return { rows: opts.parentType ? [{ type: opts.parentType }] : [] };
+      }
+      // unit_access guard fact query (#122 Phase B).
+      if (sql.includes('manages_owner_team')) {
+        return { rows: opts.unitLocMissing ? [] : [{
+          owner_user_id: opts.unitOwner ?? null,
+          grantee_role: opts.granteeRole ?? 'mitigation_technician',
+          manages_owner_team: opts.managesOwnerTeam ?? false,
+        }] };
+      }
+      // locker_access owner guard.
+      if (sql.includes('SELECT owner_user_id FROM locations')) {
+        return { rows: opts.lockerMissing ? [] : [{ owner_user_id: opts.lockerOwner ?? null }] };
+      }
+      // vehicle_checkouts UPDATE pre-read.
+      if (sql.includes('SELECT user_id, checked_in_at FROM vehicle_checkouts')) {
+        return { rows: opts.checkoutRow ? [opts.checkoutRow] : [] };
+      }
+      // ADJUST locker guard fact query (owner/grant/team-mate facts in one row).
+      if (sql.includes('shares_team')) {
+        return { rows: opts.adjustLoc ? [opts.adjustLoc] : [] };
+      }
       // messages-UPDATE sender guard lookup.
       if (sql.includes('SELECT sender_id FROM messages')) {
         return { rows: opts.messageSender ? [{ sender_id: opts.messageSender }] : [] };
@@ -270,4 +364,456 @@ test('full: the media page is scoped the same way as the incremental pull', asyn
   const { rows } = res.json() as { rows: Array<{ id: string }> };
   assert.deepEqual(rows.map(r => r.id).sort(), ['media-item', 'media-msg-mine']);
   await app.close();
+});
+
+// ── #123: subteams per-row team-authority guard ──────────────────────────────
+
+type PushResult = { ok: string[]; conflicts: Array<{ id: string; error: string }> };
+
+async function push(pg: ReturnType<typeof fakePg>, entries: Parameters<typeof pushBody>[0]): Promise<PushResult> {
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody(entries) });
+  assert.equal(res.statusCode, 200);
+  await app.close();
+  return res.json() as PushResult;
+}
+
+test('subteams: a caller without manage_teams is rejected at the table gate (fail closed)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'subteams', payload: { id: 'st1', team_id: 'team-1', name: 'TV/FT' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_teams/);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO subteams')));
+});
+
+test('subteams: a manage_teams holder who does NOT manage that team is a permanent rejection', async () => {
+  // production_manager holds manage_teams (tier 2) but is not org authority —
+  // exactly who the per-row guard exists for.
+  const pg = fakePg({ callerRole: 'production_manager', isManager: false });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'subteams', payload: { id: 'st1', team_id: 'team-1', name: 'TV/FT' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO subteams')), 'the write must never reach SQL');
+});
+
+test('subteams: the team\'s own manager may create/update crews', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', isManager: true });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'subteams', payload: { id: 'st1', team_id: 'team-1', name: 'TV/FT', active: true } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO subteams')));
+});
+
+test('subteams: org authority (full_admin) is allowed without being a member', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', isManager: false });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'subteams', payload: { id: 'st1', team_id: 'team-1', name: 'Renamed' } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('subteams: a payload without team_id resolves it from the row; an unresolvable subteam fails closed', async () => {
+  // DELETE carries only the key — team_id comes from the DB row.
+  const okPg = fakePg({ callerRole: 'production_manager', isManager: true, subteamTeamId: 'team-1' });
+  const okBody = await push(okPg, [
+    { operation: 'DELETE', table_name: 'subteams', payload: { id: 'st1' } },
+  ]);
+  assert.deepEqual(okBody.ok, ['e1']);
+  assert.ok(okPg.queries.some(q => q.sql.includes('SELECT team_id FROM subteams')));
+  // No such row → permanent rejection (never an open write).
+  const missingPg = fakePg({ callerRole: 'production_manager', isManager: true });
+  const missingBody = await push(missingPg, [
+    { operation: 'DELETE', table_name: 'subteams', payload: { id: 'st-ghost' } },
+  ]);
+  assert.deepEqual(missingBody.ok, []);
+  assert.match(missingBody.conflicts[0].error, PERMANENT);
+});
+
+// ── #126: locker_access owner-or-org-authority guard ─────────────────────────
+
+test('locker_access: the location OWNER may grant, and granted_by is forced to the caller', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', lockerOwner: CALLER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locker_access', payload: { location_id: 'loc-1', user_id: OTHER, granted_by: 'forged-id', created_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO locker_access'));
+  assert.ok(ins, 'the grant must reach SQL');
+  assert.ok(ins!.params.includes(CALLER), 'granted_by must be the authenticated caller');
+  assert.ok(!ins!.params.includes('forged-id'), 'a forged granted_by must not survive');
+});
+
+test('locker_access: a non-owner without org authority is a permanent rejection (grant and revoke)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', lockerOwner: OTHER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locker_access', payload: { location_id: 'loc-1', user_id: CALLER } },
+    { operation: 'DELETE', table_name: 'locker_access', payload: { location_id: 'loc-1', user_id: OTHER } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 2);
+  for (const c of body.conflicts) assert.match(c.error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locker_access') || q.sql.includes('DELETE FROM locker_access')));
+});
+
+test('locker_access: a grant against a missing location fails closed (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', lockerMissing: true });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locker_access', payload: { location_id: 'loc-ghost', user_id: OTHER } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+test('locker_access: org authority may manage access to any locker', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', lockerOwner: OTHER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locker_access', payload: { location_id: 'loc-1', user_id: CALLER } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+// ── #122 Phase B: unit_access owner/manager/PM guard ─────────────────────────
+
+const GRANT_ROW = {
+  location_id: 'loc-1', user_id: OTHER, can_view: true, can_add: true, can_remove: true,
+  can_move: true, can_edit_details: false, can_grant: false, granted_by: 'forged-id',
+  created_at: NOW, updated_at: NOW,
+};
+
+test('unit_access: the unit OWNER may grant, and granted_by is forced to the caller', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', unitOwner: CALLER });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } }]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO unit_access'));
+  assert.ok(ins, 'the grant must reach SQL');
+  assert.ok(ins!.params.includes(CALLER), 'granted_by must be the authenticated caller');
+  assert.ok(!ins!.params.includes('forged-id'), 'a forged granted_by must not survive');
+});
+
+test('unit_access: a production_manager may edit grants for a tier-1 grantee on any unit', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', unitOwner: OTHER, granteeRole: 'mitigation_technician' });
+  const body = await push(pg, [{ operation: 'UPDATE', table_name: 'unit_access', payload: { ...GRANT_ROW, can_remove: false } }]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('unit_access: a production_manager may NOT touch a full_admin grantee (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', unitOwner: OTHER, granteeRole: 'full_admin' });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } }]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+test('unit_access: a manager of a team the owner is on may grant', async () => {
+  const pg = fakePg({ callerRole: 'head_of_contents', unitOwner: OTHER, managesOwnerTeam: true });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } }]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('unit_access: an unrelated crew caller is a permanent rejection (grant and revoke)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', unitOwner: OTHER });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } },
+    { operation: 'DELETE', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: OTHER } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 2);
+  for (const c of body.conflicts) assert.match(c.error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO unit_access') || q.sql.includes('DELETE FROM unit_access')));
+});
+
+test('unit_access: a write against a missing location fails closed (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', unitLocMissing: true });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW, location_id: 'loc-ghost' } }]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+// ── #125: vehicle_checkouts attribution + close-only takeover ────────────────
+
+test('vehicle_checkouts INSERT: user_id is forced to the caller (cannot check out as someone else)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicle_checkouts', payload: { id: 'vc1', vehicle_location_id: 'loc-1', user_id: OTHER, checked_out_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO vehicle_checkouts'));
+  assert.ok(ins, 'the checkout must reach SQL');
+  assert.ok(ins!.params.includes(CALLER), 'user_id must be the authenticated caller');
+  assert.ok(!ins!.params.includes(OTHER), 'the forged holder must not survive');
+});
+
+test('vehicle_checkouts UPDATE: the holder may edit their own session (add a job later)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', checkoutRow: { user_id: CALLER, checked_in_at: null } });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'vehicle_checkouts', payload: { id: 'vc1', job_id: 'job-9' } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.startsWith('UPDATE vehicle_checkouts')));
+});
+
+test('vehicle_checkouts UPDATE: warn-and-take-over — a stranger may CLOSE an open session (checked_in_at only)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', checkoutRow: { user_id: OTHER, checked_in_at: null } });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'vehicle_checkouts', payload: { id: 'vc1', checked_in_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.startsWith('UPDATE vehicle_checkouts')));
+});
+
+test('vehicle_checkouts UPDATE: a stranger touching anything BEYOND checked_in_at is a permanent rejection', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', checkoutRow: { user_id: OTHER, checked_in_at: null } });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'vehicle_checkouts', payload: { id: 'vc1', checked_in_at: NOW, job_id: 'job-9' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.startsWith('UPDATE vehicle_checkouts')), 'the takeover-plus-edit must never reach SQL');
+});
+
+test('vehicle_checkouts UPDATE: a stranger cannot re-close (or reopen) an already-closed session', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', checkoutRow: { user_id: OTHER, checked_in_at: NOW } });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'vehicle_checkouts', payload: { id: 'vc1', checked_in_at: '2026-07-15T00:00:00.000Z' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+test('vehicle_checkouts UPDATE: manage_teams may edit any session', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', checkoutRow: { user_id: OTHER, checked_in_at: null } });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'vehicle_checkouts', payload: { id: 'vc1', job_id: 'job-9' } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+// ── #126: hard locker enforcement on ADJUST ──────────────────────────────────
+
+const LOCKER_DENY = { type: 'Locker', is_owner: false, has_grant: false, shares_team: false };
+
+test('ADJUST: a negative delta from a locker by a non-grantee is a permanent rejection and never touches stock', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: LOCKER_DENY });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-1', delta: -2 } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /locker/i);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO stock_by_location')), 'stock must never move');
+});
+
+test('ADJUST: owner / grantee / owner\'s team-mate may take from the locker', async () => {
+  for (const facts of [
+    { ...LOCKER_DENY, is_owner: true },
+    { ...LOCKER_DENY, has_grant: true },
+    { ...LOCKER_DENY, shares_team: true },
+  ]) {
+    const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: facts });
+    const body = await push(pg, [
+      { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-1', delta: -2 } },
+    ]);
+    assert.deepEqual(body.ok, ['e1'], `facts ${JSON.stringify(facts)} must be allowed`);
+    assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO stock_by_location')));
+  }
+});
+
+test('ADJUST: org authority (tier 3+) bypasses the locker guard without a lookup', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', adjustLoc: LOCKER_DENY });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-1', delta: -2 } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(!pg.queries.some(q => q.sql.includes('shares_team')), 'the locker lookup must be skipped for org authority');
+});
+
+test('ADJUST: positive deltas into a locker stay open (restocking is not gated)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: LOCKER_DENY });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-1', delta: 3 } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('ADJUST: non-locker locations are unaffected by the guard', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: { ...LOCKER_DENY, type: 'Shop' } });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-2', delta: -5 } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+// ── #84: crew add-a-vehicle flag path on locations INSERT ────────────────────
+
+test('locations INSERT by a crew role: rejected while the flag is off (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', crewAddVehicle: false });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'loc-new', name: 'My Van', type: 'Vehicle', active: true } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_locations/);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+});
+
+test('locations INSERT by a crew role: allowed when crew_add_vehicle_enabled=1 AND the row is a Vehicle', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', crewAddVehicle: true });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'loc-new', name: 'My Van', type: 'Vehicle', active: true } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+});
+
+test('locations INSERT by a crew role: the flag does NOT open non-Vehicle locations', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', crewAddVehicle: true });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'loc-new', name: 'Sneaky Warehouse', type: 'Warehouse', active: true } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+// ── #128: on_call_shifts upserts on week_start ───────────────────────────────
+
+test('on_call_shifts INSERT upserts on week_start (one crew per week; reassignment replaces)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'on_call_shifts', payload: { id: 'oc1', subteam_id: 'st1', week_start: '2026-07-20', created_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO on_call_shifts'));
+  assert.ok(ins, 'the assignment must reach SQL');
+  assert.match(ins!.sql, /ON CONFLICT \(week_start\) DO UPDATE/, 'must upsert on the WEEK, not the row id');
+});
+
+test('on_call_shifts writes require manage_teams (crew cannot self-assign the on-call week)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'on_call_shifts', payload: { id: 'oc1', subteam_id: 'st1', week_start: '2026-07-20' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_teams/);
+});
+
+// ── #122 Phase C: on_call_coverage INSERT fan-out through /sync/push ─────────
+// Pins the applyEntry hook wiring itself (right table check, claimEvent key,
+// deliver reached with the resolved PM recipients) — the resolver units in
+// lib/notifications.test.ts can't catch a swallowed error or a dead hook here.
+
+test('on_call_coverage INSERT: fan-out claims the coverage dedup key and delivers to the PM roster', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', pmRoster: ['pm1', 'pm2'] });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'on_call_coverage', payload: {
+      id: 'cov-1', date_start: '2026-07-20', date_end: '2026-07-22',
+      user_off: 'u-off', covering_user: 'u-cover', created_at: NOW, updated_at: NOW,
+    } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO on_call_coverage')), 'the coverage row must reach SQL');
+  // The fan-out is fire-and-forget: every fake-pg await settles in microtasks,
+  // so a setImmediate hop (twice, for safety) lets the whole chain finish.
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  const claim = pg.queries.find(q => q.sql.includes('INSERT INTO notification_dedup'));
+  assert.ok(claim, 'the fan-out must claim the dedup ledger');
+  assert.deepEqual(claim!.params, ['oncall:coverage:cov-1']);
+  const inbox = pg.queries.filter(q => q.sql.includes('INSERT INTO notifications'));
+  assert.deepEqual(inbox.map(q => q.params[1]).sort(), ['pm1', 'pm2'], 'every resolved PM gets an inbox row');
+  for (const q of inbox) assert.equal(q.params[2], 'on_call');
+});
+
+test('on_call_coverage writes require manage_teams (crew cannot author coverage)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', pmRoster: ['pm1'] });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'on_call_coverage', payload: { id: 'cov-2', date_start: '2026-07-20', date_end: '2026-07-22' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_teams/);
+  await new Promise(r => setImmediate(r));
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO notification_dedup')), 'a rejected write must never notify');
+});
+
+// ── #129 / #122 A1: vehicle name-merge + no sub-areas under units ────────────
+
+test('#129: a duplicate Vehicle INSERT is merged — ok\'d, reported in merged[], never inserted', async () => {
+  const pg = fakePg({ vehicleDupSurvivor: 'veh-survivor' });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'veh-dup', name: ' van 7 ', type: 'Vehicle', active: true, updated_at: NOW } },
+    { operation: 'INSERT', table_name: 'vehicles', payload: { location_id: 'veh-dup', truck_mount: false, updated_at: NOW } },
+  ]) });
+  const body = res.json() as { ok: string[]; conflicts: unknown[]; merged: Array<{ id: string; duplicate_id: string; survivor_id: string }> };
+  assert.deepEqual(body.ok, ['e1', 'e2']);
+  assert.deepEqual(body.merged, [{ id: 'e1', duplicate_id: 'veh-dup', survivor_id: 'veh-survivor' }]);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')), 'dup row never inserted');
+  // In-batch remap: the follow-up vehicles row landed on the survivor.
+  const veh = pg.queries.find(q => q.sql.includes('INSERT INTO vehicles'));
+  assert.ok(veh && veh.params.includes('veh-survivor') && !veh.params.includes('veh-dup'));
+  await app.close();
+});
+
+test('#129: a Vehicle INSERT with a fresh name applies normally and merged[] is empty', async () => {
+  const pg = fakePg();
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'veh-new', name: 'Van 9', type: 'Vehicle', active: true, updated_at: NOW } },
+  ]) });
+  const body = res.json() as { ok: string[]; merged: unknown[] };
+  assert.deepEqual(body.ok, ['e1']);
+  assert.deepEqual(body.merged, []);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+  await app.close();
+});
+
+test('no sub-areas: parenting a location under a Vehicle/Locker is a permanent rejection', async () => {
+  const pg = fakePg({ parentType: 'Vehicle' });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'room-x', name: 'Back Shelf', parent_id: 'veh-1', type: 'Room', active: true, updated_at: NOW } },
+    { operation: 'UPDATE', table_name: 'locations', payload: { id: 'room-y', parent_id: 'veh-1' } },
+  ]) });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ error: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 2);
+  for (const c of body.conflicts) { assert.match(c.error, PERMANENT); assert.match(c.error, /sub-area/); }
+  await app.close();
+});
+
+test('no sub-areas: a normal parent (Building) still accepts children', async () => {
+  const pg = fakePg({ parentType: 'Building' });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'POST', url: '/sync/push', payload: pushBody([
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'room-z', name: 'Product Room', parent_id: 'bldg-1', type: 'Room', active: true, updated_at: NOW } },
+  ]) });
+  assert.deepEqual((res.json() as { ok: string[] }).ok, ['e1']);
+  await app.close();
+});
+
+// ── role dashboard presets: assignment is a role_settings write → existing guards apply ──
+
+test('role_settings: dashboard_preset_id on a role above the caller is a permanent rejection', async () => {
+  const pg = fakePg({ callerRole: 'franchise_manager' });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'role_settings', payload: { role: 'full_admin', dashboard_preset_id: 'preset-1', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO role_settings')), 'the write must never reach SQL');
+});
+
+test('role_settings: a manage_roles_permissions holder may assign a preset to a role below them', async () => {
+  const pg = fakePg({ callerRole: 'franchise_manager' });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'role_settings', payload: { role: 'hr_manager', dashboard_preset_id: 'preset-1', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => /role_settings/.test(q.sql) && q.params.includes('preset-1')), 'dashboard_preset_id must survive the column policy');
 });

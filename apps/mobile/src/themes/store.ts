@@ -1,4 +1,5 @@
 import { getAppSetting, setAppSetting } from '../db/appSettings';
+import { getAppConfig, ORG_THEME_KEY } from '../db/appConfig';
 import type { Theme } from './types';
 import { DEFAULT_THEME_ID, resolveTheme, themes } from './registry';
 
@@ -12,7 +13,9 @@ import { DEFAULT_THEME_ID, resolveTheme, themes } from './registry';
  *   1. user_prefs.theme  — per-user, synced (wired in by the T2 item)
  *   2. app_settings 'theme_last' — device cache; makes cold boot and the
  *      pre-auth screens (login/unlock/PIN) render the right theme instantly
- *   3. DEFAULT_THEME_ID
+ *   3. app_config 'default_theme_id' — org-wide default, synced + admin-set
+ *      (Phase E, #138); also seeded from the public roster on fresh installs
+ *   4. DEFAULT_THEME_ID
  */
 
 const THEME_LAST_KEY = 'theme_last';
@@ -74,6 +77,9 @@ export function setThemeId(id: string, opts: { persist?: boolean } = {}): void {
 export function loadThemeFromSettings(): void {
   let id: string | null = null;
   try { id = getAppSetting(THEME_LAST_KEY); } catch { /* DB not ready */ }
+  // No personal/device choice cached -> org default (synced app_config, also
+  // seeded from the public roster on fresh installs) -> built-in default.
+  if (!id) id = getAppConfig(ORG_THEME_KEY);
   activeTheme = resolveTheme(id);
   applyWebColorScheme(activeTheme);
   // No notify: callers run this before the first render.

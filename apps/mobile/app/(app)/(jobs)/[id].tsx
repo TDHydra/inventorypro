@@ -58,6 +58,14 @@ export default function JobDetailScreen() {
   const [geocodeFailed, setGeocodeFailed] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
 
+  // Re-read the job row on refocus or when a sync pull applies changes — the row
+  // is useState so own edits can reload() it synchronously, but synced changes
+  // must land too. The edit-form buffers below stay one-shot (seeded only in
+  // startEdit), so an in-progress edit is never clobbered by this re-read.
+  useEffect(() => {
+    setJob(getJobById(id));
+  }, [id, refreshKey]);
+
   // Geocode the free-text site address (online, no API key) so we can show a
   // view-only map. Failures/empties are swallowed — the map just doesn't appear.
   const siteAddress = job?.site_address ?? null;

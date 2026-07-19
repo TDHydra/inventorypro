@@ -3,6 +3,7 @@ import {
   Text, Image, Modal, ScrollView, TouchableOpacity, StyleSheet, Dimensions,
 } from 'react-native';
 import type { Theme } from '../themes/types';
+import { useTableVersion } from '../hooks/useDataVersion';
 import { useThemedStyles } from '../hooks/useThemedStyles';
 import { getPrimaryMedia, getMediaForEntity, MediaRecord } from '../db/queries/media';
 
@@ -18,9 +19,12 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
  */
 export function MovePhotoThumb({ logId }: { logId: string }) {
   const s = useThemedStyles(makeStyles);
+  // Re-read when a sync pull touches media so a photo that arrives after the
+  // log row rendered still shows up.
+  const mediaVersion = useTableVersion(['media']);
   const primary = useMemo<MediaRecord | null>(
     () => getPrimaryMedia('activity_log', logId),
-    [logId],
+    [logId, mediaVersion],
   );
   const [open, setOpen] = useState<MediaRecord[] | null>(null);
 

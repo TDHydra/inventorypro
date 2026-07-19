@@ -38,6 +38,7 @@ import { ErrorView } from '../../../src/components/ui/ErrorView';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { themeList } from '../../../src/themes/registry';
 import { chooseTheme } from '../../../src/db/userPrefs';
+import { getOrgDefaultThemeId, setOrgDefaultTheme } from '../../../src/db/orgTheme';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -134,6 +135,8 @@ export default function SettingsScreen() {
   const [pollMinInput, setPollMinInput] = useState<string>(() => getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
   const [idleMinInput, setIdleMinInput] = useState<string>(() => getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
   const [thresholdInput, setThresholdInput] = useState<string>(() => getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
+  // Org default theme (Phase E, #138): app_config 'default_theme_id', synced.
+  const [orgThemeId, setOrgThemeId] = useState<string | null>(() => getOrgDefaultThemeId());
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
@@ -189,7 +192,7 @@ export default function SettingsScreen() {
   const storageLocHasShelves = (storageLoc ? locationById.get(storageLoc.id) : undefined)?.has_shelves === 1;
   const storageShelfOptions = useMemo<PickerOption[]>(
     () => (storageLocHasShelves && storageLoc) ? getShelvesForParent(storageLoc.id).map(s => ({ id: s.id, label: s.name })) : [],
-    [storageLocHasShelves, storageLoc],
+    [storageLocHasShelves, storageLoc, refreshKey],
   );
 
   // Pick a storage location: toggle off if re-tapped (clears the setting); else set
@@ -228,6 +231,12 @@ export default function SettingsScreen() {
     setStorageShelf(st.shelf);
   }, []);
 
+  // Re-read live while the screen is open: refreshKey bumps on refocus AND on
+  // data-version ticks, so synced app_config/app_settings changes show without
+  // leaving the screen. The notify text inputs stay focus-seeded below so
+  // in-progress typing is never clobbered by a background pull.
+  useEffect(() => { refreshStatus(); }, [refreshStatus, refreshKey]);
+
   // Re-read DB values every time the screen gains focus
   useFocusEffect(
     useCallback(() => {
@@ -237,6 +246,7 @@ export default function SettingsScreen() {
       setPollMinInput(getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
       setIdleMinInput(getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
       setThresholdInput(getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
+      setOrgThemeId(getOrgDefaultThemeId());
     }, [refreshStatus])
   );
 
@@ -554,6 +564,49 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── Org default theme (admins; app_config, synced) ────────────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Org default theme</Text>
+            <View style={s.card}>
+              {themeList().map((th, i) => (
+                <View key={th.id}>
+                  {i > 0 && <View style={s.divider} />}
+                  <TouchableOpacity
+                    style={s.row}
+                    onPress={() => {
+                      try { setOrgDefaultTheme(th.id, user?.id ?? null); setOrgThemeId(th.id); }
+                      catch { /* blocked write — ignore */ }
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowLabel}>{th.name}</Text>
+                    </View>
+                    {[th.colors.background, th.colors.surface, th.colors.primary, th.colors.accent].map((c, j) => (
+                      <View
+                        key={j}
+                        style={{
+                          width: 18, height: 18, borderRadius: 9, backgroundColor: c,
+                          borderWidth: 1, borderColor: th.colors.border, marginLeft: 4,
+                        }}
+                      />
+                    ))}
+                    <Text style={[s.rowSub, { marginLeft: t.spacing.md, width: 18 }]}>
+                      {orgThemeId === th.id ? '✓' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={s.divider} />
+              <View style={s.infoBlock}>
+                <Text style={s.rowSub}>
+                  Applies to the sign-in screen, new installs, and everyone who hasn't picked their own theme. Personal picks above always win.
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* ── Form detail (this device) ─────────────────────────────────── */}
         <View>
           <Text style={s.sectionTitle}>Form detail (this device)</Text>
@@ -811,6 +864,25 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* ── On-Call Settings (admin only — synced app_config) ─────────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>On-Call</Text>
+            <View style={s.card}>
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/on-call-settings')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>📅 On-Call Settings</Text>
+                  <Text style={s.rowSub}>Week boundary and crew rotation order</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* ── Approvals (admin only — synced app_config) ────────────────── */}
         {isAdmin && (
           <View>
@@ -844,6 +916,25 @@ export default function SettingsScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={s.rowLabel}>🙈 Hidden Fields</Text>
                   <Text style={s.rowSub}>Hide optional fields for all users on all devices.</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* ── Unit Access Defaults (admin only — synced via app_config) ── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Unit Access</Text>
+            <View style={s.card}>
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/unit-access-defaults')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🔑 Unit Access Defaults</Text>
+                  <Text style={s.rowSub}>What a new vehicle/locker grant allows, per role.</Text>
                 </View>
                 <Text style={s.rowSub}>›</Text>
               </TouchableOpacity>

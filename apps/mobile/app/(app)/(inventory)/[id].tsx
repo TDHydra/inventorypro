@@ -97,6 +97,12 @@ export default function ItemDetailScreen() {
     setStock(getStockByItem(id));
   }, [id]);
 
+  // Re-read item + stock on refocus and on sync-pull bumps (refreshKey), so the
+  // detail view tracks changes made elsewhere. Edit-mode buffers (form/edit*)
+  // are seeded once in startEdit and are NOT reseeded here — in-progress edits
+  // survive a background pull.
+  useEffect(() => { reload(); }, [reload, refreshKey]);
+
   // Equipment items are managed in the Equipment tab — redirect immediately
   useEffect(() => {
     if (item?.kind === 'equipment') {

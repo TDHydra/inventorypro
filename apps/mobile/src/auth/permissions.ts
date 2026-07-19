@@ -139,6 +139,20 @@ export function hasPermission(
 }
 
 /**
+ * A ROLE's effective permission (default + role_settings override) — no user or
+ * team layer. Drives the preset editor's widget filtering and the Teams sheet's
+ * baseline values. Reactive via the same roleOverridesCache that
+ * loadRolePermissionCache refreshes + notifies on.
+ */
+export function roleHasPermission(role: UserRole, permission: Permission): boolean {
+  if (role === 'full_admin' && FULL_ADMIN_FLOOR.includes(permission)) return true;
+  let result = ROLE_DEFAULTS[role]?.[permission] ?? false;
+  const ov = roleOverridesCache[role];
+  if (ov && permission in ov) result = ov[permission];
+  return result;
+}
+
+/**
  * Check if a user can grant a specific permission to another user/team member.
  * A manager can only grant permissions they themselves hold.
  */

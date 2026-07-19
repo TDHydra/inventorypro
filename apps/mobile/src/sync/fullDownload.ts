@@ -25,6 +25,13 @@ const SYNC_TABLES = [
   // chat: SCOPED server-side to the caller's own conversations (see sync.ts
   // chatScopeSql) — a fresh device gets only the conversations it participates in.
   'conversations', 'conversation_participants', 'messages',
+  // Field-crew (#122): subteams is team-scoped server-side (teamScopeSql); the
+  // vehicle/locker/on-call tables are org-visible — fast checkout needs
+  // teammates' assets locally on a fresh device. unit_access is org-visible
+  // like locker_access — the access panel needs teammates' grants on a fresh
+  // device.
+  'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
+  'locker_access', 'unit_access', 'on_call_shifts', 'on_call_coverage',
 ] as const;
 
 export const FULL_DOWNLOAD_TABLE_COUNT = SYNC_TABLES.length;
@@ -143,7 +150,15 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'approval_requests':
       case 'conversations':
       case 'conversation_participants':
-      case 'messages': {
+      case 'messages':
+      case 'subteams':
+      case 'vehicles':
+      case 'vehicle_service_records':
+      case 'vehicle_checkouts':
+      case 'locker_access':
+      case 'unit_access':
+      case 'on_call_shifts':
+      case 'on_call_coverage': {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)
         // and sanitize values (JSONB objects / booleans) for op-sqlite.

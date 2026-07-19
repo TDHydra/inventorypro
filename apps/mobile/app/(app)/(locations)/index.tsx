@@ -2,11 +2,11 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
   getLocationTree, upsertLocation, getLocationById, getBrowsableLocations, getLocationPath,
-  LocationWithChildren,
+  isUnitLocation, LocationWithChildren,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -55,13 +55,24 @@ export default function LocationsScreen() {
     setTree(getLocationTree());
   }, [dataVersion]);
 
-  // Location-type taxonomy (Shop, Vehicle, Locker, …) for the create-form picker,
-  // the list section filter, and per-row type badges. Active types only. 'Shelf'
-  // is filtered out defensively — it's a hardcoded sub-level type (see
-  // findOrCreateShelf), not a real admin-managed location type, so it must never
-  // appear as a browsable section or a choosable create-form type even if an
-  // admin manually adds a "Shelf" label under Manage Types.
-  const locationTypes = useMemo(() => getLocationTypes().filter(t => t.label !== 'Shelf'), []);
+  const { createUnder } = useLocalSearchParams<{ createUnder?: string }>();
+  // Deep-link from a location detail's "+ Add Sub-area": open the create modal
+  // preset to that parent, then clear the param so re-focusing doesn't re-open.
+  useEffect(() => {
+    if (createUnder && canManage) {
+      openCreate(createUnder);
+      router.setParams({ createUnder: undefined });
+    }
+  }, [createUnder, canManage]);
+
+  // Location-type taxonomy (Shop, Office, …) for the create-form picker, the
+  // list section filter, and per-row type badges. Active types only. 'Shelf' is
+  // filtered out defensively — it's a hardcoded sub-level type (see
+  // findOrCreateShelf), not a real admin-managed location type. 'Vehicle' and
+  // 'Locker' are UNITS (#122 A2): they live in their own management screens,
+  // not the places browser, so they're neither a browsable section nor a
+  // choosable create-form type here.
+  const locationTypes = useMemo(() => getLocationTypes().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)), [dataVersion]);
   // label → icon, used to render a row's type badge from its stored `type` label.
   // Includes BOTH top-level and sub-area types so a sub-area row's badge resolves.
   const typeIconByLabel = useMemo(
@@ -69,7 +80,7 @@ export default function LocationsScreen() {
       ...getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
       ...getLocationSubtypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
     ]),
-    [],
+    [dataVersion],
   );
   // Section filter: null = All (show full tree); a label = flat list of that type.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -105,7 +116,7 @@ export default function LocationsScreen() {
     [tree],
   );
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  const allUsers = useMemo(() => getAllActiveUsers(), [dataVersion]);
   const userMap = useMemo<Map<string, string>>(
     () => new Map(allUsers.map(u => [u.id, u.name])),
     [allUsers],
@@ -127,7 +138,7 @@ export default function LocationsScreen() {
   // on, an owner must be picked before the sub-area can be created.
   const parentRequiresOwner = useMemo(
     () => (parentId ? !!getLocationById(parentId)?.subareas_require_owner : false),
-    [parentId],
+    [parentId, dataVersion],
   );
 
   // A location being created UNDER a parent is a sub-area, so its Type picker
@@ -140,8 +151,8 @@ export default function LocationsScreen() {
     () =>
       isSubArea
         ? getLocationSubtypesWithFallback()
-        : getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'),
-    [isSubArea],
+        : getLocationTypesWithFallback().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)),
+    [isSubArea, dataVersion],
   );
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
@@ -174,6 +185,15 @@ export default function LocationsScreen() {
 
   function doCreate() {
     if (isWriteBlocked()) return;
+    // Units (Vehicle/Locker) can't contain sub-areas (#122 A2). The parent
+    // picker already excludes them (getBrowsableLocations), but a preset parent
+    // param or legacy deep link could still slip one in — and the server would
+    // permanently reject the push, leaving a stuck-looking local row.
+    const parent = parentId ? getLocationById(parentId) : null;
+    if (parent && isUnitLocation(parent)) {
+      Alert.alert('Not allowed', `"${parent.name}" is a ${parent.type} — vehicles and lockers can't contain sub-areas.`);
+      return;
+    }
     const id = generateUUID();
     const now = new Date().toISOString();
     const trimmed = name.trim();

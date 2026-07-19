@@ -10,6 +10,7 @@ import { renderIcon, CATEGORY_DEFAULT_ICON } from '../../constants/locationStyle
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
 import { resolveTaxonomyValue } from './resolveTaxonomyValue';
+import { useTableVersion } from '../../hooks/useDataVersion';
 
 // The app's one taxonomy input shape: the horizontal row of FilterChips
 // (getTaxonomyTypes* + map → `${renderIcon(icon)} ${label}` chip + hold selection)
@@ -51,12 +52,15 @@ export function TaxonomyChips({
   const s = useThemedStyles(makeStyles);
   // Options exactly as each screen sources them — strict active list, or the
   // never-empty fallback list. Both spellings appear across the four call sites.
+  // Re-read when a sync pull touches taxonomy_types so a value added/renamed
+  // elsewhere shows in every call site's chips while open.
+  const taxonomyVersion = useTableVersion(['taxonomy_types']);
   const types = useMemo(
     () =>
       withFallback
         ? getTaxonomyTypesWithFallback(category)
         : getTaxonomyTypes(category),
-    [category, withFallback],
+    [category, withFallback, taxonomyVersion],
   );
 
   // Resolve the stored value (id and/or label) against the SAME list that renders

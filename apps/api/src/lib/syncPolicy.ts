@@ -152,6 +152,17 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   // means the upsert (ON CONFLICT user_id) can only ever land on the caller's own
   // row — self-write enforced structurally, no dedicated guard needed.
   user_prefs: ['user_id'],
+  // Field-crew (#122): who granted locker access / who holds a vehicle session /
+  // who logged the service / who assigned the on-call week is always the
+  // authenticated caller on INSERT and never reassignable on UPDATE. For
+  // vehicle_checkouts this doubles as a guard: the close-only takeover UPDATE
+  // (routes/sync.ts) cannot steal the row because user_id is dropped here.
+  locker_access: ['granted_by'],
+  unit_access: ['granted_by'],
+  vehicle_checkouts: ['user_id'],
+  vehicle_service_records: ['created_by'],
+  on_call_shifts: ['created_by'],
+  on_call_coverage: ['created_by'],
 };
 
 export function applyWritePolicy(
@@ -326,10 +337,30 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   // row to the caller). Clients only ever INSERT (upsert on user_id); UPDATE/
   // DELETE are absent → fail closed.
   user_prefs:                { INSERT: null },
+  // Field-crew (#122). vehicles state (water/truck-mount toggles) is a crew-level
+  // action — no perm; the row is only ever an extension of an existing Vehicle
+  // location. DELETE absent → fail closed (a vehicle row is never torn down via
+  // sync). Service records are maintenance data → edit_inventory (the
+  // maintenance_events precedent). Checkout sessions ride checkout_inventory;
+  // DELETE absent → sessions close (checked_in_at), never vanish. locker_access
+  // is all-null here because the REAL gate is the per-row owner-or-org-authority
+  // guard in routes/sync.ts. on_call_shifts is roster shaping → manage_teams.
+  vehicles:                  { INSERT: null, UPDATE: null },
+  vehicle_service_records:   { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
+  vehicle_checkouts:         { INSERT: 'checkout_inventory', UPDATE: 'checkout_inventory' },
+  locker_access:             { INSERT: null, UPDATE: null, DELETE: null },
+  // unit_access (#122 Phase A1): all-null like locker_access — the real gate is
+  // the per-row owner-or-org-authority guard in routes/sync.ts.
+  unit_access:               { INSERT: null, UPDATE: null, DELETE: null },
+  on_call_shifts:            { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
+  // Coverage rows change who is effectively on call → same roster gate.
+  on_call_coverage:          { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
-const OPERATION_PERM_EXEMPT = new Set(['activity_log', 'users', 'role_settings', 'app_config', 'teams', 'team_members']);
+// subteams is PRIVILEGED_TABLE_PERM-gated (manage_teams) plus a per-row
+// resolveTeamAuthority guard in routes/sync.ts, like teams/team_members.
+const OPERATION_PERM_EXEMPT = new Set(['activity_log', 'users', 'role_settings', 'app_config', 'teams', 'team_members', 'subteams']);
 
 export function requiredOperationPerm(table: string, op: Op): string | null | 'DENY' {
   if (OPERATION_PERM_EXEMPT.has(table)) return null;
@@ -362,6 +393,13 @@ export const ACTIVITY_ACTIONS = new Set([
   // Settings → form-field show/hide (db/hiddenFields.ts). The only client action
   // still missing from this allowlist — every one was rejected and lost (#56).
   'hidden_field_changed',
+  // Field-crew epic (#122): vehicles/lockers/crews/on-call. Logged against the
+  // existing entity types ('location' for vehicle/locker actions, 'team' for
+  // subteam/on-call) — no new entity types.
+  'vehicle_checkout', 'vehicle_checkin', 'vehicle_state_changed', 'vehicle_service_logged',
+  'locker_access_granted', 'locker_access_revoked',
+  'unit_access_granted', 'unit_access_revoked', 'unit_access_changed',
+  'subteam_created', 'subteam_updated', 'on_call_assigned', 'on_call_coverage_added',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
@@ -408,6 +446,18 @@ const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
 const CONVERSATIONS_COLS = 'id, kind, title, created_by, created_at, updated_at';
 const CONVERSATION_PARTICIPANTS_COLS = 'conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at';
 const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at';
+// Field-crew tables (#122): explicit synced column lists (never '*').
+// vehicle_service_records.cost is financial (gated behind view_financial_data,
+// the maintenance_events pattern); the other five carry no financial columns.
+const SUBTEAMS_COLS = 'id, team_id, name, active, created_at, updated_at';
+const VEHICLES_COLS = 'location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank';
+const VEHICLE_SERVICE_RECORDS_BASE = 'id, vehicle_location_id, target, event_date, type, notes, odometer, created_by, created_at, updated_at';
+const VEHICLE_SERVICE_RECORDS_SENSITIVE = ', cost';
+const VEHICLE_CHECKOUTS_COLS = 'id, vehicle_location_id, user_id, job_id, checked_out_at, checked_in_at, created_at, updated_at';
+const LOCKER_ACCESS_COLS = 'location_id, user_id, granted_by, created_at, updated_at';
+const UNIT_ACCESS_COLS = 'location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at';
+const ON_CALL_SHIFTS_COLS = 'id, subteam_id, week_start, created_by, created_at, updated_at';
+const ON_CALL_COVERAGE_COLS = 'id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
@@ -424,5 +474,13 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'conversations') return CONVERSATIONS_COLS;
   if (table === 'conversation_participants') return CONVERSATION_PARTICIPANTS_COLS;
   if (table === 'messages') return MESSAGES_COLS;
+  if (table === 'subteams') return SUBTEAMS_COLS;
+  if (table === 'vehicles') return VEHICLES_COLS;
+  if (table === 'vehicle_service_records') return canViewFinancial ? VEHICLE_SERVICE_RECORDS_BASE + VEHICLE_SERVICE_RECORDS_SENSITIVE : VEHICLE_SERVICE_RECORDS_BASE;
+  if (table === 'vehicle_checkouts') return VEHICLE_CHECKOUTS_COLS;
+  if (table === 'locker_access') return LOCKER_ACCESS_COLS;
+  if (table === 'unit_access') return UNIT_ACCESS_COLS;
+  if (table === 'on_call_shifts') return ON_CALL_SHIFTS_COLS;
+  if (table === 'on_call_coverage') return ON_CALL_COVERAGE_COLS;
   return '*';
 }

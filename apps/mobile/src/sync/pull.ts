@@ -13,7 +13,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   stock_by_location: `INSERT OR REPLACE INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES (?,?,?,?)`,
   jobs: `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at, job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier, type_id, team_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   teams: `INSERT OR REPLACE INTO teams (id, name, type, updated_at, type_id) VALUES (?,?,?,?,?)`,
-  team_members: `INSERT OR REPLACE INTO team_members (team_id, user_id, team_permission_overrides, added_by, joined_at, is_manager, updated_at) VALUES (?,?,?,?,?,?,?)`,
+  team_members: `INSERT OR REPLACE INTO team_members (team_id, user_id, team_permission_overrides, added_by, joined_at, is_manager, updated_at, subteam_id, subteam_role) VALUES (?,?,?,?,?,?,?,?,?)`,
   media: `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, is_primary, uploaded_by, created_at, location_note, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   app_config: `INSERT OR REPLACE INTO app_config (key, value, updated_at) VALUES (?, ?, ?)`,
   user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, updated_at) VALUES (?, ?, ?)`,
@@ -28,6 +28,14 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   conversations: `INSERT OR REPLACE INTO conversations (id, kind, title, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
   conversation_participants: `INSERT OR REPLACE INTO conversation_participants (conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at) VALUES (?,?,?,?,?,?)`,
   messages: `INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+  subteams: `INSERT OR REPLACE INTO subteams (id, team_id, name, active, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  vehicles: `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank) VALUES (?,?,?,?,?,?,?,?,?)`,
+  vehicle_service_records: `INSERT OR REPLACE INTO vehicle_service_records (id, vehicle_location_id, target, event_date, type, notes, odometer, cost, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  vehicle_checkouts: `INSERT OR REPLACE INTO vehicle_checkouts (id, vehicle_location_id, user_id, job_id, checked_out_at, checked_in_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+  locker_access: `INSERT OR REPLACE INTO locker_access (location_id, user_id, granted_by, created_at, updated_at) VALUES (?,?,?,?,?)`,
+  unit_access: `INSERT OR REPLACE INTO unit_access (location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  on_call_shifts: `INSERT OR REPLACE INTO on_call_shifts (id, subteam_id, week_start, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  on_call_coverage: `INSERT OR REPLACE INTO on_call_coverage (id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -40,7 +48,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'stock_by_location': return [row.item_id, row.location_id, row.quantity, row.updated_at];
     case 'jobs': return [row.id, row.name, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.job_number ?? null, row.customer_name ?? null, row.site_address ?? null, row.site_location_id ?? null, row.description ?? null, row.type ?? null, row.reference_number ?? null, row.insurance_carrier ?? null, row.type_id ?? null, row.team_id ?? null];
     case 'teams': return [row.id, row.name, row.type, row.updated_at, row.type_id ?? null];
-    case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at, row.is_manager ? 1 : 0, row.updated_at];
+    case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at, row.is_manager ? 1 : 0, row.updated_at, row.subteam_id ?? null, row.subteam_role ?? null];
     case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at, row.location_note ?? null, row.updated_at ?? row.created_at];
     case 'app_config': return [row.key, row.value, row.updated_at];
     case 'user_prefs': return [row.user_id, row.theme ?? null, row.updated_at];
@@ -55,6 +63,16 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'conversations': return [row.id, row.kind ?? 'dm', row.title ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'conversation_participants': return [row.conversation_id, row.user_id, row.notify_pref ?? 'all', row.last_read_at ?? null, row.added_at, row.updated_at];
     case 'messages': return [row.id, row.conversation_id, row.sender_id ?? null, row.body, row.urgency ?? 'urgent', row.created_at, row.updated_at, row.edited_at ?? null, row.deleted_at ?? null];
+    case 'subteams': return [row.id, row.team_id, row.name, row.active ? 1 : 0, row.created_at, row.updated_at];
+    case 'vehicles': return [row.location_id, row.truck_mount ? 1 : 0, row.water_state ?? null, row.model ?? null, row.model_id ?? null, row.notes ?? null, row.updated_at, row.water_tank ?? 'empty', row.waste_tank ?? 'clean'];
+    // cost is financial: the server omits it for callers without
+    // view_financial_data (maintenance_events pattern) → null locally.
+    case 'vehicle_service_records': return [row.id, row.vehicle_location_id, row.target ?? 'vehicle', row.event_date, row.type, row.notes ?? null, row.odometer ?? null, row.cost ?? null, row.created_by ?? null, row.created_at, row.updated_at];
+    case 'vehicle_checkouts': return [row.id, row.vehicle_location_id, row.user_id, row.job_id ?? null, row.checked_out_at, row.checked_in_at ?? null, row.created_at, row.updated_at];
+    case 'locker_access': return [row.location_id, row.user_id, row.granted_by ?? null, row.created_at, row.updated_at];
+    case 'unit_access': return [row.location_id, row.user_id, row.can_view ? 1 : 0, row.can_add ? 1 : 0, row.can_remove ? 1 : 0, row.can_move ? 1 : 0, row.can_edit_details ? 1 : 0, row.can_grant ? 1 : 0, row.granted_by ?? null, row.created_at, row.updated_at];
+    case 'on_call_shifts': return [row.id, row.subteam_id ?? null, row.week_start, row.created_by ?? null, row.created_at, row.updated_at];
+    case 'on_call_coverage': return [row.id, row.date_start, row.date_end, row.user_off ?? null, row.covering_user ?? null, row.note ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     default: return [];
   }
 }

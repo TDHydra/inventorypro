@@ -15,6 +15,7 @@ import { appendLog } from '../../db/queries/log';
 import { runInTransaction } from '../../db/tx';
 import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { Alert } from '../../lib/themedAlert';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
@@ -51,12 +52,16 @@ export default function TeamQuickAdd({ onSaved }: Props) {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
-  const teamTypes = useMemo(() => getTaxonomyTypes('team'), []);
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  // Re-read pickers/bases when a sync (or local write) touches their tables,
+  // so e.g. the PM picker sees newly synced users.
+  const version = useTableVersion(['taxonomy_types', 'users', 'role_settings']);
+
+  const teamTypes = useMemo(() => getTaxonomyTypes('team'), [version]);
+  const allUsers = useMemo(() => getAllActiveUsers(), [version]);
   // Role-level permission deviations, used as the "base" a team override is
   // relative to (mirrors the resolution order in auth/permissions.ts: role
   // default → role override → [team override, edited here] → user override).
-  const roleOverrides = useMemo(() => getRolePermissionOverrides(), []);
+  const roleOverrides = useMemo(() => getRolePermissionOverrides(), [version]);
   const userOptions: PickerOption[] = useMemo(
     () => allUsers.map(u => ({ id: u.id, label: u.name })),
     [allUsers],

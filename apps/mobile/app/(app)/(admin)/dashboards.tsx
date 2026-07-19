@@ -11,6 +11,10 @@ import {
   type LayoutBlock,
 } from '../../../src/dashboard/widgets';
 import { parsePresetLayout } from '../../../src/dashboard/resolve';
+import { loadDashboardCache } from '../../../src/dashboard/store';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
+import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
+import { roleHasPermission } from '../../../src/auth/permissions';
 import {
   getDashboardPresets,
   getDashboardPresetById,
@@ -77,8 +81,11 @@ export default function DashboardsScreen() {
   const { user } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
 
-  const [presets, setPresets] = useState<DashboardPreset[]>(() => getDashboardPresets());
-  const [roleMap, setRoleMap] = useState<Record<string, string | null>>(() => getRoleDashboardPresetIds());
+  // Re-read whenever a local write or sync pull touches the preset tables —
+  // replaces the old manual refreshPresets()/setRoleMap re-reads after writes.
+  const version = useTableVersion(['dashboard_presets', 'role_settings']);
+  const presets = useMemo<DashboardPreset[]>(() => getDashboardPresets(), [version]);
+  const roleMap = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
 
   // Editor state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -105,9 +112,17 @@ export default function DashboardsScreen() {
 
   const editingPreset = editingId ? presets.find((p) => p.id === editingId) ?? null : null;
 
-  function refreshPresets() {
-    setPresets(getDashboardPresets());
-  }
+  // Roles currently assigned to the preset being edited — the add-widget picker
+  // offers only tiles every one of them passes (requiredPermission).
+  const assignedRoles = useMemo(
+    () => Object.entries(roleMap).filter(([, id]) => id === editingId).map(([role]) => role),
+    [roleMap, editingId],
+  );
+  const offeredTiles = filterTilesForRoles(
+    TILE_WIDGETS, assignedRoles,
+    (role, perm) => roleHasPermission(role as UserRole, perm),
+  );
+  const hiddenTileCount = TILE_WIDGETS.length - offeredTiles.length;
 
   // ── Preset list actions ─────────────────────────────────────────────────────
 
@@ -142,12 +157,10 @@ export default function DashboardsScreen() {
       if (nameModal?.mode === 'create') {
         const id = createDashboardPreset({ name });
         setNameModal(null);
-        refreshPresets();
         openEditor(id);
       } else if (nameModal?.mode === 'rename' && nameModal.id) {
         renameDashboardPreset(nameModal.id, name);
         setNameModal(null);
-        refreshPresets();
       }
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
@@ -159,7 +172,6 @@ export default function DashboardsScreen() {
       const id = createDashboardPreset({ name: `${p.name} (copy)` });
       const layout = parsePresetLayout(p.layout) ?? [];
       setDashboardPresetLayout(id, layout);
-      refreshPresets();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -181,7 +193,6 @@ export default function DashboardsScreen() {
           onPress: () => {
             try {
               setDashboardPresetActive(p.id, nextActive);
-              refreshPresets();
             } catch (err) {
               Alert.alert('Error', (err as Error).message);
             }
@@ -198,7 +209,6 @@ export default function DashboardsScreen() {
     if (!editingId) return;
     try {
       setDashboardPresetLayout(editingId, next.map((b) => b.block) as Layout);
-      refreshPresets();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -266,7 +276,7 @@ export default function DashboardsScreen() {
   function assignRole(role: UserRole, presetId: string | null) {
     try {
       setRoleDashboardPreset(role, presetId);
-      setRoleMap(getRoleDashboardPresetIds());
+      loadDashboardCache(); // notify subscribers → the assigner's own dashboard updates live
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -414,13 +424,19 @@ export default function DashboardsScreen() {
             <Text style={s.modalTitle}>Add widget</Text>
             <Text style={s.fieldLabel}>Tiles</Text>
             <View style={s.pickGrid}>
-              {TILE_WIDGETS.map((w) => (
+              {offeredTiles.map((w) => (
                 <TouchableOpacity key={w} style={s.pickItem} onPress={() => addWidget(w)}>
                   <Text style={s.pickIcon}>{WIDGET_REGISTRY[w].icon ?? '•'}</Text>
                   <Text style={s.pickLabel} numberOfLines={1}>{WIDGET_REGISTRY[w].label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
+            {hiddenTileCount > 0 && (
+              <Text style={s.pickNote}>
+                {hiddenTileCount} widget{hiddenTileCount === 1 ? '' : 's'} hidden — the assigned
+                role{assignedRoles.length === 1 ? ' doesn’t' : 's don’t'} have permission for {hiddenTileCount === 1 ? 'it' : 'them'}.
+              </Text>
+            )}
             <Text style={s.fieldLabel}>Blocks</Text>
             <View style={s.pickGrid}>
               {BLOCK_WIDGETS.map((w) => (
@@ -758,6 +774,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   pickIcon: { fontSize: 16 },
   pickLabel: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textSecondary, flexShrink: 1 },
+  pickNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8 },
 
   // Role preset picker rows
   pickRow: {

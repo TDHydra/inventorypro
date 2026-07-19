@@ -22,6 +22,7 @@ import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { track } from '../../telemetry';
 import { validateText } from '../../lib/validation';
 
@@ -48,11 +49,13 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const canManageLocations = usePermission('manage_locations');
-  // Bumped after an inline vehicle create so the options list picks up the new row.
-  const [vehiclesRefresh, setVehiclesRefresh] = useState(0);
+  // Re-read pickers when a pull (or a local write, e.g. inline vehicle create)
+  // touches their tables.
+  const optionsVersion = useTableVersion(['taxonomy_types', 'users', 'role_settings']);
+  const vehiclesVersion = useTableVersion(['locations']);
 
   // Non-terminal statuses only — a new ticket must start open (see (repairs)/new.tsx).
-  const statuses = useMemo(() => getRepairStatuses().filter(st => !isTerminalStatus(st.label)), []);
+  const statuses = useMemo(() => getRepairStatuses().filter(st => !isTerminalStatus(st.label)), [optionsVersion]);
   const [status, setStatus] = useState<string>(() => statuses[0]?.label ?? 'Open');
 
   const [entityType, setEntityType] = useState<Repair['entity_type']>('item');
@@ -66,12 +69,12 @@ export default function RepairQuickAdd({ onSaved }: Props) {
 
   const assigneeOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
-    [],
+    [optionsVersion],
   );
-  const roleColorMap = useMemo(() => getRoleColorMap(), []);
+  const roleColorMap = useMemo(() => getRoleColorMap(), [optionsVersion]);
   const assigneeUser = useMemo(
     () => (assigneeOpt ? getUserById(assigneeOpt.id) : null),
-    [assigneeOpt],
+    [assigneeOpt, optionsVersion],
   );
 
   // Vehicles = location rows tagged as 'Vehicle' (fall back to all NON-SHELF
@@ -81,7 +84,7 @@ export default function RepairQuickAdd({ onSaved }: Props) {
     const all = getNonShelfLocations();
     const vehicles = all.filter(l => (l.type ?? '').toLowerCase() === 'vehicle');
     return (vehicles.length ? vehicles : all).map(l => ({ id: l.id, label: l.name }));
-  }, [vehiclesRefresh]);
+  }, [vehiclesVersion]);
 
   // DB-backed search for the large sets (catalog items, units by exact asset tag).
   const entitySearch = useMemo<((q: string) => PickerOption[]) | undefined>(() => {
@@ -207,7 +210,6 @@ export default function RepairQuickAdd({ onSaved }: Props) {
                   const id = findOrCreateVehicleByName(name);
                   if (!id) return;
                   setTarget({ id, label: name.trim() });
-                  setVehiclesRefresh(n => n + 1);
                   if (targetError) setTargetError('');
                 }
               : undefined

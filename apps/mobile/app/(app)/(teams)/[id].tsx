@@ -1,13 +1,19 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+  View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getTeamById, getTeamMembers, upsertTeam, addTeamMember, removeTeamMember,
-  setMemberManagerOnline, setMemberPermissionOverridesOnline,
-  TEAM_OVERRIDABLE_PERMISSIONS, TEAM_PERMISSION_LABELS, Team, TeamMember,
+  setMemberManagerOnline, Team, TeamMember,
 } from '../../../src/db/queries/teams';
+import {
+  getSubteamsForTeam, createSubteam, renameSubteam, deleteSubteam,
+  setSubteamMembership, clearSubteamMembership, Crew,
+} from '../../../src/db/queries/subteams';
+import { CrewCard } from '../../../src/components/crew/CrewCard';
+import { CrewEditor, CrewDraft } from '../../../src/components/crew/CrewEditor';
+import { MemberPermissionsSheet } from '../../../src/components/crew/MemberPermissionsSheet';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
@@ -15,13 +21,11 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
-import { getAllActiveUsers, roleColor, getRoleColorMap, getRolePermissionOverrides } from '../../../src/db/queries/users';
-import { ROLE_DISPLAY_NAMES, ROLE_DEFAULTS, ROLE_TIER, UserRole, Permission, canActOnTarget } from '../../../src/constants/roles';
-import { parsePermissionOverrides } from '../../../src/auth/permissions';
+import { getAllActiveUsers, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
+import { ROLE_DISPLAY_NAMES, ROLE_TIER, UserRole, canActOnTarget } from '../../../src/constants/roles';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { getTypeIcon } from '../../../src/db/queries/taxonomy';
 import type { Theme } from '../../../src/themes/types';
-import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { AppInput } from '../../../src/components/ui/AppInput';
@@ -46,7 +50,6 @@ function trackReject(field: string, rule: string) {
 
 export default function TeamDetailScreen() {
   const s = useThemedStyles(makeStyles);
-  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
@@ -54,6 +57,7 @@ export default function TeamDetailScreen() {
 
   const [team, setTeam] = useState<Team | null>(() => getTeamById(id));
   const [members, setMembers] = useState<TeamMember[]>(() => getTeamMembers(id));
+  const [crews, setCrews] = useState<Crew[]>(() => getSubteamsForTeam(id));
 
   // Re-read team + roster on focus or sync pull so a stale foreign team (still held
   // before teamPurge.reconcileTeams runs) or a server-side manager demotion
@@ -63,6 +67,7 @@ export default function TeamDetailScreen() {
   useEffect(() => {
     setTeam(getTeamById(id));
     setMembers(getTeamMembers(id));
+    setCrews(getSubteamsForTeam(id));
   }, [id, refreshKey]);
 
   // Membership resolved from the AUTHENTICATED caller's own team_members row, never
@@ -103,17 +108,17 @@ export default function TeamDetailScreen() {
   const [showUserCreate, setShowUserCreate] = useState(false);
   const [userCreateInitial, setUserCreateInitial] = useState('');
 
-  // Per-member permission override editor
-  const [permMember, setPermMember] = useState<TeamMember | null>(null);
-  const [permDraft, setPermDraft] = useState<Record<string, boolean>>({});
-  const [savingPerms, setSavingPerms] = useState(false);
+  // Crew (subteam) editor — `crew` null = create, set = edit (#123)
+  const [showCrewEditor, setShowCrewEditor] = useState(false);
+  const [editingCrew, setEditingCrew] = useState<Crew | null>(null);
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const roleColors = useMemo(() => getRoleColorMap(), []);
-  // Role-level permission deviations, used as the "base" a team override is
-  // relative to (mirrors the resolution order in auth/permissions.ts: role
-  // default → role override → [team override, edited here] → user override).
-  const roleOverrides = useMemo(() => getRolePermissionOverrides(), []);
+  // Per-member permission editor (team overrides + unit grants) — the sheet
+  // itself is MemberPermissionsSheet (#122 Phase B); this screen only picks
+  // the member.
+  const [permMember, setPermMember] = useState<TeamMember | null>(null);
+
+  const allUsers = useMemo(() => getAllActiveUsers(), [refreshKey]);
+  const roleColors = useMemo(() => getRoleColorMap(), [refreshKey]);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],
@@ -351,68 +356,99 @@ export default function TeamDetailScreen() {
     router.push({ pathname: '/(app)/(chat)/[id]', params: { id: convId } });
   }
 
-  // ── Per-member permission overrides ─────────────────────────────────────────
+  // ── Per-member permissions ─────────────────────────────────────────────────
 
-  // Effective value BEFORE any team override — role default merged with the
-  // role-level deviation (same as roles.tsx's effectivePerm, minus the team layer
-  // we're editing here). Used both as the Switch's "off" baseline and to decide
-  // whether a toggle should store an override key or clear it (clean reset).
-  function baseTeamPermValue(role: string | null | undefined, perm: Permission): boolean {
-    const r = (role ?? '') as UserRole;
-    const def = ROLE_DEFAULTS[r]?.[perm] ?? false;
-    const ov = roleOverrides[r];
-    return ov && perm in ov ? ov[perm] : def;
-  }
-
+  // Draft state, baseline resolution, and save/log now live inside
+  // MemberPermissionsSheet (team overrides + unit_access grants, #122 Phase B).
   function openPermEditor(member: TeamMember) {
     setPermMember(member);
-    setPermDraft(parsePermissionOverrides(member.team_permission_overrides));
   }
 
-  function togglePermDraft(perm: Permission) {
-    if (!permMember) return;
-    const base = baseTeamPermValue(permMember.user_role, perm);
-    const cur = perm in permDraft ? permDraft[perm] : base;
-    const next = !cur;
-    setPermDraft(prev => {
-      const copy = { ...prev };
-      if (next === base) delete copy[perm]; else copy[perm] = next;
-      return copy;
-    });
+  // ── Crews (subteams, #123) ─────────────────────────────────────────────────
+
+  // Assignable people = this team's roster (CrewEditor candidates).
+  const crewCandidates = useMemo<PickerOption[]>(
+    () => members.map(m => ({
+      id: m.user_id,
+      label: m.user_name ?? m.user_id,
+      sublabel: m.user_role ? (ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role) : undefined,
+    })),
+    [members],
+  );
+
+  function openCrewCreate() {
+    setEditingCrew(null);
+    setShowCrewEditor(true);
   }
 
-  async function handleSavePermDraft() {
-    if (!permMember || !team) return;
-    if (isWriteBlocked()) return;
-    setSavingPerms(true);
+  function openCrewEdit(crew: Crew) {
+    setEditingCrew(crew);
+    setShowCrewEditor(true);
+  }
+
+  // CrewEditor/EntityEditSheet contract: throw on failure so the sheet stays
+  // open. Create + every membership assignment commit as ONE transaction
+  // (runInTransaction is reentrant, so the query-layer calls join it).
+  function handleSaveCrew(draft: CrewDraft) {
+    if (!team || isWriteBlocked()) throw new Error('write blocked');
+    const actorId = user?.id ?? null;
     try {
-      await setMemberPermissionOverridesOnline(team.id, permMember.user_id, permDraft);
+      runInTransaction(() => {
+        if (editingCrew) {
+          if (draft.name !== editingCrew.name) {
+            renameSubteam(editingCrew.id, draft.name, actorId);
+          }
+          // Diff memberships: clear people who left, (re)assign only changes —
+          // unchanged members get no outbox/log churn.
+          const beforeLead = editingCrew.lead?.id ?? null;
+          const beforeHelpers = new Set(editingCrew.helpers.map(h => h.id));
+          const after = new Set([draft.leadId, ...draft.helperIds]);
+          for (const uid of [...(beforeLead ? [beforeLead] : []), ...beforeHelpers]) {
+            if (!after.has(uid)) clearSubteamMembership(uid, team.id, actorId);
+          }
+          if (beforeLead !== draft.leadId) {
+            setSubteamMembership(editingCrew.id, draft.leadId, 'lead', actorId);
+          }
+          for (const uid of draft.helperIds) {
+            if (!beforeHelpers.has(uid)) {
+              setSubteamMembership(editingCrew.id, uid, 'helper', actorId);
+            }
+          }
+        } else {
+          const subteamId = createSubteam(team.id, draft.name, actorId);
+          setSubteamMembership(subteamId, draft.leadId, 'lead', actorId);
+          for (const uid of draft.helperIds) {
+            setSubteamMembership(subteamId, uid, 'helper', actorId);
+          }
+        }
+      });
     } catch (e) {
-      setSavingPerms(false);
-      Alert.alert('Could not update permissions', (e as Error).message);
+      Alert.alert('Could not save crew', 'The crew was not saved. Please try again.');
+      throw e;
+    }
+    // Success side-effects only after the write committed; the sheet closes itself.
+    setCrews(getSubteamsForTeam(team.id));
+    setMembers(getTeamMembers(team.id));
+  }
+
+  async function handleDeleteCrew(crew: Crew) {
+    if (!team) return;
+    if (isWriteBlocked()) return;
+    const ok = await confirmSheet({
+      title: 'Delete Crew',
+      message: `Delete ${crew.name}? Its members stay on the team.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      deleteSubteam(crew.id, user?.id ?? null);
+    } catch (e) {
+      Alert.alert('Could not delete crew', `${crew.name} was not deleted. Please try again.`);
       return;
     }
-    // Activity log is best-effort (and never blocks the change already committed above).
-    try {
-      appendLog({
-        user_id: user?.id ?? null,
-        team_id: team.id,
-        action: 'user_permission_changed',
-        entity_type: 'user',
-        entity_id: permMember.user_id,
-        from_location_id: null,
-        to_location_id: null,
-        quantity: null,
-        unit: null,
-        job_id: null,
-        note: `${permMember.user_name ?? permMember.user_id} · ${team.name} team permissions updated`,
-        metadata: JSON.stringify({ team_id: team.id, overrides: permDraft }),
-        device_id: null,
-      });
-    } catch { /* logging is non-critical */ }
-    setSavingPerms(false);
+    setCrews(getSubteamsForTeam(team.id));
     setMembers(getTeamMembers(team.id));
-    setPermMember(null);
   }
 
   // ── Not found ──────────────────────────────────────────────────────────────
@@ -597,6 +633,54 @@ export default function TeamDetailScreen() {
           )}
         </Card>
 
+        {/* Crews (subteams, #123) — lead + helpers inside this team. Create/edit/
+            delete follow the roster's manage gate (canManageRoster = org authority
+            OR this team's managers); the server's manage_teams + per-team authority
+            guard on /sync/push is the enforcement of record. */}
+        <View style={s.sectionHeader}>
+          <Text style={s.sectionLabel}>Crews ({crews.length})</Text>
+          {canManageRoster && (
+            <TouchableOpacity onPress={openCrewCreate} disabled={locked}>
+              <Text style={[s.addLink, locked && s.mgrToggleDisabled]}>+ Add</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {crews.length === 0 ? (
+          <Card variant="detail">
+            <Text style={s.muted}>
+              No crews yet{canManageRoster ? '. Tap "+ Add" to pair a lead with helpers.' : '.'}
+            </Text>
+          </Card>
+        ) : (
+          crews.map(crew => (
+            <CrewCard
+              key={crew.id}
+              crew={crew}
+              right={canManageRoster ? (
+                <View style={s.crewActions}>
+                  <TouchableOpacity
+                    onPress={() => openCrewEdit(crew)}
+                    disabled={locked}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={[s.permsBtn, locked && s.mgrToggleDisabled]}
+                  >
+                    <Text style={s.permsText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleDeleteCrew(crew)}
+                    disabled={locked}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={[s.crewDeleteBtn, locked && s.mgrToggleDisabled]}
+                  >
+                    <Text style={s.removeText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : undefined}
+            />
+          ))
+        )}
+
       </ScrollView>
 
       {/* Edit team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
@@ -667,6 +751,17 @@ export default function TeamDetailScreen() {
           </ScrollView>
       </ModalSheet>
 
+      {/* Crew create/edit — validation + draft shape live in CrewEditor; this
+          screen's handleSaveCrew owns persistence (one transaction). */}
+      <CrewEditor
+        visible={showCrewEditor}
+        onClose={() => setShowCrewEditor(false)}
+        crew={editingCrew}
+        candidates={crewCandidates}
+        onSave={handleSaveCrew}
+        disabled={locked}
+      />
+
       {/* Inline create-user from the member picker — on create, select the new
           user just as picking an existing one would (then tap "Add to Team"). */}
       <QuickCreateSheet
@@ -680,58 +775,17 @@ export default function TeamDetailScreen() {
         }}
       />
 
-      {/* Per-member team permission override editor — onClose only hides;
-          unsaved toggles are discarded on outside-tap dismiss (draft-only until Save). */}
-      <ModalSheet visible={!!permMember} onClose={() => setPermMember(null)}>
-        <Text style={s.modalTitle}>
-          {permMember ? `${permMember.user_name ?? permMember.user_id} · Team Permissions` : 'Team Permissions'}
-        </Text>
-        {/* flexShrink:1 lets this ScrollView shrink within ModalSheet's maxHeight cap so it actually scrolls (RN defaults flexShrink:0). */}
-        <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 4 }}>
-          <Text style={s.permsIntro}>
-            Overrides apply only within {team.name}. Toggling a permission back to its
-            default removes the override.
-          </Text>
-          {(() => {
-            // Mirror the row-level hierarchy gate inside the editor as a safety net
-            // (the Perms button is already disabled for out-of-tier members).
-            const permMemberLocked = !canActOnTarget((user?.role ?? '') as UserRole, (permMember?.user_role ?? '') as UserRole);
-            return permMember && TEAM_OVERRIDABLE_PERMISSIONS.map(perm => {
-              const base = baseTeamPermValue(permMember.user_role, perm);
-              const value = perm in permDraft ? permDraft[perm] : base;
-              const modified = perm in permDraft;
-              return (
-                <View key={perm} style={s.permRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.permLabel}>{TEAM_PERMISSION_LABELS[perm]}</Text>
-                    {modified && <Text style={s.modifiedBadge}>overridden</Text>}
-                  </View>
-                  <Switch
-                    value={value}
-                    disabled={locked || savingPerms || permMemberLocked}
-                    onValueChange={() => togglePermDraft(perm)}
-                    trackColor={{ true: t.colors.primary, false: t.colors.border }}
-                  />
-                </View>
-              );
-            });
-          })()}
-
-          <PrimaryButton
-            label={savingPerms ? 'Saving…' : 'Save Permissions'}
-            onPress={handleSavePermDraft}
-            disabled={locked || savingPerms}
-            style={{ marginTop: 8 }}
-          />
-          {locked && <MaintenanceBanner />}
-          <TouchableOpacity
-            style={s.cancelRow}
-            onPress={() => setPermMember(null)}
-          >
-            <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </ModalSheet>
+      {/* Per-member permissions (team overrides + unit_access grants) — the
+          Perms button's row gate stays above; the sheet re-checks the
+          canActOnTarget hierarchy internally as a safety net. */}
+      <MemberPermissionsSheet
+        visible={!!permMember}
+        onClose={() => setPermMember(null)}
+        teamId={team.id}
+        teamName={team.name}
+        member={permMember}
+        onChanged={() => setMembers(getTeamMembers(team.id))}
+      />
     </>
   );
 }
@@ -792,17 +846,17 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
+  crewActions: { flexDirection: 'row', alignItems: 'center' },
+  crewDeleteBtn: {
+    marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
   permsText: { color: t.colors.textSecondary, fontSize: 12, fontWeight: '700' },
   msgBtn: {
     marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,
   },
   msgText: { color: t.colors.primary, fontSize: 12, fontWeight: '700' },
-
-  permsIntro: { fontSize: 13, color: t.colors.textSecondary, lineHeight: 18, marginBottom: 8 },
-  permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
-  permLabel: { fontSize: 14, color: t.colors.textPrimary },
-  modifiedBadge: { fontSize: 11, color: t.colors.warning, fontWeight: '600', marginTop: 2 },
 
   mgrToggle: {
     borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,

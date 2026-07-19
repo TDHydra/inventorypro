@@ -13,10 +13,10 @@ import type { Permission } from '../constants/roles';
 // today; QuickAddBanner self-gates internally).
 
 export type WidgetType =
-  | 'checkout' | 'checkin' | 'my-checkouts'
-  | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog'
-  | 'jobs' | 'teams' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
-  | 'section' | 'search' | 'quick-add' | 'low-stock';            // non-tile blocks
+  | 'fast-checkout' | 'checkout' | 'checkin' | 'my-checkouts'
+  | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
+  | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
+  | 'section' | 'search' | 'quick-add' | 'low-stock' | 'on-call';            // non-tile blocks
 
 export type LayoutBlock = {
   widget: WidgetType;
@@ -40,6 +40,10 @@ export type WidgetDef = {
 // Keep the permission column in lockstep with that screen's gates.
 export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // Primary + checkout actions
+  // Fast checkout (#127): "where are you working from?" source picker → scoped hub.
+  // No requiredPermission — access is data-driven (accessible lockers/vehicles);
+  // the screen renders an EmptyState when the user has none.
+  'fast-checkout': { label: 'Fast Checkout',         icon: '⚡', route: '/(app)/(crew)', kind: 'tile' },
   checkout:      { label: 'Check Out Item',          icon: '📦', route: '/(app)/(checkout)', requiredPermission: 'checkout_inventory', kind: 'tile' },
   checkin:       { label: 'Check In',                icon: '↩',  route: '/(app)/(checkin)',  requiredPermission: 'checkin_inventory',  kind: 'tile' },
   'my-checkouts':{ label: 'My Active Checkouts',     icon: '📋', route: '/(app)/(jobs)',     requiredPermission: 'checkout_inventory', kind: 'tile' },
@@ -49,11 +53,18 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   equipment:     { label: 'Manage Equipment Catalog',icon: '🛠️', route: '/(app)/(equipment)',     requiredPermission: 'add_inventory',  kind: 'tile' },
   repairs:       { label: 'Repairs',                 icon: '🔧',  route: '/(app)/(repairs)',       requiredPermission: 'add_inventory',  kind: 'tile' },
   locations:     { label: 'Manage Locations',        icon: '⇄',   route: '/(app)/(locations)',     requiredPermission: 'add_inventory',  kind: 'tile' },
+  // Vehicles/lockers as their own system (#122 A2): no requiredPermission —
+  // visibility is data-driven (getVisibleUnits); the screens render an EmptyState.
+  vehicles:      { label: 'Vehicles',                icon: '🚐',  route: '/(app)/(vehicles)',      kind: 'tile' },
+  lockers:       { label: 'Lockers',                 icon: '🔒',  route: '/(app)/(lockers)',       kind: 'tile' },
   'item-catalog':{ label: 'Manage Item Catalog',     icon: '✎',   route: '/(app)/(inventory)',     requiredPermission: 'edit_inventory', kind: 'tile' },
 
   // Operations
   jobs:          { label: 'Jobs',                    icon: '🏗', route: '/(app)/(jobs)',  requiredPermission: 'create_jobs',   kind: 'tile' },
   teams:         { label: 'Teams',                   icon: '👥', route: '/(app)/(teams)', requiredPermission: 'create_jobs',   kind: 'tile' },
+  // Manage My Team (#124): no requiredPermission — ownership is data (my crews /
+  // lockers / vehicles); the screen shows an EmptyState when the user owns nothing.
+  'manage-my-team': { label: 'Manage My Team',       icon: '👥', route: '/(app)/(myteam)', kind: 'tile' },
   logs:          { label: 'Activity Logs',           icon: '📊', route: '/(app)/(logs)',  requiredPermission: 'view_all_logs', kind: 'tile' },
   // Chat is available to every authenticated user — no requiredPermission gate.
   chat:          { label: 'Messages',                icon: '💬', route: '/(app)/(chat)', kind: 'tile' },
@@ -70,6 +81,9 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   search:        { label: '', kind: 'block' },
   'quick-add':   { label: '', kind: 'block' },
   'low-stock':   { label: '', kind: 'block' },
+  // On-call block (#128): fully self-contained <OnCallWidget/> (owns its data reads,
+  // modal + calendar; self-gates editing on manage_teams internally).
+  'on-call':     { label: '', kind: 'block' },
 };
 
 // The built-in default dashboard, expressed as blocks in the EXACT order/width the
@@ -80,6 +94,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
 export const DEFAULT_LAYOUT: Layout = [
   { widget: 'search', width: 'full' },
   { widget: 'quick-add', width: 'full' },
+  // Fast checkout leads the dashboard (#127): the field tech's first option on login.
+  { widget: 'fast-checkout', width: 'full' },
   { widget: 'checkout', width: 'full' },
   { widget: 'checkin', width: 'full' },
   { widget: 'my-checkouts', width: 'full' },
@@ -89,12 +105,15 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'equipment', width: 'full' },
   { widget: 'repairs', width: 'full' },
   { widget: 'locations', width: 'full' },
+  { widget: 'vehicles', width: 'half' },
+  { widget: 'lockers', width: 'half' },
   { widget: 'item-catalog', width: 'full' },
 
   { widget: 'section', width: 'full', config: { sectionTitle: 'Operations' } },
   { widget: 'chat', width: 'full' },
   { widget: 'jobs', width: 'full' },
   { widget: 'teams', width: 'full' },
+  { widget: 'manage-my-team', width: 'full' },
   { widget: 'media', width: 'full' },
   { widget: 'logs', width: 'full' },
 
@@ -104,6 +123,7 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'settings', width: 'full' },
 
   { widget: 'low-stock', width: 'full' },
+  { widget: 'on-call', width: 'full' },
 ];
 
 // True when a widget key is a real registry entry — used to validate a persisted

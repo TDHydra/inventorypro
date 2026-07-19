@@ -16,6 +16,7 @@ import { adjustStock, getStockQuantity, getItemById } from '../db/queries/items'
 import { appendLog } from '../db/queries/log';
 import { appendOutbox } from '../sync/outbox';
 import { useSession } from '../hooks/useSession';
+import { useTableVersion } from '../hooks/useDataVersion';
 import { SearchablePicker, PickerOption } from './SearchablePicker';
 import { LocationShelfPicker } from './pickers';
 import { track } from '../telemetry';
@@ -60,8 +61,10 @@ export default function MoveStockModal({
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
 
-  // Load data once (these are sync queries, so useMemo is fine)
-  const stock = useMemo(() => getStockAtLocation(fromLocationId), [fromLocationId]);
+  // Re-read source stock when a sync pull (or local write) touches it, so the
+  // item list stays fresh while the modal is mounted/open.
+  const stockVersion = useTableVersion(['stock_by_location']);
+  const stock = useMemo(() => getStockAtLocation(fromLocationId), [fromLocationId, stockVersion]);
 
   const itemOptions = useMemo<PickerOption[]>(
     () => stock.map(s => ({ id: s.item_id, label: s.name, sublabel: `${s.quantity} on hand` })),

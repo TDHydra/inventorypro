@@ -6,7 +6,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getLocationById, getStockAtLocation, upsertLocation,
   getBrowsableLocations, getLocationPath, getDescendantIds,
-  getShelvesForParent, setShelfColor,
+  getShelvesForParent, setShelfColor, getRoomsForParent, findOrCreateShelf,
   StockAtLocation, Location,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -39,6 +39,8 @@ import { Card } from '../../../src/components/ui/Card';
 import { KeyValueRow } from '../../../src/components/ui/KeyValueRow';
 import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { VehiclePanel } from '../../../src/components/vehicles/VehiclePanel';
+import { LockerPanel } from '../../../src/components/lockers/LockerPanel';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 
@@ -57,6 +59,12 @@ export default function LocationDetailScreen() {
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));
   const [stock, setStock] = useState<StockAtLocation[]>(() => getStockAtLocation(id));
+  // Re-read on refocus or sync pull (mirrors the shelves pattern below) so a
+  // synced rename/stock change shows without a manual refresh.
+  useEffect(() => {
+    setLocation(getLocationById(id));
+    setStock(getStockAtLocation(id));
+  }, [id, refreshKey]);
 
   // ── Edit modal state ────────────────────────────────────────────────────────
   const [showEdit, setShowEdit] = useState(false);
@@ -126,6 +134,9 @@ export default function LocationDetailScreen() {
   // after any color change or focus refresh.
   const [shelves, setShelves] = useState<Location[]>(() => getShelvesForParent(id));
   useEffect(() => { setShelves(getShelvesForParent(id)); }, [id, refreshKey]);
+  // Non-shelf children ("rooms") for the Sub-areas section.
+  const [rooms, setRooms] = useState<Location[]>(() => getRoomsForParent(id));
+  useEffect(() => { setRooms(getRoomsForParent(id)); }, [id, refreshKey]);
   // Which shelf's color-picker row is expanded, if any.
   const [coloringShelfId, setColoringShelfId] = useState<string | null>(null);
 
@@ -139,6 +150,22 @@ export default function LocationDetailScreen() {
     }
     setShelves(getShelvesForParent(id));
     setColoringShelfId(null);
+  }
+
+  // Inline "+ Add shelf" on the Shelves card. findOrCreateShelf is transactional
+  // (upsert + outbox atomic) and dedupes case-insensitively; null means failure
+  // per its contract, so nothing was changed.
+  const [newShelfName, setNewShelfName] = useState('');
+  function handleAddShelf() {
+    const trimmed = newShelfName.trim();
+    if (!trimmed || isWriteBlocked()) return;
+    const createdId = findOrCreateShelf(id, trimmed);
+    if (createdId === null) {
+      Alert.alert('Add failed', `Couldn't create shelf "${trimmed}". Nothing was changed — please try again.`);
+      return;
+    }
+    setNewShelfName('');
+    setShelves(getShelvesForParent(id));
   }
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and
@@ -155,14 +182,14 @@ export default function LocationDetailScreen() {
     // is the only owner gate for a sub-area.
     const typeReq = isSubArea ? false : getLocationTypeRules(editLocType).requiresOwner;
     return parentReq || typeReq;
-  }, [editParentId, editLocType, isSubArea]);
+  }, [editParentId, editLocType, isSubArea, refreshKey]);
   const ownerMissing = ownerRequired && !editOwnerOption;
 
   const parentName = useMemo<string | null>(() => {
     if (!location?.parent_id) return null;
     // Full ancestor path of the parent (e.g. "Site A › Floor 2").
     return getLocationPath(location.parent_id) || null;
-  }, [location?.parent_id]);
+  }, [location?.parent_id, refreshKey]);
 
   const ownerName = useMemo<string | null>(() => {
     if (!location?.owner_user_id) return null;
@@ -388,6 +415,22 @@ export default function LocationDetailScreen() {
           {!!ownerName && <KeyValueRow label="Owner" value={ownerName} />}
         </Card>
 
+        {/* ── Vehicle / Locker embeds (field-crew #125/#126, stage C1) ─────
+            Type-conditional panels above the stock section. The panels self-load
+            (useFocusOrDataRefresh + table versions) so they need only the id.
+            VehiclePanel's header tap-through opens the full (vehicles)/[id]
+            page; LockerPanel navigates itself (hub "check out from here"). */}
+        {location.type === 'Vehicle' && (
+          <VehiclePanel
+            locationId={id}
+            variant="summary"
+            onNavigate={() => router.push(`/(app)/(vehicles)/${id}`)}
+          />
+        )}
+        {location.type === 'Locker' && (
+          <LockerPanel locationId={id} variant="summary" />
+        )}
+
         {/* ── Stock here ──────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Stock here</Text>
         <View style={s.card}>
@@ -422,6 +465,41 @@ export default function LocationDetailScreen() {
           )}
         </View>
 
+        {/* ── Sub-areas (rooms) ───────────────────────────────────────────── */}
+        {/* Non-shelf children — the rooms of a building. Units (Vehicle/Locker)
+            can't contain rooms (A1's server guard), so the affordance is gated. */}
+        {(rooms.length > 0 || (canManage && location.active === 1 && location.type !== 'Vehicle' && location.type !== 'Locker')) && (
+          <>
+            <Text style={s.sectionLabel}>Sub-areas</Text>
+            <View style={s.card}>
+              {rooms.length === 0 ? (
+                <Text style={s.muted}>No sub-areas yet. Add rooms (e.g. Maintenance Room, Product Room, Garage) to organize this place.</Text>
+              ) : (
+                rooms.map((room, i) => (
+                  <TouchableOpacity
+                    key={room.id}
+                    style={[s.stockRow, i < rooms.length - 1 && s.divider]}
+                    onPress={() => router.push({ pathname: '/(app)/(locations)/[id]', params: { id: room.id } })}
+                  >
+                    <Text style={s.stockName} numberOfLines={1}>
+                      {room.type ? `${renderIcon(typeIconByLabel.get(room.type) ?? null)} ` : ''}{room.name}
+                    </Text>
+                    <Text style={s.attrVal}>›</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+              {canManage && location.active === 1 && location.type !== 'Vehicle' && location.type !== 'Locker' && (
+                <TouchableOpacity
+                  style={s.addStockBtn}
+                  onPress={() => router.push({ pathname: '/(app)/(locations)', params: { createUnder: id } })}
+                >
+                  <Text style={s.addStockBtnText}>+ Add Sub-area</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        )}
+
         {/* ── Shelves ──────────────────────────────────────────────────────── */}
         {/* Shelves are a sub-level of this location, not first-class locations, so
             they're hidden from the Locations browser — this is their home screen.
@@ -433,7 +511,7 @@ export default function LocationDetailScreen() {
             <View style={s.card}>
               {shelves.length === 0 ? (
                 <Text style={s.muted}>
-                  No shelves yet. Typing a new shelf name while adding stock here creates one.
+                  No shelves yet. Add one below, or type a new shelf name while adding stock here.
                 </Text>
               ) : (
                 shelves.map((shelf, i) => (
@@ -476,6 +554,16 @@ export default function LocationDetailScreen() {
                     )}
                   </View>
                 ))
+              )}
+              {canManage && location.active === 1 && location.has_shelves === 1 && (
+                <View style={s.addShelfRow}>
+                  <View style={{ flex: 1 }}>
+                    <AppInput placeholder="New shelf name (e.g. A1)" value={newShelfName} onChangeText={setNewShelfName} />
+                  </View>
+                  <TouchableOpacity onPress={handleAddShelf} disabled={locked || !newShelfName.trim()} style={s.addShelfBtn}>
+                    <Text style={s.addShelfBtnText}>+ Add</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
           </>
@@ -724,6 +812,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     backgroundColor: t.colors.primary, borderRadius: t.radii.md,
   },
   addStockBtnText: { color: t.colors.onPrimary, fontWeight: '700', fontSize: t.typography.fontSizes.body },
+  addShelfRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginTop: t.spacing.md },
+  addShelfBtn: { backgroundColor: t.colors.primaryBg, borderRadius: t.radii.md, paddingHorizontal: t.spacing.lg, paddingVertical: 10 },
+  addShelfBtnText: { color: t.colors.primary, fontWeight: '700', fontSize: t.typography.fontSizes.body },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
 
   btn: { borderRadius: t.radii.lg, paddingVertical: 13, alignItems: 'center', marginTop: t.spacing.sm },

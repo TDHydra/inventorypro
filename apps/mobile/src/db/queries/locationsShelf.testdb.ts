@@ -82,6 +82,14 @@ export async function initTestDb(): Promise<void> {
       icon TEXT, color TEXT, meta TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1, updated_at TEXT
     );
+    CREATE TABLE inventory_items (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE stock_by_location (
+      item_id TEXT NOT NULL, location_id TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, synced_at TEXT,
+      PRIMARY KEY (item_id, location_id)
+    );
     ${OUTBOX_DDL}
   `);
 }

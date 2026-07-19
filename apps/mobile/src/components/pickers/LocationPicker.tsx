@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { getNonShelfLocations, Location } from '../../db/queries/locations';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { Field } from '../ui/Field';
@@ -27,6 +28,7 @@ export function LocationPicker({
   allowCreate?: boolean;
   disabled?: boolean;
 }) {
+  const version = useTableVersion(['locations']);
   const options = useMemo<PickerOption[]>(() => {
     const all = getNonShelfLocations();
     const byId = new Map(all.map(l => [l.id, l]));
@@ -36,10 +38,10 @@ export function LocationPicker({
       const parentName = l.parent_id ? byId.get(l.parent_id)?.name : undefined;
       return { id: l.id, label: l.name, sublabel: parentName };
     });
-    // `filter` is expected stable (defined inline is fine — options only recompute
-    // on mount today, matching the screens' `[]`-dep useMemo).
+    // `filter` is expected stable (defined inline is fine — options recompute only
+    // when the locations table changes, so every embedding form sees new rows live).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [version]);
 
   const picker = (
     <SearchablePicker

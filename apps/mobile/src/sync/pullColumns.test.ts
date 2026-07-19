@@ -75,6 +75,25 @@ test('jobs syncs team_id', () => {
   assert.ok(jobs.cols.includes('team_id'), 'jobs upsert is missing team_id');
 });
 
+// Migration 041 / API 053 (#123). team_members gained the subteam columns — the
+// exact "added a column to a synced table, updated only some of the three lists"
+// trap docs/SYNC-MIGRATION-CHECKLIST.md documents.
+test('team_members syncs subteam_id + subteam_role', () => {
+  const tm = upsertStatements().find(s => s.table === 'team_members');
+  assert.ok(tm, 'no team_members upsert');
+  assert.ok(tm.cols.includes('subteam_id'), 'team_members upsert is missing subteam_id');
+  assert.ok(tm.cols.includes('subteam_role'), 'team_members upsert is missing subteam_role');
+});
+
+// Field-crew epic (#122), migrations 041-044 / API 053-056: all six new tables
+// must be in the pull path (parity with the server's FULL_TABLES).
+test('field-crew tables are present in the pull path', () => {
+  const tables = new Set(upsertStatements().map(s => s.table));
+  for (const t of ['subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts', 'locker_access', 'on_call_shifts']) {
+    assert.ok(tables.has(t), `pull.ts is missing the ${t} upsert`);
+  }
+});
+
 // api_request_audit (migration 042) holds cross-user PII and must never reach a device.
 test('server-only tables are absent from the pull path', () => {
   for (const t of ['api_request_audit', 'telemetry_events']) {

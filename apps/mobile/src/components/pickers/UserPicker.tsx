@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { getAllActiveUsers, User } from '../../db/queries/users';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { Field } from '../ui/Field';
@@ -24,13 +25,14 @@ export function UserPicker({
   filter?: (u: User) => boolean;
   disabled?: boolean;
 }) {
+  const usersVersion = useTableVersion(['users']);
   const options = useMemo<PickerOption[]>(() => {
     const users = filter ? getAllActiveUsers().filter(filter) : getAllActiveUsers();
     return users.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] }));
-    // `filter` is expected stable (defined inline is fine — options only recompute
-    // on mount today, matching the screens' `[]`-dep useMemo).
+    // `filter` is expected stable (defined inline is fine — options recompute on
+    // mount and on users-table pulls only, so it's deliberately not a dep).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [usersVersion]);
 
   const picker = (
     <SearchablePicker

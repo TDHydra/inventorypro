@@ -113,7 +113,7 @@ export default function CheckoutScreen() {
   const itemResults = useMemo(() => {
     if (!itemSearch.trim()) return [];
     return searchItems(itemSearch, 50, 0);
-  }, [itemSearch]);
+  }, [itemSearch, refreshKey]);
 
   const cat = (selectedItem?.unit_category ?? '') as any;
   const unit = selectedItem?.unit ?? '';
@@ -170,12 +170,13 @@ export default function CheckoutScreen() {
   const availableUnits = useMemo(() => {
     if (!selectedItem || !isUnitTracked || !selectedLocation) return [];
     return getAvailableUnitsAtLocation(selectedItem.id, selectedLocation.location_id);
-  }, [selectedItem, isUnitTracked, selectedLocation]);
+  }, [selectedItem, isUnitTracked, selectedLocation, refreshKey]);
   // Job options (open jobs; SearchablePicker filters client-side, onCreate makes new).
   const jobOptions: PickerOption[] = useMemo(
     () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
-    // recompute when we land on dest so a freshly-created job appears
-    [step]
+    // recompute when we land on dest so a freshly-created job appears,
+    // and on sync/refocus so a job synced mid-flow appears too
+    [step, refreshKey]
   );
   const jobValue: PickerOption | null = selectedJob
     ? { id: selectedJob.id, label: selectedJob.name }

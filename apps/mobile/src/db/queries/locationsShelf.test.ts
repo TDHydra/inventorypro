@@ -56,6 +56,7 @@ before(async () => {
   seedLocation({ id: 'shop-1', name: 'Shop', type: 'Shop', has_shelves: 1 });
   seedLocation({ id: 'shelf-a1', name: 'A1', parent_id: 'shop-1', type: 'Shelf' });
   seedLocation({ id: 'van-1', name: 'Van 1', type: 'Vehicle' });
+  seedLocation({ id: 'locker-1', name: "Frank's Locker", type: 'Locker' });
   // Top-level shelf (parent_id null) — e.g. created by findOrCreateShelfByName.
   seedLocation({ id: 'shelf-top', name: 'WH-B2', type: 'Shelf' });
 });
@@ -63,9 +64,27 @@ before(async () => {
 test('getNonShelfLocations excludes parented AND top-level shelves', () => {
   const ids = loc.getNonShelfLocations().map(l => l.id);
   assert.ok(ids.includes('shop-1'));
-  assert.ok(ids.includes('van-1'));
+  assert.ok(!ids.includes('van-1'), 'units are not first-class picker options (#122 A2)');
   assert.ok(!ids.includes('shelf-a1'), 'parented shelf must not be a first-class option');
   assert.ok(!ids.includes('shelf-top'), 'top-level shelf must not be a first-class option');
+});
+
+test('units excluded from browse/tree and picker lists (#122 A2)', () => {
+  const browsable = loc.getBrowsableLocations().map(l => l.id);
+  assert.ok(!browsable.includes('van-1'));
+  assert.ok(!browsable.includes('locker-1'));
+  assert.ok(browsable.includes('shop-1'), 'real places still browsable');
+  assert.ok(!loc.getNonShelfLocations().map(l => l.id).includes('locker-1'));
+});
+
+test('getUnitLocations partitions by kind', () => {
+  assert.deepEqual(loc.getUnitLocations('Vehicle').map(l => l.id), ['van-1']);
+  assert.deepEqual(loc.getUnitLocations('Locker').map(l => l.id), ['locker-1']);
+});
+
+test('no sub-areas under units: creation helpers refuse a Vehicle/Locker parent (#122 A2)', () => {
+  assert.equal(loc.findOrCreateShelf('van-1', 'V1'), null);
+  assert.equal(loc.findOrCreateShelf('locker-1', 'L1'), null);
 });
 
 test('resolve: null location → { ok: true, id: null }', () => {
@@ -144,3 +163,58 @@ function countLocations(): number {
   const rows = testDb.getDb().executeSync(`SELECT COUNT(*) AS n FROM locations`).rows as { n: number }[];
   return rows[0].n;
 }
+
+test('getBrowsableLocations/getLocationTree exclude Vehicle- and Locker-typed rows (A2 central filter)', () => {
+  seedLocation({ id: 'locker-frank', name: "Frank's Locker", type: 'Locker' });
+  const ids = loc.getBrowsableLocations().map(l => l.id);
+  assert.ok(ids.includes('shop-1'));
+  assert.ok(!ids.includes('van-1'), 'vehicles are their own system — not in the Locations browser');
+  assert.ok(!ids.includes('locker-frank'), 'lockers are their own system — not in the Locations browser');
+  const topIds = loc.getLocationTree().map(n => n.id);
+  assert.ok(!topIds.includes('van-1') && !topIds.includes('locker-frank'));
+});
+
+test('getRoomsForParent lists non-shelf children only', () => {
+  seedLocation({ id: 'room-maint', name: 'Maintenance Room', parent_id: 'shop-1', type: 'Storage' });
+  const rooms = loc.getRoomsForParent('shop-1');
+  assert.ok(rooms.some(r => r.id === 'room-maint'), 'a room child is listed');
+  assert.ok(!rooms.some(r => r.id === 'shelf-a1'), 'shelf children are not rooms');
+});
+
+test('findOrCreateShelf under a ROOM creates once and dedupes case-insensitively', () => {
+  const first = loc.findOrCreateShelf('room-maint', 'M1');
+  assert.ok(first, 'shelf created under a nested room');
+  const again = loc.findOrCreateShelf('room-maint', 'm1');
+  assert.equal(again, first, 'same name (any case) returns the existing shelf');
+  assert.ok(loc.getShelvesForParent('room-maint').some(sh => sh.id === first));
+  assert.equal(loc.getLocationById(first!)?.type, 'Shelf');
+});
+
+test('end-to-end: stock placed at a shelf inside a room inside a building', () => {
+  seedLocation({ id: 'bldg-lex', name: 'Lexington Park' });
+  seedLocation({ id: 'room-prod', name: 'Product Room', parent_id: 'bldg-lex', type: 'Storage', has_shelves: 1 });
+  // Two-stage picker: pick the room, type a NEW shelf → shelf created under the room.
+  const res = loc.resolveLocationShelfSelection(
+    { id: 'room-prod', label: 'Product Room' },
+    { id: '__new__', label: 'S1' },
+  );
+  assert.equal(res.ok, true);
+  const shelfId = (res as { ok: true; id: string }).id!;
+  assert.equal(loc.getLocationById(shelfId)?.parent_id, 'room-prod');
+  assert.equal(loc.getLocationPath(shelfId), 'Lexington Park › Product Room › S1');
+  // Reverse mapping seeds the picker back to (room, shelf).
+  assert.deepEqual(loc.resolveLocationShelf(shelfId), {
+    location: { id: 'room-prod', label: 'Product Room' },
+    shelf: { id: shelfId, label: 'S1' },
+  });
+  // Stock tracked against the shelf id is readable at the shelf.
+  testDb.getDb().executeSync(
+    `INSERT INTO inventory_items (id, name, active) VALUES ('item-tape', 'Duct Tape', 1)`,
+  );
+  testDb.getDb().executeSync(
+    `INSERT INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES ('item-tape', ?, 12, ?)`,
+    [shelfId, NOW],
+  );
+  const stock = loc.getStockAtLocation(shelfId);
+  assert.deepEqual(stock.map(r => ({ name: r.name, quantity: r.quantity })), [{ name: 'Duct Tape', quantity: 12 }]);
+});
