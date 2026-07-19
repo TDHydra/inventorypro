@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getAccessibleLocationIds,
+  canSeeAllUnitsInManage,
   resolveMyLead,
   type AccessLockerRow,
   type AccessGrantRow,
@@ -153,6 +154,23 @@ test('access: owned + granted + teammate paths union without duplicates', () => 
 
 test('access: empty everything yields an empty set', () => {
   assert.equal(getAccessibleLocationIds(input([]), 'matt').size, 0);
+});
+
+// ----------------------------------------------- unit visibility (#130, A2)
+
+test('#130: ownerless locker stays invisible day-to-day without a grant', () => {
+  const result = getAccessibleLocationIds(input([{ id: 'L1', ownerUserId: null }]), 'matt');
+  assert.equal(result.size, 0);
+});
+
+test('#130: manage context — tier-3+, PMs, team managers, and unit owners see all', () => {
+  assert.ok(canSeeAllUnitsInManage({ roleTier: 4, isTeamManager: false, ownsAnyUnit: false, isProductionManager: false }));
+  assert.ok(canSeeAllUnitsInManage({ roleTier: 1, isTeamManager: true, ownsAnyUnit: false, isProductionManager: false }));
+  assert.ok(canSeeAllUnitsInManage({ roleTier: 2, isTeamManager: false, ownsAnyUnit: true, isProductionManager: false }));
+  // production_manager is tier 2, so the spec's PM callout needs its own fact:
+  // a PM who manages no team and owns no unit must STILL see all units here.
+  assert.ok(canSeeAllUnitsInManage({ roleTier: 2, isTeamManager: false, ownsAnyUnit: false, isProductionManager: true }));
+  assert.ok(!canSeeAllUnitsInManage({ roleTier: 2, isTeamManager: false, ownsAnyUnit: false, isProductionManager: false }));
 });
 
 // ------------------------------------------------------------ resolveMyLead

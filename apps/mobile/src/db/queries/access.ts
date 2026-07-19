@@ -4,11 +4,12 @@ import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import {
   getAccessibleLocationIds,
+  canSeeAllUnitsInManage,
   AccessLockerRow,
   AccessGrantRow,
   TeamMemberRow,
 } from '../../access/accessResolution';
-import { getAllLocations, Location } from './locations';
+import { getAllLocations, getUnitLocations, isUnitLocation, Location } from './locations';
 import { ROLE_TIER } from '../../constants/roles';
 import type { UserSession } from '../../auth/permissions';
 
@@ -62,6 +63,40 @@ export function getAccessibleSourceLocations(userId: string): AccessibleSourceLo
     else lockers.push(loc);
   }
   return { lockers, vehicles };
+}
+
+// ── Unit visibility (#130) ───────────────────────────────────────────────────
+
+export function isTeamManagerAnywhere(userId: string): boolean {
+  const db = getDb();
+  return (rowsAs<{ n: number }>(db.executeSync(
+    `SELECT COUNT(*) AS n FROM team_members WHERE user_id = ? AND is_manager = 1`, [userId],
+  ).rows)[0]?.n ?? 0) > 0;
+}
+
+export function sharesTeamWithOwner(userId: string, ownerUserId: string | null): boolean {
+  if (!ownerUserId) return false;
+  if (ownerUserId === userId) return true;
+  const db = getDb();
+  return (rowsAs<{ n: number }>(db.executeSync(
+    `SELECT COUNT(*) AS n FROM team_members a JOIN team_members b ON b.team_id = a.team_id
+      WHERE a.user_id = ? AND b.user_id = ?`, [userId, ownerUserId],
+  ).rows)[0]?.n ?? 0) > 0;
+}
+
+export interface VisibleUnits { units: Location[]; showsAll: boolean; }
+
+/** Unit list for the Vehicles/Lockers screens (#130): full census for managers, accessible-only otherwise. */
+export function getVisibleUnits(user: UserSession, kind: 'Vehicle' | 'Locker'): VisibleUnits {
+  const ctx = {
+    roleTier: ROLE_TIER[user.role] ?? 0,
+    isTeamManager: isTeamManagerAnywhere(user.id),
+    ownsAnyUnit: getAllLocations().some(l => isUnitLocation(l) && l.owner_user_id === user.id),
+    isProductionManager: user.role === 'production_manager',
+  };
+  if (canSeeAllUnitsInManage(ctx)) return { units: getUnitLocations(kind), showsAll: true };
+  const acc = getAccessibleSourceLocations(user.id);
+  return { units: kind === 'Vehicle' ? acc.vehicles : acc.lockers, showsAll: false };
 }
 
 // ── Access list ──────────────────────────────────────────────────────────────

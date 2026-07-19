@@ -78,6 +78,18 @@ export function getAccessibleLocationIds(input: AccessResolutionInput, userId: s
 }
 
 /**
+ * #130 (Frank's Locker invisible to Matt): manage contexts list ALL units for
+ * tier-3+ org authority, Production Managers (tier 2 — the spec names them, so
+ * an explicit fact, mirroring B Task 1's privileged set), team managers
+ * (team_members.is_manager), and unit owners. Day-to-day surfaces
+ * (fast-checkout picker) keep using getAccessibleLocationIds — explicit
+ * visibility via unit_access.can_view.
+ */
+export function canSeeAllUnitsInManage(ctx: { roleTier: number; isTeamManager: boolean; ownsAnyUnit: boolean; isProductionManager: boolean }): boolean {
+  return ctx.roleTier >= 3 || ctx.isProductionManager || ctx.isTeamManager || ctx.ownsAnyUnit;
+}
+
+/**
  * User ids of the lead(s) of `userId`'s subteam(s) — deduped, in first-seen
  * order. A user on multiple subteams gets every lead; the user themself is
  * included when they are a lead. Users with no subteam assignment get `[]`.
