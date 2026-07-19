@@ -180,3 +180,12 @@ test('getRoomsForParent lists non-shelf children only', () => {
   assert.ok(rooms.some(r => r.id === 'room-maint'), 'a room child is listed');
   assert.ok(!rooms.some(r => r.id === 'shelf-a1'), 'shelf children are not rooms');
 });
+
+test('findOrCreateShelf under a ROOM creates once and dedupes case-insensitively', () => {
+  const first = loc.findOrCreateShelf('room-maint', 'M1');
+  assert.ok(first, 'shelf created under a nested room');
+  const again = loc.findOrCreateShelf('room-maint', 'm1');
+  assert.equal(again, first, 'same name (any case) returns the existing shelf');
+  assert.ok(loc.getShelvesForParent('room-maint').some(sh => sh.id === first));
+  assert.equal(loc.getLocationById(first!)?.type, 'Shelf');
+});
