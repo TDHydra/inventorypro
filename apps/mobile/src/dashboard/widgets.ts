@@ -14,7 +14,7 @@ import type { Permission } from '../constants/roles';
 
 export type WidgetType =
   | 'fast-checkout' | 'checkout' | 'checkin' | 'my-checkouts'
-  | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog'
+  | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'search' | 'quick-add' | 'low-stock' | 'on-call';            // non-tile blocks
 
@@ -53,6 +53,10 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   equipment:     { label: 'Manage Equipment Catalog',icon: '🛠️', route: '/(app)/(equipment)',     requiredPermission: 'add_inventory',  kind: 'tile' },
   repairs:       { label: 'Repairs',                 icon: '🔧',  route: '/(app)/(repairs)',       requiredPermission: 'add_inventory',  kind: 'tile' },
   locations:     { label: 'Manage Locations',        icon: '⇄',   route: '/(app)/(locations)',     requiredPermission: 'add_inventory',  kind: 'tile' },
+  // Vehicles/lockers as their own system (#122 A2): no requiredPermission —
+  // visibility is data-driven (getVisibleUnits); the screens render an EmptyState.
+  vehicles:      { label: 'Vehicles',                icon: '🚐',  route: '/(app)/(vehicles)',      kind: 'tile' },
+  lockers:       { label: 'Lockers',                 icon: '🔒',  route: '/(app)/(lockers)',       kind: 'tile' },
   'item-catalog':{ label: 'Manage Item Catalog',     icon: '✎',   route: '/(app)/(inventory)',     requiredPermission: 'edit_inventory', kind: 'tile' },
 
   // Operations
@@ -101,6 +105,8 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'equipment', width: 'full' },
   { widget: 'repairs', width: 'full' },
   { widget: 'locations', width: 'full' },
+  { widget: 'vehicles', width: 'half' },
+  { widget: 'lockers', width: 'half' },
   { widget: 'item-catalog', width: 'full' },
 
   { widget: 'section', width: 'full', config: { sectionTitle: 'Operations' } },

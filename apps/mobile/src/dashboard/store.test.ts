@@ -108,3 +108,17 @@ test('DEFAULT_LAYOUT: fast-checkout is the first tile; new widgets present once'
   // on-call block renders after the existing low-stock block.
   assert.ok(widgets.indexOf('on-call') > widgets.indexOf('low-stock'));
 });
+
+test('A2 unit widgets: vehicles/lockers tiles, data-driven (no permission gate)', () => {
+  assert.equal(WIDGET_REGISTRY.vehicles.kind, 'tile');
+  assert.equal(WIDGET_REGISTRY.vehicles.route, '/(app)/(vehicles)');
+  assert.equal(WIDGET_REGISTRY.vehicles.requiredPermission, undefined);
+  assert.equal(WIDGET_REGISTRY.lockers.kind, 'tile');
+  assert.equal(WIDGET_REGISTRY.lockers.route, '/(app)/(lockers)');
+  assert.equal(WIDGET_REGISTRY.lockers.requiredPermission, undefined);
+  const widgets = DEFAULT_LAYOUT.map(b => b.widget);
+  for (const w of ['vehicles', 'lockers'] as const) {
+    assert.equal(widgets.filter(x => x === w).length, 1, `${w} appears exactly once`);
+  }
+  assert.ok(widgets.indexOf('vehicles') > widgets.indexOf('locations'), 'unit tiles follow Manage Locations');
+});
