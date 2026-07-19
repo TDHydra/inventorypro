@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
 import { FormSheet } from '../ui/FormSheet';
 import { TextField } from '../ui/TextField';
-import { DateField } from '../ui/DateField';
+import { DateRangeField } from '../ui/DateRangeField';
 import { SelectField, type SelectOption } from '../ui/SelectField';
 import { getAllActiveUsers } from '../../db/queries/users';
 import { createCoverage } from '../../db/queries/oncall';
@@ -95,20 +95,19 @@ export function CoverageSheet({ visible, onClose }: Props) {
       onSubmit={submit}
     >
       <View style={s.fields}>
-        <DateField
-          label="First day off"
-          value={dateStart}
-          onChange={setDateStart}
+        <DateRangeField
+          label="Days off"
+          start={dateStart}
+          end={dateEnd}
+          onChange={(start, end) => {
+            setDateStart(start);
+            setDateEnd(end);
+          }}
           min={localTodayIso()}
           required
+          hint="First day → last day (inclusive)"
         />
-        <DateField
-          label="Last day off"
-          value={dateEnd}
-          onChange={setDateEnd}
-          min={dateStart || localTodayIso()}
-          required
-        />
+
         <SelectField
           label="Who is off"
           required
