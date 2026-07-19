@@ -38,6 +38,7 @@ const MEDIA_ROWS = [
 // Boot-time column introspection result — just the tables these tests write to.
 const COLUMNS: Record<string, string[]> = {
   app_config: ['key', 'value', 'updated_at'],
+  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at'],
   messages: ['id', 'conversation_id', 'sender_id', 'body', 'urgency', 'created_at', 'updated_at', 'edited_at', 'deleted_at'],
   // field-crew (#122)
   subteams: ['id', 'team_id', 'name', 'active', 'created_at', 'updated_at'],
@@ -737,4 +738,25 @@ test('no sub-areas: a normal parent (Building) still accepts children', async ()
   ]) });
   assert.deepEqual((res.json() as { ok: string[] }).ok, ['e1']);
   await app.close();
+});
+
+// ── role dashboard presets: assignment is a role_settings write → existing guards apply ──
+
+test('role_settings: dashboard_preset_id on a role above the caller is a permanent rejection', async () => {
+  const pg = fakePg({ callerRole: 'franchise_manager' });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'role_settings', payload: { role: 'full_admin', dashboard_preset_id: 'preset-1', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO role_settings')), 'the write must never reach SQL');
+});
+
+test('role_settings: a manage_roles_permissions holder may assign a preset to a role below them', async () => {
+  const pg = fakePg({ callerRole: 'franchise_manager' });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'role_settings', payload: { role: 'hr_manager', dashboard_preset_id: 'preset-1', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => /role_settings/.test(q.sql) && q.params.includes('preset-1')), 'dashboard_preset_id must survive the column policy');
 });

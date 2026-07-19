@@ -489,3 +489,7 @@ test('selectColumnsFor: unit_access + two-tank vehicle columns', () => {
   assert.equal(selectColumnsFor('unit_access', false), 'location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at');
   assert.match(selectColumnsFor('vehicles', false), /water_tank, waste_tank/);
 });
+
+test('role_settings projection carries dashboard_preset_id (role assignment syncs to all devices)', () => {
+  assert.match(selectColumnsFor('role_settings', false), /dashboard_preset_id/);
+});
