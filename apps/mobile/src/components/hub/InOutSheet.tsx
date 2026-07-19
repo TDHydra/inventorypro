@@ -19,24 +19,28 @@ interface Props {
   // location / vehicle / locker / job). Only shown for a check-OUT.
   secondaryLabel?: string;
   onSecondary?: (dir: 'in' | 'out', qty: number) => void;
+  // #83/#139: which direction the sheet opens on. Fast Check-In enters with
+  // 'in' so the button/labels reflect a check-IN instead of defaulting to Out.
+  defaultDirection?: 'in' | 'out';
 }
 
 // "Check In or Check Out?" + qty stepper. Default direction Out, default qty 1.
 // "Continue" parses qty (NaN + MAX_QUANTITY bound) and reports the choice.
-export function InOutSheet({ visible, item, onChoose, onClose, secondaryLabel, onSecondary }: Props) {
+export function InOutSheet({ visible, item, onChoose, onClose, secondaryLabel, onSecondary, defaultDirection = 'out' }: Props) {
   const s = useThemedStyles(makeStyles);
-  const [direction, setDirection] = useState<'in' | 'out'>('out');
+  const [direction, setDirection] = useState<'in' | 'out'>(defaultDirection);
   const [qty, setQty] = useState('1');
   const [error, setError] = useState<string | null>(null);
 
-  // Reset to defaults each time the sheet opens for a fresh item.
+  // Reset to defaults each time the sheet opens for a fresh item — honoring the
+  // caller's default direction (Fast Check-In opens on 'in').
   useEffect(() => {
     if (visible) {
-      setDirection('out');
+      setDirection(defaultDirection);
       setQty('1');
       setError(null);
     }
-  }, [visible]);
+  }, [visible, defaultDirection]);
 
   // Parse+validate qty once, then hand off to primary (onChoose) or the
   // optional secondary (onSecondary) action.
