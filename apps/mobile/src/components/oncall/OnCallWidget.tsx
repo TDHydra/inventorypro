@@ -4,10 +4,14 @@ import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { usePermission } from '../../hooks/usePermission';
+import { useSession } from '../../hooks/useSession';
 import { ModalSheet } from '../ui/ModalSheet';
+import { PrimaryButton } from '../ui/PrimaryButton';
 import { OnCallCalendar, localNowHour, localTodayIso } from './OnCallCalendar';
-import { getCurrentShift, getWeekBoundary } from '../../db/queries/oncall';
-import { boundaryWeekStartIso, formatWeekRange } from './weekMath';
+import { CoverageSheet } from './CoverageSheet';
+import { getCoverage, getCurrentShift, getWeekBoundary } from '../../db/queries/oncall';
+import { addDaysIso, boundaryWeekStartIso, formatWeekRange } from './weekMath';
+import { ROLE_TIER, type UserRole } from '../../constants/roles';
 
 // Self-contained on-call dashboard block (#128): a themed button showing the
 // live current-week assignment that OWNS its modal state — tapping it opens the
@@ -17,8 +21,15 @@ import { boundaryWeekStartIso, formatWeekRange } from './weekMath';
 export function OnCallWidget() {
   const s = useThemedStyles(makeStyles);
   const canEdit = usePermission('manage_teams');
+  // PM-gated (spec): explicit Production Manager check + tier-3+ org authority.
+  // PM is tier 2, so a plain `roleTier >= 2` would over-admit every tier-2
+  // manager. Server enforces manage_teams; this is the UI shape of the PM rule.
+  const { user } = useSession();
+  const roleTier = user ? ROLE_TIER[user.role as UserRole] ?? 0 : 0;
+  const canCoverage = canEdit && (user?.role === 'production_manager' || roleTier >= 3);
   const [open, setOpen] = useState(false);
-  const version = useTableVersion(['on_call_shifts', 'subteams', 'app_config']);
+  const [coverageOpen, setCoverageOpen] = useState(false);
+  const version = useTableVersion(['on_call_shifts', 'subteams', 'app_config', 'on_call_coverage']);
   // Local assigns (via the calendar's onAssign) don't bump the sync table
   // version, so track our own bump to re-read the current assignment live.
   const [localBump, setLocalBump] = useState(0);
@@ -32,6 +43,13 @@ export function OnCallWidget() {
     [today, version, localBump],
   );
   const crewLabel = shift?.subteam_id ? (shift.subteam_name ?? 'Unknown crew') : null;
+
+  // Upcoming coverage entries for the next 60 days (empty → section hidden).
+  const coverage = useMemo(
+    () => getCoverage(today, addDaysIso(today, 60)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [today, version, localBump],
+  );
 
   return (
     <>
@@ -55,7 +73,35 @@ export function OnCallWidget() {
           canEdit={canEdit}
           onAssign={() => setLocalBump(v => v + 1)}
         />
+        {coverage.length > 0 && (
+          <View style={s.coverageSection}>
+            <Text style={s.coverageTitle}>Upcoming coverage</Text>
+            {coverage.map(c => (
+              <View key={c.id} style={s.coverageRow}>
+                <Text style={s.coverageText}>
+                  {c.covering_user_name ?? 'Someone'} covers {c.user_off_name ?? 'someone'}{' '}
+                  ({c.date_start} – {c.date_end})
+                </Text>
+                {c.note ? <Text style={s.coverageNote}>{c.note}</Text> : null}
+              </View>
+            ))}
+          </View>
+        )}
+        {canCoverage && (
+          <PrimaryButton
+            label="Add coverage"
+            onPress={() => setCoverageOpen(true)}
+            style={s.coverageButton}
+          />
+        )}
       </ModalSheet>
+
+      {/* Mounted OUTSIDE the ModalSheet (sibling): FormSheet stacks its own
+          sheet — the AddServiceRecordSheet host pattern. */}
+      <CoverageSheet
+        visible={coverageOpen}
+        onClose={() => { setCoverageOpen(false); setLocalBump(v => v + 1); }}
+      />
     </>
   );
 }
@@ -100,4 +146,23 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginTop: 2,
     marginBottom: t.spacing.md,
   },
+  coverageSection: { marginTop: t.spacing.md },
+  coverageTitle: {
+    fontSize: t.typography.fontSizes.caption,
+    color: t.colors.textMuted,
+    fontFamily: t.typography.fontFamily.medium,
+    letterSpacing: t.typography.letterSpacing,
+    marginBottom: t.spacing.xs,
+  },
+  coverageRow: { paddingVertical: t.spacing.xs },
+  coverageText: {
+    fontSize: t.typography.fontSizes.base,
+    color: t.colors.textPrimary,
+  },
+  coverageNote: {
+    fontSize: t.typography.fontSizes.caption,
+    color: t.colors.textMuted,
+    marginTop: 1,
+  },
+  coverageButton: { marginTop: t.spacing.md },
 });
