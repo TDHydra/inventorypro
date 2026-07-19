@@ -44,6 +44,10 @@ const HUB_TRACK: Partial<Record<WidgetType, string>> = {
 // shows beneath its label. fast-checkout (#127) joins checkout as a primary action.
 const PRIMARY_SUB: Partial<Record<WidgetType, string>> = {
   'fast-checkout': 'Check out from your locker or vehicle',
+  // fast-checkin (#83) is the twin of fast-checkout — brand-styled so the pair
+  // matches. The subtitle only renders at full width; the half-width pair is
+  // compact (see `compact` in renderTile), so this reads as a tidy matched row.
+  'fast-checkin': 'Return items to your locker or vehicle',
   checkout: 'Scan or search for an item',
 };
 
@@ -114,6 +118,10 @@ export default function DashboardScreen() {
     const route = def.route;
     const primarySub = PRIMARY_SUB[block.widget];
     const primary = primarySub !== undefined;
+    // A primary tile shown at half width (the fast-checkout/-checkin pair) drops
+    // the hero padding + subtitle so it doesn't tower over its neighbour — brand
+    // colour, normal height, matched pair. Full-width primaries keep the hero look.
+    const compact = primary && block.width === 'half';
     const trackKey = HUB_TRACK[block.widget];
 
     const onPress = () => {
@@ -126,13 +134,14 @@ export default function DashboardScreen() {
         style={[
           s.tile,
           primary && s.tilePrimary,
+          compact && s.tilePrimaryCompact,
           block.width === 'half' && s.tileHalf,
         ]}
         onPress={onPress}
       >
         <Text style={s.tileIcon}>{icon}</Text>
-        <Text style={primary ? s.tileLabelPrimary : s.tileLabel}>{label}</Text>
-        {primary && <Text style={s.tileSubPrimary}>{primarySub}</Text>}
+        <Text style={primary ? (compact ? s.tileLabelPrimaryCompact : s.tileLabelPrimary) : s.tileLabel}>{label}</Text>
+        {primary && !compact && <Text style={s.tileSubPrimary}>{primarySub}</Text>}
         {block.widget === 'chat' && chatUnread > 0 && (
           <View style={s.tileBadge}>
             <Text style={s.tileBadgeText}>{chatUnread > 99 ? '99+' : chatUnread}</Text>
@@ -329,6 +338,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     borderColor: t.colors.primary,
     paddingVertical: 20,
   },
+  // Half-width primary pair: same brand fill, normal tile height (overrides the
+  // hero's paddingVertical), so fast-checkout/-checkin sit level and compact.
+  tilePrimaryCompact: { paddingVertical: 16 },
   tileHalf: { flex: 1 },
   tileBadge: {
     position: 'absolute',
@@ -346,6 +358,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   tileIcon: { fontSize: 22, marginBottom: 6 },
   tileLabel: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
   tileLabelPrimary: { fontSize: 18, fontWeight: '700', color: t.colors.onPrimary, marginBottom: 4 },
+  tileLabelPrimaryCompact: { fontSize: 15, fontWeight: '700', color: t.colors.onPrimary },
   tileSubPrimary: { fontSize: 13, color: t.colors.primaryBg },
   row: { flexDirection: 'row', gap: 10 },
   section: { gap: 8 },
