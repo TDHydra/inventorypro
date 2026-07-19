@@ -9,6 +9,7 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { confirmSheet } from '../ui/ConfirmSheet';
 import { ServiceRecordList } from './ServiceRecordList';
+import { UnitContentsPanel } from '../units/UnitContentsPanel';
 import { VehicleCheckoutSheet, type CheckoutSheetMode } from './VehicleCheckoutSheet';
 import {
   getVehicle, upsertVehicleState, getActiveCheckout, getCheckoutHistory,
@@ -263,6 +264,12 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
             style={s.primaryBtn}
           />
         )}
+      </Card>
+
+      {/* Contents (A2 Task 5) — per-action gated list + add/remove/move. */}
+      <Text style={s.sectionLabel}>Contents</Text>
+      <Card variant="detail">
+        <UnitContentsPanel locationId={locationId} />
       </Card>
 
       {/* Service log (last 3 + add) */}

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Alert } from '../../lib/themedAlert';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -8,16 +7,17 @@ import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useFocusOrDataRefresh } from '../../hooks/useFocusOrDataRefresh';
-import { getLocationById, getLocationPath, getStockAtLocation } from '../../db/queries/locations';
+import { getLocationById, getLocationPath } from '../../db/queries/locations';
 import { getUserById, getAllActiveUsers } from '../../db/queries/users';
+import { canManageLockerAccess } from '../../db/queries/access';
 import {
-  getLockerAccessList, grantLockerAccess, revokeLockerAccess, canManageLockerAccess,
-} from '../../db/queries/access';
+  getUnitAccessRows, getUserUnitPerms, upsertUnitAccess, revokeUnitAccess,
+} from '../../db/queries/unitAccess';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
-import { PrimaryButton } from '../ui/PrimaryButton';
 import { AccessListEditor, AccessEntry } from '../crew/AccessListEditor';
+import { UnitContentsPanel } from '../units/UnitContentsPanel';
 import type { PickerOption } from '../SearchablePicker';
 
 // LockerPanel (#126) — the embeddable "everything about this locker" block
@@ -25,11 +25,9 @@ import type { PickerOption } from '../SearchablePicker';
 // re-reads on focus/sync-pull. Rendered three ways: full (LockerSheet / any
 // future route), summary (embedded in (locations)/[id] above the stock list,
 // where the host already shows name + stock), and always read-only for access
-// unless canManageLockerAccess (owner or tier-3+ — the server guard's mirror).
-// "Check out from here" emits the hub href with the `loc` scoping param; C4
-// owns wiring that param on the hub side.
-
-const CONTENTS_PREVIEW_ROWS = 5;
+// unless the user can manage (owner or tier-3+ via canManageLockerAccess, or
+// an explicit unit_access can_grant bit). Contents + checkout/add/move actions
+// live in UnitContentsPanel (A2 Task 4), gated per-action by unit_access.
 
 interface Props {
   locationId: string;
@@ -43,7 +41,6 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
-  const router = useRouter();
 
   // Re-read on focus / sync pull, plus a local bump after our own grant/revoke
   // writes (local writes don't tick dataVersion).
@@ -57,10 +54,16 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
     () => (location?.owner_user_id ? getUserById(location.owner_user_id) : null),
     [location?.owner_user_id, key],
   );
-  const stock = useMemo(() => getStockAtLocation(locationId), [locationId, key]);
-  const accessList = useMemo(() => getLockerAccessList(locationId), [locationId, key]);
+  // A1's migration copied locker_access → unit_access, and the seeded-row
+  // watermark gotcha applies: backfilled rows written at deploy time reach
+  // already-enrolled devices via full download / A1's touched updated_at —
+  // nothing to do here, just don't "fix" missing rows by re-granting blindly.
+  const accessList = useMemo(() => getUnitAccessRows(locationId), [locationId, key]);
 
-  const canManage = canManageLockerAccess(user, location);
+  // Owner / tier-3+ manage as before; the explicit per-unit can_grant bit also
+  // opens the editor (per-action unit perms, A2 Task 4).
+  const canManage = canManageLockerAccess(user, location)
+    || (user ? getUserUnitPerms(user.id, locationId).grant : false);
   const [showAccessEditor, setShowAccessEditor] = useState(false);
 
   // Owner is an implicit, non-removable entry; explicit grants follow.
@@ -69,10 +72,11 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
     if (owner) entries.push({ userId: owner.id, name: owner.name, sublabel: 'Owner', fixed: true });
     for (const g of accessList) {
       if (g.user_id === owner?.id) continue;
+      const grantedByName = g.granted_by ? getUserById(g.granted_by)?.name : null;
       entries.push({
         userId: g.user_id,
-        name: g.user_name ?? g.user_id,
-        sublabel: g.granted_by_name ? `Granted by ${g.granted_by_name}` : null,
+        name: g.user_name ?? getUserById(g.user_id)?.name ?? g.user_id,
+        sublabel: grantedByName ? `Granted by ${grantedByName}` : null,
       });
     }
     return entries;
@@ -86,22 +90,23 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
       .map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role as UserRole] ?? u.role }));
   }, [showAccessEditor, editorEntries, key]);
 
-  function handleCheckoutFromHere() {
-    const href = `/(app)/(hub)?loc=${locationId}`;
-    if (onNavigate) { onNavigate(href); return; }
-    router.push({ pathname: '/(app)/(hub)', params: { loc: locationId } });
-  }
-
   // AccessListEditor owns the confirm/alert UX; these just do the writes and
-  // refresh. Throwing keeps the editor open with an alert.
+  // refresh. Throwing keeps the editor open with an alert. Grants created here
+  // default to view+add+remove+move (matches A1's locker_access copy
+  // semantics; the unit_access_defaults app_config template is Phase B).
   function handleGrant(opt: PickerOption) {
     if (isWriteBlocked()) throw new Error('write blocked');
-    grantLockerAccess(locationId, opt.id, user?.id ?? null);
+    const now = new Date().toISOString();
+    upsertUnitAccess({
+      location_id: locationId, user_id: opt.id,
+      can_view: 1, can_add: 1, can_remove: 1, can_move: 1, can_edit_details: 0, can_grant: 0,
+      granted_by: user?.id ?? null, created_at: now, updated_at: now,
+    });
     setLocalBump(b => b + 1);
   }
   function handleRevoke(entry: AccessEntry) {
     if (isWriteBlocked()) throw new Error('write blocked');
-    revokeLockerAccess(locationId, entry.userId, user?.id ?? null);
+    revokeUnitAccess(locationId, entry.userId);
     setLocalBump(b => b + 1);
   }
 
@@ -110,9 +115,6 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
       ? <EmptyState icon="🔒" title="Locker not found" subtitle="It may have been removed on another device." />
       : null;
   }
-
-  const totalQty = stock.reduce((sum, r) => sum + r.quantity, 0);
-  const preview = stock.slice(0, CONTENTS_PREVIEW_ROWS);
 
   return (
     <Card variant="detail">
@@ -129,35 +131,9 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
         <Text style={s.ownerName}>{owner ? owner.name : 'No owner'}</Text>
       </View>
 
-      {/* Contents summary (full only — the summary embed sits above the host's own stock list). */}
-      {variant === 'full' && (
-        <View style={s.section}>
-          <Text style={s.sectionLabel}>
-            Contents · {stock.length} item{stock.length === 1 ? '' : 's'}{stock.length > 0 ? ` · ${totalQty} total` : ''}
-          </Text>
-          {stock.length === 0 ? (
-            <Text style={s.muted}>Nothing stored here right now.</Text>
-          ) : (
-            <>
-              {preview.map(row => (
-                <View key={row.item_id} style={s.stockRow}>
-                  <Text style={s.stockName} numberOfLines={1}>{row.name}</Text>
-                  <Text style={s.stockQty}>{row.quantity}</Text>
-                </View>
-              ))}
-              {stock.length > preview.length && (
-                <Text style={s.moreText}>+{stock.length - preview.length} more</Text>
-              )}
-            </>
-          )}
-        </View>
-      )}
-
-      <PrimaryButton
-        label="Check out from here"
-        onPress={handleCheckoutFromHere}
-        style={s.checkoutBtn}
-      />
+      {/* Contents + per-action actions (full only — the summary embed sits
+          above the host's own stock list, which already shows stock). */}
+      {variant === 'full' && <UnitContentsPanel locationId={locationId} onNavigate={onNavigate} />}
 
       {/* Access chips (read-only at a glance) + Manage for owner / org authority. */}
       <View style={s.section}>
@@ -225,13 +201,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     fontSize: 12, fontWeight: '700', color: t.colors.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6,
   },
-
-  stockRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  stockName: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 12 },
-  stockQty: { fontSize: 14, color: t.colors.textSecondary, fontWeight: '600' },
-  moreText: { fontSize: 12, color: t.colors.textMuted, marginTop: 4 },
-
-  checkoutBtn: { marginTop: t.spacing.base },
 
   accessHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   manageLink: { color: t.colors.primary, fontSize: 13, fontWeight: '700' },
