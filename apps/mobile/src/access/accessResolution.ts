@@ -89,6 +89,34 @@ export function canSeeAllUnitsInManage(ctx: { roleTier: number; isTeamManager: b
   return ctx.roleTier >= 3 || ctx.isProductionManager || ctx.isTeamManager || ctx.ownsAnyUnit;
 }
 
+export interface UnitActionPerms {
+  view: boolean; add: boolean; remove: boolean; move: boolean; editDetails: boolean; grant: boolean;
+}
+
+/**
+ * Effective per-action perms on a unit: owner/tier-3+ → everything; otherwise the
+ * explicit unit_access row (getUserUnitPerms; all-false when no row) UNIONed with
+ * the implicit teammate-of-owner work access (view/add/remove/move — preserves the
+ * pre-#122 team rule so grants only ever ADD access). editDetails/grant are never
+ * implicit.
+ */
+export function resolveUnitActionPerms(input: {
+  isOwner: boolean; roleTier: number; isTeammateOfOwner: boolean; rowPerms: UnitActionPerms;
+}): UnitActionPerms {
+  if (input.isOwner || input.roleTier >= 3) {
+    return { view: true, add: true, remove: true, move: true, editDetails: true, grant: true };
+  }
+  const t = input.isTeammateOfOwner;
+  return {
+    view: input.rowPerms.view || t,
+    add: input.rowPerms.add || t,
+    remove: input.rowPerms.remove || t,
+    move: input.rowPerms.move || t,
+    editDetails: input.rowPerms.editDetails,
+    grant: input.rowPerms.grant,
+  };
+}
+
 /**
  * User ids of the lead(s) of `userId`'s subteam(s) — deduped, in first-seen
  * order. A user on multiple subteams gets every lead; the user themself is

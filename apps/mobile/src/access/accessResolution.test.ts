@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   getAccessibleLocationIds,
   canSeeAllUnitsInManage,
+  resolveUnitActionPerms,
   resolveMyLead,
   type AccessLockerRow,
   type AccessGrantRow,
@@ -171,6 +172,30 @@ test('#130: manage context — tier-3+, PMs, team managers, and unit owners see 
   // a PM who manages no team and owns no unit must STILL see all units here.
   assert.ok(canSeeAllUnitsInManage({ roleTier: 2, isTeamManager: false, ownsAnyUnit: false, isProductionManager: true }));
   assert.ok(!canSeeAllUnitsInManage({ roleTier: 2, isTeamManager: false, ownsAnyUnit: false, isProductionManager: false }));
+});
+
+// -------------------------------------------- per-action unit perms (A2 T4)
+
+const NONE = { view: false, add: false, remove: false, move: false, editDetails: false, grant: false };
+
+test('unit perms: owner and tier-3+ get everything', () => {
+  for (const p of [
+    resolveUnitActionPerms({ isOwner: true, roleTier: 1, isTeammateOfOwner: false, rowPerms: NONE }),
+    resolveUnitActionPerms({ isOwner: false, roleTier: 3, isTeammateOfOwner: false, rowPerms: NONE }),
+  ]) assert.deepEqual(p, { view: true, add: true, remove: true, move: true, editDetails: true, grant: true });
+});
+
+test('unit perms: teammate-of-owner keeps implicit work access, never edit/grant', () => {
+  assert.deepEqual(
+    resolveUnitActionPerms({ isOwner: false, roleTier: 1, isTeammateOfOwner: true, rowPerms: NONE }),
+    { view: true, add: true, remove: true, move: true, editDetails: false, grant: false });
+});
+
+test('unit perms: explicit grant unions with teammate fallback; stranger gets row perms only', () => {
+  const row = { ...NONE, view: true, editDetails: true };
+  assert.deepEqual(
+    resolveUnitActionPerms({ isOwner: false, roleTier: 1, isTeammateOfOwner: false, rowPerms: row }),
+    { view: true, add: false, remove: false, move: false, editDetails: true, grant: false });
 });
 
 // ------------------------------------------------------------ resolveMyLead
