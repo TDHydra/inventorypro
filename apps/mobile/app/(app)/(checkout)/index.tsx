@@ -45,6 +45,7 @@ import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { track } from '../../../src/telemetry';
+import { clampQtyInput, stepQty } from '../../../src/hooks/qtyClamp';
 
 type Step = 'find' | 'qty' | 'dest' | 'confirm';
 type DestType = 'job' | 'location' | 'pm';
@@ -65,7 +66,7 @@ export default function CheckoutScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
-  const params = useLocalSearchParams<{ itemId?: string }>();
+  const params = useLocalSearchParams<{ itemId?: string; loc?: string }>();
 
   const [step, setStep] = useState<Step>('find');
   const [itemSearch, setItemSearch] = useState('');
@@ -101,11 +102,13 @@ export default function CheckoutScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void request(); }, []);
 
-  // If navigated with itemId param (from a scan), skip straight to qty.
+  // If navigated with itemId param (from a scan), skip straight to qty. A loc
+  // param (#147, fast-checkout context) preselects that source when it holds
+  // the item.
   useEffect(() => {
     if (params.itemId) {
       const item = getItemById(params.itemId) as ItemWithTotalStock | null;
-      if (item) handleSelectItem(item);
+      if (item) handleSelectItem(item, params.loc);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.itemId]);
@@ -212,13 +215,15 @@ export default function CheckoutScreen() {
     return rows;
   }
 
-  function handleSelectItem(item: ItemWithTotalStock) {
+  function handleSelectItem(item: ItemWithTotalStock, prefillLocId?: string) {
     setSelectedItem(item);
     const stockRows = item.unit_tracked
       ? buildUnitSourceStock(item.id)
       : getStockByItem(item.id).filter(s => s.quantity > 0);
     setStock(stockRows);
-    setSelectedLocation(null);
+    // #147: arriving from fast checkout preselects that source — but only if
+    // it actually holds the item; otherwise the picker starts empty as before.
+    setSelectedLocation(prefillLocId ? (stockRows.find(r => r.location_id === prefillLocId) ?? null) : null);
     setSelectedUnits([]);
     setScanTag('');
     setQuantity('1');
@@ -235,11 +240,17 @@ export default function CheckoutScreen() {
     setPmSelections([]);
   }
 
+  // #147: the selected source's on-hand quantity is the qty input's ceiling.
+  const maxQty = !isUnitTracked && selectedLocation ? selectedLocation.quantity : null;
+
   // ── Source location ──────────────────────────────────────────────────────
   function selectSource(opt: PickerOption) {
     setSelectedUnits([]); // changing source invalidates any unit selection
     if (selectedLocation?.location_id === opt.id) { setSelectedLocation(null); return; }
-    setSelectedLocation(stock.find(s => s.location_id === opt.id) ?? null);
+    const row = stock.find(s => s.location_id === opt.id) ?? null;
+    setSelectedLocation(row);
+    // Re-clamp a quantity typed before the source was (re)chosen.
+    if (row && !isUnitTracked) setQuantity(q => clampQtyInput(q, row.quantity));
   }
 
   // ── Unit selection (unit-tracked items only) ─────────────────────────────
@@ -679,13 +690,34 @@ export default function CheckoutScreen() {
           ) : (
             <>
               <Text style={s.label}>Quantity</Text>
-              <TextInput
-                style={s.qtyInput}
-                value={quantity}
-                onChangeText={setQuantity}
-                keyboardType="decimal-pad"
-                selectTextOnFocus
-              />
+              <View style={s.qtyRow}>
+                <TouchableOpacity
+                  style={s.qtyStepBtn}
+                  accessibilityLabel="Decrease quantity"
+                  onPress={() => setQuantity(q => stepQty(q, -1, maxQty))}
+                >
+                  <Text style={s.qtyStepText}>−</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={[s.qtyInput, { flex: 1 }]}
+                  value={quantity}
+                  onChangeText={t => setQuantity(clampQtyInput(t, maxQty))}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                />
+                <TouchableOpacity
+                  style={s.qtyStepBtn}
+                  accessibilityLabel="Increase quantity"
+                  onPress={() => setQuantity(q => stepQty(q, 1, maxQty))}
+                >
+                  <Text style={s.qtyStepText}>+</Text>
+                </TouchableOpacity>
+              </View>
+              {maxQty != null && selectedLocation && (
+                <Text style={s.qtyHint}>
+                  Up to {formatQuantity(maxQty, unit, cat)} at {selectedLocation.location_name}
+                </Text>
+              )}
             </>
           )}
         </FormScreen>
@@ -991,6 +1023,13 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingHorizontal: 14, height: 54, fontSize: 24, fontWeight: '700',
     color: t.colors.textPrimary, textAlign: 'center',
   },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  qtyStepBtn: {
+    width: 54, height: 54, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
+    backgroundColor: t.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center',
+  },
+  qtyStepText: { fontSize: 26, fontWeight: '700', color: t.colors.primary, lineHeight: 30 },
+  qtyHint: { marginTop: 6, fontSize: 12, color: t.colors.textSecondary, textAlign: 'center' },
   scanRow: { paddingVertical: 12, alignItems: 'center' },
   scanText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
   row: {
