@@ -603,7 +603,7 @@ export default function HubScreen() {
                     <ItemCard
                       key={item.id}
                       item={item}
-                      onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
+                      onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId, loc: locId! } })}
                     />
                   ))}
                   {scopedCatalog.elsewhere.length > 0 && (
@@ -613,7 +613,7 @@ export default function HubScreen() {
                     <ItemCard
                       key={item.id}
                       item={item}
-                      onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId } })}
+                      onCheckout={(itemId) => router.push({ pathname: '/(app)/(checkout)', params: { itemId, loc: locId! } })}
                     />
                   ))}
                 </>
