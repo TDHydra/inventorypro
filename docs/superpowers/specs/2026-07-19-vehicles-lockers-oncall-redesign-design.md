@@ -97,6 +97,19 @@ user sees is split.
   (`apps/api/src/lib/notifications.ts`, `push.ts`): on coverage save, notify other
   Production Managers ∪ `notify_route_on_call` recipients.
 
+## E. Admin default theme (added 2026-07-19)
+
+- Admin settings gains an **org default theme** picker (current default: `original`).
+  Any user without a personal `user_prefs` theme gets the org default; setting it to
+  e.g. Futuristic re-themes everyone who hasn't chosen their own.
+- It also themes the **sign-in screen and first-time installs**: full sync is
+  post-login (2026-06-30 hardening), so the default theme is exposed publicly
+  (piggybacked on the login-picker endpoint, e.g. `/auth/roster`) and cached on
+  device as fallback; fresh installs fetch it with the roster before any login.
+- Reactivity: changing the org default propagates through the theme store without
+  remount (`useSyncExternalStore` gotcha), including for currently-signed-in users
+  on the default.
+
 ## D. Locations = main areas only
 
 - Locations tab lists top-level real places; buildings keep sub-areas + shelves
@@ -115,6 +128,7 @@ user sees is split.
 3b. **B2** — per-role dashboard preset picker in Role & Permissions (#136).
 4. **C** — on-call settings + rotation autofill + coverage form + `on_call` channel.
 5. **D** — locations polish (rooms/shelves flow).
+6. **E** — admin org-default theme incl. sign-in/first-run (#138).
 
 Each phase: API + mobile migrations in lockstep (web `schema.web.ts` too), tests, then
 dev-APK hotload verification on device before its board item moves past In review.
