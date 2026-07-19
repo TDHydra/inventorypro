@@ -140,6 +140,12 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
     // nor is their public enrollment code exposed. Filtered in SQL (not in the
     // mapping) so a disabled demo account can never reach the response at all.
     const demoOn = await demoGate.isEnabled();
+    // Org default theme (Phase E, #138): public BY DESIGN — a theme id is not
+    // sensitive, and a brand-new device must theme the sign-in screen before
+    // any token exists. Absent row → null → client falls back to built-in.
+    const { rows: themeRows } = await fastify.pg.query<{ value: string }>(
+      `SELECT value FROM app_config WHERE key = 'default_theme_id'`, []
+    );
     const { rows } = await fastify.pg.query<{
       id: string; name: string; role: string;
       pin_length_required: number; pin_set: boolean;
@@ -166,6 +172,7 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       []
     );
     return reply.send({
+      default_theme_id: themeRows[0]?.value ?? null,
       users: rows.map(u => ({
         id: u.id,
         name: u.name,
