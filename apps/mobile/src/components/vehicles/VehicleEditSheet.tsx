@@ -73,8 +73,20 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
           upsertLocation(updated);
           // synced_at is local-only — strip from the outbox payload (server has
           // no such column); active as boolean mirrors VehicleQuickAdd.
-          const { synced_at: _s, ...locRow } = updated;
-          appendOutbox('INSERT', 'locations', { ...locRow, active: true });
+          const {
+            synced_at: _s,
+            type_id: _typeId,
+            active,
+            subareas_require_owner,
+            has_shelves,
+            ...locRow
+          } = updated;
+          appendOutbox('INSERT', 'locations', {
+            ...locRow,
+            active: active === 1,
+            subareas_require_owner: !!subareas_require_owner,
+            has_shelves: !!has_shelves,
+          });
         }
         upsertVehicleState(locationId, {
           model: model.label, model_id: model.id,
