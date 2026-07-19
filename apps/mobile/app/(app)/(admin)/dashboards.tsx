@@ -11,6 +11,8 @@ import {
   type LayoutBlock,
 } from '../../../src/dashboard/widgets';
 import { parsePresetLayout } from '../../../src/dashboard/resolve';
+import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
+import { roleHasPermission } from '../../../src/auth/permissions';
 import {
   getDashboardPresets,
   getDashboardPresetById,
@@ -104,6 +106,18 @@ export default function DashboardsScreen() {
   const [rolePick, setRolePick] = useState<UserRole | null>(null);
 
   const editingPreset = editingId ? presets.find((p) => p.id === editingId) ?? null : null;
+
+  // Roles currently assigned to the preset being edited — the add-widget picker
+  // offers only tiles every one of them passes (requiredPermission).
+  const assignedRoles = useMemo(
+    () => Object.entries(roleMap).filter(([, id]) => id === editingId).map(([role]) => role),
+    [roleMap, editingId],
+  );
+  const offeredTiles = filterTilesForRoles(
+    TILE_WIDGETS, assignedRoles,
+    (role, perm) => roleHasPermission(role as UserRole, perm),
+  );
+  const hiddenTileCount = TILE_WIDGETS.length - offeredTiles.length;
 
   function refreshPresets() {
     setPresets(getDashboardPresets());
@@ -414,13 +428,19 @@ export default function DashboardsScreen() {
             <Text style={s.modalTitle}>Add widget</Text>
             <Text style={s.fieldLabel}>Tiles</Text>
             <View style={s.pickGrid}>
-              {TILE_WIDGETS.map((w) => (
+              {offeredTiles.map((w) => (
                 <TouchableOpacity key={w} style={s.pickItem} onPress={() => addWidget(w)}>
                   <Text style={s.pickIcon}>{WIDGET_REGISTRY[w].icon ?? '•'}</Text>
                   <Text style={s.pickLabel} numberOfLines={1}>{WIDGET_REGISTRY[w].label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
+            {hiddenTileCount > 0 && (
+              <Text style={s.pickNote}>
+                {hiddenTileCount} widget{hiddenTileCount === 1 ? '' : 's'} hidden — the assigned
+                role{assignedRoles.length === 1 ? ' doesn’t' : 's don’t'} have permission for {hiddenTileCount === 1 ? 'it' : 'them'}.
+              </Text>
+            )}
             <Text style={s.fieldLabel}>Blocks</Text>
             <View style={s.pickGrid}>
               {BLOCK_WIDGETS.map((w) => (
@@ -758,6 +778,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   pickIcon: { fontSize: 16 },
   pickLabel: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textSecondary, flexShrink: 1 },
+  pickNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8 },
 
   // Role preset picker rows
   pickRow: {
