@@ -104,3 +104,19 @@ test('getVehicleInlineStatus reads the two tanks', () => {
   assert.equal(st.water_tank, 'full');
   assert.equal(st.waste_tank, 'dirty');
 });
+
+test('#144: getActiveCheckoutForUser finds my open session with the vehicle name', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO locations (id, name, type, updated_at) VALUES ('van-qa', 'Van QA', 'Vehicle', '2026-01-01')`);
+  db.executeSync(`INSERT INTO users (id, name) VALUES ('u-driver', 'Driver Dan')`);
+  // No session yet → null.
+  assert.equal(veh.getActiveCheckoutForUser('u-driver'), null);
+  const sessionId = veh.checkOutVehicle('van-qa', null, 'u-driver');
+  const mine = veh.getActiveCheckoutForUser('u-driver')!;
+  assert.equal(mine.vehicle_location_id, 'van-qa');
+  assert.equal(mine.vehicle_name, 'Van QA');
+  // Someone else's lookup stays empty; check-in clears mine.
+  assert.equal(veh.getActiveCheckoutForUser('u-matt'), null);
+  veh.checkInVehicle(sessionId, 'u-driver');
+  assert.equal(veh.getActiveCheckoutForUser('u-driver'), null);
+});

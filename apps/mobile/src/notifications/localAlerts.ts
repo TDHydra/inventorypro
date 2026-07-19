@@ -13,6 +13,7 @@ import { getUnitsDueForService } from '../db/queries/maintenance';
 import { isTerminalStatus } from '../db/queries/taxonomy';
 import { getSavedUserId, buildUserSession } from '../auth/session';
 import { hasPermission } from '../auth/permissions';
+import { isOverdueRepair } from '../dashboard/quickActions';
 
 // ── Foreground handler (set once at module load) ─────────────────────────────
 // Show an alert + play a sound when a notification arrives while the app is in
@@ -154,13 +155,12 @@ export async function runLocalAlertChecks(): Promise<void> {
     // ── Overdue repairs ──────────────────────────────────────────────────────
     // Scoped like low stock: edit_inventory is the same permission that gates
     // status edits on the repair detail screen (see (repairs)/[id].tsx canEdit).
-    // getRepairs({done:false}) already excludes completed_at rows; isTerminalStatus
-    // is checked too as cheap insurance against a stale/renamed status label.
+    // getRepairs({done:false}) already excludes completed_at rows; the shared
+    // isOverdueRepair predicate (#144 dashboard quick-action uses it too) also
+    // checks isTerminalStatus as insurance against a stale/renamed status label.
     const canSeeRepairs = hasPermission(session, 'edit_inventory');
     const overdueRepairs = canSeeRepairs
-      ? getRepairs({ done: false }).filter(
-          r => r.due_at != null && !isTerminalStatus(r.status) && new Date(r.due_at).getTime() < Date.now(),
-        )
+      ? getRepairs({ done: false }).filter(r => isOverdueRepair(r, isTerminalStatus, Date.now()))
       : [];
     const overdueIds = overdueRepairs.map(r => r.id);
     if (canSeeRepairs) {

@@ -6,6 +6,12 @@ import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { DashboardSearch } from '../../../src/components/DashboardSearch';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
+import { getActiveCheckoutForUser } from '../../../src/db/queries/vehicles';
+import { getRepairs } from '../../../src/db/queries/repairs';
+import { getUnitsDueForService } from '../../../src/db/queries/maintenance';
+import { isTerminalStatus } from '../../../src/db/queries/taxonomy';
+import { computeQuickActions, isOverdueRepair, type QuickAction } from '../../../src/dashboard/quickActions';
+import { usePermission } from '../../../src/hooks/usePermission';
 import { roleColor } from '../../../src/db/queries/users';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/roles';
@@ -51,6 +57,24 @@ export default function DashboardScreen() {
   const dataVersion = useDataVersion();
   const all = useMemo(() => getLowStockItems(), [dataVersion]);
   const shown = all.slice(0, 3);
+
+  // Contextual quick-actions (#144): recomputed per sync pull (dataVersion) so a
+  // check-in elsewhere or a stock recovery hides the card without a remount.
+  // Scoping mirrors localAlerts: past-due + low-stock only exist for
+  // edit_inventory holders; the vehicle check-in card is data-driven.
+  const canEditInventory = usePermission('edit_inventory');
+  const quickActions: QuickAction[] = useMemo(() => {
+    if (!user) return [];
+    return computeQuickActions({
+      activeVehicleCheckout: getActiveCheckoutForUser(user.id),
+      overdueRepairCount: canEditInventory
+        ? getRepairs({ done: false }).filter(r => isOverdueRepair(r, isTerminalStatus, Date.now())).length
+        : 0,
+      serviceDueCount: canEditInventory ? getUnitsDueForService(new Date().toISOString()).length : 0,
+      canEditInventory,
+      lowStockCount: all.length,
+    });
+  }, [dataVersion, user?.id, canEditInventory, all]);
 
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
   // which reproduces today's dashboard exactly (same tiles/order/gates below).
@@ -158,6 +182,49 @@ export default function DashboardScreen() {
         return gatePerm
           ? <PermissionGate key={key} permission={gatePerm}>{header}</PermissionGate>
           : <View key={key}>{header}</View>;
+      }
+      // Contextual quick-actions (#144): each renders nothing unless its
+      // computed action exists, so an empty context leaves the layout untouched.
+      case 'vehicle-checkin':
+      case 'past-due':
+      case 'low-stock-catalog': {
+        const action = quickActions.find(a => a.key === block.widget);
+        if (!action) return null;
+        const qa: Record<QuickAction['key'], { icon: string; sub: string; onPress: () => void }> = {
+          'vehicle-checkin': {
+            icon: '🚐',
+            sub: 'You have this vehicle checked out',
+            onPress: () => router.push({
+              pathname: '/(app)/(vehicles)/[id]',
+              params: { id: (action as { vehicleLocationId: string }).vehicleLocationId },
+            } as never),
+          },
+          'past-due': {
+            icon: '⏰',
+            sub: 'Repairs & service needing attention',
+            onPress: () => router.push(
+              ((action as { target: string }).target === 'repairs'
+                ? '/(app)/(repairs)'
+                : '/(app)/(equipment)') as never,
+            ),
+          },
+          'low-stock-catalog': {
+            icon: '⚠️',
+            sub: 'View them like the Item Catalog',
+            onPress: () => router.push('/(app)/(inventory)/low-stock' as never),
+          },
+        };
+        const { icon, sub, onPress } = qa[action.key];
+        return (
+          <TouchableOpacity key={key} style={s.qaCard} onPress={onPress}>
+            <Text style={s.qaIcon}>{icon}</Text>
+            <View style={s.qaText}>
+              <Text style={s.qaLabel}>{action.label}</Text>
+              <Text style={s.qaSub}>{sub}</Text>
+            </View>
+            <Text style={s.qaChevron}>›</Text>
+          </TouchableOpacity>
+        );
       }
       case 'low-stock':
         return shown.length > 0 ? (
@@ -282,6 +349,21 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     letterSpacing: 1,
     marginTop: 8,
   },
+  qaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: t.colors.accentBg,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: t.colors.accent,
+  },
+  qaIcon: { fontSize: 22 },
+  qaText: { flex: 1 },
+  qaLabel: { fontSize: 15, fontWeight: '700', color: t.colors.accent },
+  qaSub: { fontSize: 12, color: t.colors.accent, opacity: 0.8, marginTop: 2 },
+  qaChevron: { fontSize: 24, fontWeight: '600', color: t.colors.accent },
   alert: {
     backgroundColor: t.colors.accentBg,
     borderRadius: 12,
