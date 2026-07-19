@@ -6,6 +6,10 @@ import {
   enumerateWeeks,
   isCurrentWeek,
   formatWeekRange,
+  parseWeekBoundary,
+  boundaryWeekStartIso,
+  rotationIndexForWeek,
+  DEFAULT_WEEK_BOUNDARY,
 } from './weekMath';
 
 // ---------------------------------------------------------------- addDaysIso
@@ -129,4 +133,47 @@ test('formatWeekRange: across a month boundary', () => {
 
 test('formatWeekRange: across a year boundary', () => {
   assert.equal(formatWeekRange('2025-12-29'), 'Dec 29 – Jan 4');
+});
+
+// --------------------------------------------------------- parseWeekBoundary
+
+test('parseWeekBoundary: null/malformed/out-of-range → Thursday 08:00 default', () => {
+  assert.deepEqual(parseWeekBoundary(null), { day: 4, hour: 8 });
+  assert.deepEqual(parseWeekBoundary('not json'), { day: 4, hour: 8 });
+  assert.deepEqual(parseWeekBoundary('{"day":9,"hour":-1}'), { day: 4, hour: 8 });
+  assert.deepEqual(parseWeekBoundary('{"day":1,"hour":0}'), { day: 1, hour: 0 });
+});
+
+// ------------------------------------------------------ boundaryWeekStartIso
+
+test('boundaryWeekStartIso: mid-week date maps to its Thursday', () => {
+  // 2026-07-18 is a Saturday; the Thursday of that boundary week is 2026-07-16
+  assert.equal(boundaryWeekStartIso('2026-07-18', 12, DEFAULT_WEEK_BOUNDARY), '2026-07-16');
+  // Wednesday belongs to the PREVIOUS Thursday-start week
+  assert.equal(boundaryWeekStartIso('2026-07-15', 12, DEFAULT_WEEK_BOUNDARY), '2026-07-09');
+});
+
+test('boundaryWeekStartIso: on the boundary day, the hour decides the week', () => {
+  // Thursday 2026-07-16 at 07:59 → still last week; at 08:00 → new week
+  assert.equal(boundaryWeekStartIso('2026-07-16', 7, DEFAULT_WEEK_BOUNDARY), '2026-07-09');
+  assert.equal(boundaryWeekStartIso('2026-07-16', 8, DEFAULT_WEEK_BOUNDARY), '2026-07-16');
+});
+
+test('boundaryWeekStartIso: Monday boundary at hour 0 degrades to plain weekStartIso', () => {
+  assert.equal(boundaryWeekStartIso('2026-07-13', 0, { day: 1, hour: 0 }), '2026-07-13');
+  assert.equal(boundaryWeekStartIso('2026-07-19', 23, { day: 1, hour: 0 }), '2026-07-13');
+});
+
+// ------------------------------------------------------- rotationIndexForWeek
+
+test('rotationIndexForWeek: consecutive weeks get consecutive indices mod length', () => {
+  const i0 = rotationIndexForWeek('2026-07-16', 3);
+  assert.equal(rotationIndexForWeek('2026-07-23', 3), (i0 + 1) % 3);
+  assert.equal(rotationIndexForWeek('2026-07-30', 3), (i0 + 2) % 3);
+  assert.equal(rotationIndexForWeek('2026-08-06', 3), i0); // full cycle
+});
+
+test('rotationIndexForWeek: deterministic (calendar-anchored) and safe on length<=0', () => {
+  assert.equal(rotationIndexForWeek('2026-07-16', 2), rotationIndexForWeek('2026-07-16', 2));
+  assert.equal(rotationIndexForWeek('2026-07-16', 0), 0);
 });

@@ -48,6 +48,51 @@ export function weekStartIso(dateIso: string, weekStartsOn: WeekStartsOn = 1): s
   return addDaysIso(dateIso, -diff);
 }
 
+/** Admin-configured week boundary: day-of-week (0=Sun…6=Sat) + local hour (0–23). */
+export interface WeekBoundary { day: WeekStartsOn; hour: number }
+
+/** Default per spec: on-call weeks flip Thursday 08:00 local. */
+export const DEFAULT_WEEK_BOUNDARY: WeekBoundary = { day: 4, hour: 8 };
+
+/** Tolerant parse of the app_config 'on_call_week_boundary' JSON. */
+export function parseWeekBoundary(raw: string | null): WeekBoundary {
+  if (!raw) return DEFAULT_WEEK_BOUNDARY;
+  try {
+    const p = JSON.parse(raw) as { day?: unknown; hour?: unknown };
+    const day = Number(p.day);
+    const hour = Number(p.hour);
+    return {
+      day: (Number.isInteger(day) && day >= 0 && day <= 6 ? day : DEFAULT_WEEK_BOUNDARY.day) as WeekStartsOn,
+      hour: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : DEFAULT_WEEK_BOUNDARY.hour,
+    };
+  } catch {
+    return DEFAULT_WEEK_BOUNDARY;
+  }
+}
+
+/**
+ * Start date of the boundary week containing the local instant
+ * (dateIso, hourOfDay). On the boundary day itself, hours BEFORE b.hour
+ * still belong to the previous week.
+ */
+export function boundaryWeekStartIso(dateIso: string, hourOfDay: number, b: WeekBoundary): string {
+  const base = weekStartIso(dateIso, b.day);
+  return base === dateIso && hourOfDay < b.hour ? addDaysIso(base, -7) : base;
+}
+
+/**
+ * Calendar-anchored rotation slot for a week: floor(epochDays/7) mod length.
+ * Purely a function of the week date, so every device fills the SAME crew for
+ * the same week (offline double-fill converges via the week_start upsert) and
+ * a manual override of one week never shifts the others.
+ */
+export function rotationIndexForWeek(weekStartIso: string, rotationLength: number): number {
+  if (rotationLength <= 0) return 0;
+  const days = Math.round(toUtcDate(weekStartIso).getTime() / DAY_MS);
+  const weekNo = Math.floor(days / 7);
+  return ((weekNo % rotationLength) + rotationLength) % rotationLength;
+}
+
 /**
  * Consecutive week-start ISO dates, always in ascending order, each 7 days
  * apart. `fromIso` is first normalized to its week start. `count > 0` yields
