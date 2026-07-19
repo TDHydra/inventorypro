@@ -56,6 +56,7 @@ before(async () => {
   seedLocation({ id: 'shop-1', name: 'Shop', type: 'Shop', has_shelves: 1 });
   seedLocation({ id: 'shelf-a1', name: 'A1', parent_id: 'shop-1', type: 'Shelf' });
   seedLocation({ id: 'van-1', name: 'Van 1', type: 'Vehicle' });
+  seedLocation({ id: 'locker-1', name: "Frank's Locker", type: 'Locker' });
   // Top-level shelf (parent_id null) — e.g. created by findOrCreateShelfByName.
   seedLocation({ id: 'shelf-top', name: 'WH-B2', type: 'Shelf' });
 });
@@ -63,9 +64,27 @@ before(async () => {
 test('getNonShelfLocations excludes parented AND top-level shelves', () => {
   const ids = loc.getNonShelfLocations().map(l => l.id);
   assert.ok(ids.includes('shop-1'));
-  assert.ok(ids.includes('van-1'));
+  assert.ok(!ids.includes('van-1'), 'units are not first-class picker options (#122 A2)');
   assert.ok(!ids.includes('shelf-a1'), 'parented shelf must not be a first-class option');
   assert.ok(!ids.includes('shelf-top'), 'top-level shelf must not be a first-class option');
+});
+
+test('units excluded from browse/tree and picker lists (#122 A2)', () => {
+  const browsable = loc.getBrowsableLocations().map(l => l.id);
+  assert.ok(!browsable.includes('van-1'));
+  assert.ok(!browsable.includes('locker-1'));
+  assert.ok(browsable.includes('shop-1'), 'real places still browsable');
+  assert.ok(!loc.getNonShelfLocations().map(l => l.id).includes('locker-1'));
+});
+
+test('getUnitLocations partitions by kind', () => {
+  assert.deepEqual(loc.getUnitLocations('Vehicle').map(l => l.id), ['van-1']);
+  assert.deepEqual(loc.getUnitLocations('Locker').map(l => l.id), ['locker-1']);
+});
+
+test('no sub-areas under units: creation helpers refuse a Vehicle/Locker parent (#122 A2)', () => {
+  assert.equal(loc.findOrCreateShelf('van-1', 'V1'), null);
+  assert.equal(loc.findOrCreateShelf('locker-1', 'L1'), null);
 });
 
 test('resolve: null location → { ok: true, id: null }', () => {

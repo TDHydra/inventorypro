@@ -6,7 +6,7 @@ import { Stack, useRouter } from 'expo-router';
 import { generateUUID } from '../../../src/utils/uuid';
 import {
   getLocationTree, upsertLocation, getLocationById, getBrowsableLocations, getLocationPath,
-  LocationWithChildren,
+  isUnitLocation, LocationWithChildren,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -16,9 +16,6 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { appendLog } from '../../../src/db/queries/log';
 import { ensureVehicleRow } from '../../../src/db/queries/vehicles';
-import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
-import { VehicleSheet } from '../../../src/components/vehicles/VehicleSheet';
-import { LockerSheet } from '../../../src/components/lockers/LockerSheet';
 import { runInTransaction } from '../../../src/db/tx';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { UserPicker } from '../../../src/components/pickers';
@@ -53,30 +50,20 @@ export default function LocationsScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const dataVersion = useDataVersion();
 
-  // Quick "info" tap-through (#122): Vehicle/Locker rows get a trailing ⓘ that
-  // opens the full VehicleSheet/LockerSheet in place (row tap still navigates
-  // to the detail page as primary). Target persists after close so ModalSheet's
-  // exit animation runs against a valid locationId.
-  const [infoTarget, setInfoTarget] = useState<{ kind: 'vehicle' | 'locker'; id: string } | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
-  function openInfo(kind: 'vehicle' | 'locker', id: string) {
-    setInfoTarget({ kind, id });
-    setInfoOpen(true);
-  }
-
   // Re-read the location tree whenever a background sync pull applies changes,
   // so an already-open list refreshes without a manual pull-to-refresh.
   useEffect(() => {
     setTree(getLocationTree());
   }, [dataVersion]);
 
-  // Location-type taxonomy (Shop, Vehicle, Locker, …) for the create-form picker,
-  // the list section filter, and per-row type badges. Active types only. 'Shelf'
-  // is filtered out defensively — it's a hardcoded sub-level type (see
-  // findOrCreateShelf), not a real admin-managed location type, so it must never
-  // appear as a browsable section or a choosable create-form type even if an
-  // admin manually adds a "Shelf" label under Manage Types.
-  const locationTypes = useMemo(() => getLocationTypes().filter(t => t.label !== 'Shelf'), []);
+  // Location-type taxonomy (Shop, Office, …) for the create-form picker, the
+  // list section filter, and per-row type badges. Active types only. 'Shelf' is
+  // filtered out defensively — it's a hardcoded sub-level type (see
+  // findOrCreateShelf), not a real admin-managed location type. 'Vehicle' and
+  // 'Locker' are UNITS (#122 A2): they live in their own management screens,
+  // not the places browser, so they're neither a browsable section nor a
+  // choosable create-form type here.
+  const locationTypes = useMemo(() => getLocationTypes().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)), []);
   // label → icon, used to render a row's type badge from its stored `type` label.
   // Includes BOTH top-level and sub-area types so a sub-area row's badge resolves.
   const typeIconByLabel = useMemo(
@@ -155,7 +142,7 @@ export default function LocationsScreen() {
     () =>
       isSubArea
         ? getLocationSubtypesWithFallback()
-        : getLocationTypesWithFallback().filter(t => t.label !== 'Shelf'),
+        : getLocationTypesWithFallback().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)),
     [isSubArea],
   );
 
@@ -189,6 +176,15 @@ export default function LocationsScreen() {
 
   function doCreate() {
     if (isWriteBlocked()) return;
+    // Units (Vehicle/Locker) can't contain sub-areas (#122 A2). The parent
+    // picker already excludes them (getBrowsableLocations), but a preset parent
+    // param or legacy deep link could still slip one in — and the server would
+    // permanently reject the push, leaving a stuck-looking local row.
+    const parent = parentId ? getLocationById(parentId) : null;
+    if (parent && isUnitLocation(parent)) {
+      Alert.alert('Not allowed', `"${parent.name}" is a ${parent.type} — vehicles and lockers can't contain sub-areas.`);
+      return;
+    }
     const id = generateUUID();
     const now = new Date().toISOString();
     const trimmed = name.trim();
@@ -298,19 +294,8 @@ export default function LocationsScreen() {
             {!!loc.owner_user_id && (
               <Text style={s.ownerMeta}>Owner: {userMap.get(loc.owner_user_id) ?? loc.owner_user_id}</Text>
             )}
-            {loc.type === 'Vehicle' && <VehicleInlineStatus locationId={loc.id} />}
           </View>
         </TouchableOpacity>
-        {(loc.type === 'Vehicle' || loc.type === 'Locker') && (
-          <TouchableOpacity
-            onPress={() => openInfo(loc.type === 'Vehicle' ? 'vehicle' : 'locker', loc.id)}
-            style={s.infoBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            accessibilityLabel={`Quick view ${loc.name}`}
-          >
-            <Text style={s.infoIcon}>ⓘ</Text>
-          </TouchableOpacity>
-        )}
       </View>
     );
   }
@@ -348,19 +333,8 @@ export default function LocationsScreen() {
               {!!node.owner_user_id && (
                 <Text style={s.ownerMeta}>Owner: {userMap.get(node.owner_user_id) ?? node.owner_user_id}</Text>
               )}
-              {node.type === 'Vehicle' && <VehicleInlineStatus locationId={node.id} />}
             </View>
           </TouchableOpacity>
-          {(node.type === 'Vehicle' || node.type === 'Locker') && (
-            <TouchableOpacity
-              onPress={() => openInfo(node.type === 'Vehicle' ? 'vehicle' : 'locker', node.id)}
-              style={s.infoBtn}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel={`Quick view ${node.name}`}
-            >
-              <Text style={s.infoIcon}>ⓘ</Text>
-            </TouchableOpacity>
-          )}
           {expandable && (
             <TouchableOpacity
               onPress={() => toggle(node.id)}
@@ -572,14 +546,6 @@ export default function LocationsScreen() {
               </View>
             </ScrollView>
         </ModalSheet>
-
-        {/* In-place quick-view sheets for Vehicle/Locker rows (#122). */}
-        {infoTarget?.kind === 'vehicle' && (
-          <VehicleSheet locationId={infoTarget.id} visible={infoOpen} onClose={() => setInfoOpen(false)} />
-        )}
-        {infoTarget?.kind === 'locker' && (
-          <LockerSheet locationId={infoTarget.id} visible={infoOpen} onClose={() => setInfoOpen(false)} />
-        )}
       </View>
     </>
   );
@@ -608,8 +574,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   meta: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
   ownerMeta: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, marginTop: 2 },
   chevron: { fontSize: t.typography.fontSizes.lg, color: t.colors.textMuted, paddingHorizontal: 4 },
-  infoBtn: { paddingHorizontal: 4, paddingVertical: 4 },
-  infoIcon: { fontSize: t.typography.fontSizes.lg, color: t.colors.primary, paddingHorizontal: 2 },
 
   children: { marginLeft: 20, marginTop: 6, paddingLeft: 14, borderLeftWidth: 2, borderLeftColor: t.colors.border, gap: 6 },
   addSub: { paddingVertical: 6, paddingHorizontal: 2 },
