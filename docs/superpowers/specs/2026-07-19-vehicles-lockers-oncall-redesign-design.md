@@ -68,6 +68,18 @@ user sees is split.
 - **Dashboard editor:** when building a preset for a user/role, offer only widgets whose
   `requiredPermission` that target passes (`PermissionGate` stays as runtime backstop).
 
+## B2. Per-role dashboard picker (added 2026-07-19)
+
+- In the Role & Permissions page, under each role, an admin selects which dashboard
+  preset that role automatically uses. Schema already exists
+  (`039_dashboards.sql`: `dashboard_presets`, `role_settings.dashboard_preset_id`
+  per-role, `users.dashboard_preset_id` per-user override, NULL → built-in default).
+- UI: kit `SelectField` per role (active presets + "Default"); write guarded by the
+  existing role-editing tier rules (`canEditRolePermission` idiom, server-enforced
+  wherever `role_settings` writes are guarded).
+- Reactivity: preset changes must propagate through the dashboard store without
+  remount (`useSyncExternalStore` — the known module-cache gotcha).
+
 ## C. On-call: settings, rotation, coverage
 
 - **Settings** (admin UI + `app_config`): `on_call_week_boundary` = day-of-week + hour
@@ -100,6 +112,7 @@ user sees is split.
    filter, manage-context visibility (#130).
 3. **B** — access defaults template + Teams-tab permissions sheet + dashboard editor
    filtering.
+3b. **B2** — per-role dashboard preset picker in Role & Permissions (#136).
 4. **C** — on-call settings + rotation autofill + coverage form + `on_call` channel.
 5. **D** — locations polish (rooms/shelves flow).
 
