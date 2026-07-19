@@ -811,6 +811,25 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* ── On-Call Settings (admin only — synced app_config) ─────────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>On-Call</Text>
+            <View style={s.card}>
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/on-call-settings')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>📅 On-Call Settings</Text>
+                  <Text style={s.rowSub}>Week boundary and crew rotation order</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* ── Approvals (admin only — synced app_config) ────────────────── */}
         {isAdmin && (
           <View>
