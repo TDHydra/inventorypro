@@ -8,9 +8,9 @@ import assert from 'node:assert/strict';
 // taxonomyIcon.test.ts: db/schema becomes the REAL sql.js database
 // (locationsShelf.testdb.ts), so getDistinctColumnValues runs its actual SQL
 // against actual SQLite rather than a source-text stand-in. That testdb only
-// provisions locations/taxonomy_types/outbox (what locations.ts needs), so
-// this file adds the inventory_items and jobs tables itself, scoped to just
-// the whitelisted columns under test here.
+// provisions the tables locations.ts needs (locations/taxonomy_types/outbox +
+// minimal stock tables), so this file adds the jobs table and re-creates
+// inventory_items itself, scoped to just the whitelisted columns under test.
 const requireCjs = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const Module = requireCjs('node:module') as any;
@@ -32,6 +32,11 @@ before(async () => {
   suggestions = requireCjs('./suggestions') as typeof import('./suggestions');
 
   const db = testDb.getDb();
+  // The shared testdb now provisions a minimal inventory_items (id/name/active,
+  // for getStockAtLocation in locationsShelf.test.ts). This suite asserts on the
+  // suggestion-whitelist columns (supplier/sku/model/unit), so replace it with
+  // the wider shape rather than colliding on CREATE.
+  db.executeSync(`DROP TABLE IF EXISTS inventory_items`);
   db.executeSync(`
     CREATE TABLE inventory_items (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, sku TEXT, supplier TEXT,

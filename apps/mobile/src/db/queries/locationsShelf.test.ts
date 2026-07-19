@@ -189,3 +189,32 @@ test('findOrCreateShelf under a ROOM creates once and dedupes case-insensitively
   assert.ok(loc.getShelvesForParent('room-maint').some(sh => sh.id === first));
   assert.equal(loc.getLocationById(first!)?.type, 'Shelf');
 });
+
+test('end-to-end: stock placed at a shelf inside a room inside a building', () => {
+  seedLocation({ id: 'bldg-lex', name: 'Lexington Park' });
+  seedLocation({ id: 'room-prod', name: 'Product Room', parent_id: 'bldg-lex', type: 'Storage', has_shelves: 1 });
+  // Two-stage picker: pick the room, type a NEW shelf → shelf created under the room.
+  const res = loc.resolveLocationShelfSelection(
+    { id: 'room-prod', label: 'Product Room' },
+    { id: '__new__', label: 'S1' },
+  );
+  assert.equal(res.ok, true);
+  const shelfId = (res as { ok: true; id: string }).id!;
+  assert.equal(loc.getLocationById(shelfId)?.parent_id, 'room-prod');
+  assert.equal(loc.getLocationPath(shelfId), 'Lexington Park › Product Room › S1');
+  // Reverse mapping seeds the picker back to (room, shelf).
+  assert.deepEqual(loc.resolveLocationShelf(shelfId), {
+    location: { id: 'room-prod', label: 'Product Room' },
+    shelf: { id: shelfId, label: 'S1' },
+  });
+  // Stock tracked against the shelf id is readable at the shelf.
+  testDb.getDb().executeSync(
+    `INSERT INTO inventory_items (id, name, active) VALUES ('item-tape', 'Duct Tape', 1)`,
+  );
+  testDb.getDb().executeSync(
+    `INSERT INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES ('item-tape', ?, 12, ?)`,
+    [shelfId, NOW],
+  );
+  const stock = loc.getStockAtLocation(shelfId);
+  assert.deepEqual(stock.map(r => ({ name: r.name, quantity: r.quantity })), [{ name: 'Duct Tape', quantity: 12 }]);
+});
