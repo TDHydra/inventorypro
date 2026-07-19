@@ -38,6 +38,7 @@ import { ErrorView } from '../../../src/components/ui/ErrorView';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { themeList } from '../../../src/themes/registry';
 import { chooseTheme } from '../../../src/db/userPrefs';
+import { getOrgDefaultThemeId, setOrgDefaultTheme } from '../../../src/db/orgTheme';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
 
@@ -134,6 +135,8 @@ export default function SettingsScreen() {
   const [pollMinInput, setPollMinInput] = useState<string>(() => getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
   const [idleMinInput, setIdleMinInput] = useState<string>(() => getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
   const [thresholdInput, setThresholdInput] = useState<string>(() => getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
+  // Org default theme (Phase E, #138): app_config 'default_theme_id', synced.
+  const [orgThemeId, setOrgThemeId] = useState<string | null>(() => getOrgDefaultThemeId());
   const [formDefault, setFormDefaultState] = useState<FormMode>(() => getFormModeDefault());
   const [formOverride, setFormOverrideState] = useState<FormMode | null>(() => getFormModeOverride());
   const [formResolved, setFormResolvedState] = useState<FormMode>(() => getFormMode());
@@ -237,6 +240,7 @@ export default function SettingsScreen() {
       setPollMinInput(getAppConfig(NOTIFY_POLL_MIN_KEY) ?? '5');
       setIdleMinInput(getAppConfig(NOTIFY_IDLE_MIN_KEY) ?? '15');
       setThresholdInput(getAppConfig(APPROVAL_THRESHOLD_KEY) ?? '');
+      setOrgThemeId(getOrgDefaultThemeId());
     }, [refreshStatus])
   );
 
@@ -553,6 +557,49 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+
+        {/* ── Org default theme (admins; app_config, synced) ────────────── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Org default theme</Text>
+            <View style={s.card}>
+              {themeList().map((th, i) => (
+                <View key={th.id}>
+                  {i > 0 && <View style={s.divider} />}
+                  <TouchableOpacity
+                    style={s.row}
+                    onPress={() => {
+                      try { setOrgDefaultTheme(th.id, user?.id ?? null); setOrgThemeId(th.id); }
+                      catch { /* blocked write — ignore */ }
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowLabel}>{th.name}</Text>
+                    </View>
+                    {[th.colors.background, th.colors.surface, th.colors.primary, th.colors.accent].map((c, j) => (
+                      <View
+                        key={j}
+                        style={{
+                          width: 18, height: 18, borderRadius: 9, backgroundColor: c,
+                          borderWidth: 1, borderColor: th.colors.border, marginLeft: 4,
+                        }}
+                      />
+                    ))}
+                    <Text style={[s.rowSub, { marginLeft: t.spacing.md, width: 18 }]}>
+                      {orgThemeId === th.id ? '✓' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={s.divider} />
+              <View style={s.infoBlock}>
+                <Text style={s.rowSub}>
+                  Applies to the sign-in screen, new installs, and everyone who hasn't picked their own theme. Personal picks above always win.
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* ── Form detail (this device) ─────────────────────────────────── */}
         <View>
