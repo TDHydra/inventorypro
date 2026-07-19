@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, Pressable, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
@@ -23,6 +23,7 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { getTheme } from '../../themes/store';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
+import { StatusPill } from '../ui/StatusPill';
 import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { track } from '../../telemetry';
@@ -50,6 +51,10 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
   // vehicle_model taxonomy (#81) — optional, sticky like owner (fleets are
   // usually added a model at a time). id + label both kept (dual-write, #74).
   const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
+  // Truck mount is set here at creation (or later in the vehicle Edit sheet) —
+  // it's equipment spec, not day-to-day state, so it doesn't live on the panel.
+  // Sticky like model/owner: fleets are usually added a spec at a time.
+  const [truckMount, setTruckMount] = useState(false);
   const [nameError, setNameError] = useState('');
 
   const ownerOptions = useMemo<PickerOption[]>(
@@ -92,7 +97,7 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
       // synced_at is local-only — strip from the outbox payload (server has no such column).
       const { synced_at: _s, ...locRow } = loc;
       appendOutbox('INSERT', 'locations', { ...locRow, active: true });
-      ensureVehicleRow(id, { model: model.label, model_id: model.id });
+      ensureVehicleRow(id, { model: model.label, model_id: model.id, truck_mount: truckMount ? 1 : 0 });
       appendLog({
         action: 'location_created',
         entity_type: 'location',
@@ -139,6 +144,14 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
         onChange={setModel}
       />
 
+      <Pressable onPress={() => setTruckMount(v => !v)} style={s.truckRow}>
+        <StatusPill
+          label={truckMount ? 'Truck mount' : 'No truck mount'}
+          tone={truckMount ? 'primary' : 'neutral'}
+        />
+        <Text style={s.toggleHint}>tap to toggle</Text>
+      </Pressable>
+
       <AdvancedFields>
         <FieldLabel>Owner (optional)</FieldLabel>
         <SearchablePicker
@@ -171,6 +184,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   inputError: { borderColor: t.colors.danger },
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  truckRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  toggleHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
   doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
   doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });
