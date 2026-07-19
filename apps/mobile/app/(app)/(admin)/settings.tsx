@@ -851,6 +851,25 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* ── Unit Access Defaults (admin only — synced via app_config) ── */}
+        {isAdmin && (
+          <View>
+            <Text style={s.sectionTitle}>Unit Access</Text>
+            <View style={s.card}>
+              <TouchableOpacity
+                style={s.row}
+                onPress={() => router.push('/(app)/(admin)/unit-access-defaults')}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>🔑 Unit Access Defaults</Text>
+                  <Text style={s.rowSub}>What a new vehicle/locker grant allows, per role.</Text>
+                </View>
+                <Text style={s.rowSub}>›</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* ── Developer Tools (admin only — keep from Phase 1) ─────────── */}
         {isAdmin && (
           <View>
