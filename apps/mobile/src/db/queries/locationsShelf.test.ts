@@ -163,3 +163,13 @@ function countLocations(): number {
   const rows = testDb.getDb().executeSync(`SELECT COUNT(*) AS n FROM locations`).rows as { n: number }[];
   return rows[0].n;
 }
+
+test('getBrowsableLocations/getLocationTree exclude Vehicle- and Locker-typed rows (A2 central filter)', () => {
+  seedLocation({ id: 'locker-frank', name: "Frank's Locker", type: 'Locker' });
+  const ids = loc.getBrowsableLocations().map(l => l.id);
+  assert.ok(ids.includes('shop-1'));
+  assert.ok(!ids.includes('van-1'), 'vehicles are their own system — not in the Locations browser');
+  assert.ok(!ids.includes('locker-frank'), 'lockers are their own system — not in the Locations browser');
+  const topIds = loc.getLocationTree().map(n => n.id);
+  assert.ok(!topIds.includes('van-1') && !topIds.includes('locker-frank'));
+});

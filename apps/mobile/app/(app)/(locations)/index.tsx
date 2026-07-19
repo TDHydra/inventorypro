@@ -15,7 +15,6 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { appendLog } from '../../../src/db/queries/log';
-import { ensureVehicleRow } from '../../../src/db/queries/vehicles';
 import { runInTransaction } from '../../../src/db/tx';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { UserPicker } from '../../../src/components/pickers';
@@ -202,9 +201,6 @@ export default function LocationsScreen() {
       runInTransaction(() => {
         upsertLocation({ ...payload, active: 1, has_shelves: hasShelves ? 1 : 0, synced_at: null });
         appendOutbox('INSERT', 'locations', payload);
-        // Every Vehicle-typed location gets its 1:1 `vehicles` extension row at
-        // creation (#125) so VehiclePanel/state writes have a base row.
-        if (payload.type === 'Vehicle') ensureVehicleRow(id);
         appendLog({
           action: 'location_created',
           entity_type: 'location',
