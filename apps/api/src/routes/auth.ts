@@ -115,6 +115,18 @@ function rosterRateLimited(ip: string): boolean {
   return r.count > ROSTER_LIMIT;
 }
 
+// Per-IP cap on POST /auth/token (SEC-H residual). The UUID schema bound stops
+// junk user_ids, but an unauthenticated attacker spraying DISTINCT well-formed
+// UUIDs still inserted ~1 attempts-map entry per request between sweeps. This
+// cap runs FIRST in the handler — before isLocked/recordFail can touch the
+// attempts map — so over-cap requests cannot grow memory. It deliberately uses
+// the shared bucket limiter (lib/rateLimit), NOT the attempts map: the guard
+// must not feed the map it exists to protect. Same generosity and window as
+// ROSTER_LIMIT — request.ip is the real client (trustProxy, see index.ts), but
+// a shared-NAT office behind one public IP shouldn't trip it during a morning
+// login rush. Exported for tests.
+export const TOKEN_IP_LIMIT = 200;
+
 export interface AuthRoutesOpts {
   // Shared with routes/audit.ts (see index.ts) so PATCH /audit/demo-mode
   // invalidates the cache these routes read.
@@ -201,6 +213,12 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       },
     },
   }, async (request, reply) => {
+    // SEC-H: per-IP cap BEFORE anything touches the attempts map — an over-cap
+    // caller must not reach isLocked/recordFail, or a sprayed stream of unique
+    // valid-format UUIDs would keep adding one map entry per request.
+    if (overLimit(`tokenip:${request.ip}`, TOKEN_IP_LIMIT, WINDOW_MS)) {
+      return reply.status(429).send({ error: 'Too many requests. Try again later.' });
+    }
     const { user_id, pin } = request.body;
     const lockKey = `token:${user_id}`;
     if (isLocked(lockKey)) {
