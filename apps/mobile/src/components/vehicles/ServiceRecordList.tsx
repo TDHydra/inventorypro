@@ -4,7 +4,7 @@ import { Card } from '../ui/Card';
 import { StatusPill } from '../ui/StatusPill';
 import { AddServiceRecordSheet } from './AddServiceRecordSheet';
 import { getServiceRecords } from '../../db/queries/vehicles';
-import { serviceTargetLabel } from './vehicleSessionLogic';
+import { serviceTargetLabel, serviceTypeLabel } from './vehicleSessionLogic';
 import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -47,7 +47,7 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
               <View style={s.rowMain}>
                 <View style={s.rowHeader}>
                   <Text style={s.rowTitle}>
-                    {new Date(r.event_date).toLocaleDateString()} · {r.type}
+                    {new Date(r.event_date).toLocaleDateString()} · {serviceTypeLabel(r.type)}
                   </Text>
                   {r.target !== 'vehicle' && (
                     <StatusPill label={serviceTargetLabel(r.target)} tone="accent" />
