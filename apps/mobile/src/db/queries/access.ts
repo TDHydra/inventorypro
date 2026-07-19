@@ -12,6 +12,7 @@ import {
 import { getAllLocations, getUnitLocations, isUnitLocation, Location } from './locations';
 import { ROLE_TIER } from '../../constants/roles';
 import type { UserSession } from '../../auth/permissions';
+import { canManageUnitAccess } from '../../access/unitAccessPolicy';
 
 // Locker/vehicle access queries (#126) — the DB-backed wrapper around the pure
 // access kernel in src/access/accessResolution.ts. The kernel mirrors the
@@ -125,6 +126,56 @@ export function getLockerAccessList(locationId: string): LockerAccessEntry[] {
       ORDER BY u.name NULLS LAST, la.user_id`,
     [locationId],
   ).rows);
+}
+
+/** User ids who share a team on which `callerId` is a manager (is_manager=1). */
+export function getManagedOwnerIds(callerId: string): Set<string> {
+  const db = getDb();
+  const rows = rowsAs<{ user_id: string }>(db.executeSync(
+    `SELECT DISTINCT om.user_id
+       FROM team_members om
+       JOIN team_members cm ON cm.team_id = om.team_id
+      WHERE cm.user_id = ? AND cm.is_manager = 1`,
+    [callerId],
+  ).rows);
+  return new Set(rows.map(r => r.user_id));
+}
+
+export interface UserUnitGrant {
+  location_id: string; user_id: string;
+  can_view: number; can_add: number; can_remove: number; can_move: number;
+  can_edit_details: number; can_grant: number;
+  granted_by: string | null; created_at: string; updated_at: string;
+  location_name: string; location_type: string; owner_user_id: string | null;
+}
+
+/** Every unit_access grant `userId` holds, joined with the unit it's on. */
+export function getUserUnitGrants(userId: string): UserUnitGrant[] {
+  const db = getDb();
+  return rowsAs<UserUnitGrant>(db.executeSync(
+    `SELECT ua.location_id, ua.user_id, ua.can_view, ua.can_add, ua.can_remove, ua.can_move,
+            ua.can_edit_details, ua.can_grant, ua.granted_by, ua.created_at, ua.updated_at,
+            l.name AS location_name, l.type AS location_type, l.owner_user_id
+       FROM unit_access ua
+       JOIN locations l ON l.id = ua.location_id
+      WHERE ua.user_id = ? AND l.active = 1
+      ORDER BY l.type, l.name`,
+    [userId],
+  ).rows);
+}
+
+/** Units `user` may create a grant on for `granteeRole` (canManageUnitAccess per unit). */
+export function getGrantableUnits(user: UserSession, granteeRole: string | null): Location[] {
+  const managed = getManagedOwnerIds(user.id);
+  return getAllLocations()
+    .filter(l => l.type === 'Vehicle' || l.type === 'Locker')
+    .filter(l => canManageUnitAccess({
+      callerId: user.id,
+      callerRole: user.role,
+      ownerUserId: l.owner_user_id,
+      callerManagesOwnersTeam: l.owner_user_id != null && managed.has(l.owner_user_id),
+      granteeRole,
+    }));
 }
 
 /**
