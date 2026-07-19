@@ -29,10 +29,9 @@ export function OnCallWidget() {
   const canCoverage = canEdit && (user?.role === 'production_manager' || roleTier >= 3);
   const [open, setOpen] = useState(false);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  // Local assigns/coverage writes and sync pulls both tick the table-version
+  // bus, so the current assignment and coverage list re-read live off it alone.
   const version = useTableVersion(['on_call_shifts', 'subteams', 'app_config', 'on_call_coverage']);
-  // Local assigns (via the calendar's onAssign) don't bump the sync table
-  // version, so track our own bump to re-read the current assignment live.
-  const [localBump, setLocalBump] = useState(0);
 
   const today = localTodayIso();
   const shift = useMemo(
@@ -40,7 +39,7 @@ export function OnCallWidget() {
     // boundary day itself (Thursday 07:59 still shows last week's crew).
     () => getCurrentShift(today, localNowHour()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today, version, localBump],
+    [today, version],
   );
   const crewLabel = shift?.subteam_id ? (shift.subteam_name ?? 'Unknown crew') : null;
 
@@ -48,7 +47,7 @@ export function OnCallWidget() {
   const coverage = useMemo(
     () => getCoverage(today, addDaysIso(today, 60)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today, version, localBump],
+    [today, version],
   );
 
   return (
@@ -69,10 +68,7 @@ export function OnCallWidget() {
           Week of {formatWeekRange(boundaryWeekStartIso(today, localNowHour(), getWeekBoundary()))}
           {canEdit ? ' — tap a week to assign a crew' : ''}
         </Text>
-        <OnCallCalendar
-          canEdit={canEdit}
-          onAssign={() => setLocalBump(v => v + 1)}
-        />
+        <OnCallCalendar canEdit={canEdit} />
         {coverage.length > 0 && (
           <View style={s.coverageSection}>
             <Text style={s.coverageTitle}>Upcoming coverage</Text>
@@ -100,7 +96,7 @@ export function OnCallWidget() {
           sheet — the AddServiceRecordSheet host pattern. */}
       <CoverageSheet
         visible={coverageOpen}
-        onClose={() => { setCoverageOpen(false); setLocalBump(v => v + 1); }}
+        onClose={() => setCoverageOpen(false)}
       />
     </>
   );

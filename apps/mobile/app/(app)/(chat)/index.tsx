@@ -78,7 +78,7 @@ export default function ChatListScreen() {
     return getAllActiveUsers()
       .filter(u => u.id !== userId && !chosen.has(u.id))
       .map(u => ({ id: u.id, label: u.name, sublabel: u.role }));
-  }, [userId, selected]);
+  }, [userId, selected, dataVersion]);
 
   const openCompose = useCallback(() => {
     setSelected([]);

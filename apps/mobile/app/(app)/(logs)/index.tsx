@@ -165,15 +165,15 @@ export default function LogsScreen() {
   const userOptions = useMemo<PickerOption[]>(() => {
     if (!canViewAll) return [];
     return getAllActiveUsers().map(u => ({ id: u.id, label: u.name }));
-  }, [canViewAll]);
+  }, [canViewAll, dataVersion]);
 
-  const roleColors = useMemo(() => getRoleColorMap(), []);
+  const roleColors = useMemo(() => getRoleColorMap(), [dataVersion]);
   // Map user name → role for tinting actor names in server-fetched log rows
   // (ServerLogRow carries user_name but not user_id; getAllUsers includes inactive
   // users who may appear in historical log entries).
   const userRoleByName = useMemo(
     () => Object.fromEntries(getAllUsers().map(u => [u.name, u.role])),
-    [],
+    [dataVersion],
   );
 
   // Action options derived from the shared ACTION_ICONS map

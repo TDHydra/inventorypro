@@ -5,6 +5,7 @@ import { LockerPanel } from '../../../src/components/lockers/LockerPanel';
 import { getLocationById } from '../../../src/db/queries/locations';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 
 // Thin full-page wrapper for the embeddable LockerPanel (Panel → Sheet →
 // Route). All data loading/refresh lives in the panel; this route only sets
@@ -12,7 +13,8 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 export default function LockerDetailScreen() {
   const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
-  const title = useMemo(() => getLocationById(id)?.name ?? 'Locker', [id]);
+  const locationsVersion = useTableVersion(['locations']);
+  const title = useMemo(() => getLocationById(id)?.name ?? 'Locker', [id, locationsVersion]);
 
   return (
     <>

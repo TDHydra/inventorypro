@@ -11,6 +11,7 @@ import { confirmSheet } from '../ui/ConfirmSheet';
 import { ServiceRecordList } from './ServiceRecordList';
 import { UnitContentsPanel } from '../units/UnitContentsPanel';
 import { VehicleCheckoutSheet, type CheckoutSheetMode } from './VehicleCheckoutSheet';
+import { VehicleEditSheet } from './VehicleEditSheet';
 import {
   getVehicle, upsertVehicleState, getActiveCheckout, getCheckoutHistory,
   checkInVehicle, VEHICLE_MODEL_CATEGORY, type WaterTank, type WasteTank,
@@ -62,6 +63,7 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const canCheckout = usePermission('checkout_inventory');
+  const canEdit = usePermission('edit_inventory');
   const { locked } = useMaintenanceMode();
 
   // Refocus + per-table pull granularity: re-read when the screen regains focus
@@ -91,6 +93,7 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   }, [vehicle?.model, vehicle?.model_id, refreshKey]);
 
   const [sheet, setSheet] = useState<{ mode: CheckoutSheetMode; sessionId?: string; initialJobId?: string | null } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (!location) {
     return (
@@ -114,11 +117,6 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   function setWasteTank(id: string) {
     if (isWriteBlocked()) return;
     upsertVehicleState(locationId, { waste_tank: id as WasteTank }, user?.id ?? null);
-  }
-
-  function toggleTruckMount() {
-    if (isWriteBlocked()) return;
-    upsertVehicleState(locationId, { truck_mount: vehicle?.truck_mount ? 0 : 1 }, user?.id ?? null);
   }
 
   async function onPrimaryPress() {
@@ -146,6 +144,11 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
     <View>
       <View style={s.headerRow}>
         <Text style={s.name} numberOfLines={1}>{location.icon ? `${renderIcon(location.icon)} ` : ''}{location.name}</Text>
+        {variant === 'full' && canEdit && !locked && (
+          <Pressable onPress={() => setEditOpen(true)} hitSlop={8}>
+            <Text style={s.editLink}>Edit</Text>
+          </Pressable>
+        )}
         {onNavigate && <Text style={s.chevron}>›</Text>}
       </View>
       {!!vehicle?.model && (
@@ -193,20 +196,21 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
         {onNavigate ? <Pressable onPress={onNavigate}>{header}</Pressable> : header}
       </Card>
 
-      {/* State: truck mount + water. Both write upsertVehicleState (creates the
-          extension row on first write when it's missing). Deliberately NOT
+      {/* State: tank levels. Writes upsertVehicleState (creates the extension
+          row on first write when it's missing). Deliberately NOT
           permission-gated — the server accepts `vehicles` writes from any
           authed device (OPERATION_PERM null), and the whole point is a helper
-          marking the tank emptied without edit_inventory. */}
+          marking the tank emptied without edit_inventory. Truck mount is
+          equipment spec, not state — read-only pill here, edited via the
+          header Edit sheet (or set at creation in VehicleQuickAdd). */}
       <Text style={s.sectionLabel}>State</Text>
       <Card variant="detail">
-        <Pressable onPress={locked ? undefined : toggleTruckMount} style={s.truckRow}>
+        <View style={s.truckRow}>
           <StatusPill
             label={vehicle?.truck_mount ? 'Truck mount' : 'No truck mount'}
             tone={vehicle?.truck_mount ? 'primary' : 'neutral'}
           />
-          {!locked && <Text style={s.toggleHint}>tap to toggle</Text>}
-        </Pressable>
+        </View>
         <FieldLabel style={s.waterLabel}>Water tank</FieldLabel>
         {locked ? (
           <Text style={s.muted}>{waterTankLabel(vehicle?.water_tank ?? 'empty')}</Text>
@@ -309,6 +313,7 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
           initialJobId={sheet.initialJobId}
         />
       )}
+      <VehicleEditSheet locationId={locationId} visible={editOpen} onClose={() => setEditOpen(false)} />
     </View>
   );
 }
@@ -328,8 +333,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginTop: t.spacing.xs,
   },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing.md },
-  truckRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
-  toggleHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
+  editLink: { fontSize: t.typography.fontSizes.sm, fontWeight: '600', color: t.colors.brand, marginLeft: t.spacing.sm },
+  truckRow: { flexDirection: 'row', alignItems: 'center' },
   waterLabel: { marginTop: t.spacing.md },
   muted: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted },
   primaryBtn: { marginTop: t.spacing.md },

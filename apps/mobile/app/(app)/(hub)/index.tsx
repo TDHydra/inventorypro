@@ -40,6 +40,7 @@ import { formatQuantity } from '../../../src/constants/units';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
+import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
@@ -62,6 +63,10 @@ export default function HubScreen() {
   const [query, setQuery] = useState('');
   const [flapOpen, setFlapOpen] = useState(false);
 
+  // Global data-version (not per-table): searchEverything + the catalog span
+  // items/stock/equipment/locations/jobs/users, so re-read on any change.
+  const dataVersion = useDataVersion();
+
   // Deep-link entry points from the dashboard search bar: ?scan=1 jumps straight
   // to the camera; ?q=<text> opens with the flap revealed and the query prefilled.
   useEffect(() => {
@@ -80,10 +85,10 @@ export default function HubScreen() {
   }, [params.loc]);
   // Unknown/stale ids (or a location deleted mid-session) resolve to null and
   // scope nothing — the banner simply doesn't render.
-  const locContext = useMemo(() => (locId ? getLocationById(locId) : null), [locId]);
+  const locContext = useMemo(() => (locId ? getLocationById(locId) : null), [locId, dataVersion]);
   const locItemIds = useMemo(
     () => (locContext ? new Set(getStockAtLocation(locContext.id).map(r => r.item_id)) : null),
-    [locContext?.id],
+    [locContext?.id, dataVersion],
   );
 
   // Consumable in/out working state.
@@ -130,14 +135,14 @@ export default function HubScreen() {
   // Catalog (empty-query) list — the "follows the old Manage Catalog" list.
   const catalogItems = useMemo(
     () => searchItems('', 100, 0, undefined, 'product'),
-    [],
+    [dataVersion],
   );
-  const catalogEquipment = useMemo(() => getEquipmentModels(), []);
+  const catalogEquipment = useMemo(() => getEquipmentModels(), [dataVersion]);
 
   // Live grouped search results.
   const rawResults: GlobalSearchResults = useMemo(
     () => searchEverything(query),
-    [query],
+    [query, dataVersion],
   );
   const hasQuery = query.trim().length > 0;
 
@@ -335,7 +340,7 @@ export default function HubScreen() {
         label: s.location_name,
         sublabel: formatQuantity(s.quantity, item.unit, item.unit_category as any),
       }));
-  }, [pendingAction]);
+  }, [pendingAction, dataVersion]);
 
   function selectSource(opt: PickerOption) {
     setSourceSel(opt);

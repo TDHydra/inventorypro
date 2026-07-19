@@ -8,6 +8,7 @@ import { runInTransaction } from '../../../src/db/tx';
 import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { appendOutbox } from '../../../src/sync/outbox';
 import {
@@ -92,11 +93,14 @@ export default function RepairDetailScreen() {
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => setReloadKey(k => k + 1), []);
+  // Synced repair changes re-read via the table version; reloadKey stays the
+  // LOCAL own-write counter (it alone drives the edit-buffer reseed below).
+  const version = useTableVersion(['repairs', 'repair_parts']);
 
-  const repair = useMemo(() => (id ? getRepairById(id) : null), [id, reloadKey]);
+  const repair = useMemo(() => (id ? getRepairById(id) : null), [id, reloadKey, version]);
   const repairParts = useMemo<RepairPart[]>(
     () => (repair ? getRepairParts(repair.id) : []),
-    [repair, reloadKey],
+    [repair, reloadKey, version],
   );
 
   // Editable field buffers (re-seeded whenever the repair reloads)
@@ -120,19 +124,21 @@ export default function RepairDetailScreen() {
     setSeededFor(`${repair.id}:${reloadKey}`);
   }
 
-  const statuses = useMemo(() => getRepairStatusesWithFallback(), []);
+  // Option lists re-read when their source tables change (pull or local write).
+  const optionsVersion = useTableVersion(['taxonomy_types', 'locations', 'users', 'role_settings']);
+  const statuses = useMemo(() => getRepairStatusesWithFallback(), [optionsVersion]);
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
-    [],
+    [optionsVersion],
   );
   const assigneeOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
-    [],
+    [optionsVersion],
   );
-  const roleColorMap = useMemo(() => getRoleColorMap(), []);
+  const roleColorMap = useMemo(() => getRoleColorMap(), [optionsVersion]);
   const assigneeUser = useMemo(
     () => (assigneeOpt ? getUserById(assigneeOpt.id) : null),
-    [assigneeOpt],
+    [assigneeOpt, optionsVersion],
   );
 
   // Return-location modal state (only used for equipment-unit completion)

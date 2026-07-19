@@ -7,6 +7,7 @@ import { getLogForEntity, LogEntry } from '../db/queries/log';
 import { getPrimaryMedia, getMediaForEntity, MediaRecord } from '../db/queries/media';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useTableVersion } from '../hooks/useDataVersion';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -94,9 +95,12 @@ export interface ActivityFeedProps {
 
 export default function ActivityFeed({ entityType, entityId, limit = 50 }: ActivityFeedProps) {
   const s = useThemedStyles(makeStyles);
+  // Re-read when a sync pull (or local write) touches the log/media tables, so
+  // new entries and photos appear while the host detail screen stays open.
+  const v = useTableVersion(['activity_log', 'media']);
   const entries = useMemo(
     () => getLogForEntity(entityType, entityId, limit),
-    [entityType, entityId, limit],
+    [entityType, entityId, limit, v],
   );
 
   // Lightbox state: null = closed; MediaRecord[] = open showing those photos
@@ -111,7 +115,7 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
       if (p) m[r.id] = p;
     }
     return m;
-  }, [entries]);
+  }, [entries, v]);
 
   return (
     <View style={s.list}>

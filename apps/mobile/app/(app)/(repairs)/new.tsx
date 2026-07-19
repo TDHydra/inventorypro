@@ -12,6 +12,7 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -46,7 +47,8 @@ export default function NewRepairScreen() {
   // ticket must start open (a terminal status here would leave completed_at null
   // while the unit is driven in_repair, never to return). Completion happens on
   // the detail screen.
-  const statuses = useMemo(() => getRepairStatuses().filter(st => !isTerminalStatus(st.label)), []);
+  const taxonomyVersion = useTableVersion(['taxonomy_types']);
+  const statuses = useMemo(() => getRepairStatuses().filter(st => !isTerminalStatus(st.label)), [taxonomyVersion]);
   const [status, setStatus] = useState<string>(() => statuses[0]?.label ?? 'Open');
 
   const [notes, setNotes] = useState('');

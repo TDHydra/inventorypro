@@ -1,6 +1,7 @@
 import { getDb } from '../db/schema';
 import { generateUUID } from '../utils/uuid';
 import { assertWritable } from '../db/maintenance';
+import { queueTableBump } from '../db/tx';
 
 // Max delivery attempts before an entry is considered "failed" and dropped from
 // the active retry loop. Single source of truth (engine + outbox + indicator all
@@ -32,6 +33,10 @@ export function appendOutbox(
      VALUES (?, ?, ?, ?, ?, 0, NULL, NULL)`,
     [generateUUID(), operation, table_name, JSON.stringify(payload), new Date().toISOString()]
   );
+  // Every synced local write passes through here, so this one call is what makes
+  // already-open screens (useTableVersion/useReactiveRows/useDataVersion) re-query
+  // after the surrounding transaction commits — the sync pull bumps separately.
+  queueTableBump(table_name);
 }
 
 // `tableName` scopes the batch to one table — used to drain activity_log on its

@@ -11,6 +11,7 @@ import { getMainStorageLocationId } from '../../db/mainStorage';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { getItemTypes, parseItemTypeMeta, getItemTypeColorMap } from '../../db/queries/taxonomy';
 import { resolveTypeColor } from '../../constants/typeColors';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
@@ -57,11 +58,14 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // Prefilled barcode (e.g. arriving from the Scan Hub's "add as new item" flow).
   const params = useLocalSearchParams<{ barcode?: string }>();
 
+  // Re-read the option lists when a sync pull touches the tables they come from.
+  const optionsVersion = useTableVersion(['taxonomy_types', 'inventory_items']);
+
   // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
   // unit class in meta. Equipment is NOT here (own tab); items are kind='product'.
-  const itemTypes = useMemo(() => getItemTypes(), []);
+  const itemTypes = useMemo(() => getItemTypes(), [optionsVersion]);
   // Item Types are a managed taxonomy → an admin can override the auto color.
-  const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), []);
+  const itemTypeColorMap = useMemo(() => getItemTypeColorMap(), [optionsVersion]);
 
   // Generate the item id up front so the photo thumbnail can upload to this
   // entity before the row is committed (mirrors the full Add screen). Reset on
@@ -124,7 +128,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   // Unit picker options: the context-appropriate curated list first, plus any
   // unit ever typed anywhere in the catalog (deduped) so a legacy/custom unit
   // stays reachable (mirrors the full Add screen).
-  const unitDbOptions = useMemo(() => getDistinctValues('unit'), []);
+  const unitDbOptions = useMemo(() => getDistinctValues('unit'), [optionsVersion]);
   const mergedUnitOptions = useMemo(() => {
     const seen = new Set<string>();
     const merged: string[] = [];

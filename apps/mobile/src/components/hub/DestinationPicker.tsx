@@ -13,6 +13,7 @@ import { appendLog } from '../../db/queries/log';
 import { generateUUID } from '../../utils/uuid';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { isWriteBlocked } from '../../db/maintenance';
 import { runInTransaction } from '../../db/tx';
 import { Alert } from '../../lib/themedAlert';
@@ -51,15 +52,19 @@ export function DestinationPicker({ onResolved }: Props) {
   const [managerLocValue, setManagerLocValue] = useState<PickerOption | null>(null);
   const [officeValue, setOfficeValue] = useState<PickerOption | null>(null);
 
+  // Options re-read when a job/user/location changes (synced or created
+  // elsewhere in the flow, e.g. createJob below).
+  const version = useTableVersion(['jobs', 'users', 'locations']);
+
   const jobOptions: PickerOption[] = useMemo(
     () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
-    [],
+    [version],
   );
   const managerOptions: PickerOption[] = useMemo(
     () => getManagerTierUsers().map(u => ({ id: u.id, label: u.name })),
-    [],
+    [version],
   );
-  const officeLocations = useMemo(() => getOfficeLocations(), []);
+  const officeLocations = useMemo(() => getOfficeLocations(), [version]);
   const officeOptions: PickerOption[] = useMemo(
     () => officeLocations.map(l => ({ id: l.id, label: l.name })),
     [officeLocations],

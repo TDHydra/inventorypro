@@ -7,6 +7,7 @@ import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -40,8 +41,9 @@ export default function UserQuickAdd({ onSaved }: Props) {
   const [nameError, setNameError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Role colors for tinting matched names (built once).
-  const roleColors = useMemo(() => getRoleColorMap(), []);
+  // Role colors for tinting matched names (re-read when role_settings changes).
+  const roleSettingsVersion = useTableVersion(['role_settings']);
+  const roleColors = useMemo(() => getRoleColorMap(), [roleSettingsVersion]);
 
   // Live "already in the system?" search: as you type a name, surface existing
   // users so you can spot a duplicate before creating one. Names are tinted by

@@ -69,6 +69,18 @@ test('ensureVehicleRow seeds two-tank defaults', () => {
   assert.equal(row.waste_tank, 'clean');
 });
 
+test('ensureVehicleRow honors truck_mount init (#122 follow-up: set at creation)', () => {
+  veh.ensureVehicleRow('van-tm', { truck_mount: 1 });
+  assert.equal(veh.getVehicle('van-tm')!.truck_mount, 1);
+  const rows = testDb.getDb().executeSync(
+    `SELECT payload FROM outbox WHERE table_name = 'vehicles' ORDER BY created_at DESC LIMIT 1`).rows;
+  const payload = JSON.parse((rows[0] as { payload: string }).payload);
+  assert.equal(payload.truck_mount, 1, 'outbox payload must carry the initial truck_mount');
+  // Idempotent: a second ensure with a different value must NOT overwrite.
+  veh.ensureVehicleRow('van-tm', { truck_mount: 0 });
+  assert.equal(veh.getVehicle('van-tm')!.truck_mount, 1);
+});
+
 test('upsertVehicleState patches one tank without clobbering the other', () => {
   veh.upsertVehicleState('van-1', { water_tank: 'full' }, 'u-matt');
   assert.equal(veh.getVehicle('van-1')!.waste_tank, 'clean');

@@ -30,6 +30,7 @@ import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { HidableField } from '../../../src/components/ui/HidableField';
 import { RecordAutofillInput, RecordOption } from '../../../src/components/ui/RecordAutofillInput';
 import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 
 export default function CreateJobScreen() {
   const s = useThemedStyles(makeStyles);
@@ -48,28 +49,30 @@ export default function CreateJobScreen() {
   // Optional owning team. null = org-wide (visible to everyone).
   const [team, setTeam] = useState<PickerOption | null>(null);
 
+  // Re-read the option lists when a sync pull touches their tables so a team,
+  // job type or customer added elsewhere shows up while this form is open.
+  const optionsVersion = useTableVersion(['teams', 'taxonomy_types', 'jobs']);
+
   // Only teams this device actually holds are offerable — a non-org user's scoped
   // pull leaves only their own teams here, so they can't assign to a team they
   // don't belong to.
   const teamOptions = useMemo((): PickerOption[] =>
-    getAllTeams().map(t => ({ id: t.id, label: t.name })), []);
+    getAllTeams().map(t => ({ id: t.id, label: t.name })), [optionsVersion]);
 
-  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), []);
+  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), [optionsVersion]);
   const [type, setType] = useState<string | null>(() => {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;
   });
 
   // Every prior customer, each paired with the full details of their last job —
-  // feeds RecordAutofillInput below. Computed once on mount (matches the old
-  // customerOptions' `useMemo(..., [])`, itself never live-reactive to new
-  // syncs mid-session).
+  // feeds RecordAutofillInput below.
   const customerOptions = useMemo((): RecordOption<CustomerAutofillRecord>[] =>
     getCustomersWithLatestJobDetails().map(c => ({
       label: c.customer_name,
       sublabel: c.site_address ?? undefined,
       record: c,
-    })), []);
+    })), [optionsVersion]);
 
   // When an existing customer is picked and confirmed, fill that customer's
   // last-job details — only fields that are still empty. Mirrors the old

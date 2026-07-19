@@ -117,8 +117,8 @@ export default function TeamDetailScreen() {
   // the member.
   const [permMember, setPermMember] = useState<TeamMember | null>(null);
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
-  const roleColors = useMemo(() => getRoleColorMap(), []);
+  const allUsers = useMemo(() => getAllActiveUsers(), [refreshKey]);
+  const roleColors = useMemo(() => getRoleColorMap(), [refreshKey]);
   const userOptions = useMemo<PickerOption[]>(
     () => allUsers.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
     [allUsers],

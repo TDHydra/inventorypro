@@ -21,6 +21,7 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
 import { Alert } from '../../../src/lib/themedAlert';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
@@ -81,15 +82,19 @@ export default function RolesScreen() {
   const { user: sessionUser } = useSession();
   const { locked } = useMaintenanceMode();
   const canManage = usePermission('manage_roles_permissions');
-  const [minPins, setMinPins] = useState<Record<string, number>>(() => getRoleSettings());
+  // Re-read when a local write or sync pull touches the tables this screen
+  // renders — replaces the old manual post-write setState re-reads.
+  const version = useTableVersion(['role_settings', 'dashboard_presets']);
+  const minPins = useMemo<Record<string, number>>(() => getRoleSettings(), [version]);
   // Per-role permission deviations from ROLE_DEFAULTS ({role: {perm: bool}}).
-  const [overrides, setOverrides] = useState<Record<string, Record<string, boolean>>>(
-    () => getRolePermissionOverrides()
+  const overrides = useMemo<Record<string, Record<string, boolean>>>(
+    () => getRolePermissionOverrides(),
+    [version],
   );
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [roleColors, setRoleColors] = useState<Record<string, string>>(() => getRoleColorMap());
-  const [rolePresets, setRolePresets] = useState<Record<string, string | null>>(() => getRoleDashboardPresetIds());
-  const [presets] = useState(() => getDashboardPresets());
+  const roleColors = useMemo<Record<string, string>>(() => getRoleColorMap(), [version]);
+  const rolePresets = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
+  const presets = useMemo(() => getDashboardPresets(), [version]);
 
   // Effective value of a role→permission cell: ROLE_DEFAULTS merged with the
   // role override (when a key exists). `modified` flags an active override.
@@ -154,10 +159,9 @@ export default function RolesScreen() {
       );
       return;
     }
-    // Commit succeeded — refresh the permission cache + local override map so the UI
-    // reflects the committed change.
+    // Commit succeeded — refresh the permission cache so gates elsewhere see the
+    // change; the overrides memo re-reads via the role_settings table version.
     loadRolePermissionCache();
-    setOverrides(getRolePermissionOverrides());
   }
 
   function effectiveMinPin(role: UserRole): number {
@@ -190,7 +194,7 @@ export default function RolesScreen() {
       );
       return;
     }
-    setRoleColors(getRoleColorMap()); // refresh local map (after commit) → preview + swatches update
+    // roleColors memo re-reads via the role_settings table version → preview + swatches update
   }
 
   function changeRolePreset(role: UserRole, presetId: string | null) {
@@ -221,7 +225,7 @@ export default function RolesScreen() {
       );
       return;
     }
-    setRolePresets(getRoleDashboardPresetIds()); // refresh this screen's map
+    // rolePresets memo re-reads via the role_settings table version
     loadDashboardCache(); // notify subscribers → affected dashboards re-render live (no remount)
   }
 
@@ -254,7 +258,7 @@ export default function RolesScreen() {
       );
       return;
     }
-    setMinPins(prev => ({ ...prev, [role]: next })); // refresh local state after commit
+    // minPins memo re-reads via the role_settings table version after commit
   }
 
   return (

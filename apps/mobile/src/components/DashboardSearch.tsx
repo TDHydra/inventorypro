@@ -9,6 +9,7 @@ import { track } from '../telemetry';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useDataVersion } from '../hooks/useDataVersion';
 
 /**
  * The top-of-dashboard search. A collapsible "flap": tap the bar to expand an
@@ -38,7 +39,10 @@ export function DashboardSearch() {
     setInfoOpen(true);
   }
 
-  const results = useMemo(() => searchEverything(query), [query]);
+  // dataVersion: searchEverything spans many tables — re-run when data changes
+  // so results don't go stale while the query text sits unchanged.
+  const dataVersion = useDataVersion();
+  const results = useMemo(() => searchEverything(query), [query, dataVersion]);
   const hasQuery = query.trim().length > 0;
 
   function expand() {

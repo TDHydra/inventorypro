@@ -19,6 +19,7 @@ import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import { useSession } from '../../../src/hooks/useSession';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../../src/components/LocationSuggestionBanner';
@@ -49,10 +50,14 @@ export default function AddStockScreen() {
     useLocalSearchParams<{ barcode?: string; locationId?: string }>();
   const { coords, request } = useCurrentPosition();
 
+  // Option lists re-read when a local write or sync pull touches their tables —
+  // e.g. a location created via nested quick-add appears without remount.
+  const version = useTableVersion(['taxonomy_types', 'locations', 'inventory_items']);
+
   // Admin-managed Item Type taxonomy (PPE, Filters, …). Each carries its units +
   // unit class in meta. Selecting a type drives the unit class, unit options, and
   // the item's catalog category (mirrors quick-add). Equipment is NOT here.
-  const itemTypes = useMemo(() => getItemTypes(), []);
+  const itemTypes = useMemo(() => getItemTypes(), [version]);
   // Pieces class id — the default unit class when no item type is selected.
   const CLASS_PIECE_ID = PRODUCT_CLASS_IDS.piece;
 
@@ -103,7 +108,7 @@ export default function AddStockScreen() {
     [],
   );
 
-  const allLocations = useMemo(() => getAllLocations(), []);
+  const allLocations = useMemo(() => getAllLocations(), [version]);
   const locationById = useMemo(
     () => new Map(allLocations.map(l => [l.id, l])),
     [allLocations],
@@ -136,7 +141,7 @@ export default function AddStockScreen() {
           sublabel: s.parent_id ? locationById.get(s.parent_id)?.name : undefined,
         }))
       : allLocations.map(l => ({ id: l.id, label: getLocationPath(l.id) }));
-  }, [allLocations, locationById]);
+  }, [allLocations, locationById, version]);
 
   // Units available for the current selection: the selected item type's curated
   // list, falling back to the unit class's units (or piece) when none/empty.
@@ -146,7 +151,7 @@ export default function AddStockScreen() {
   // Unit picker options: the context-appropriate curated list first, plus any
   // unit ever typed anywhere in the catalog (deduped) so a legacy/custom unit
   // stays reachable.
-  const unitDbOptions = useMemo(() => getDistinctValues('unit'), []);
+  const unitDbOptions = useMemo(() => getDistinctValues('unit'), [version]);
   const mergedUnitOptions = useMemo(() => {
     const seen = new Set<string>();
     const merged: string[] = [];
@@ -178,13 +183,15 @@ export default function AddStockScreen() {
   useEffect(() => { void request(); }, []);
 
   // ── "Add stock here": pre-select the add-stock target from the locationId
-  // route param (set when arriving from a location detail screen). Runs once the
-  // param/location map is available; the normal (no-param) flow is untouched.
+  // route param (set when arriving from a location detail screen). Initial-value
+  // seed — keyed on the param ONLY (locationById now changes identity on every
+  // table-version bump; re-running here would clobber a user-changed selection).
   useEffect(() => {
     if (!initialLocationId) return;
     const loc = locationById.get(initialLocationId);
     if (loc) setSelectedLocation({ id: loc.id, label: loc.name });
-  }, [initialLocationId, locationById]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot seed per param
+  }, [initialLocationId]);
 
   // ── Barcode autofill ──────────────────────────────────────────────────────
   useEffect(() => {
