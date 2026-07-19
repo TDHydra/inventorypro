@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyPostgres from '@fastify/postgres';
 import fastifyCors from '@fastify/cors';
@@ -241,7 +241,7 @@ async function build() {
   // Global error handler — never leak internal error detail (stack traces,
   // SQL errors, etc.) on 5xx. Intentional 4xx messages (validation, auth) are
   // preserved since routes rely on those being visible to the client.
-  fastify.setErrorHandler((err, request, reply) => {
+  fastify.setErrorHandler((err: FastifyError, request, reply) => {
     request.log.error({ err }, 'request error');
     const status = (err as any).statusCode ?? 500;
     // Schema-validation rejects are flagged for the audit trail (outcome
