@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import { isOrgAuthority, resolveTeamAuthority } from '../lib/teamAuthority';
 import { participantWriteAllowed, ChatConversationFacts } from '../lib/chatPolicy';
+import { canManageUnitAccess } from '../lib/unitAccessPolicy';
 import {
   loadTableColumns,
   applyWritePolicy,
@@ -1301,13 +1302,12 @@ const routes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // locker_access (#126) / unit_access (#122 Phase A1): these rows GRANT
-      // stock access (the ADJUST locker guard trusts them), so writes are
-      // owner-or-org-authority only. The owner is the DB's
-      // locations.owner_user_id — never the payload's — and a grant against a
-      // location the server doesn't have fails closed with permanent wording
-      // (the location itself was likely rejected upstream).
-      if (entry.table_name === 'locker_access' || entry.table_name === 'unit_access') {
+      // locker_access (#126): these rows GRANT stock access (the ADJUST locker
+      // guard trusts them), so writes are owner-or-org-authority only. The
+      // owner is the DB's locations.owner_user_id — never the payload's — and
+      // a grant against a location the server doesn't have fails closed with
+      // permanent wording (the location itself was likely rejected upstream).
+      if (entry.table_name === 'locker_access') {
         let ownerId: string | null = null;
         let locExists = false;
         try {
@@ -1326,9 +1326,52 @@ const routes: FastifyPluginAsync = async (fastify) => {
         if (!isOrgAuthority(caller.role) && (ownerId == null || String(ownerId) !== userId)) {
           request.log.warn(
             { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
-            'sync push locker_access/unit_access denied (not the owner)',
+            'sync push locker_access denied (not the owner)',
           );
           conflicts.push({ id: entry.id, error: 'Forbidden: only the unit owner can manage access' });
+          continue;
+        }
+      }
+
+      // unit_access (#122 Phase B): per-action grants gate vehicle/locker stock
+      // access, so writes are owner ∪ manager-of-owner's-team ∪ production
+      // manager ∪ tier-3+ — and every non-owner editor must out-tier the
+      // GRANTEE (canManageUnitAccess, lib/unitAccessPolicy.ts). All facts come
+      // from the DB, never the payload; a missing location fails closed with
+      // permanent wording (matches the mobile engine's drop regex).
+      if (entry.table_name === 'unit_access') {
+        let uaFacts:
+          | { owner_user_id: string | null; grantee_role: string | null; manages_owner_team: boolean }
+          | undefined;
+        try {
+          const { rows: uaRows } = await fastify.pg.query(
+            `SELECT l.owner_user_id,
+                    (SELECT role FROM users WHERE id = $2) AS grantee_role,
+                    EXISTS (SELECT 1 FROM team_members om
+                              JOIN team_members cm ON cm.team_id = om.team_id AND cm.is_manager = TRUE
+                             WHERE om.user_id = l.owner_user_id AND cm.user_id = $3) AS manages_owner_team
+               FROM locations l WHERE l.id = $1`,
+            [entry.payload.location_id, entry.payload.user_id, userId],
+          );
+          uaFacts = uaRows[0] as typeof uaFacts;
+        } catch { uaFacts = undefined; }
+        if (!uaFacts) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist' });
+          continue;
+        }
+        const allowed = canManageUnitAccess({
+          callerId: userId,
+          callerRole: caller.role,
+          ownerUserId: uaFacts.owner_user_id == null ? null : String(uaFacts.owner_user_id),
+          callerManagesOwnersTeam: uaFacts.manages_owner_team === true,
+          granteeRole: uaFacts.grantee_role == null ? null : String(uaFacts.grantee_role),
+        });
+        if (!allowed) {
+          request.log.warn(
+            { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
+            'sync push unit_access denied (not owner/team-manager/PM)',
+          );
+          conflicts.push({ id: entry.id, error: 'Forbidden: you cannot manage access to this unit' });
           continue;
         }
       }

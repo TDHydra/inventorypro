@@ -395,6 +395,7 @@ export const ACTIVITY_ACTIONS = new Set([
   // subteam/on-call) — no new entity types.
   'vehicle_checkout', 'vehicle_checkin', 'vehicle_state_changed', 'vehicle_service_logged',
   'locker_access_granted', 'locker_access_revoked',
+  'unit_access_granted', 'unit_access_revoked', 'unit_access_changed',
   'subteam_created', 'subteam_updated', 'on_call_assigned',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([

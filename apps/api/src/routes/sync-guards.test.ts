@@ -62,6 +62,11 @@ interface FakePgOpts {
   lockerOwner?: string | null;
   /** locker_access guard: location row missing entirely. */
   lockerMissing?: boolean;
+  /** unit_access guard facts (single fact query, aliased manages_owner_team). */
+  unitOwner?: string | null;
+  unitLocMissing?: boolean;
+  granteeRole?: string | null;
+  managesOwnerTeam?: boolean;
   /** vehicle_checkouts UPDATE pre-read row; absent → no row. */
   checkoutRow?: { user_id: string | null; checked_in_at: string | null };
   /** ADJUST locker guard facts; absent → location row missing. */
@@ -112,6 +117,14 @@ function fakePg(opts: FakePgOpts = {}) {
       // no-sub-areas guard parent lookup.
       if (sql.includes('SELECT type FROM locations')) {
         return { rows: opts.parentType ? [{ type: opts.parentType }] : [] };
+      }
+      // unit_access guard fact query (#122 Phase B).
+      if (sql.includes('manages_owner_team')) {
+        return { rows: opts.unitLocMissing ? [] : [{
+          owner_user_id: opts.unitOwner ?? null,
+          grantee_role: opts.granteeRole ?? 'mitigation_technician',
+          manages_owner_team: opts.managesOwnerTeam ?? false,
+        }] };
       }
       // locker_access owner guard.
       if (sql.includes('SELECT owner_user_id FROM locations')) {
@@ -446,35 +459,60 @@ test('locker_access: org authority may manage access to any locker', async () =>
   assert.deepEqual(body.ok, ['e1']);
 });
 
-// ── #122 Phase A1: unit_access rides the same owner-or-org-authority guard ───
+// ── #122 Phase B: unit_access owner/manager/PM guard ─────────────────────────
+
+const GRANT_ROW = {
+  location_id: 'loc-1', user_id: OTHER, can_view: true, can_add: true, can_remove: true,
+  can_move: true, can_edit_details: false, can_grant: false, granted_by: 'forged-id',
+  created_at: NOW, updated_at: NOW,
+};
 
 test('unit_access: the unit OWNER may grant, and granted_by is forced to the caller', async () => {
-  const pg = fakePg({ callerRole: 'mitigation_technician', lockerOwner: CALLER });
-  const body = await push(pg, [
-    { operation: 'INSERT', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: OTHER, can_view: true, can_add: true, can_remove: false, can_move: false, can_edit_details: false, can_grant: false, granted_by: OTHER, created_at: NOW, updated_at: NOW } },
-  ]);
+  const pg = fakePg({ callerRole: 'construction_crew', unitOwner: CALLER });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } }]);
   assert.deepEqual(body.ok, ['e1']);
   const ins = pg.queries.find(q => q.sql.includes('INSERT INTO unit_access'));
-  assert.ok(ins && ins.params.includes(CALLER), 'granted_by forced to caller');
+  assert.ok(ins, 'the grant must reach SQL');
+  assert.ok(ins!.params.includes(CALLER), 'granted_by must be the authenticated caller');
+  assert.ok(!ins!.params.includes('forged-id'), 'a forged granted_by must not survive');
 });
 
-test('unit_access: a non-owner without org authority is a permanent rejection', async () => {
-  const pg = fakePg({ callerRole: 'mitigation_technician', lockerOwner: OTHER });
+test('unit_access: a production_manager may edit grants for a tier-1 grantee on any unit', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', unitOwner: OTHER, granteeRole: 'mitigation_technician' });
+  const body = await push(pg, [{ operation: 'UPDATE', table_name: 'unit_access', payload: { ...GRANT_ROW, can_remove: false } }]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('unit_access: a production_manager may NOT touch a full_admin grantee (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'production_manager', unitOwner: OTHER, granteeRole: 'full_admin' });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } }]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+test('unit_access: a manager of a team the owner is on may grant', async () => {
+  const pg = fakePg({ callerRole: 'head_of_contents', unitOwner: OTHER, managesOwnerTeam: true });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } }]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('unit_access: an unrelated crew caller is a permanent rejection (grant and revoke)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', unitOwner: OTHER });
   const body = await push(pg, [
-    { operation: 'INSERT', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: CALLER, can_view: true, created_at: NOW, updated_at: NOW } },
+    { operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW } },
     { operation: 'DELETE', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: OTHER } },
   ]);
   assert.deepEqual(body.ok, []);
   assert.equal(body.conflicts.length, 2);
   for (const c of body.conflicts) assert.match(c.error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO unit_access') || q.sql.includes('DELETE FROM unit_access')));
 });
 
-test('unit_access: org authority may manage access to any unit', async () => {
-  const pg = fakePg({ callerRole: 'full_admin', lockerOwner: OTHER });
-  const body = await push(pg, [
-    { operation: 'INSERT', table_name: 'unit_access', payload: { location_id: 'loc-1', user_id: CALLER, can_view: true, can_grant: true, created_at: NOW, updated_at: NOW } },
-  ]);
-  assert.deepEqual(body.ok, ['e1']);
+test('unit_access: a write against a missing location fails closed (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', unitLocMissing: true });
+  const body = await push(pg, [{ operation: 'INSERT', table_name: 'unit_access', payload: { ...GRANT_ROW, location_id: 'loc-ghost' } }]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
 });
 
 // ── #125: vehicle_checkouts attribution + close-only takeover ────────────────

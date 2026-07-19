@@ -472,6 +472,13 @@ test('unit_access: ops open to any authed user (real gate is the per-row owner g
   assert.equal(requiredOperationPerm('unit_access', 'DELETE'), null);
 });
 
+test('unit_access: activity actions ride the allowlist against entity_type location (#122 Phase B)', () => {
+  assert.equal(requiredOperationPerm('unit_access', 'DELETE'), null);
+  assert.equal(isAllowedActivity('unit_access_changed', 'location'), true);
+  assert.equal(isAllowedActivity('unit_access_granted', 'location'), true);
+  assert.equal(isAllowedActivity('unit_access_revoked', 'location'), true);
+});
+
 test('unit_access: granted_by is attribution-forced to the caller', () => {
   const cols = new Map([['unit_access', new Set(['location_id', 'user_id', 'can_view', 'can_add', 'can_remove', 'can_move', 'can_edit_details', 'can_grant', 'granted_by', 'created_at', 'updated_at'])]]);
   const { row } = applyWritePolicy('unit_access', 'INSERT', { location_id: 'l1', user_id: 'u2', can_view: true, granted_by: 'someone-else' }, 'caller-1', cols, () => true);

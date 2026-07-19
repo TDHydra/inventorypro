@@ -3,9 +3,12 @@ import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 
-// Per-action unit access (#122 Phase A1) — successor to access.ts's binary
-// locker_access grants. Server enforcement: owner-or-org-authority per-row
-// guard in routes/sync.ts (shared with locker_access) + granted_by attribution.
+// Per-action unit access (#122 Phase A1/B) — successor to access.ts's binary
+// locker_access grants. Server enforcement: canManageUnitAccess per-row guard
+// in routes/sync.ts (owner/team-manager/PM/org-authority, Phase B) +
+// granted_by attribution. Activity logs use the unit_access_* actions — the
+// server allowlist accepts them as of Phase B (A1 borrowed the locker_access_*
+// actions only because the allowlist hadn't been widened yet).
 
 export interface UnitAccessRow {
   location_id: string; user_id: string;
@@ -84,7 +87,7 @@ export function upsertUnitAccess(row: UnitAccessUpsert): void {
       granted_by: row.granted_by, created_at: created, updated_at: updated,
     });
     appendLog({
-      action: 'locker_access_granted', entity_type: 'location', entity_id: row.location_id,
+      action: 'unit_access_granted', entity_type: 'location', entity_id: row.location_id,
       user_id: row.granted_by, team_id: null, job_id: null,
       note: null, from_location_id: null, to_location_id: null, quantity: null, unit: null,
       metadata: JSON.stringify({ grantee_user_id: row.user_id, actions: { view: !!row.can_view, add: !!row.can_add, remove: !!row.can_remove, move: !!row.can_move, edit_details: !!row.can_edit_details, grant: !!row.can_grant } }),
@@ -100,7 +103,7 @@ export function revokeUnitAccess(locationId: string, userId: string): void {
     db.executeSync(`DELETE FROM unit_access WHERE location_id = ? AND user_id = ?`, bindParams([locationId, userId]));
     appendOutbox('DELETE', 'unit_access', { location_id: locationId, user_id: userId });
     appendLog({
-      action: 'locker_access_revoked', entity_type: 'location', entity_id: locationId,
+      action: 'unit_access_revoked', entity_type: 'location', entity_id: locationId,
       user_id: null, team_id: null, job_id: null,
       note: null, from_location_id: null, to_location_id: null, quantity: null, unit: null,
       metadata: JSON.stringify({ grantee_user_id: userId }), device_id: null,
