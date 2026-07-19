@@ -8,9 +8,9 @@ import { LockerPanel } from './LockerPanel';
 // LockerSheet (#126) — tap a locker anywhere (location list, search results)
 // and see its full panel in place, mirroring VehicleSheet's
 // {locationId, visible, onClose} shape. "Open full page" goes to the locker's
-// location detail (a locker IS a location — no dedicated route). Any
-// navigation the panel emits (e.g. "Check out from here") closes the sheet
-// first, then routes.
+// dedicated detail route (a locker now HAS a dedicated route, mirroring
+// vehicles). Any navigation the panel emits (e.g. "Check out from here")
+// closes the sheet first, then routes.
 
 interface Props {
   locationId: string;
@@ -34,7 +34,7 @@ export function LockerSheet({ locationId, visible, onClose }: Props) {
         style={s.fullPageRow}
         onPress={() => {
           onClose();
-          router.push({ pathname: '/(app)/(locations)/[id]', params: { id: locationId } });
+          router.push({ pathname: '/(app)/(lockers)/[id]', params: { id: locationId } });
         }}
       >
         <Text style={s.fullPageText}>Open full page</Text>
