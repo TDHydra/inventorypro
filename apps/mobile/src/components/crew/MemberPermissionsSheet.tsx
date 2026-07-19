@@ -25,6 +25,7 @@ import { upsertUnitAccess, revokeUnitAccess } from '../../db/queries/unitAccess'
 import { grantUnitAccessWithDefaults } from '../../access/unitGrants';
 import { canManageUnitAccess } from '../../access/unitAccessPolicy';
 import { appendLog } from '../../db/queries/log';
+import { useTableVersion } from '../../hooks/useDataVersion';
 
 // Combined Member Permissions sheet (#122 Phase B) — one sheet per team member:
 // their team permission overrides (moved verbatim from (teams)/[id].tsx's
@@ -58,7 +59,9 @@ export function MemberPermissionsSheet(props: {
 
   const [permDraft, setPermDraft] = useState<Record<string, boolean>>({});
   const [savingPerms, setSavingPerms] = useState(false);
-  const [grantRefresh, setGrantRefresh] = useState(0);
+  // Re-read grants when a sync pull (or our own local write) touches the
+  // access tables — replaces the old manually-bumped grantRefresh counter.
+  const version = useTableVersion(['unit_access', 'team_members', 'users', 'locations']);
   const [addUnitOpen, setAddUnitOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<PickerOption | null>(null);
 
@@ -122,11 +125,11 @@ export function MemberPermissionsSheet(props: {
 
   const grants = useMemo(
     () => (member ? getUserUnitGrants(member.user_id) : []),
-    [member?.user_id, grantRefresh],
+    [member?.user_id, version],
   );
   const managedOwners = useMemo(
     () => (user ? getManagedOwnerIds(user.id) : new Set<string>()),
-    [user?.id, grantRefresh],
+    [user?.id, version],
   );
 
   function canEditGrant(g: UserUnitGrant): boolean {
@@ -150,7 +153,6 @@ export function MemberPermissionsSheet(props: {
       [col]: g[col] ? 0 : 1,
       updated_at: new Date().toISOString(),
     });
-    setGrantRefresh(n => n + 1);
     onChanged();
   }
 
@@ -161,7 +163,6 @@ export function MemberPermissionsSheet(props: {
     });
     if (!ok || isWriteBlocked()) return;
     revokeUnitAccess(g.location_id, g.user_id);
-    setGrantRefresh(n => n + 1);
     onChanged();
   }
 
@@ -169,7 +170,6 @@ export function MemberPermissionsSheet(props: {
     if (!member || !selectedUnit || isWriteBlocked()) return;
     grantUnitAccessWithDefaults(selectedUnit.id, member.user_id, member.user_role ?? '', user?.id ?? null);
     setSelectedUnit(null); setAddUnitOpen(false);
-    setGrantRefresh(n => n + 1);
     onChanged();
   }
 
@@ -180,7 +180,7 @@ export function MemberPermissionsSheet(props: {
     return getGrantableUnits(user, member.user_role ?? null)
       .filter(l => !already.has(l.id))
       .map(l => ({ id: l.id, label: l.name, sublabel: l.type ?? undefined }));
-  }, [user?.id, member?.user_id, member?.user_role, grants]);
+  }, [user?.id, member?.user_id, member?.user_role, grants, version]);
 
   // Mirror the host row's hierarchy gate inside the editor as a safety net
   // (the Perms button is already disabled for out-of-tier members).

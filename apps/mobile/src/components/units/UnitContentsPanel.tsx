@@ -29,11 +29,9 @@ export function UnitContentsPanel({ locationId, onNavigate }: Props) {
   const router = useRouter();
   const { user } = useSession();
   const refreshKey = useFocusOrDataRefresh();
-  const [localBump, setLocalBump] = useState(0);
-  const key = refreshKey + localBump;
 
-  const location = useMemo(() => getLocationById(locationId), [locationId, key]);
-  const stock = useMemo(() => getStockAtLocation(locationId), [locationId, key]);
+  const location = useMemo(() => getLocationById(locationId), [locationId, refreshKey]);
+  const stock = useMemo(() => getStockAtLocation(locationId), [locationId, refreshKey]);
   const perms = useMemo(() => {
     if (!user || !location) return null;
     return resolveUnitActionPerms({
@@ -42,7 +40,7 @@ export function UnitContentsPanel({ locationId, onNavigate }: Props) {
       isTeammateOfOwner: sharesTeamWithOwner(user.id, location.owner_user_id ?? null),
       rowPerms: getUserUnitPerms(user.id, locationId),
     });
-  }, [user?.id, location?.owner_user_id, locationId, key]);
+  }, [user?.id, location?.owner_user_id, locationId, refreshKey]);
 
   const [showMove, setShowMove] = useState(false);
   if (!location || !perms || !perms.view) return null;
@@ -91,7 +89,7 @@ export function UnitContentsPanel({ locationId, onNavigate }: Props) {
         fromLocationId={locationId}
         fromLocationName={location.name}
         onClose={() => setShowMove(false)}
-        onDone={() => { setShowMove(false); setLocalBump(b => b + 1); }}
+        onDone={() => setShowMove(false)}
       />
     </View>
   );

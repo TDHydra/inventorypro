@@ -54,10 +54,8 @@ export function OnCallCalendar({ weeksBack = 2, weeksForward = 8, canEdit, onAss
   const { user } = useSession();
   // app_config carries the boundary + rotation settings — without subscribing,
   // a synced settings change wouldn't re-render (the reactive-cache gotcha).
+  // Local assigns/clears tick the bus too (post-commit bump), so no local counter.
   const version = useTableVersion(['on_call_shifts', 'subteams', 'app_config']);
-  // Local writes don't bump the sync table version (that counts pull applies),
-  // so re-query on our own bump after an assign/clear too.
-  const [localBump, setLocalBump] = useState(0);
   const [editingWeek, setEditingWeek] = useState<string | null>(null);
 
   const today = localTodayIso();
@@ -74,7 +72,8 @@ export function OnCallCalendar({ weeksBack = 2, weeksForward = 8, canEdit, onAss
   // (non-editors would get server manage_teams conflicts on push).
   useEffect(() => {
     if (!canEdit) return;
-    if (ensureRotationFill(today, hour, user?.id ?? null) > 0) setLocalBump(v => v + 1);
+    // A non-zero fill writes shifts, which bumps on_call_shifts on the bus.
+    ensureRotationFill(today, hour, user?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, today, version]);
 
@@ -86,18 +85,17 @@ export function OnCallCalendar({ weeksBack = 2, weeksForward = 8, canEdit, onAss
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weeks, version, localBump]);
+  }, [weeks, version]);
 
   const crewOptions = useMemo<PickerOption[]>(
     () => getAssignableCrews().map(c => ({ id: c.id, label: c.name, sublabel: c.team_name ?? undefined })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [version, localBump],
+    [version],
   );
 
   const commit = (week: string, subteamId: string | null) => {
     assignWeek(week, subteamId, user?.id ?? null);
     setEditingWeek(null);
-    setLocalBump(v => v + 1);
     onAssign?.(week, subteamId);
   };
 

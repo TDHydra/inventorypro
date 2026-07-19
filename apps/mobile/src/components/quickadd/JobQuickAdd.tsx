@@ -9,6 +9,7 @@ import {
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../db/maintenance';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
@@ -53,7 +54,9 @@ export default function JobQuickAdd({ onSaved }: Props) {
   // Increment to remount the name input (autoFocus) after each save.
   const [formKey, setFormKey] = useState(0);
 
-  const jobTypes = useMemo(() => getTaxonomyTypes('job'), []);
+  // Re-read the job-type chips when a sync pull touches the taxonomy.
+  const taxonomyVersion = useTableVersion(['taxonomy_types']);
+  const jobTypes = useMemo(() => getTaxonomyTypes('job'), [taxonomyVersion]);
   const [type, setType] = useState<string | null>(() => {
     const ts = getTaxonomyTypes('job');
     return ts[0]?.label ?? null;

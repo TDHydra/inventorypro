@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { View, Image, Text, StyleSheet } from 'react-native';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useTableVersion } from '../hooks/useDataVersion';
 import { getPrimaryMedia } from '../db/queries/media';
 
 interface Props {
@@ -11,7 +13,13 @@ interface Props {
 
 export function MediaThumbnail({ entityType, entityId, size = 44 }: Props) {
   const s = useThemedStyles(makeStyles);
-  const record = getPrimaryMedia(entityType, entityId);
+  // Subscribe to media pulls so the thumbnail self-updates when a primary photo
+  // lands via sync, instead of waiting for the parent to happen to re-render.
+  const mediaVersion = useTableVersion(['media']);
+  const record = useMemo(
+    () => getPrimaryMedia(entityType, entityId),
+    [entityType, entityId, mediaVersion],
+  );
 
   if (record) {
     return (

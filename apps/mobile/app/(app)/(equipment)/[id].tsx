@@ -152,9 +152,11 @@ export default function EquipmentModelDetailScreen() {
   // Request-approval sheet state
   const [approvalOpen, setApprovalOpen] = useState(false);
 
+  // dataVersion: keep the location pickers (Add Units / repair return) fresh as
+  // locations are created or synced in.
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
-    []
+    [dataVersion]
   );
 
   const locationMap = useMemo<Map<string, string>>(

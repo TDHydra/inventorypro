@@ -59,6 +59,12 @@ export default function LocationDetailScreen() {
 
   const [location, setLocation] = useState<Location | null>(() => getLocationById(id));
   const [stock, setStock] = useState<StockAtLocation[]>(() => getStockAtLocation(id));
+  // Re-read on refocus or sync pull (mirrors the shelves pattern below) so a
+  // synced rename/stock change shows without a manual refresh.
+  useEffect(() => {
+    setLocation(getLocationById(id));
+    setStock(getStockAtLocation(id));
+  }, [id, refreshKey]);
 
   // ── Edit modal state ────────────────────────────────────────────────────────
   const [showEdit, setShowEdit] = useState(false);
@@ -176,14 +182,14 @@ export default function LocationDetailScreen() {
     // is the only owner gate for a sub-area.
     const typeReq = isSubArea ? false : getLocationTypeRules(editLocType).requiresOwner;
     return parentReq || typeReq;
-  }, [editParentId, editLocType, isSubArea]);
+  }, [editParentId, editLocType, isSubArea, refreshKey]);
   const ownerMissing = ownerRequired && !editOwnerOption;
 
   const parentName = useMemo<string | null>(() => {
     if (!location?.parent_id) return null;
     // Full ancestor path of the parent (e.g. "Site A › Floor 2").
     return getLocationPath(location.parent_id) || null;
-  }, [location?.parent_id]);
+  }, [location?.parent_id, refreshKey]);
 
   const ownerName = useMemo<string | null>(() => {
     if (!location?.owner_user_id) return null;

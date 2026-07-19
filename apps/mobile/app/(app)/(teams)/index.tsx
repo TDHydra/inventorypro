@@ -62,7 +62,9 @@ export default function TeamsScreen() {
         return mine ? { team, isManager: mine.is_manager === 1 } : null;
       })
       .filter((m): m is { team: Team; isManager: boolean } => m !== null);
-  }, [teams, user]);
+    // dataVersion: getTeamMembers reads team_members, which a pull can change
+    // (e.g. an is_manager flip) without touching the teams rows this is keyed on.
+  }, [teams, user, dataVersion]);
 
   // Create form state. Seeded synchronously, not via TaxonomyChips' defaultToFirst:
   // ModalSheet's <Modal> unmounts its children while hidden, so the chip row
@@ -74,7 +76,7 @@ export default function TeamsScreen() {
     return ts[0]?.label ?? '';
   });
 
-  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), []);
+  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), [dataVersion]);
 
   function resetForm() {
     setName('');

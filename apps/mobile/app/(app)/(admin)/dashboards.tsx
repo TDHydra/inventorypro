@@ -12,6 +12,7 @@ import {
 } from '../../../src/dashboard/widgets';
 import { parsePresetLayout } from '../../../src/dashboard/resolve';
 import { loadDashboardCache } from '../../../src/dashboard/store';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
 import { roleHasPermission } from '../../../src/auth/permissions';
 import {
@@ -80,8 +81,11 @@ export default function DashboardsScreen() {
   const { user } = useSession();
   const isTier4 = user != null && ROLE_TIER[user.role] === 4;
 
-  const [presets, setPresets] = useState<DashboardPreset[]>(() => getDashboardPresets());
-  const [roleMap, setRoleMap] = useState<Record<string, string | null>>(() => getRoleDashboardPresetIds());
+  // Re-read whenever a local write or sync pull touches the preset tables —
+  // replaces the old manual refreshPresets()/setRoleMap re-reads after writes.
+  const version = useTableVersion(['dashboard_presets', 'role_settings']);
+  const presets = useMemo<DashboardPreset[]>(() => getDashboardPresets(), [version]);
+  const roleMap = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
 
   // Editor state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -120,10 +124,6 @@ export default function DashboardsScreen() {
   );
   const hiddenTileCount = TILE_WIDGETS.length - offeredTiles.length;
 
-  function refreshPresets() {
-    setPresets(getDashboardPresets());
-  }
-
   // ── Preset list actions ─────────────────────────────────────────────────────
 
   function blockCount(p: DashboardPreset): number {
@@ -157,12 +157,10 @@ export default function DashboardsScreen() {
       if (nameModal?.mode === 'create') {
         const id = createDashboardPreset({ name });
         setNameModal(null);
-        refreshPresets();
         openEditor(id);
       } else if (nameModal?.mode === 'rename' && nameModal.id) {
         renameDashboardPreset(nameModal.id, name);
         setNameModal(null);
-        refreshPresets();
       }
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
@@ -174,7 +172,6 @@ export default function DashboardsScreen() {
       const id = createDashboardPreset({ name: `${p.name} (copy)` });
       const layout = parsePresetLayout(p.layout) ?? [];
       setDashboardPresetLayout(id, layout);
-      refreshPresets();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -196,7 +193,6 @@ export default function DashboardsScreen() {
           onPress: () => {
             try {
               setDashboardPresetActive(p.id, nextActive);
-              refreshPresets();
             } catch (err) {
               Alert.alert('Error', (err as Error).message);
             }
@@ -213,7 +209,6 @@ export default function DashboardsScreen() {
     if (!editingId) return;
     try {
       setDashboardPresetLayout(editingId, next.map((b) => b.block) as Layout);
-      refreshPresets();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -281,7 +276,6 @@ export default function DashboardsScreen() {
   function assignRole(role: UserRole, presetId: string | null) {
     try {
       setRoleDashboardPreset(role, presetId);
-      setRoleMap(getRoleDashboardPresetIds());
       loadDashboardCache(); // notify subscribers → the assigner's own dashboard updates live
     } catch (err) {
       Alert.alert('Error', (err as Error).message);

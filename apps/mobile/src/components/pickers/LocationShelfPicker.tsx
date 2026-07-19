@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useTheme } from '../../hooks/useTheme';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import { getNonShelfLocations, getShelvesForParent } from '../../db/queries/locations';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { FieldLabel } from '../ui/FieldLabel';
@@ -51,7 +52,10 @@ export function LocationShelfPicker({
     if (proximitySort) void request();
   }, [proximitySort, request]);
 
-  const allLocations = useMemo(() => getNonShelfLocations(), []);
+  // Locations added/renamed by a sync pull (or a local write) show up live —
+  // both reads below re-run when the locations table version ticks.
+  const v = useTableVersion(['locations']);
+  const allLocations = useMemo(() => getNonShelfLocations(), [v]);
   const locationById = useMemo(
     () => new Map(allLocations.map(l => [l.id, l])),
     [allLocations],
@@ -82,7 +86,7 @@ export function LocationShelfPicker({
     () => (locationHasShelves && locationValue)
       ? getShelvesForParent(locationValue.id).map(s => ({ id: s.id, label: s.name }))
       : [],
-    [locationHasShelves, locationValue],
+    [locationHasShelves, locationValue, v],
   );
 
   // Any location change clears the shelf (shelf is per-location). Combined with

@@ -64,7 +64,6 @@ export default function CheckinScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   // --- Deployed units state ---
-  const [unitRefreshKey, setUnitRefreshKey] = useState(0);
   const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
   const [showUnitModal, setShowUnitModal] = useState(false);
   const [unitReturnLocation, setUnitReturnLocation] = useState<PickerOption | null>(null);
@@ -89,12 +88,12 @@ export default function CheckinScreen() {
   const checkouts = useMemo(() => {
     if (!user) return [];
     return rowsAs<Checkout>(getActiveCheckoutsForUser(user.id));
-  }, [user]);
+  }, [user, refreshKey]);
 
   const deployedUnits = useMemo(() => {
     if (!user) return [];
     return getDeployedUnitsForUser(user.id);
-  }, [user, unitRefreshKey]);
+  }, [user, refreshKey]);
 
   const allLocations = useMemo(() => getAllLocations(), [refreshKey]);
   // Proximity-sorted; re-runs when coords arrive after the async request.
@@ -356,7 +355,6 @@ export default function CheckinScreen() {
     setUnitReturnLocation(null);
     setUnitReturnShelf(null);
     setSelectedUnitIds(new Set());
-    setUnitRefreshKey(k => k + 1);
     setUnitCheckinEventId(generateUUID());
     Alert.alert(
       'Checked In',

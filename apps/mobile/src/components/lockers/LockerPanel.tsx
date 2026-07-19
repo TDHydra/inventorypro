@@ -43,23 +43,21 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
-  // Re-read on focus / sync pull, plus a local bump after our own grant/revoke
-  // writes (local writes don't tick dataVersion).
+  // Re-read on focus / sync pull — local writes (including our own grant/
+  // revoke below) tick the data-version bus too, so one key covers both.
   const refreshKey = useFocusOrDataRefresh();
-  const [localBump, setLocalBump] = useState(0);
-  const key = refreshKey + localBump;
 
-  const location = useMemo(() => getLocationById(locationId), [locationId, key]);
-  const path = useMemo(() => getLocationPath(locationId), [locationId, key]);
+  const location = useMemo(() => getLocationById(locationId), [locationId, refreshKey]);
+  const path = useMemo(() => getLocationPath(locationId), [locationId, refreshKey]);
   const owner = useMemo(
     () => (location?.owner_user_id ? getUserById(location.owner_user_id) : null),
-    [location?.owner_user_id, key],
+    [location?.owner_user_id, refreshKey],
   );
   // A1's migration copied locker_access → unit_access, and the seeded-row
   // watermark gotcha applies: backfilled rows written at deploy time reach
   // already-enrolled devices via full download / A1's touched updated_at —
   // nothing to do here, just don't "fix" missing rows by re-granting blindly.
-  const accessList = useMemo(() => getUnitAccessRows(locationId), [locationId, key]);
+  const accessList = useMemo(() => getUnitAccessRows(locationId), [locationId, refreshKey]);
 
   // Owner / tier-3+ manage as before; the explicit per-unit can_grant bit also
   // opens the editor (per-action unit perms, A2 Task 4).
@@ -89,7 +87,7 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
     return getAllActiveUsers()
       .filter(u => !excluded.has(u.id))
       .map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role as UserRole] ?? u.role }));
-  }, [showAccessEditor, editorEntries, key]);
+  }, [showAccessEditor, editorEntries, refreshKey]);
 
   // AccessListEditor owns the confirm/alert UX; these just do the writes and
   // refresh. Throwing keeps the editor open with an alert. Grant CREATION
@@ -98,12 +96,10 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
   function handleGrant(opt: PickerOption) {
     if (isWriteBlocked()) throw new Error('write blocked');
     grantUnitAccessWithDefaults(locationId, opt.id, getUserById(opt.id)?.role ?? '', user?.id ?? null);
-    setLocalBump(b => b + 1);
   }
   function handleRevoke(entry: AccessEntry) {
     if (isWriteBlocked()) throw new Error('write blocked');
     revokeUnitAccess(locationId, entry.userId);
-    setLocalBump(b => b + 1);
   }
 
   if (!location) {

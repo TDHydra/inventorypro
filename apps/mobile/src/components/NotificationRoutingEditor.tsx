@@ -8,6 +8,7 @@ import { SearchablePicker } from './SearchablePicker';
 import type { PickerOption } from './SearchablePicker';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useTableVersion } from '../hooks/useDataVersion';
 
 // ── Channels ──────────────────────────────────────────────────────────────
 // The five server-side notification channels. Each is persisted as an
@@ -59,10 +60,12 @@ interface Props {
 // synced app_config path so the server resolver can read it.
 export function NotificationRoutingEditor({ onSave }: Props) {
   const s = useThemedStyles(makeStyles);
-  const teams = useMemo(() => getAllTeams(), []);
+  // Re-read the routing-target pickers when a sync pull touches teams/users.
+  const version = useTableVersion(['teams', 'users']);
+  const teams = useMemo(() => getAllTeams(), [version]);
   const userOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
-    [],
+    [version],
   );
   const userNameById = useMemo(
     () => new Map(userOptions.map(o => [o.id, o.label])),

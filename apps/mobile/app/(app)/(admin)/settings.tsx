@@ -192,7 +192,7 @@ export default function SettingsScreen() {
   const storageLocHasShelves = (storageLoc ? locationById.get(storageLoc.id) : undefined)?.has_shelves === 1;
   const storageShelfOptions = useMemo<PickerOption[]>(
     () => (storageLocHasShelves && storageLoc) ? getShelvesForParent(storageLoc.id).map(s => ({ id: s.id, label: s.name })) : [],
-    [storageLocHasShelves, storageLoc],
+    [storageLocHasShelves, storageLoc, refreshKey],
   );
 
   // Pick a storage location: toggle off if re-tapped (clears the setting); else set
@@ -230,6 +230,12 @@ export default function SettingsScreen() {
     setStorageLoc(st.location);
     setStorageShelf(st.shelf);
   }, []);
+
+  // Re-read live while the screen is open: refreshKey bumps on refocus AND on
+  // data-version ticks, so synced app_config/app_settings changes show without
+  // leaving the screen. The notify text inputs stay focus-seeded below so
+  // in-progress typing is never clobbered by a background pull.
+  useEffect(() => { refreshStatus(); }, [refreshStatus, refreshKey]);
 
   // Re-read DB values every time the screen gains focus
   useFocusEffect(

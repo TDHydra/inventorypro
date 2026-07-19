@@ -72,7 +72,7 @@ export default function LocationsScreen() {
   // 'Locker' are UNITS (#122 A2): they live in their own management screens,
   // not the places browser, so they're neither a browsable section nor a
   // choosable create-form type here.
-  const locationTypes = useMemo(() => getLocationTypes().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)), []);
+  const locationTypes = useMemo(() => getLocationTypes().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)), [dataVersion]);
   // label → icon, used to render a row's type badge from its stored `type` label.
   // Includes BOTH top-level and sub-area types so a sub-area row's badge resolves.
   const typeIconByLabel = useMemo(
@@ -80,7 +80,7 @@ export default function LocationsScreen() {
       ...getLocationTypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
       ...getLocationSubtypes({ includeInactive: true }).map(t => [t.label, t.icon] as const),
     ]),
-    [],
+    [dataVersion],
   );
   // Section filter: null = All (show full tree); a label = flat list of that type.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -116,7 +116,7 @@ export default function LocationsScreen() {
     [tree],
   );
 
-  const allUsers = useMemo(() => getAllActiveUsers(), []);
+  const allUsers = useMemo(() => getAllActiveUsers(), [dataVersion]);
   const userMap = useMemo<Map<string, string>>(
     () => new Map(allUsers.map(u => [u.id, u.name])),
     [allUsers],
@@ -138,7 +138,7 @@ export default function LocationsScreen() {
   // on, an owner must be picked before the sub-area can be created.
   const parentRequiresOwner = useMemo(
     () => (parentId ? !!getLocationById(parentId)?.subareas_require_owner : false),
-    [parentId],
+    [parentId, dataVersion],
   );
 
   // A location being created UNDER a parent is a sub-area, so its Type picker
@@ -152,7 +152,7 @@ export default function LocationsScreen() {
       isSubArea
         ? getLocationSubtypesWithFallback()
         : getLocationTypesWithFallback().filter(t => !['Shelf', 'Vehicle', 'Locker'].includes(t.label)),
-    [isSubArea],
+    [isSubArea, dataVersion],
   );
 
   // Per-location-type form rules (migration 022): gps (show the GPS anchor) and

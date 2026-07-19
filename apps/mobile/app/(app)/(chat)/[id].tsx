@@ -30,7 +30,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { useSession } from '../../../src/hooks/useSession';
 import { useRouter } from 'expo-router';
 import { composerBottomPadding } from '../../../src/chat/composerInsets';
@@ -64,7 +64,9 @@ export default function ChatThreadScreen() {
   const userId = user?.id ?? null;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const dataVersion = useDataVersion();
+  // Per-table pull granularity: only bump when a pull touches the chat tables
+  // (or users, for the add-participant picker) instead of on every pull.
+  const dataVersion = useTableVersion(['conversations', 'conversation_participants', 'messages', 'media', 'users']);
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => {
     setReloadKey(k => k + 1);
@@ -225,7 +227,7 @@ export default function ChatThreadScreen() {
     return getAllActiveUsers()
       .filter(u => !present.has(u.id))
       .map(u => ({ id: u.id, label: u.name, sublabel: u.role }));
-  }, [participants]);
+  }, [participants, dataVersion]);
 
   const changePref = useCallback((pref: NotifyPref) => {
     if (!userId) return;

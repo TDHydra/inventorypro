@@ -46,26 +46,22 @@ export default function ManageMyTeamScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
-  // Re-query on sync pulls that touch our tables, plus a local bump after our
-  // own writes (local writes don't tick dataVersion). Sheet-hosted edits
-  // (LockerPanel's own access editor) also land on close via the bump there.
+  // Re-query on any change (sync pull OR our own local writes — both tick the
+  // table version bus) that touches the tables this screen reads.
   const version = useTableVersion([
-    'locations', 'unit_access', 'team_members', 'subteams', 'vehicles', 'vehicle_checkouts',
+    'locations', 'unit_access', 'team_members', 'subteams', 'vehicles', 'vehicle_checkouts', 'users',
   ]);
-  const [localBump, setLocalBump] = useState(0);
-  const key = version + localBump;
-  const bump = () => setLocalBump(b => b + 1);
 
   // ── Data ───────────────────────────────────────────────────────────────────
 
   const crews = useMemo<Crew[]>(
     () => (user ? getMyCrews(user.id) : []),
-    [user?.id, key],
+    [user?.id, version],
   );
 
   const accessible = useMemo(
     () => (user ? getAccessibleSourceLocations(user.id) : { lockers: [], vehicles: [] }),
-    [user?.id, key],
+    [user?.id, version],
   );
   // This page is about MY responsibilities — owned assets only (teammates'
   // lockers/vehicles show up in the fast-checkout source picker instead).
@@ -85,7 +81,7 @@ export default function ManageMyTeamScreen() {
       const grants = getUnitAccessRows(location.id).filter(g => g.user_id !== location.owner_user_id);
       return { location, itemCount: stock.length, accessCount: grants.length + 1 };
     }),
-    [myLockers, key],
+    [myLockers, version],
   );
 
   const vehicleRows = useMemo(
@@ -93,7 +89,7 @@ export default function ManageMyTeamScreen() {
       const model = getVehicle(location.id)?.model ?? null;
       return { location, model, icon: getTypeIcon(VEHICLE_MODEL_CATEGORY, model ?? '') ?? '🚐' };
     }),
-    [myVehicles, key],
+    [myVehicles, version],
   );
 
   // ── Crew editing (lead only) ───────────────────────────────────────────────
@@ -109,7 +105,7 @@ export default function ManageMyTeamScreen() {
       label: m.user_name ?? m.user_id,
       sublabel: m.user_role ? (ROLE_DISPLAY_NAMES[m.user_role as UserRole] ?? m.user_role) : undefined,
     }));
-  }, [editingCrew, key]);
+  }, [editingCrew, version]);
 
   // Same diff-and-write shape as (teams)/[id].tsx handleSaveCrew (edit branch):
   // rename if changed, clear members who left, (re)assign only actual changes —
@@ -143,7 +139,6 @@ export default function ManageMyTeamScreen() {
       Alert.alert('Could not save crew', 'The crew was not saved. Please try again.');
       throw e;
     }
-    bump();
   }
 
   // ── Locker access editing ──────────────────────────────────────────────────
@@ -167,7 +162,7 @@ export default function ManageMyTeamScreen() {
       });
     }
     return entries;
-  }, [accessLocker, user, key]);
+  }, [accessLocker, user, version]);
 
   const accessCandidates = useMemo<PickerOption[]>(() => {
     if (!accessLocker) return [];
@@ -175,7 +170,7 @@ export default function ManageMyTeamScreen() {
     return getAllActiveUsers()
       .filter(u => !excluded.has(u.id))
       .map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role as UserRole] ?? u.role }));
-  }, [accessLocker, accessEntries, key]);
+  }, [accessLocker, accessEntries, version]);
 
   // AccessListEditor owns the confirm/alert UX; throwing keeps it open.
   // Grant CREATION applies the admin's per-role defaults template (#122
@@ -184,12 +179,10 @@ export default function ManageMyTeamScreen() {
     if (!accessLocker || isWriteBlocked()) throw new Error('write blocked');
     const grantee = getAllActiveUsers().find(u => u.id === opt.id);
     grantUnitAccessWithDefaults(accessLocker.id, opt.id, grantee?.role ?? '', user?.id ?? null);
-    bump();
   }
   function handleRevoke(entry: AccessEntry) {
     if (!accessLocker || isWriteBlocked()) throw new Error('write blocked');
     revokeUnitAccess(accessLocker.id, entry.userId);
-    bump();
   }
 
   // ── Sheets ─────────────────────────────────────────────────────────────────
@@ -330,14 +323,14 @@ export default function ManageMyTeamScreen() {
         <LockerSheet
           locationId={lockerSheetId}
           visible
-          onClose={() => { setLockerSheetId(null); bump(); }}
+          onClose={() => setLockerSheetId(null)}
         />
       )}
       {vehicleSheetId !== null && (
         <VehicleSheet
           locationId={vehicleSheetId}
           visible
-          onClose={() => { setVehicleSheetId(null); bump(); }}
+          onClose={() => setVehicleSheetId(null)}
         />
       )}
     </>

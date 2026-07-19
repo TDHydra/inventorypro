@@ -29,6 +29,7 @@ import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { useReactiveRows } from '../../../src/hooks/useReactiveRows';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -202,12 +203,16 @@ export default function AdminUsersScreen() {
   const [editDashboardPresetId, setEditDashboardPresetId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const roleMinPins = useMemo(() => getRoleSettings(), [users]);
+  // These read role_settings/dashboard_presets/teams, which can change via a
+  // sync pull without any users-row change — key them on the tables they read.
+  const configVersion = useTableVersion(['role_settings', 'dashboard_presets', 'teams']);
+  const roleSettingsVersion = useTableVersion(['role_settings']);
+  const roleMinPins = useMemo(() => getRoleSettings(), [configVersion]);
   // Per-role permission deviations (the dynamic role default). User overrides are
   // diffed against ROLE_DEFAULTS merged with these, so a user override only reads
   // as "modified" when it differs from the role's CURRENT effective value.
-  const roleOverrides = useMemo(() => getRolePermissionOverrides(), [users]);
-  const roleColors = useMemo(() => getRoleColorMap(), []);
+  const roleOverrides = useMemo(() => getRolePermissionOverrides(), [configVersion]);
+  const roleColors = useMemo(() => getRoleColorMap(), [roleSettingsVersion]);
   // Dashboard assignment options: null = fall back to the user's role default,
   // then every ACTIVE preset (inactive presets are hidden from assignment).
   const dashboardOptions = useMemo<{ id: string | null; label: string }[]>(
@@ -215,7 +220,7 @@ export default function AdminUsersScreen() {
       { id: null, label: 'Role default' },
       ...getDashboardPresets().filter(p => p.active).map(p => ({ id: p.id as string | null, label: p.name })),
     ],
-    [users],
+    [configVersion],
   );
 
   // Find-or-create a DM with this user and open the thread (mirrors the team
@@ -515,7 +520,7 @@ export default function AdminUsersScreen() {
   );
   const teamOptions = useMemo<PickerOption[]>(
     () => getAllTeams().map(t => ({ id: t.id, label: t.name, sublabel: t.type })),
-    [users],
+    [configVersion],
   );
 
   async function bulkSetActive(active: boolean) {

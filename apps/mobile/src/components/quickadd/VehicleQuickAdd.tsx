@@ -17,6 +17,7 @@ import { useSession } from '../../hooks/useSession';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useTableVersion } from '../../hooks/useDataVersion';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -57,9 +58,10 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
   const [truckMount, setTruckMount] = useState(false);
   const [nameError, setNameError] = useState('');
 
+  const usersVersion = useTableVersion(['users']);
   const ownerOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
-    [],
+    [usersVersion],
   );
 
   function handleSave() {
