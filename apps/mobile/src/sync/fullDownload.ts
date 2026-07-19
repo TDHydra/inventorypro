@@ -27,9 +27,11 @@ const SYNC_TABLES = [
   'conversations', 'conversation_participants', 'messages',
   // Field-crew (#122): subteams is team-scoped server-side (teamScopeSql); the
   // vehicle/locker/on-call tables are org-visible — fast checkout needs
-  // teammates' assets locally on a fresh device.
+  // teammates' assets locally on a fresh device. unit_access is org-visible
+  // like locker_access — the access panel needs teammates' grants on a fresh
+  // device.
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
-  'locker_access', 'on_call_shifts',
+  'locker_access', 'unit_access', 'on_call_shifts',
 ] as const;
 
 export const FULL_DOWNLOAD_TABLE_COUNT = SYNC_TABLES.length;
@@ -154,6 +156,7 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'vehicle_service_records':
       case 'vehicle_checkouts':
       case 'locker_access':
+      case 'unit_access':
       case 'on_call_shifts': {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)

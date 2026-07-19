@@ -35,6 +35,8 @@ export interface VehicleRow {
   location_id: string;
   truck_mount: number; // 0/1
   water_state: WaterState | null;
+  water_tank: 'full' | 'empty';
+  waste_tank: 'dirty' | 'clean';
   model: string | null;
   model_id: string | null;
   notes: string | null;
@@ -86,6 +88,8 @@ export function getVehicle(locationId: string): VehicleRow | null {
 export interface VehicleStatePatch {
   truck_mount?: number;
   water_state?: WaterState | null;
+  water_tank?: 'full' | 'empty';
+  waste_tank?: 'dirty' | 'clean';
   model?: string | null;
   model_id?: string | null;
   notes?: string | null;
@@ -109,6 +113,8 @@ export function upsertVehicleState(
       location_id: locationId,
       truck_mount: patch.truck_mount ?? existing?.truck_mount ?? 0,
       water_state: patch.water_state !== undefined ? patch.water_state : existing?.water_state ?? null,
+      water_tank: patch.water_tank ?? existing?.water_tank ?? 'empty',
+      waste_tank: patch.waste_tank ?? existing?.waste_tank ?? 'clean',
       model: patch.model !== undefined ? patch.model : existing?.model ?? null,
       model_id: patch.model_id !== undefined ? patch.model_id : existing?.model_id ?? null,
       notes: patch.notes !== undefined ? patch.notes : existing?.notes ?? null,
@@ -117,9 +123,9 @@ export function upsertVehicleState(
     };
     const db = getDb();
     db.executeSync(
-      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
-      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at]),
+      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank]),
     );
     const { synced_at: _s, ...row } = merged;
     appendOutbox('INSERT', 'vehicles', row);
@@ -156,14 +162,14 @@ export function ensureVehicleRow(
     const now = new Date().toISOString();
     const db = getDb();
     db.executeSync(
-      `INSERT OR IGNORE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at)
-       VALUES (?, 0, NULL, ?, ?, NULL, ?, NULL)`,
+      `INSERT OR IGNORE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank)
+       VALUES (?, 0, NULL, ?, ?, NULL, ?, NULL, 'empty', 'clean')`,
       bindParams([locationId, init?.model ?? null, init?.model_id ?? null, now]),
     );
     appendOutbox('INSERT', 'vehicles', {
       location_id: locationId, truck_mount: 0, water_state: null,
       model: init?.model ?? null, model_id: init?.model_id ?? null,
-      notes: null, updated_at: now,
+      notes: null, updated_at: now, water_tank: 'empty', waste_tank: 'clean',
     });
   });
 }
