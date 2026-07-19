@@ -104,8 +104,9 @@ export default function HubScreen() {
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceSel, setSourceSel] = useState<PickerOption | null>(null);
 
-  // Equipment batch-checkout accumulator (Task 15).
-  const [equipBatch, setEquipBatch] = useState<EquipmentUnit[]>([]);
+  // Equipment batch-checkout accumulator (Task 15). Carries the item name so the
+  // batch bar can list each queued unit ("AM-004 · Drill"), not just a count.
+  const [equipBatch, setEquipBatch] = useState<(EquipmentUnit & { item_name: string })[]>([]);
 
   // Session receipt.
   const [receipt, setReceipt] = useState<ScanReceiptEntry[]>([]);
@@ -261,7 +262,7 @@ export default function HubScreen() {
   function enqueueEquipment(c: ScanClass) {
     if (c.kind === 'equipment-unit') {
       if (c.unit.status === 'available') {
-        setEquipBatch(prev => (prev.some(u => u.id === c.unit.id) ? prev : [...prev, c.unit]));
+        setEquipBatch(prev => (prev.some(u => u.id === c.unit.id) ? prev : [...prev, { ...c.unit, item_name: c.item.name }]));
       } else {
         Alert.alert('Not available', `${c.unit.asset_tag} is ${c.unit.status}, not available to check out.`);
       }
@@ -270,6 +271,11 @@ export default function HubScreen() {
     }
     // Immediately reopen the camera for the next scan.
     setMode('scanning');
+  }
+
+  // Drop a wrongly-scanned unit from the batch without leaving the scanner.
+  function removeFromBatch(id: string) {
+    setEquipBatch(prev => prev.filter(u => u.id !== id));
   }
 
   // ── consumable in/out ──────────────────────────────────────────────────────
@@ -580,10 +586,29 @@ export default function HubScreen() {
         <BarcodeScanner active onScanned={onScan} onClose={onScannerClose} />
         {equipBatch.length > 0 && (
           <View style={s.batchBar} pointerEvents="box-none">
-            <Text style={s.batchCount}>{equipBatch.length} unit{equipBatch.length > 1 ? 's' : ''} queued</Text>
-            <TouchableOpacity style={s.batchDone} onPress={() => setMode('destination')}>
-              <Text style={s.batchDoneText}>Done scanning →</Text>
-            </TouchableOpacity>
+            <View style={s.batchPanel} pointerEvents="auto">
+              <Text style={s.batchHeading}>
+                {equipBatch.length} unit{equipBatch.length > 1 ? 's' : ''} queued
+              </Text>
+              <ScrollView style={s.batchList} keyboardShouldPersistTaps="handled">
+                {equipBatch.map(u => (
+                  <View key={u.id} style={s.batchRow}>
+                    <Text style={s.batchRowText} numberOfLines={1}>
+                      {u.asset_tag} · {u.item_name}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => removeFromBatch(u.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={s.batchRemove}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={s.batchDone} onPress={() => setMode('destination')}>
+                <Text style={s.batchDoneText}>Done scanning →</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
@@ -897,16 +922,24 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   hidButtonText: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
   batchBar: {
     position: 'absolute', bottom: 40, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20,
   },
-  batchCount: {
-    color: '#fff', fontSize: 15, fontWeight: '700',
-    backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8,
-    overflow: 'hidden',
+  batchPanel: {
+    backgroundColor: 'rgba(0,0,0,0.72)', borderRadius: 12, padding: 12,
   },
+  batchHeading: {
+    color: '#fff', fontSize: 13, fontWeight: '700', opacity: 0.85, marginBottom: 8,
+  },
+  batchList: { maxHeight: 168 },
+  batchRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  batchRowText: { flex: 1, color: '#fff', fontSize: 15, fontWeight: '600', marginRight: 10 },
+  batchRemove: { color: '#fff', fontSize: 16, fontWeight: '700', opacity: 0.7, paddingHorizontal: 4 },
   batchDone: {
-    backgroundColor: t.colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8,
+    marginTop: 10, backgroundColor: t.colors.primary, paddingVertical: 12, borderRadius: 8,
+    alignItems: 'center',
   },
   batchDoneText: { color: t.colors.onPrimary, fontSize: 15, fontWeight: '700' },
   gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: t.colors.background },
