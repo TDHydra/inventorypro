@@ -191,14 +191,22 @@ export default function DashboardScreen() {
         const action = quickActions.find(a => a.key === block.widget);
         if (!action) return null;
         const qa: Record<QuickAction['key'], { icon: string; sub: string; onPress: () => void }> = {
-          'vehicle-checkin': {
-            icon: '🚐',
-            sub: 'You have this vehicle checked out',
-            onPress: () => router.push({
-              pathname: '/(app)/(vehicles)/[id]',
-              params: { id: (action as { vehicleLocationId: string }).vehicleLocationId },
-            } as never),
-          },
+          // #149: with an open session the card checks it back in; without one
+          // it's the fast path to grab a vehicle from the Vehicles screen.
+          'vehicle-checkin': action.key === 'vehicle-checkin' && action.mode === 'check_in'
+            ? {
+                icon: '🚐',
+                sub: 'You have this vehicle checked out',
+                onPress: () => router.push({
+                  pathname: '/(app)/(vehicles)/[id]',
+                  params: { id: action.vehicleLocationId },
+                } as never),
+              }
+            : {
+                icon: '🚐',
+                sub: 'Pick one from the Vehicles list',
+                onPress: () => router.push('/(app)/(vehicles)' as never),
+              },
           'past-due': {
             icon: '⏰',
             sub: 'Repairs & service needing attention',

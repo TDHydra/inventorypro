@@ -13,7 +13,9 @@ export function isOverdueRepair(
 }
 
 export type QuickAction =
-  | { key: 'vehicle-checkin'; vehicleLocationId: string; label: string }
+  | { key: 'vehicle-checkin'; mode: 'check_in'; vehicleLocationId: string; label: string }
+  // #149: no active session → the card flips to a check-OUT call-to-action.
+  | { key: 'vehicle-checkin'; mode: 'check_out'; label: string }
   | { key: 'past-due'; count: number; target: 'repairs' | 'equipment'; label: string }
   | { key: 'low-stock-catalog'; count: number; label: string };
 
@@ -34,9 +36,12 @@ export function computeQuickActions(input: QuickActionsInput): QuickAction[] {
     const name = input.activeVehicleCheckout.vehicle_name;
     out.push({
       key: 'vehicle-checkin',
+      mode: 'check_in',
       vehicleLocationId: input.activeVehicleCheckout.vehicle_location_id,
       label: `Check In ${name ?? 'Vehicle'}`,
     });
+  } else {
+    out.push({ key: 'vehicle-checkin', mode: 'check_out', label: 'Check Out a Vehicle' });
   }
 
   if (input.canEditInventory) {
