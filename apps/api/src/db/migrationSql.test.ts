@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 
 // Phase A1 migrations run against prod PG on API boot — no live PG in CI, so
 // assert the SQL text invariants (the pullColumns.test.ts source-text idiom).
-const DIR = join(dirname(new URL(import.meta.url).pathname), 'migrations');
+const DIR = join(__dirname, 'migrations');
 const read = (f: string) => readFileSync(join(DIR, f), 'utf8');
 
 test('057: two TEXT tank columns with the pinned defaults, never a PG enum', () => {
