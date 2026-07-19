@@ -31,7 +31,7 @@ const SYNC_TABLES = [
   // like locker_access — the access panel needs teammates' grants on a fresh
   // device.
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
-  'locker_access', 'unit_access', 'on_call_shifts',
+  'locker_access', 'unit_access', 'on_call_shifts', 'on_call_coverage',
 ] as const;
 
 export const FULL_DOWNLOAD_TABLE_COUNT = SYNC_TABLES.length;
@@ -157,7 +157,8 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'vehicle_checkouts':
       case 'locker_access':
       case 'unit_access':
-      case 'on_call_shifts': {
+      case 'on_call_shifts':
+      case 'on_call_coverage': {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)
         // and sanitize values (JSONB objects / booleans) for op-sqlite.

@@ -25,7 +25,9 @@ export function OnCallWidget() {
 
   const today = localTodayIso();
   const shift = useMemo(
-    () => getCurrentShift(today),
+    // Boundary-aware (Phase C): the local hour decides the week on the
+    // boundary day itself (Thursday 07:59 still shows last week's crew).
+    () => getCurrentShift(today, new Date().getHours()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [today, version, localBump],
   );
