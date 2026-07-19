@@ -1,3 +1,13 @@
+# InventoryPro — one-command self-host stack (builds everything from this repo).
+#
+#   cp .env.example .env   # edit the CHANGE_ME values
+#   docker compose up -d --build
+#
+# Services: postgres 16, MinIO (media storage) + one-shot bucket init, the
+# Fastify API (runs its own migrations on boot), and the Expo Web app (static,
+# nginx). Put your own TLS proxy in front for anything internet-facing — see
+# infra/DEPLOY-SELFHOST.md and infra/docker-compose.prod.yml.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -5,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-inventorypro}
       POSTGRES_USER: ${POSTGRES_USER:-inventorypro}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,9 +30,12 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
       - miniodata:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -38,12 +51,13 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD} &&
       mc mb --ignore-existing local/${MINIO_BUCKET:-inventorypro-media} &&
-      mc anonymous set download local/${MINIO_BUCKET:-inventorypro-media}/thumbnails
+      mc anonymous set download local/${MINIO_BUCKET:-inventorypro-media}
       "
+    restart: "no"
 
   api:
     build:
-      context: ..
+      context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     depends_on:
@@ -53,52 +67,38 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-inventorypro}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-inventorypro}
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Internal endpoint for server<->MinIO ops; the MinIO root credentials
+      # double as the API's S3 keys (media routes fail closed if unset).
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-inventorypro-media}
-      PUBLIC_MEDIA_URL: ${PUBLIC_MEDIA_URL}
-      # Browser CORS allowlist (comma-separated web origins) — must include the
-      # web app's origin or the browser blocks API calls.
+      PUBLIC_MEDIA_URL: ${PUBLIC_MEDIA_URL:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      # Trusted proxy subnet(s) for correct request.ip behind the bundled nginx.
       TRUST_PROXY: ${TRUST_PROXY:-}
-      # Outbound mail — all of HOST/USER/PASS/FROM required or mail is a
-      # logged no-op. Port 465 = implicit TLS, anything else = STARTTLS.
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
-      PORT: 3000
+      PORT: "3000"
+      HOST: "0.0.0.0"
     ports:
-      - "3000:3000"
+      - "${API_PORT:-3000}:3000"
 
   web:
     # Static Expo Web build — the API URL is baked in at build time, so
     # rebuild (--build) whenever EXPO_PUBLIC_API_URL changes.
     build:
-      context: ..
+      context: .
       dockerfile: infra/Dockerfile.web
       args:
         EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:3000}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8088}:80"
-
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certs:/etc/nginx/certs:ro
-    ports:
-      - "80:80"
-      - "443:443"
-    depends_on:
-      - api
-      - minio
 
 volumes:
   pgdata:
