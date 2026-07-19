@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -6,8 +6,15 @@ import { useTableVersion } from '../../hooks/useDataVersion';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
 import { StatusPill } from '../ui/StatusPill';
-import { addDaysIso, enumerateWeeks, formatWeekRange, isCurrentWeek, weekStartIso } from './weekMath';
-import { assignWeek, getAssignableCrews, getShifts, type OnCallShift } from '../../db/queries/oncall';
+import { addDaysIso, boundaryWeekStartIso, enumerateWeeks, formatWeekRange } from './weekMath';
+import {
+  assignWeek,
+  ensureRotationFill,
+  getAssignableCrews,
+  getShifts,
+  getWeekBoundary,
+  type OnCallShift,
+} from '../../db/queries/oncall';
 
 // The device's LOCAL calendar date as YYYY-MM-DD. Deliberately not
 // toISOString().slice(0,10) — that's UTC, which flips to tomorrow in the
@@ -17,6 +24,12 @@ export function localTodayIso(now: Date = new Date()): string {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+// The device's LOCAL wall-clock hour (0–23). The on-call week boundary is a
+// wall-clock concept (e.g. Thursday 08:00 local), so pair with localTodayIso.
+export function localNowHour(now: Date = new Date()): number {
+  return now.getHours();
 }
 
 interface Props {
@@ -39,17 +52,31 @@ interface Props {
 export function OnCallCalendar({ weeksBack = 2, weeksForward = 8, canEdit, onAssign }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
-  const version = useTableVersion(['on_call_shifts', 'subteams']);
+  // app_config carries the boundary + rotation settings — without subscribing,
+  // a synced settings change wouldn't re-render (the reactive-cache gotcha).
+  const version = useTableVersion(['on_call_shifts', 'subteams', 'app_config']);
   // Local writes don't bump the sync table version (that counts pull applies),
   // so re-query on our own bump after an assign/clear too.
   const [localBump, setLocalBump] = useState(0);
   const [editingWeek, setEditingWeek] = useState<string | null>(null);
 
   const today = localTodayIso();
+  const hour = localNowHour();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const boundary = useMemo(() => getWeekBoundary(), [version]);
+  const currentWeek = boundaryWeekStartIso(today, hour, boundary);
   const weeks = useMemo(
-    () => enumerateWeeks(addDaysIso(weekStartIso(today), -7 * weeksBack), weeksBack + 1 + weeksForward),
-    [today, weeksBack, weeksForward],
+    () => enumerateWeeks(addDaysIso(currentWeek, -7 * weeksBack), weeksBack + 1 + weeksForward, boundary.day),
+    [currentWeek, weeksBack, weeksForward, boundary.day],
   );
+
+  // Auto-fill upcoming weeks from the rotation on open — editors only
+  // (non-editors would get server manage_teams conflicts on push).
+  useEffect(() => {
+    if (!canEdit) return;
+    if (ensureRotationFill(today, hour, user?.id ?? null) > 0) setLocalBump(v => v + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, today, version]);
 
   const shiftByWeek = useMemo(() => {
     const map = new Map<string, OnCallShift>();
@@ -78,7 +105,9 @@ export function OnCallCalendar({ weeksBack = 2, weeksForward = 8, canEdit, onAss
     <View>
       {weeks.map(week => {
         const shift = shiftByWeek.get(week);
-        const current = isCurrentWeek(week, today);
+        // Boundary-aware: on the boundary day before the flip hour, a
+        // date-only window (isCurrentWeek) would highlight the wrong row.
+        const current = week === currentWeek;
         const editing = editingWeek === week;
         return (
           <View key={week}>

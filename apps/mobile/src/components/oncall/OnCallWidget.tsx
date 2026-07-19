@@ -5,9 +5,9 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { usePermission } from '../../hooks/usePermission';
 import { ModalSheet } from '../ui/ModalSheet';
-import { OnCallCalendar, localTodayIso } from './OnCallCalendar';
-import { getCurrentShift } from '../../db/queries/oncall';
-import { formatWeekRange, weekStartIso } from './weekMath';
+import { OnCallCalendar, localNowHour, localTodayIso } from './OnCallCalendar';
+import { getCurrentShift, getWeekBoundary } from '../../db/queries/oncall';
+import { boundaryWeekStartIso, formatWeekRange } from './weekMath';
 
 // Self-contained on-call dashboard block (#128): a themed button showing the
 // live current-week assignment that OWNS its modal state — tapping it opens the
@@ -18,7 +18,7 @@ export function OnCallWidget() {
   const s = useThemedStyles(makeStyles);
   const canEdit = usePermission('manage_teams');
   const [open, setOpen] = useState(false);
-  const version = useTableVersion(['on_call_shifts', 'subteams']);
+  const version = useTableVersion(['on_call_shifts', 'subteams', 'app_config']);
   // Local assigns (via the calendar's onAssign) don't bump the sync table
   // version, so track our own bump to re-read the current assignment live.
   const [localBump, setLocalBump] = useState(0);
@@ -27,7 +27,7 @@ export function OnCallWidget() {
   const shift = useMemo(
     // Boundary-aware (Phase C): the local hour decides the week on the
     // boundary day itself (Thursday 07:59 still shows last week's crew).
-    () => getCurrentShift(today, new Date().getHours()),
+    () => getCurrentShift(today, localNowHour()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [today, version, localBump],
   );
@@ -48,7 +48,7 @@ export function OnCallWidget() {
       <ModalSheet visible={open} onClose={() => setOpen(false)} scroll>
         <Text style={s.sheetTitle}>On-call schedule</Text>
         <Text style={s.sheetSub}>
-          Week of {formatWeekRange(weekStartIso(today))}
+          Week of {formatWeekRange(boundaryWeekStartIso(today, localNowHour(), getWeekBoundary()))}
           {canEdit ? ' — tap a week to assign a crew' : ''}
         </Text>
         <OnCallCalendar
