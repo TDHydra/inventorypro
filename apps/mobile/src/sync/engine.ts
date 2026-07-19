@@ -12,6 +12,7 @@ import { loadRolePermissionCache } from '../auth/permissions';
 import { loadDashboardCache } from '../dashboard/store';
 import { loadChatCache } from '../chat/store';
 import { notifyHiddenFieldsChanged } from '../db/hiddenFields';
+import { notifyUnitAccessDefaultsChanged } from '../db/unitAccessDefaults';
 import { applyUserTheme } from '../db/userPrefs';
 import { runLocalAlertChecks } from '../notifications/localAlerts';
 import { prefetchNewMediaThumbnails } from './mediaPrefetch';
@@ -250,6 +251,7 @@ async function runDrainAndPull(): Promise<void> {
     // A pull may also have changed app_config hidden_fields — notify subscribers
     // so HidableField components re-render without waiting for a focus event.
     notifyHiddenFieldsChanged();
+    notifyUnitAccessDefaultsChanged();
     // A pull may also have delivered a theme change made on the user's other
     // device — prompt before re-skinning mid-use ("Keep current" reverts the
     // change everywhere). No-op / silent when unchanged or chosen locally.
