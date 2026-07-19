@@ -9,11 +9,12 @@ import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
 import { confirmSheet } from '../ui/ConfirmSheet';
 import { ServiceRecordList } from './ServiceRecordList';
+import { VehicleHistoryPanel } from './VehicleHistoryPanel';
 import { UnitContentsPanel } from '../units/UnitContentsPanel';
 import { VehicleCheckoutSheet, type CheckoutSheetMode } from './VehicleCheckoutSheet';
 import { VehicleEditSheet } from './VehicleEditSheet';
 import {
-  getVehicle, upsertVehicleState, getActiveCheckout, getCheckoutHistory,
+  getVehicle, upsertVehicleState, getActiveCheckout,
   checkInVehicle, VEHICLE_MODEL_CATEGORY, type WaterTank, type WasteTank,
 } from '../../db/queries/vehicles';
 import { getLocationById } from '../../db/queries/locations';
@@ -75,10 +76,6 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const location = useMemo(() => getLocationById(locationId), [locationId, refreshKey]);
   const vehicle = useMemo(() => getVehicle(locationId), [locationId, refreshKey]);
   const active = useMemo(() => getActiveCheckout(locationId), [locationId, refreshKey]);
-  const history = useMemo(
-    () => (variant === 'full' ? getCheckoutHistory(locationId, 5) : []),
-    [locationId, variant, refreshKey],
-  );
   const owner = useMemo(
     () => (location?.owner_user_id ? getUserById(location.owner_user_id) : null),
     [location?.owner_user_id, refreshKey],
@@ -279,29 +276,8 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
       {/* Service log (last 3 + add) */}
       <ServiceRecordList locationId={locationId} limit={3} />
 
-      {/* Usage history (last 5 sessions) */}
-      <Text style={s.sectionLabel}>Usage</Text>
-      <Card variant="detail">
-        {history.length === 0 ? (
-          <Text style={s.muted}>No sessions yet.</Text>
-        ) : (
-          history.map((c, i) => (
-            <View key={c.id} style={[s.histRow, i < history.length - 1 && s.divider]}>
-              <View style={s.histMain}>
-                <Text style={s.histTitle}>{c.user_name ?? c.user_id}</Text>
-                <Text style={s.histSub}>
-                  {new Date(c.checked_out_at).toLocaleDateString()}
-                  {c.checked_in_at
-                    ? ` · ${formatSince(c.checked_out_at, c.checked_in_at) || '<1m'}`
-                    : ' · still out'}
-                  {c.job_name ? ` · ${c.job_name}` : ''}
-                </Text>
-              </View>
-              {c.checked_in_at == null && <StatusPill label="Open" tone="warning" />}
-            </View>
-          ))
-        )}
-      </Card>
+      {/* Usage / miles / fuel-ups (#141) — the embeddable history surface. */}
+      <VehicleHistoryPanel locationId={locationId} />
 
       {sheet && (
         <VehicleCheckoutSheet
@@ -338,15 +314,4 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   waterLabel: { marginTop: t.spacing.md },
   muted: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted },
   primaryBtn: { marginTop: t.spacing.md },
-  histRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: t.spacing.md,
-    paddingVertical: t.spacing.sm,
-  },
-  divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
-  histMain: { flex: 1 },
-  histTitle: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
-  histSub: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, marginTop: 2 },
 });

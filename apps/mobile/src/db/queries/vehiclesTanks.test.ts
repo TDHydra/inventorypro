@@ -50,6 +50,12 @@ before(async () => {
       job_id TEXT, checked_out_at TEXT NOT NULL, checked_in_at TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, synced_at TEXT
     );
+    CREATE TABLE vehicle_service_records (
+      id TEXT PRIMARY KEY, vehicle_location_id TEXT NOT NULL, target TEXT NOT NULL,
+      event_date TEXT NOT NULL, type TEXT NOT NULL, notes TEXT, odometer REAL,
+      cost REAL, created_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      synced_at TEXT
+    );
     CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT);
     CREATE TABLE jobs (id TEXT PRIMARY KEY, name TEXT);
     CREATE TABLE activity_log (
@@ -119,4 +125,49 @@ test('#144: getActiveCheckoutForUser finds my open session with the vehicle name
   assert.equal(veh.getActiveCheckoutForUser('u-matt'), null);
   veh.checkInVehicle(sessionId, 'u-driver');
   assert.equal(veh.getActiveCheckoutForUser('u-driver'), null);
+});
+
+test('#141: takeover logs prior driver + checkout timestamp in the note', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO locations (id, name, type, updated_at) VALUES ('van-to', 'Van TO', 'Vehicle', '2026-01-01')`);
+  db.executeSync(`INSERT INTO users (id, name) VALUES ('u-frank', 'Frank')`);
+  db.executeSync(`INSERT INTO users (id, name) VALUES ('u-taker', 'Taker Tom')`);
+  veh.checkOutVehicle('van-to', null, 'u-frank');
+  const holderOutAt = veh.getActiveCheckout('van-to')!.checked_out_at;
+  veh.takeOverVehicle('van-to', null, 'u-taker');
+  // Frank's session is closed, Tom holds the new one.
+  const active = veh.getActiveCheckout('van-to')!;
+  assert.equal(active.user_id, 'u-taker');
+  // The takeover activity row names the prior driver AND their checkout time.
+  const note = (testDb.getDb().executeSync(
+    `SELECT note FROM activity_log WHERE action = 'vehicle_checkout' AND user_id = 'u-taker' ORDER BY created_at DESC LIMIT 1`,
+  ).rows[0] as { note: string }).note;
+  assert.match(note, /took over from Frank/);
+  assert.ok(note.includes(holderOutAt), 'note must carry the prior checkout timestamp');
+});
+
+test('#141: odometer timeline returns only rows with readings, newest first', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO locations (id, name, type, updated_at) VALUES ('van-odo', 'Van Odo', 'Vehicle', '2026-01-01')`);
+  const mk = (date: string, odo: number | null, type = 'Oil change') =>
+    veh.createServiceRecord({
+      vehicleLocationId: 'van-odo', target: 'vehicle', eventDate: date,
+      type, notes: null, odometer: odo, cost: null, userId: 'u-matt',
+    });
+  mk('2026-05-01', 84000);
+  mk('2026-06-01', null);      // no reading — excluded
+  mk('2026-07-01', 84500);
+  const timeline = veh.getOdometerTimeline('van-odo');
+  assert.deepEqual(timeline.map(r => r.odometer), [84500, 84000]);
+});
+
+test('#141: getFuelUps filters to fuel_up records only', () => {
+  veh.createServiceRecord({
+    vehicleLocationId: 'van-odo', target: 'vehicle', eventDate: '2026-07-10',
+    type: 'fuel_up', notes: '12.5 gal', odometer: null, cost: 55, userId: 'u-matt',
+  });
+  const fuels = veh.getFuelUps('van-odo');
+  assert.equal(fuels.length, 1);
+  assert.equal(fuels[0].type, 'fuel_up');
+  assert.equal(fuels[0].notes, '12.5 gal');
 });

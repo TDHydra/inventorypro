@@ -3,7 +3,7 @@ import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
-import { buildClosePayload } from '../../components/vehicles/vehicleSessionLogic';
+import { buildClosePayload, buildTakeoverNote, FUEL_UP_TYPE } from '../../components/vehicles/vehicleSessionLogic';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Three soft-FK tables:
 //   vehicles                 1:1 extension of a Vehicle-typed location (PK =
@@ -382,8 +382,13 @@ export function addJobToActiveCheckout(sessionId: string, jobId: string | null):
 export function takeOverVehicle(locationId: string, jobId: string | null, userId: string): string {
   return runInTransaction(() => {
     const open = getActiveCheckout(locationId);
+    // #141: the activity note preserves who held the vehicle and since when —
+    // the closed session row survives, but the log is where people look.
+    let note = 'took over';
     if (open && open.checked_in_at == null) {
-      const payload = buildClosePayload(open.id, new Date().toISOString());
+      const nowIso = new Date().toISOString();
+      note = buildTakeoverNote(open.user_name ?? null, open.checked_out_at, nowIso);
+      const payload = buildClosePayload(open.id, nowIso);
       const db = getDb();
       db.executeSync(
         `UPDATE vehicle_checkouts SET checked_in_at = ?, updated_at = ?, synced_at = NULL WHERE id = ?`,
@@ -391,8 +396,39 @@ export function takeOverVehicle(locationId: string, jobId: string | null, userId
       );
       appendOutbox('UPDATE', 'vehicle_checkouts', payload);
     }
-    return insertCheckout(locationId, jobId, userId, 'took over');
+    return insertCheckout(locationId, jobId, userId, note);
   });
+}
+
+// ── history-panel reads (#141) ─────────────────────────────────────────────
+
+export interface OdometerReading {
+  id: string;
+  event_date: string;
+  odometer: number;
+  type: string;
+}
+
+/** Service records that carry an odometer reading, newest first. */
+export function getOdometerTimeline(locationId: string, limit = 20): OdometerReading[] {
+  const db = getDb();
+  return rowsAs<OdometerReading>(db.executeSync(
+    `SELECT id, event_date, odometer, type FROM vehicle_service_records
+      WHERE vehicle_location_id = ? AND odometer IS NOT NULL
+      ORDER BY event_date DESC, created_at DESC LIMIT ?`,
+    [locationId, limit],
+  ).rows);
+}
+
+/** Fuel-up records (type = 'fuel_up'), newest first. */
+export function getFuelUps(locationId: string, limit = 10): VehicleServiceRecord[] {
+  const db = getDb();
+  return rowsAs<VehicleServiceRecord>(db.executeSync(
+    `SELECT * FROM vehicle_service_records
+      WHERE vehicle_location_id = ? AND type = ?
+      ORDER BY event_date DESC, created_at DESC LIMIT ?`,
+    [locationId, FUEL_UP_TYPE, limit],
+  ).rows);
 }
 
 // ── list-row status (VehicleInlineStatus) ──────────────────────────────────

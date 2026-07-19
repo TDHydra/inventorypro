@@ -7,6 +7,11 @@ import {
   waterTankLabel,
   wasteTankLabel,
   serviceTargetLabel,
+  buildTakeoverNote,
+  buildFuelUpNotes,
+  parseFuelUpGallons,
+  serviceTypeLabel,
+  odometerDeltas,
 } from './vehicleSessionLogic';
 
 const open = (userId: string) => ({ id: 's1', user_id: userId, checked_in_at: null });
@@ -80,4 +85,51 @@ test('labels: service target', () => {
   assert.equal(serviceTargetLabel('vehicle'), 'Vehicle');
   assert.equal(serviceTargetLabel('truck_mount'), 'Truck mount');
   assert.equal(serviceTargetLabel('both'), 'Both');
+});
+
+// ── #141: takeover audit note ───────────────────────────────────────────────
+
+test('buildTakeoverNote names the prior driver, checkout time and duration', () => {
+  assert.equal(
+    buildTakeoverNote('Frank', '2026-07-19T08:00:00.000Z', '2026-07-19T11:15:00.000Z'),
+    'took over from Frank (out since 2026-07-19T08:00:00.000Z, 3h 15m)',
+  );
+});
+
+test('buildTakeoverNote survives an unknown holder and a zero duration', () => {
+  assert.equal(
+    buildTakeoverNote(null, '2026-07-19T08:00:00.000Z', '2026-07-19T08:00:00.000Z'),
+    'took over from unknown driver (out since 2026-07-19T08:00:00.000Z, 0m)',
+  );
+});
+
+// ── #141: fuel-up notes round-trip (gallons live in the TEXT notes column) ──
+
+test('buildFuelUpNotes prefixes gallons and keeps free text', () => {
+  assert.equal(buildFuelUpNotes(12.5, 'topped off'), '12.5 gal — topped off');
+  assert.equal(buildFuelUpNotes(12.5, ''), '12.5 gal');
+  assert.equal(buildFuelUpNotes(null, 'no pump reading'), 'no pump reading');
+  assert.equal(buildFuelUpNotes(null, ''), null);
+});
+
+test('parseFuelUpGallons reads the prefix back (and only the prefix)', () => {
+  assert.equal(parseFuelUpGallons('12.5 gal — topped off'), 12.5);
+  assert.equal(parseFuelUpGallons('8 gal'), 8);
+  assert.equal(parseFuelUpGallons('no pump reading'), null);
+  assert.equal(parseFuelUpGallons(null), null);
+});
+
+// ── #141: service-type display label ────────────────────────────────────────
+
+test('serviceTypeLabel maps fuel_up, passes through everything else', () => {
+  assert.equal(serviceTypeLabel('fuel_up'), 'Fuel-up');
+  assert.equal(serviceTypeLabel('Oil change'), 'Oil change');
+});
+
+// ── #141: odometer deltas (rows newest-first) ───────────────────────────────
+
+test('odometerDeltas: each row minus the next-older reading, oldest is null', () => {
+  const rows = [{ odometer: 84500 }, { odometer: 84200 }, { odometer: 84000 }];
+  assert.deepEqual(odometerDeltas(rows), [300, 200, null]);
+  assert.deepEqual(odometerDeltas([]), []);
 });

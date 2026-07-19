@@ -82,3 +82,56 @@ export function serviceTargetLabel(target: string | null | undefined): string {
   if (target === 'both') return 'Both';
   return 'Vehicle';
 }
+
+// ── #141: takeover attribution + history panel helpers ──────────────────────
+
+/**
+ * Takeover audit note: names the prior driver and when they checked out, so the
+ * closed session's context survives in the activity log even after the row
+ * itself is superseded. ISO timestamp on purpose — the log is machine-read too.
+ */
+export function buildTakeoverNote(
+  holderName: string | null,
+  checkedOutAtIso: string,
+  nowIso: string,
+): string {
+  const dur = formatSince(checkedOutAtIso, nowIso) || '0m';
+  return `took over from ${holderName ?? 'unknown driver'} (out since ${checkedOutAtIso}, ${dur})`;
+}
+
+/**
+ * Fuel-up service-record type. vehicle_service_records.type is free TEXT (no
+ * taxonomy, never a PG enum) and the table has NO metadata column, so gallons
+ * ride in the notes text via the build/parse pair below.
+ */
+export const FUEL_UP_TYPE = 'fuel_up';
+
+/** Compose fuel-up notes: "<gallons> gal — <free text>" (either part optional). */
+export function buildFuelUpNotes(gallons: number | null, notes: string): string | null {
+  const parts: string[] = [];
+  if (gallons != null) parts.push(`${gallons} gal`);
+  if (notes.trim()) parts.push(notes.trim());
+  return parts.length ? parts.join(' — ') : null;
+}
+
+/** Read the gallons prefix back out of fuel-up notes (null when absent). */
+export function parseFuelUpGallons(notes: string | null): number | null {
+  const m = notes?.match(/^(\d+(?:\.\d+)?) gal(?:\b|$)/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+/** Display label for a service-record type ('fuel_up' is the only coded value). */
+export function serviceTypeLabel(type: string): string {
+  return type === FUEL_UP_TYPE ? 'Fuel-up' : type;
+}
+
+/**
+ * Miles driven between consecutive odometer readings. Input is newest-first
+ * (as the timeline query returns); the oldest row has nothing to diff against.
+ */
+export function odometerDeltas<T extends { odometer: number }>(rowsDesc: readonly T[]): (number | null)[] {
+  return rowsDesc.map((r, i) => {
+    const older = rowsDesc[i + 1];
+    return older ? r.odometer - older.odometer : null;
+  });
+}

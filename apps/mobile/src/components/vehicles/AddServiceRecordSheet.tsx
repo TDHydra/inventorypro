@@ -7,6 +7,7 @@ import { TextField } from '../ui/TextField';
 import { DateField } from '../ui/DateField';
 import { FieldLabel } from '../ui/FieldLabel';
 import { createServiceRecord, type ServiceTarget } from '../../db/queries/vehicles';
+import { FUEL_UP_TYPE, buildFuelUpNotes } from './vehicleSessionLogic';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { isWriteBlocked } from '../../db/maintenance';
@@ -27,6 +28,13 @@ const TARGET_SEGMENTS = [
   { id: 'both', label: 'Both' },
 ];
 
+// #141: fuel-ups are service records with type='fuel_up' (free TEXT — no
+// taxonomy) and gallons folded into notes; this segment switches the form.
+const KIND_SEGMENTS = [
+  { id: 'service', label: 'Service' },
+  { id: 'fuel_up', label: 'Fuel-up' },
+];
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 interface Props {
@@ -40,10 +48,12 @@ export function AddServiceRecordSheet({ locationId, visible, onClose }: Props) {
   const { user } = useSession();
   const canViewFinancial = usePermission('view_financial_data');
 
+  const [kind, setKind] = useState<'service' | 'fuel_up'>('service');
   const [target, setTarget] = useState<ServiceTarget>('vehicle');
   const [type, setType] = useState('');
   const [date, setDate] = useState(today);
   const [odometer, setOdometer] = useState('');
+  const [gallons, setGallons] = useState('');
   const [cost, setCost] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,10 +62,12 @@ export function AddServiceRecordSheet({ locationId, visible, onClose }: Props) {
   // hidden, so state would otherwise leak between opens).
   useEffect(() => {
     if (visible) {
+      setKind('service');
       setTarget('vehicle');
       setType('');
       setDate(today());
       setOdometer('');
+      setGallons('');
       setCost('');
       setNotes('');
     }
@@ -63,7 +75,8 @@ export function AddServiceRecordSheet({ locationId, visible, onClose }: Props) {
 
   const dirty =
     type.trim().length > 0 || notes.trim().length > 0 ||
-    odometer.trim().length > 0 || cost.trim().length > 0 || target !== 'vehicle';
+    odometer.trim().length > 0 || cost.trim().length > 0 ||
+    gallons.trim().length > 0 || kind !== 'service' || target !== 'vehicle';
 
   function reject(field: string, rule: string) {
     track('audit', 'validation_reject', { screen: 'vehicle_service', props: { field, rule } });
@@ -71,13 +84,20 @@ export function AddServiceRecordSheet({ locationId, visible, onClose }: Props) {
 
   function submit() {
     if (isWriteBlocked()) return;
-    if (!type.trim()) {
+    const isFuelUp = kind === 'fuel_up';
+    if (!isFuelUp && !type.trim()) {
       reject('vehicle_service.type', 'required');
       Alert.alert('Required', 'Enter a service type.');
       return;
     }
-    const typeResult = validateText(type, { label: 'Service type', max: 100 });
+    const typeResult = validateText(isFuelUp ? FUEL_UP_TYPE : type, { label: 'Service type', max: 100 });
     if (!typeResult.ok) { reject('vehicle_service.type', typeResult.rule); Alert.alert('Invalid service type', typeResult.error); return; }
+    let gallonsValue: number | null = null;
+    if (isFuelUp) {
+      const gallonsResult = parseOptionalNonNegative(gallons, 'Gallons');
+      if (!gallonsResult.ok) { reject('vehicle_service.gallons', gallonsResult.rule); Alert.alert('Invalid gallons', gallonsResult.error); return; }
+      gallonsValue = gallonsResult.value;
+    }
     const notesResult = validateText(notes, { label: 'Notes' });
     if (!notesResult.ok) { reject('vehicle_service.notes', notesResult.rule); Alert.alert('Invalid notes', notesResult.error); return; }
     const dateResult = parseOptionalDate(date, 'Date');
@@ -97,10 +117,10 @@ export function AddServiceRecordSheet({ locationId, visible, onClose }: Props) {
     try {
       createServiceRecord({
         vehicleLocationId: locationId,
-        target,
+        target: isFuelUp ? 'vehicle' : target,
         eventDate: dateResult.value ?? new Date().toISOString(),
         type: typeResult.value,
-        notes: notesResult.value || null,
+        notes: isFuelUp ? buildFuelUpNotes(gallonsValue, notesResult.value) : (notesResult.value || null),
         odometer: odoResult.value,
         cost: costValue,
         userId: user?.id ?? null,
@@ -122,21 +142,42 @@ export function AddServiceRecordSheet({ locationId, visible, onClose }: Props) {
     >
       <View style={s.fields}>
         <View>
-          <FieldLabel>Serviced *</FieldLabel>
+          <FieldLabel>Entry</FieldLabel>
           <SegmentedControl
-            segments={TARGET_SEGMENTS}
-            value={target}
-            onChange={id => setTarget(id as ServiceTarget)}
+            segments={KIND_SEGMENTS}
+            value={kind}
+            onChange={id => setKind(id as 'service' | 'fuel_up')}
             size="sm"
           />
         </View>
-        <TextField
-          label="Type"
-          required
-          value={type}
-          onChangeText={setType}
-          placeholder="Oil change, tires, filter swap…"
-        />
+        {kind === 'service' && (
+          <View>
+            <FieldLabel>Serviced *</FieldLabel>
+            <SegmentedControl
+              segments={TARGET_SEGMENTS}
+              value={target}
+              onChange={id => setTarget(id as ServiceTarget)}
+              size="sm"
+            />
+          </View>
+        )}
+        {kind === 'service' ? (
+          <TextField
+            label="Type"
+            required
+            value={type}
+            onChangeText={setType}
+            placeholder="Oil change, tires, filter swap…"
+          />
+        ) : (
+          <TextField
+            label="Gallons (optional)"
+            value={gallons}
+            onChangeText={setGallons}
+            placeholder="e.g. 12.5"
+            keyboardType="numeric"
+          />
+        )}
         <DateField label="Date" value={date} onChange={setDate} />
         <TextField
           label="Odometer (optional)"
