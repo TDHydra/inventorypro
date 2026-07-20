@@ -7,6 +7,7 @@ import { generateUUID } from '../../utils/uuid';
 import { upsertItem, getItemBySku, getDistinctValues, searchItems, adjustStock, getStockQuantity } from '../../db/queries/items';
 import type { InventoryItem } from '../../db/queries/items';
 import { resolveLocationShelf, resolveLocationShelfSelection } from '../../db/queries/locations';
+import { getUnitInventoryLock } from '../../db/queries/access';
 import { getMainStorageLocationId } from '../../db/mainStorage';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
@@ -249,6 +250,18 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       return;
     }
     const homeLocationId = homeResult.id;
+
+    // #162: a starting-stock write into another team's vehicle/locker is locked
+    // without the cross-team perm (defensive — the picker hides units today,
+    // but the server rejects the stock INSERT regardless).
+    if (stockQty > 0 && homeLocationId) {
+      const teamLock = getUnitInventoryLock(user, homeLocationId);
+      if (teamLock.locked) {
+        trackReject('item.home_location', 'foreign_team_unit');
+        Alert.alert('Team inventory', teamLock.reason ?? 'This unit’s inventory belongs to another team.');
+        return;
+      }
+    }
 
     // Current stock must attach to a location — use the home location. Require
     // one rather than silently dropping the entered quantity.

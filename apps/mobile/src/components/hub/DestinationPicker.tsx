@@ -8,6 +8,7 @@ import {
   getOfficeLocations, getLocationsByOwner, getLocationById,
   resolveLocationShelfSelection, type Location,
 } from '../../db/queries/locations';
+import { getUnitInventoryLock } from '../../db/queries/access';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { generateUUID } from '../../utils/uuid';
@@ -176,6 +177,16 @@ export function DestinationPicker({ onResolved }: Props) {
   }
 
   // ── Manager ──────────────────────────────────────────────────────────────────
+  // #162: a manager-owned location is usually a UNIT (vehicle/locker). Sending
+  // stock INTO another team's unit is locked without manage_other_team_inventory
+  // — say why and keep the destination unresolved (confirm stays disabled).
+  function blockIfForeignUnit(locId: string): boolean {
+    const lock = getUnitInventoryLock(user, locId);
+    if (!lock.locked) return false;
+    Alert.alert('Team inventory', lock.reason ?? 'This unit belongs to another team.');
+    onResolved(null);
+    return true;
+  }
   function selectManager(opt: PickerOption) {
     setManagerValue(opt);
     setManagerLocValue(null);
@@ -183,6 +194,7 @@ export function DestinationPicker({ onResolved }: Props) {
     if (locs.length === 1) {
       setManagerLocs([]);
       const loc = locs[0];
+      if (blockIfForeignUnit(loc.id)) return;
       onResolved({ type: 'manager', label: `${opt.label} → ${loc.name}`, toLocationId: loc.id, jobId: null });
     } else if (locs.length > 1) {
       setManagerLocs(locs);
@@ -201,6 +213,7 @@ export function DestinationPicker({ onResolved }: Props) {
   }
   function selectManagerLoc(opt: PickerOption) {
     setManagerLocValue(opt);
+    if (blockIfForeignUnit(opt.id)) return;
     onResolved({
       type: 'manager',
       label: `${managerValue?.label ?? ''} → ${opt.label}`,
@@ -214,7 +227,10 @@ export function DestinationPicker({ onResolved }: Props) {
     onResolved({ type: 'office', label: opt.label, toLocationId: opt.id, jobId: null });
   }
 
-  const managerLocOptions: PickerOption[] = managerLocs.map(l => ({ id: l.id, label: l.name }));
+  const managerLocOptions: PickerOption[] = managerLocs.map(l => {
+    const lock = getUnitInventoryLock(user, l.id);
+    return { id: l.id, label: l.name, sublabel: lock.locked ? lock.reason ?? '🔒 Team inventory' : undefined };
+  });
 
   return (
     <View>

@@ -148,6 +148,10 @@ const tier4: PermissionMap = {
   edit_inventory:             true,
   delete_inventory:           true,
   transfer_between_locations: true,
+  // #162: manage inventory inside a Vehicle/Locker UNIT owned by a user on a
+  // team the actor does NOT share. Tier-4 only by default. KEEP IN SYNC with
+  // apps/mobile/src/constants/roles.ts.
+  manage_other_team_inventory: true,
   create_jobs:                true,
   close_jobs:                 true,
   manage_locations:           true,
@@ -175,6 +179,7 @@ const tier3: PermissionMap = {
   edit_inventory:             false,
   delete_inventory:           false,
   transfer_between_locations: false,
+  manage_other_team_inventory: false,
   create_jobs:                true,
   close_jobs:                 true,
   manage_locations:           false,
@@ -202,6 +207,7 @@ const tier2: PermissionMap = {
   edit_inventory:             true,
   delete_inventory:           false,
   transfer_between_locations: true,
+  manage_other_team_inventory: false,
   create_jobs:                true,
   close_jobs:                 true,
   manage_locations:           true,
@@ -229,6 +235,7 @@ const tier1: PermissionMap = {
   edit_inventory:             false,
   delete_inventory:           false,
   transfer_between_locations: false,
+  manage_other_team_inventory: false,
   create_jobs:                false,
   close_jobs:                 false,
   manage_locations:           false,

@@ -168,3 +168,57 @@ test('getTeamUnits: kernel-only set (owned ∪ granted ∪ teammate) — no #157
   // the Vehicles screen falls back to the All segment for them.
   assert.deepEqual(access.getTeamUnits(mkUser('user-nobody'), 'Vehicle'), []);
 });
+
+test('#162: getUnitInventoryLock — foreign-team unit locked; own/team/ownerless/main/perm-holder unlocked', () => {
+  const db = testDb.getDb();
+  // Tables the lock helper reads that the earlier tests didn't need.
+  db.executeSync(`
+    CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, role TEXT, permission_overrides TEXT);
+    CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE role_settings (role TEXT PRIMARY KEY, permission_overrides TEXT);
+    INSERT INTO users (id, name, role, permission_overrides) VALUES
+      ('owner-z', 'Zed', 'construction_crew', '{}'),
+      ('user-a',  'Ann', 'construction_crew', '{}'),
+      ('user-ov', 'Ova', 'construction_crew', '{"manage_other_team_inventory":true}');
+    INSERT INTO teams (id, name) VALUES ('team-z', 'Mitigation');
+  `);
+  const mkUser = (id: string, role = 'construction_crew') => ({
+    id, name: id, role,
+    permission_overrides: {}, pin_length_required: 4, active: 1, expires_at: null,
+  } as import('../../auth/permissions').UserSession);
+
+  // veh-other is owned by owner-z (team-z 'Mitigation'); user-a shares no team.
+  const locked = access.getUnitInventoryLock(mkUser('user-a'), 'veh-other');
+  assert.equal(locked.locked, true);
+  assert.match(locked.reason!, /Team inventory/);
+  assert.match(locked.reason!, /Mitigation/, 'the reason names the owning team');
+
+  // Same team (user-b joined team-z in the earlier test), the owner, an
+  // ownerless unit, a main location, and a null id are all unlocked.
+  assert.equal(access.getUnitInventoryLock(mkUser('user-b'), 'veh-other').locked, false);
+  assert.equal(access.getUnitInventoryLock(mkUser('owner-z'), 'veh-other').locked, false);
+  assert.equal(access.getUnitInventoryLock(mkUser('user-a'), 'veh-g').locked, false);
+  assert.equal(access.getUnitInventoryLock(mkUser('user-a'), 'loc-shop').locked, false);
+  assert.equal(access.getUnitInventoryLock(mkUser('user-a'), null).locked, false);
+
+  // Tier-4 role default and an explicit user override both unlock.
+  assert.equal(access.getUnitInventoryLock(mkUser('user-a', 'full_admin'), 'veh-other').locked, false);
+  assert.equal(
+    access.getUnitInventoryLock(
+      { ...mkUser('user-a'), permission_overrides: { manage_other_team_inventory: true } },
+      'veh-other',
+    ).locked,
+    false,
+  );
+
+  // The user-id variant resolves role + overrides from the local users table.
+  assert.equal(access.getUnitInventoryLockForUserId('user-a', 'veh-other').locked, true);
+  assert.equal(access.getUnitInventoryLockForUserId('user-ov', 'veh-other').locked, false);
+  assert.equal(access.getUnitInventoryLockForUserId('user-unknown', 'veh-other').locked, false);
+
+  // A role_settings override grants it role-wide (server resolution order).
+  db.executeSync(`INSERT INTO role_settings (role, permission_overrides) VALUES
+    ('construction_crew', '{"manage_other_team_inventory":true}')`);
+  assert.equal(access.getUnitInventoryLock(mkUser('user-a'), 'veh-other').locked, false);
+  db.executeSync(`DELETE FROM role_settings WHERE role = 'construction_crew'`);
+});

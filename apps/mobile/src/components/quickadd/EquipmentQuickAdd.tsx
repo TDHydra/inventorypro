@@ -11,6 +11,7 @@ import { searchItems } from '../../db/queries/items';
 import { upsertUnit, getUnitByTag } from '../../db/queries/equipmentUnits';
 import type { EquipmentUnit } from '../../db/queries/equipmentUnits';
 import { resolveLocationShelfSelection } from '../../db/queries/locations';
+import { getUnitInventoryLock } from '../../db/queries/access';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -167,6 +168,15 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
       return;
     }
     const resolvedLocationId = dest.id;
+
+    // #162: no equipment into another team's vehicle/locker without the
+    // cross-team perm (defensive — the picker hides units today, but the
+    // server rejects the write regardless, so fail here with the reason).
+    const teamLock = getUnitInventoryLock(user, resolvedLocationId);
+    if (teamLock.locked) {
+      setFormError(teamLock.reason ?? 'This unit’s inventory belongs to another team.');
+      return;
+    }
 
     setFormError('');
     setRows(prev => prev.map(r => ({ ...r, error: '' })));

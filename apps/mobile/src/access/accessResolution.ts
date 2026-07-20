@@ -117,6 +117,35 @@ export function resolveUnitActionPerms(input: {
   };
 }
 
+// ── #162 team-scoped unit inventory ──────────────────────────────────────────
+
+export interface UnitInventoryGateInput {
+  /** True when the location is a Vehicle/Locker-type UNIT (isUnitLocation). */
+  isUnit: boolean;
+  ownerUserId: string | null;
+  /** Actor shares at least one parent team with the owner, or IS the owner. */
+  actorSharesOwnerTeam: boolean;
+  /** manage_other_team_inventory resolved for the actor (tier-4 default). */
+  hasCrossTeamPerm: boolean;
+}
+
+/**
+ * #162: inventory inside a UNIT (Vehicle/Locker) may only be managed by its
+ * owning team — the owner, or anyone sharing a parent team with the owner —
+ * unless the actor holds manage_other_team_inventory. Main locations and
+ * ownerless units are unrestricted; visibility is untouched (#157 — this gates
+ * WRITES only). Mirrors the server guard exactly
+ * (apps/api/src/lib/teamAuthority.ts foreignTeamUnitBlocked), so what the UI
+ * locks locally is what the server rejects on push.
+ */
+export function isUnitInventoryBlocked(input: UnitInventoryGateInput): boolean {
+  if (input.hasCrossTeamPerm) return false;
+  if (!input.isUnit) return false;              // main locations unrestricted
+  if (input.ownerUserId === null) return false; // ownerless units unrestricted
+  if (input.actorSharesOwnerTeam) return false; // own / own-team unit
+  return true;
+}
+
 /**
  * User ids of the lead(s) of `userId`'s subteam(s) — deduped, in first-seen
  * order. A user on multiple subteams gets every lead; the user themself is

@@ -12,6 +12,9 @@ const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 // (manage_users, manage_teams, manage_roles_permissions, set_pins,
 // system_settings, view_all_logs) — those stay role/user-level only, never
 // team-scoped, so a team-level editor can't be used to hand out admin authority.
+// manage_other_team_inventory (#162) is likewise deliberately absent: it grants
+// CROSS-team authority, so a team manager must not be able to mint it per-team.
+// Must mirror apps/api/src/lib/syncPolicy.ts TEAM_OVERRIDABLE_PERMISSIONS.
 export const TEAM_OVERRIDABLE_PERMISSIONS: Permission[] = [
   'checkout_inventory', 'checkin_inventory', 'add_inventory', 'quick_add',
   'edit_inventory', 'delete_inventory', 'transfer_between_locations',
@@ -31,6 +34,8 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   edit_inventory: 'Edit catalog items',
   delete_inventory: 'Delete catalog items',
   transfer_between_locations: 'Transfer between locations',
+  // Exhaustiveness only — NOT team-overridable (cross-team authority, #162).
+  manage_other_team_inventory: "Manage other teams' inventory",
   create_jobs: 'Create jobs',
   close_jobs: 'Close jobs',
   manage_locations: 'Manage locations',

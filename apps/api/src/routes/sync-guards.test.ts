@@ -49,6 +49,9 @@ const COLUMNS: Record<string, string[]> = {
   on_call_shifts: ['id', 'subteam_id', 'week_start', 'created_by', 'created_at', 'updated_at'],
   on_call_coverage: ['id', 'date_start', 'date_end', 'user_off', 'covering_user', 'note', 'created_by', 'created_at', 'updated_at'],
   locations: ['id', 'name', 'type', 'type_id', 'owner_user_id', 'active', 'updated_at'],
+  // #162 team-scoped unit inventory
+  stock_by_location: ['item_id', 'location_id', 'quantity', 'updated_at'],
+  equipment_units: ['id', 'item_id', 'asset_tag', 'serial_number', 'status', 'current_location_id', 'current_job_id', 'notes', 'created_at', 'updated_at'],
 };
 
 interface FakePgOpts {
@@ -71,8 +74,17 @@ interface FakePgOpts {
   managesOwnerTeam?: boolean;
   /** vehicle_checkouts UPDATE pre-read row; absent → no row. */
   checkoutRow?: { user_id: string | null; checked_in_at: string | null };
-  /** ADJUST locker guard facts; absent → location row missing. */
-  adjustLoc?: { type: string | null; is_owner: boolean; has_grant: boolean; shares_team: boolean };
+  /** ADJUST locker guard facts; absent → location row missing. owner_user_id
+   *  feeds the #162 team-unit guard (undefined → ownerless → passes it). */
+  adjustLoc?: { type: string | null; is_owner: boolean; has_grant: boolean; shares_team: boolean; owner_user_id?: string | null };
+  /** #162: per-location unit facts, keyed by location id (params[0]); takes
+   *  precedence over adjustLoc so a test can give old/new locations different
+   *  ownership. Missing key → location row missing. */
+  unitLocById?: Record<string, { type: string | null; owner_user_id?: string | null; is_owner?: boolean; has_grant?: boolean; shares_team?: boolean } | null>;
+  /** #162: equipment_units old-row location for the move-OUT lookup. */
+  equipOldLocation?: string | null;
+  /** resolveCaller permission_overrides (e.g. a manage_other_team_inventory user grant). */
+  callerOverrides?: Record<string, boolean> | null;
   /** Vehicle name-uniqueness lookup: existing active Vehicle with same normalized name. */
   vehicleDupSurvivor?: string;
   /** parent-type lookup for the no-sub-areas guard. */
@@ -115,7 +127,11 @@ function fakePg(opts: FakePgOpts = {}) {
       }
       // resolveCaller — the only query that selects u.is_test.
       if (sql.includes('u.is_test')) {
-        return { rows: [{ role: opts.callerRole ?? 'full_admin', permission_overrides: null, role_overrides: null, is_test: false }] };
+        return { rows: [{ role: opts.callerRole ?? 'full_admin', permission_overrides: opts.callerOverrides ?? null, role_overrides: null, is_test: false }] };
+      }
+      // #162: equipment_units old-location pre-read for the move-OUT check.
+      if (sql.includes('SELECT current_location_id FROM equipment_units')) {
+        return { rows: opts.equipOldLocation !== undefined ? [{ current_location_id: opts.equipOldLocation }] : [] };
       }
       // #122 C fan-out: getNotifyConfig reads app_config (enabled), claimEvent
       // wins the dedup ledger, resolveRoleRecipients returns the PM roster, and
@@ -164,8 +180,14 @@ function fakePg(opts: FakePgOpts = {}) {
       if (sql.includes('SELECT user_id, checked_in_at FROM vehicle_checkouts')) {
         return { rows: opts.checkoutRow ? [opts.checkoutRow] : [] };
       }
-      // ADJUST locker guard fact query (owner/grant/team-mate facts in one row).
+      // ADJUST locker guard + #162 unit-ownership fact queries (both select a
+      // shares_team column). unitLocById dispatches per location id when a test
+      // needs old/new locations with different ownership.
       if (sql.includes('shares_team')) {
+        if (opts.unitLocById) {
+          const row = opts.unitLocById[String(params[0])];
+          return { rows: row ? [row] : [] };
+        }
         return { rows: opts.adjustLoc ? [opts.adjustLoc] : [] };
       }
       // messages-UPDATE sender guard lookup.
@@ -914,4 +936,151 @@ test('role_settings: a manage_roles_permissions holder may assign a preset to a 
   ]);
   assert.deepEqual(body.ok, ['e1']);
   assert.ok(pg.queries.some(q => /role_settings/.test(q.sql) && q.params.includes('preset-1')), 'dashboard_preset_id must survive the column policy');
+});
+
+// ── #162: team-scoped unit inventory (stock + equipment moves) ───────────────
+
+const FOREIGN_VEHICLE = { type: 'Vehicle', is_owner: false, has_grant: false, shares_team: false, owner_user_id: OTHER };
+
+test('#162 ADJUST: stock INTO a foreign-team vehicle is a permanent rejection for a crew caller', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: FOREIGN_VEHICLE });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'veh-1', delta: 5, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /another team/i);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO stock_by_location')), 'the stock write must never reach SQL');
+});
+
+test('#162 ADJUST: stock OUT OF a foreign-team vehicle is rejected too (both directions)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: FOREIGN_VEHICLE });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'veh-1', delta: -3, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+test('#162 ADJUST: a caller sharing a team with the owner passes', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: { ...FOREIGN_VEHICLE, shares_team: true } });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'veh-1', delta: 5, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('#162 ADJUST: an ownerless unit and a main location are unrestricted', async () => {
+  for (const loc of [{ ...FOREIGN_VEHICLE, owner_user_id: null }, { ...FOREIGN_VEHICLE, type: 'Warehouse' }]) {
+    const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: loc });
+    const body = await push(pg, [
+      { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'loc-1', delta: 5, updated_at: NOW } },
+    ]);
+    assert.deepEqual(body.ok, ['e1'], `type=${loc.type} owner=${loc.owner_user_id}`);
+  }
+});
+
+test('#162 ADJUST: an unknown location passes the team guard (no row → unrestricted)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' }); // no adjustLoc → location missing
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'ghost', delta: 5, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('#162: a full_admin (role default) and a crew with a user override both pass', async () => {
+  for (const opts of [
+    { callerRole: 'full_admin', adjustLoc: FOREIGN_VEHICLE },
+    { callerRole: 'construction_crew', adjustLoc: FOREIGN_VEHICLE, callerOverrides: { manage_other_team_inventory: true } },
+  ]) {
+    const pg = fakePg(opts);
+    const body = await push(pg, [
+      { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'veh-1', delta: 5, updated_at: NOW } },
+    ]);
+    assert.deepEqual(body.ok, ['e1'], `role=${opts.callerRole}`);
+  }
+});
+
+test('#162 INSERT: a recount into a foreign-team locker is a permanent rejection', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', adjustLoc: { ...FOREIGN_VEHICLE, type: 'Locker' } });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'lkr-1', quantity: 10, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO stock_by_location')), 'the recount must never reach SQL');
+});
+
+test('#162 equipment: moving a unit INTO a foreign-team vehicle is a permanent rejection (tier-2 manager)', async () => {
+  const pg = fakePg({
+    callerRole: 'production_manager',
+    unitLocById: { 'veh-1': { type: 'Vehicle', owner_user_id: OTHER, is_owner: false, shares_team: false } },
+    equipOldLocation: null,
+  });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'equipment_units', payload: { id: 'eq-1', current_location_id: 'veh-1', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.startsWith('UPDATE equipment_units')), 'the move must never reach SQL');
+});
+
+test('#162 equipment: moving a unit OUT OF a foreign-team vehicle (to a main location) is rejected', async () => {
+  const pg = fakePg({
+    callerRole: 'production_manager',
+    unitLocById: {
+      'wh-1': { type: 'Warehouse', owner_user_id: null },
+      'veh-old': { type: 'Vehicle', owner_user_id: OTHER, is_owner: false, shares_team: false },
+    },
+    equipOldLocation: 'veh-old',
+  });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'equipment_units', payload: { id: 'eq-1', current_location_id: 'wh-1', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+test('#162 equipment: a same-team move and an ownerless-unit move both pass', async () => {
+  const pg = fakePg({
+    callerRole: 'production_manager',
+    unitLocById: {
+      'veh-mine': { type: 'Vehicle', owner_user_id: OTHER, is_owner: false, shares_team: true },
+      'veh-free': { type: 'Vehicle', owner_user_id: null },
+    },
+    equipOldLocation: 'veh-free',
+  });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'equipment_units', payload: { id: 'eq-1', current_location_id: 'veh-mine', updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+});
+
+test('#126 locker guard still fires FIRST for a negative delta from a locker the caller has no access to', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew',
+    adjustLoc: { type: 'Locker', is_owner: false, has_grant: false, shares_team: false, owner_user_id: OTHER },
+  });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'i1', location_id: 'lkr-1', delta: -2, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, /locker/i);
+});
+
+test('#162 equipment: an INSERT (upsert) that pulls a unit out of a foreign-team vehicle is rejected too', async () => {
+  const pg = fakePg({
+    callerRole: 'full_admin', // has add_inventory; override below removes the cross-team perm
+    callerOverrides: { manage_other_team_inventory: false },
+    unitLocById: {
+      'veh-old': { type: 'Vehicle', owner_user_id: OTHER, is_owner: false, shares_team: false },
+    },
+    equipOldLocation: 'veh-old',
+  });
+  const body = await push(pg, [
+    // Re-INSERT of an existing row moving it to a job (current_location_id null).
+    { operation: 'INSERT', table_name: 'equipment_units', payload: { id: 'eq-1', item_id: 'i1', asset_tag: 'AM-1', status: 'deployed', current_location_id: null, current_job_id: 'job-1', created_at: NOW, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
 });

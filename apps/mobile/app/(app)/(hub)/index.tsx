@@ -31,6 +31,7 @@ import {
   searchItems, getStockByItem, getStockQuantity, type InventoryItem,
 } from '../../../src/db/queries/items';
 import { getLocationById, getStockAtLocation } from '../../../src/db/queries/locations';
+import { getUnitInventoryLock } from '../../../src/db/queries/access';
 import { getEquipmentModels, type EquipmentModel } from '../../../src/db/queries/equipment';
 import { setUnitStatus, type EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -95,6 +96,13 @@ export default function HubScreen() {
   const locQtyByItem = useMemo(
     () => (locContext ? new Map(getStockAtLocation(locContext.id).map(r => [r.item_id, r.quantity] as const)) : null),
     [locContext?.id, dataVersion],
+  );
+  // #162: a loc-context that is another team's vehicle/locker locks the fast
+  // in/out flows (visibility stays — #157). The reason renders on the banner
+  // and gates onInOutChosen; applyConsumableAction re-checks before writing.
+  const locLock = useMemo(
+    () => getUnitInventoryLock(user, locContext?.id),
+    [user?.id, locContext?.id, dataVersion],
   );
 
   // Consumable in/out working state.
@@ -290,6 +298,11 @@ export default function HubScreen() {
       Alert.alert('Not authorized', 'You don’t have permission to check in inventory.');
       return;
     }
+    // #162: the loc-context is another team's unit — no stock in or out of it.
+    if (locContext && locLock.locked) {
+      Alert.alert('Team inventory', locLock.reason ?? 'This unit belongs to another team.');
+      return;
+    }
     const item = pendingItem;
     // Loc context check-out = "take it with me" from that location: source is
     // pre-filled and the write commits immediately — no DestinationPicker phase.
@@ -335,6 +348,11 @@ export default function HubScreen() {
     if (!pendingItem || dir !== 'out' || !locContext) return;
     if (!canCheckout) {
       Alert.alert('Not authorized', 'You don’t have permission to check out inventory.');
+      return;
+    }
+    // #162: taking stock OUT of another team's unit is locked too.
+    if (locLock.locked) {
+      Alert.alert('Team inventory', locLock.reason ?? 'This unit belongs to another team.');
       return;
     }
     if (getStockQuantity(pendingItem.id, locContext.id) < qty) {
@@ -424,19 +442,32 @@ export default function HubScreen() {
   }
 
   // Source-location options for the destination step (locations holding stock).
+  // #162: sources inside another team's vehicle/locker stay VISIBLE (per #157)
+  // but carry the lock reason and can't be selected without the cross-team perm.
   const sourceOptions: PickerOption[] = useMemo(() => {
     if (!pendingAction) return [];
     const item = pendingAction.item;
     return getStockByItem(item.id)
       .filter(s => s.quantity > 0)
-      .map(s => ({
-        id: s.location_id,
-        label: s.location_name,
-        sublabel: formatQuantity(s.quantity, item.unit, item.unit_category as any),
-      }));
-  }, [pendingAction, dataVersion]);
+      .map(s => {
+        const lock = getUnitInventoryLock(user, s.location_id);
+        return {
+          id: s.location_id,
+          label: s.location_name,
+          sublabel: lock.locked
+            ? lock.reason ?? '🔒 Team inventory'
+            : formatQuantity(s.quantity, item.unit, item.unit_category as any),
+        };
+      });
+  }, [pendingAction, dataVersion, user?.id]);
 
   function selectSource(opt: PickerOption) {
+    // #162: block picking another team's unit as the source.
+    const lock = getUnitInventoryLock(user, opt.id);
+    if (lock.locked) {
+      Alert.alert('Team inventory', lock.reason ?? 'This unit belongs to another team.');
+      return;
+    }
     setSourceSel(opt);
     setSourceId(opt.id);
   }
@@ -492,6 +523,20 @@ export default function HubScreen() {
 
   // Task 15 Step 2 — commit the batch, mirroring checkout's unit path.
   function commitEquipmentBatch(dest: ResolvedDestination) {
+    // #162: a queued unit sitting INSIDE another team's vehicle/locker can't be
+    // moved out of it, and the destination can't be a foreign unit either.
+    const blockedUnit = equipBatch.find(u => getUnitInventoryLock(user, u.current_location_id).locked);
+    const destLock = getUnitInventoryLock(user, dest.toLocationId);
+    if (blockedUnit || destLock.locked) {
+      const reason = blockedUnit
+        ? getUnitInventoryLock(user, blockedUnit.current_location_id).reason
+        : destLock.reason;
+      Alert.alert(
+        'Team inventory',
+        (blockedUnit ? `${blockedUnit.asset_tag}: ` : '') + (reason ?? 'This unit belongs to another team.'),
+      );
+      return;
+    }
     const baseLog = {
       user_id: user?.id ?? null,
       team_id: null as string | null,
@@ -658,7 +703,12 @@ export default function HubScreen() {
         />
         {locContext && (
           <View style={s.locBanner}>
-            <Text style={s.locBannerText} numberOfLines={1}>From: {locContext.name}</Text>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={s.locBannerText} numberOfLines={1}>From: {locContext.name}</Text>
+              {locLock.locked && (
+                <Text style={s.locBannerLock} numberOfLines={1}>{locLock.reason}</Text>
+              )}
+            </View>
             <TouchableOpacity
               onPress={() => setLocId(null)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -912,7 +962,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginHorizontal: 12, marginTop: 10, paddingVertical: 8, paddingHorizontal: 12,
     borderRadius: 8, backgroundColor: t.colors.primaryBg,
   },
-  locBannerText: { flex: 1, fontSize: 14, fontWeight: '700', color: t.colors.primaryText, marginRight: 8 },
+  locBannerText: { fontSize: 14, fontWeight: '700', color: t.colors.primaryText },
+  locBannerLock: { fontSize: 12, fontWeight: '600', color: t.colors.primaryText, opacity: 0.85, marginTop: 2 },
   locBannerClear: { fontSize: 15, fontWeight: '700', color: t.colors.primaryText },
   hidButton: {
     marginHorizontal: 12, marginTop: 10, paddingVertical: 10, paddingHorizontal: 14,

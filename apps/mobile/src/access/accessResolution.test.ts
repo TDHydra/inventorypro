@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   getAccessibleLocationIds,
   canSeeAllUnitsInManage,
+  isUnitInventoryBlocked,
   resolveUnitActionPerms,
   resolveMyLead,
   type AccessLockerRow,
@@ -255,4 +256,36 @@ test('resolveMyLead: user on multiple subteams gets every lead, deduped', () => 
 test('resolveMyLead: subteam with no lead yields [] for its helper', () => {
   const rows = [crew('T1', 'matt', 'S1', 'helper'), crew('T1', 'omar', 'S1', 'helper')];
   assert.deepEqual(resolveMyLead(rows, 'matt'), []);
+});
+
+// ------------------------------------------------- isUnitInventoryBlocked (#162)
+
+test('#162: a main (non-unit) location is never blocked', () => {
+  assert.equal(isUnitInventoryBlocked({
+    isUnit: false, ownerUserId: 'frank', actorSharesOwnerTeam: false, hasCrossTeamPerm: false,
+  }), false);
+});
+
+test('#162: an ownerless unit is unrestricted', () => {
+  assert.equal(isUnitInventoryBlocked({
+    isUnit: true, ownerUserId: null, actorSharesOwnerTeam: false, hasCrossTeamPerm: false,
+  }), false);
+});
+
+test('#162: a same-team (or own) unit is unrestricted', () => {
+  assert.equal(isUnitInventoryBlocked({
+    isUnit: true, ownerUserId: 'frank', actorSharesOwnerTeam: true, hasCrossTeamPerm: false,
+  }), false);
+});
+
+test('#162: a foreign-team unit is BLOCKED without the cross-team perm', () => {
+  assert.equal(isUnitInventoryBlocked({
+    isUnit: true, ownerUserId: 'frank', actorSharesOwnerTeam: false, hasCrossTeamPerm: false,
+  }), true);
+});
+
+test('#162: manage_other_team_inventory unblocks a foreign-team unit', () => {
+  assert.equal(isUnitInventoryBlocked({
+    isUnit: true, ownerUserId: 'frank', actorSharesOwnerTeam: false, hasCrossTeamPerm: true,
+  }), false);
 });

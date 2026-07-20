@@ -5,6 +5,7 @@ import {
 import { useRouter } from 'expo-router';
 import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../db/queries/items';
 import { resolveLocationShelfSelection } from '../../db/queries/locations';
+import { getUnitInventoryLock } from '../../db/queries/access';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -133,6 +134,15 @@ export default function StockQuickAdd({ onSaved }: Props) {
     }
     // id is only null when no location is picked, which is guarded above.
     const locationId = dest.id ?? selectedLocation.id;
+    // #162: no stock into another team's vehicle/locker without the cross-team
+    // perm (defensive — the picker hides units today, but the server rejects
+    // the write regardless, so fail here with the reason instead of on sync).
+    const teamLock = getUnitInventoryLock(user, locationId);
+    if (teamLock.locked) {
+      trackReject('stock.location', 'foreign_team_unit');
+      setError(teamLock.reason ?? 'This unit’s inventory belongs to another team.');
+      return;
+    }
     const now = new Date().toISOString();
     const fullItem = getItemById(itemId);
     const itemUnit = fullItem?.unit ?? 'each';

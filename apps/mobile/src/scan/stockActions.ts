@@ -2,6 +2,7 @@ import { adjustStock } from '../db/queries/items';
 import { appendOutbox } from '../sync/outbox';
 import { appendLog } from '../db/queries/log';
 import { runInTransaction } from '../db/tx';
+import { getUnitInventoryLockForUserId } from '../db/queries/access';
 
 export interface ConsumableAction {
   itemId: string;
@@ -26,6 +27,18 @@ export function applyConsumableAction(a: ConsumableAction): void {
   // front, before any write, so the caller (group D) can surface the message.
   if (a.direction === 'in' && a.destLocationId == null && a.sourceLocationId == null) {
     throw new Error('Check-in requires a destination location.');
+  }
+
+  // #162 team-scoped unit inventory: stock may not move INTO or OUT OF a
+  // Vehicle/Locker owned by another team without manage_other_team_inventory.
+  // Checked before any write; the thrown reason surfaces in the callers'
+  // "Could not save" alerts. The server enforces the same rule on push, so this
+  // only converts a guaranteed sync rejection into an immediate, explained no-op.
+  for (const locId of [a.sourceLocationId, a.destLocationId]) {
+    const lock = getUnitInventoryLockForUserId(a.userId, locId);
+    if (lock.locked) {
+      throw new Error(lock.reason ?? "This unit's inventory belongs to another team.");
+    }
   }
 
   // All stock deltas + the activity_log row are one atomic unit: a mid-flow

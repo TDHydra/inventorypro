@@ -53,6 +53,7 @@ const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
 const ALL_PERMISSIONS: Permission[] = [
   'checkout_inventory', 'checkin_inventory', 'add_inventory',
   'edit_inventory', 'delete_inventory', 'transfer_between_locations',
+  'manage_other_team_inventory',
   'create_jobs', 'close_jobs',
   'manage_teams', 'checkout_for_team', 'manage_users',
   'view_all_logs', 'view_own_logs', 'manage_locations',

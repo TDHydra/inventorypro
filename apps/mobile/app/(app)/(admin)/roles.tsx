@@ -44,6 +44,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   edit_inventory: 'Edit catalog items',
   delete_inventory: 'Delete catalog items',
   transfer_between_locations: 'Transfer between locations',
+  manage_other_team_inventory: "Manage other teams' inventory",
   create_jobs: 'Create jobs',
   close_jobs: 'Close jobs',
   manage_locations: 'Manage locations',

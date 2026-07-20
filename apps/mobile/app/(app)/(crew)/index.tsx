@@ -15,7 +15,8 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
-import { getCheckoutSourceLocations } from '../../../src/db/queries/access';
+import { getCheckoutSourceLocations, getUnitInventoryLock } from '../../../src/db/queries/access';
+import { Alert } from '../../../src/lib/themedAlert';
 import { getStockAtLocation, type Location } from '../../../src/db/queries/locations';
 import { getUserById } from '../../../src/db/queries/users';
 import { useSession } from '../../../src/hooks/useSession';
@@ -133,6 +134,7 @@ export default function CrewSourcePickerScreen() {
 
 function SourceCard({ location, onPress }: { location: Location; onPress: () => void }) {
   const s = useThemedStyles(makeStyles);
+  const { user } = useSession();
   const isVehicle = location.type === 'Vehicle';
   const isUnit = isVehicle || location.type === 'Locker';
   // Owner + stock count re-read whenever the parent re-renders (its refreshKey
@@ -141,9 +143,18 @@ function SourceCard({ location, onPress }: { location: Location; onPress: () => 
   const stock = getStockAtLocation(location.id);
   const defaultIcon = isVehicle ? '🚐' : location.type === 'Locker' ? '🔒' : '📍';
   const itemCount = `${stock.length} item${stock.length === 1 ? '' : 's'}`;
+  // #162: another team's unit stays VISIBLE (#157) but its inventory is locked
+  // without manage_other_team_inventory — show the reason and block the tap.
+  const lock = getUnitInventoryLock(user, isUnit ? location.id : null);
 
   return (
-    <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={[s.card, lock.locked && s.cardLocked]}
+      onPress={lock.locked
+        ? () => Alert.alert('Team inventory', lock.reason ?? 'This unit belongs to another team.')
+        : onPress}
+      activeOpacity={0.7}
+    >
       <Text style={s.cardIcon}>{location.icon || defaultIcon}</Text>
       <View style={{ flex: 1 }}>
         <Text style={s.cardName} numberOfLines={1}>{location.name}</Text>
@@ -151,9 +162,10 @@ function SourceCard({ location, onPress }: { location: Location; onPress: () => 
           {/* Main locations have no owner concept — show stock only. */}
           {isUnit ? `${owner ? owner.name : 'No owner'} · ${itemCount}` : itemCount}
         </Text>
+        {lock.locked && <Text style={s.cardLockReason} numberOfLines={1}>{lock.reason}</Text>}
         {isVehicle && <VehicleInlineStatus locationId={location.id} />}
       </View>
-      <Text style={s.cardChevron}>›</Text>
+      <Text style={s.cardChevron}>{lock.locked ? '🔒' : '›'}</Text>
     </TouchableOpacity>
   );
 }
@@ -177,8 +189,10 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginBottom: t.spacing.sm,
   },
   cardIcon: { fontSize: 26 },
+  cardLocked: { opacity: 0.65 },
   cardName: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary },
   cardSub: { fontSize: 13, color: t.colors.textMuted, marginTop: 2 },
+  cardLockReason: { fontSize: 12, fontWeight: '600', color: t.colors.danger, marginTop: 2 },
   cardChevron: { fontSize: 22, color: t.colors.textMuted },
   addVehicleWrap: { marginTop: t.spacing.xl, gap: t.spacing.xs },
   addVehicleNote: { fontSize: 12, color: t.colors.textMuted, textAlign: 'center' },

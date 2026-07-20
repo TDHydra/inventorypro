@@ -88,7 +88,9 @@ export function requiresRolesPermForTarget(targetRole: string | null | undefined
 // set_pins, system_settings, view_all_logs) — those stay role/user-level only, never
 // team-scoped, so a manage_teams holder can't use this column to mint admin authority
 // for themselves or anyone else. This is the server-side enforcement of what was
-// previously only an advisory UI-side limit.
+// previously only an advisory UI-side limit. manage_other_team_inventory (#162) is
+// likewise deliberately absent: it grants CROSS-team authority, so a team manager
+// must not be able to mint it per-team.
 export const TEAM_OVERRIDABLE_PERMISSIONS: Set<string> = new Set([
   'checkout_inventory', 'checkin_inventory', 'add_inventory', 'quick_add',
   'edit_inventory', 'delete_inventory', 'transfer_between_locations',

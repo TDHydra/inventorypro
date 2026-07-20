@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { resolveTeamAuthority, managerActionBlocked, isOrgAuthority } from './teamAuthority';
+import { resolveTeamAuthority, managerActionBlocked, isOrgAuthority, foreignTeamUnitBlocked, resolveUnitInventoryFacts } from './teamAuthority';
 
 // Minimal pg stub: returns whatever row the test hands it.
 function pgReturning(row: unknown) {
@@ -88,4 +88,49 @@ test('a plain member of the team has neither org nor manager authority', async (
   );
   assert.equal(auth.orgAdmin, false);
   assert.equal(auth.managerOnly, false);
+});
+
+// ── #162 foreignTeamUnitBlocked — allow/deny matrix ──────────────────────────
+
+const unitFacts = (over: Partial<import('./teamAuthority').UnitInventoryFacts> = {}) => ({
+  type: 'Vehicle', ownerUserId: 'owner-1', isOwner: false, sharesOwnerTeam: false, ...over,
+});
+
+test('#162: unknown location (null facts) is unrestricted', () => {
+  assert.equal(foreignTeamUnitBlocked(null, false), false);
+  assert.equal(foreignTeamUnitBlocked(undefined, false), false);
+});
+
+test('#162: a main (non-unit) location is unrestricted', () => {
+  assert.equal(foreignTeamUnitBlocked(unitFacts({ type: 'Warehouse' }), false), false);
+  assert.equal(foreignTeamUnitBlocked(unitFacts({ type: null }), false), false);
+});
+
+test('#162: an ownerless unit is unrestricted', () => {
+  assert.equal(foreignTeamUnitBlocked(unitFacts({ ownerUserId: null }), false), false);
+});
+
+test('#162: the owner and same-team callers pass', () => {
+  assert.equal(foreignTeamUnitBlocked(unitFacts({ isOwner: true }), false), false);
+  assert.equal(foreignTeamUnitBlocked(unitFacts({ sharesOwnerTeam: true }), false), false);
+});
+
+test('#162: a foreign-team unit is BLOCKED without manage_other_team_inventory (Vehicle and Locker)', () => {
+  assert.equal(foreignTeamUnitBlocked(unitFacts(), false), true);
+  assert.equal(foreignTeamUnitBlocked(unitFacts({ type: 'Locker' }), false), true);
+});
+
+test('#162: manage_other_team_inventory unblocks a foreign-team unit', () => {
+  assert.equal(foreignTeamUnitBlocked(unitFacts(), true), false);
+});
+
+test('#162: resolveUnitInventoryFacts maps the row and null-location/missing-row to null', async () => {
+  const pgRow = (row: unknown) => ({ query: async () => ({ rows: row ? [row] : [] }) });
+  assert.equal(await resolveUnitInventoryFacts(pgRow(null) as never, null, 'me'), null);
+  assert.equal(await resolveUnitInventoryFacts(pgRow(null) as never, 'loc-x', 'me'), null);
+  const facts = await resolveUnitInventoryFacts(
+    pgRow({ type: 'Locker', owner_user_id: 'owner-1', is_owner: null, shares_team: true }) as never,
+    'loc-1', 'me',
+  );
+  assert.deepEqual(facts, { type: 'Locker', ownerUserId: 'owner-1', isOwner: false, sharesOwnerTeam: true });
 });

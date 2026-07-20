@@ -67,6 +67,80 @@ export async function resolveTeamAuthority(pg: Pg, callerId: string, teamId: str
   return { orgAdmin, managerOnly: !orgAdmin && r.is_manager === true };
 }
 
+// ── #162 team-scoped unit inventory ─────────────────────────────────────────
+// Inventory inside a Vehicle/Locker UNIT may only be managed by its owning
+// team: the owner, or anyone sharing a parent team with the owner. Everyone
+// else needs the manage_other_team_inventory permission (tier-4 default).
+// Main (non-unit) locations, ownerless units, and unknown locations are
+// unrestricted — only owned units restrict. Visibility is NOT touched (#157);
+// this gates WRITES only. KEEP IN SYNC with the mobile mirror
+// (apps/mobile/src/access/accessResolution.ts isUnitInventoryBlocked).
+
+export interface UnitInventoryFacts {
+  /** Location type label ('Vehicle' | 'Locker' | anything else / null). */
+  type: string | null;
+  ownerUserId: string | null;
+  /** The caller IS the owner. */
+  isOwner: boolean;
+  /** The caller shares at least one parent team with the owner. */
+  sharesOwnerTeam: boolean;
+}
+
+/**
+ * Resolve the ownership facts for one location, from the DB (never the
+ * payload). Returns null for an unknown location id (→ unrestricted; the write
+ * will fail/FK elsewhere if the location truly doesn't exist). Type falls back
+ * to the taxonomy label when locations.type is null (the #84 crew-vehicle
+ * INSERT path can create rows with only type_id set).
+ */
+export async function resolveUnitInventoryFacts(
+  pg: Pg,
+  locationId: unknown,
+  callerId: string,
+): Promise<UnitInventoryFacts | null> {
+  if (locationId == null) return null;
+  const { rows } = await pg.query(
+    `SELECT COALESCE(l.type, (SELECT label FROM taxonomy_types tt
+                               WHERE tt.id = l.type_id AND tt.category = 'location_type')) AS type,
+            l.owner_user_id,
+            (l.owner_user_id = $2) AS is_owner,
+            EXISTS (SELECT 1 FROM team_members om
+                      JOIN team_members cm ON cm.team_id = om.team_id
+                     WHERE om.user_id = l.owner_user_id AND cm.user_id = $2) AS shares_team
+       FROM locations l WHERE l.id = $1`,
+    [locationId, callerId],
+  );
+  const r = rows[0] as
+    | { type: string | null; owner_user_id: string | null; is_owner: boolean | null; shares_team: boolean }
+    | undefined;
+  if (!r) return null;
+  return {
+    type: r.type == null ? null : String(r.type),
+    ownerUserId: r.owner_user_id == null ? null : String(r.owner_user_id),
+    isOwner: r.is_owner === true,
+    sharesOwnerTeam: r.shares_team === true,
+  };
+}
+
+/**
+ * True when an inventory write touching this location must be BLOCKED for the
+ * caller: the location is a unit (Vehicle/Locker), it has an owner, the caller
+ * neither is the owner nor shares a team with them, and the caller lacks
+ * manage_other_team_inventory. Everything else passes (main locations,
+ * ownerless units, unknown locations, same-team, perm holders).
+ */
+export function foreignTeamUnitBlocked(
+  facts: UnitInventoryFacts | null | undefined,
+  canManageOtherTeamInventory: boolean,
+): boolean {
+  if (canManageOtherTeamInventory) return false;
+  if (!facts) return false; // unknown location → unrestricted
+  if (facts.type !== 'Vehicle' && facts.type !== 'Locker') return false; // main locations unrestricted
+  if (facts.ownerUserId == null) return false; // ownerless units unrestricted
+  if (facts.isOwner || facts.sharesOwnerTeam) return false; // own team
+  return true;
+}
+
 // True when this action must be blocked for this caller on this team.
 export function managerActionBlocked(auth: TeamAuthority, _action: ManagerRestrictedAction): boolean {
   if (auth.orgAdmin) return false;

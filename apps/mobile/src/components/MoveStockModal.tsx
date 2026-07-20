@@ -12,6 +12,7 @@ import { confirmDestructive } from '../lib/confirm';
 import { parseQuantity } from '../lib/validation';
 import { runInTransaction } from '../db/tx';
 import { getStockAtLocation, resolveLocationShelfSelection } from '../db/queries/locations';
+import { getUnitInventoryLock } from '../db/queries/access';
 import { adjustStock, getStockQuantity, getItemById } from '../db/queries/items';
 import { appendLog } from '../db/queries/log';
 import { appendOutbox } from '../sync/outbox';
@@ -76,6 +77,20 @@ export default function MoveStockModal({
   const [destShelf, setDestShelf] = useState<PickerOption | null>(null);
   const [qtyText, setQtyText] = useState('');
 
+  // #162 team-scoped unit inventory: moving stock OUT OF (source) or INTO
+  // (destination) another team's vehicle/locker is locked without
+  // manage_other_team_inventory. Shelves only exist under MAIN locations
+  // (units can't have sub-areas), so checking destLoc.id covers the shelf case.
+  const sourceLock = useMemo(
+    () => getUnitInventoryLock(user, fromLocationId),
+    [user?.id, fromLocationId, stockVersion],
+  );
+  const destLock = useMemo(
+    () => getUnitInventoryLock(user, destLoc?.id),
+    [user?.id, destLoc?.id, stockVersion],
+  );
+  const teamLockReason = sourceLock.locked ? sourceLock.reason : destLock.locked ? destLock.reason : null;
+
   function reset() {
     setSelectedItem(null);
     setDestLoc(null);
@@ -89,6 +104,12 @@ export default function MoveStockModal({
   }
 
   function handleConfirm() {
+    // #162: locked source/destination — mirror of the server guard; say why.
+    if (teamLockReason) {
+      trackReject('stock.location', 'foreign_team_unit');
+      Alert.alert('Team inventory', teamLockReason);
+      return;
+    }
     if (!selectedItem) {
       trackReject('stock.item', 'required');
       Alert.alert('Required', 'Select an item to move.');
@@ -243,7 +264,8 @@ export default function MoveStockModal({
           keyboardType="numeric"
         />
 
-        <PrimaryButton label="Move Stock" onPress={handleConfirm} style={s.moveBtn} />
+        {!!teamLockReason && <Text style={s.lockReason}>{teamLockReason}</Text>}
+        <PrimaryButton label="Move Stock" onPress={handleConfirm} disabled={!!teamLockReason} style={s.moveBtn} />
         <View style={s.secondaryRow}>
           <TouchableOpacity style={s.linkBtn} onPress={handleClose}>
             <Text style={s.cancelText}>Cancel</Text>
@@ -259,6 +281,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   fromLabel: { fontSize: 13, color: t.colors.textSecondary, marginBottom: 14 },
   onHand: { fontSize: 12, color: t.colors.success, fontWeight: '600', marginTop: 4 },
   muted: { fontSize: 14, color: t.colors.textMuted },
+  lockReason: { fontSize: 13, fontWeight: '600', color: t.colors.danger, textAlign: 'center' },
   moveBtn: { marginTop: 8 },
   secondaryRow: {
     flexDirection: 'row', justifyContent: 'center',
