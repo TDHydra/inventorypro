@@ -418,7 +418,7 @@ const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
 // enrollment_code_public is public BY DESIGN, but only for demo rows — the CASE
 // guarantees a real user's row can never carry a code even if one were planted.
-const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
+const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, phone, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';

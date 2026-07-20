@@ -21,6 +21,7 @@ import locationRoutes from './routes/locations';
 import jobRoutes from './routes/jobs';
 import teamRoutes from './routes/teams';
 import userRoutes from './routes/users';
+import meRoutes from './routes/me';
 import logRoutes from './routes/logs';
 import mediaRoutes from './routes/media';
 import labelRoutes from './routes/labels';
@@ -183,7 +184,10 @@ async function build() {
       return reply.status(429).send({ error: 'Too many requests. Please slow down and try again.' });
     }
     const m = request.method;
-    if (m !== 'POST' && m !== 'PATCH' && m !== 'DELETE') return;
+    // Every mutating verb. No route uses PUT today (CORS excludes it too), but
+    // it's covered so a future PUT route can't silently bypass the test-account
+    // write wall or the per-user mut: bucket below.
+    if (m !== 'POST' && m !== 'PATCH' && m !== 'PUT' && m !== 'DELETE') return;
     if (request.url.startsWith('/auth')) return;
     let payload: any;
     try { payload = await request.jwtVerify(); } catch { return; }
@@ -216,6 +220,7 @@ async function build() {
   await fastify.register(jobRoutes, { prefix: '/jobs' });
   await fastify.register(teamRoutes, { prefix: '/teams' });
   await fastify.register(userRoutes, { prefix: '/users' });
+  await fastify.register(meRoutes, { prefix: '/me' });
   await fastify.register(logRoutes, { prefix: '/logs' });
   await fastify.register(mediaRoutes, { prefix: '/media' });
   await fastify.register(labelRoutes, { prefix: '/labels' });

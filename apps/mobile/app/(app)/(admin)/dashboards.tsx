@@ -9,6 +9,8 @@ import {
   type WidgetType,
   type Layout,
   type LayoutBlock,
+  type StatSource,
+  type WorkListSource,
 } from '../../../src/dashboard/widgets';
 import { parsePresetLayout } from '../../../src/dashboard/resolve';
 import { loadDashboardCache } from '../../../src/dashboard/store';
@@ -54,10 +56,12 @@ const BLOCK_WIDGETS = (Object.keys(WIDGET_REGISTRY) as WidgetType[]).filter(
   (w) => WIDGET_REGISTRY[w].kind === 'block',
 );
 
-// Human-readable name for a non-tile block (registry label is blank for these).
+// Human-readable name for a non-tile block whose registry label is blank.
+// ('search' is gone — DashboardSearch is pinned by the dashboard screen.) The
+// config-driven data widgets (stat-tiles / work-list / activity-preview) carry
+// real registry labels, so blockName falls back to those.
 const BLOCK_NAMES: Record<string, string> = {
   section: 'Section Header',
-  search: 'Pinned Search',
   'quick-add': 'Quick Add CTA',
   'low-stock': 'Low-Stock List',
   // Contextual quick-actions (#144) — only render when their condition holds.
@@ -66,13 +70,59 @@ const BLOCK_NAMES: Record<string, string> = {
   'low-stock-catalog': 'Low-Stock Button (contextual)',
 };
 
+function blockName(widget: WidgetType): string {
+  return BLOCK_NAMES[widget] ?? (WIDGET_REGISTRY[widget].label || widget);
+}
+
+// Non-tile blocks that take a config editor here (role dashboards §2: the new
+// data widgets must be usable FROM the preset editor — without stats/source
+// they only ever render their EmptyState).
+const CONFIGURABLE_BLOCKS: ReadonlySet<WidgetType> = new Set<WidgetType>([
+  'stat-tiles', 'work-list', 'activity-preview',
+]);
+
+// Source labels — keep in lockstep with STAT_DEFS in
+// src/components/dashboard/StatTiles.tsx.
+const STAT_SOURCE_LABELS: Record<StatSource, string> = {
+  'my-checkouts': 'My Checkouts',
+  'open-repairs': 'Open Repairs',
+  'units-due-service': 'Due Service',
+  'low-stock': 'Low Stock',
+  'open-jobs': 'Open Jobs',
+  'team-members': 'Team Members',
+};
+const STAT_SOURCES = Object.keys(STAT_SOURCE_LABELS) as StatSource[];
+
+// Keep in lockstep with WORK_LIST_DEFS in src/components/dashboard/WorkList.tsx.
+const WORK_LIST_SOURCE_LABELS: Record<WorkListSource, string> = {
+  'my-equipment': 'My Equipment',
+  'open-jobs': 'Open Jobs',
+  'open-repairs': 'Open Repairs',
+  'units-due-service': 'Due for Service',
+  'low-stock': 'Low Stock',
+};
+const WORK_LIST_SOURCES = Object.keys(WORK_LIST_SOURCE_LABELS) as WorkListSource[];
+
+function isStatSource(s: unknown): s is StatSource {
+  return typeof s === 'string' && Object.prototype.hasOwnProperty.call(STAT_SOURCE_LABELS, s);
+}
+
+function isWorkListSource(s: unknown): s is WorkListSource {
+  return typeof s === 'string' && Object.prototype.hasOwnProperty.call(WORK_LIST_SOURCE_LABELS, s);
+}
+
 function widgetDisplay(block: LayoutBlock): { icon: string; label: string } {
   const def = WIDGET_REGISTRY[block.widget];
   if (block.widget === 'section') {
     return { icon: '▤', label: block.config?.sectionTitle?.trim() || 'Section' };
   }
   if (def.kind === 'block') {
-    return { icon: '▦', label: BLOCK_NAMES[block.widget] ?? block.widget };
+    return {
+      icon: def.icon || '▦',
+      // A configured title (work-list / activity-preview) reads better than the
+      // generic registry label in the preview and block rows.
+      label: block.config?.title?.trim() || blockName(block.widget),
+    };
   }
   return {
     icon: block.config?.icon?.trim() || def.icon || '•',
@@ -105,11 +155,16 @@ export default function DashboardsScreen() {
   // Add-widget modal
   const [addOpen, setAddOpen] = useState(false);
 
-  // Per-block config modal (section title / tile label+icon override)
+  // Per-block config modal (section title / tile label+icon override / data
+  // widget stats+source+title+limit)
   const [blockEdit, setBlockEdit] = useState<number | null>(null);
   const [cfgLabel, setCfgLabel] = useState('');
   const [cfgIcon, setCfgIcon] = useState('');
   const [cfgSection, setCfgSection] = useState('');
+  const [cfgStats, setCfgStats] = useState<StatSource[]>([]);
+  const [cfgSource, setCfgSource] = useState<WorkListSource | null>(null);
+  const [cfgTitle, setCfgTitle] = useState('');
+  const [cfgLimit, setCfgLimit] = useState('');
 
   // Role-picker modal
   const [rolePick, setRolePick] = useState<UserRole | null>(null);
@@ -250,7 +305,16 @@ export default function DashboardsScreen() {
     setCfgLabel(b.config?.label ?? '');
     setCfgIcon(b.config?.icon ?? '');
     setCfgSection(b.config?.sectionTitle ?? '');
+    setCfgStats(Array.isArray(b.config?.stats) ? b.config.stats.filter(isStatSource) : []);
+    setCfgSource(isWorkListSource(b.config?.source) ? b.config.source : null);
+    setCfgTitle(b.config?.title ?? '');
+    setCfgLimit(typeof b.config?.limit === 'number' && b.config.limit > 0 ? String(b.config.limit) : '');
     setBlockEdit(index);
+  }
+
+  // Toggle a stat source in/out; toggle order = tile order on the dashboard.
+  function toggleStat(src: StatSource) {
+    setCfgStats(prev => (prev.includes(src) ? prev.filter(s => s !== src) : [...prev, src]));
   }
 
   function saveBlockConfig() {
@@ -260,6 +324,14 @@ export default function DashboardsScreen() {
     if (target.widget === 'section') {
       const t = cfgSection.trim();
       if (t) config.sectionTitle = t;
+    } else if (target.widget === 'stat-tiles') {
+      if (cfgStats.length > 0) config.stats = cfgStats;
+    } else if (target.widget === 'work-list' || target.widget === 'activity-preview') {
+      if (target.widget === 'work-list' && cfgSource) config.source = cfgSource;
+      const t = cfgTitle.trim();
+      if (t) config.title = t;
+      const n = parseInt(cfgLimit, 10);
+      if (Number.isFinite(n) && n > 0) config.limit = n;
     } else {
       const l = cfgLabel.trim();
       const ic = cfgIcon.trim();
@@ -364,7 +436,10 @@ export default function DashboardsScreen() {
                   renderRow={(item, api) => {
                     const d = widgetDisplay(item.block);
                     const def = WIDGET_REGISTRY[item.block.widget];
-                    const configurable = item.block.widget === 'section' || def.kind === 'tile';
+                    const configurable =
+                      item.block.widget === 'section' ||
+                      def.kind === 'tile' ||
+                      CONFIGURABLE_BLOCKS.has(item.block.widget);
                     return (
                       <View style={[s.blockRow, api.index > 0 && s.blockRowBorder]}>
                         <View
@@ -445,8 +520,10 @@ export default function DashboardsScreen() {
             <View style={s.pickGrid}>
               {BLOCK_WIDGETS.map((w) => (
                 <TouchableOpacity key={w} style={s.pickItem} onPress={() => addWidget(w)}>
-                  <Text style={s.pickIcon}>{w === 'section' ? '▤' : '▦'}</Text>
-                  <Text style={s.pickLabel} numberOfLines={1}>{BLOCK_NAMES[w] ?? w}</Text>
+                  <Text style={s.pickIcon}>
+                    {w === 'section' ? '▤' : WIDGET_REGISTRY[w].icon || '▦'}
+                  </Text>
+                  <Text style={s.pickLabel} numberOfLines={1}>{blockName(w)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -462,12 +539,64 @@ export default function DashboardsScreen() {
             {blockBeingEdited && (
               <>
                 <Text style={s.modalTitle}>
-                  {blockBeingEdited.widget === 'section' ? 'Section header' : 'Tile overrides'}
+                  {blockBeingEdited.widget === 'section'
+                    ? 'Section header'
+                    : CONFIGURABLE_BLOCKS.has(blockBeingEdited.widget)
+                      ? blockName(blockBeingEdited.widget)
+                      : 'Tile overrides'}
                 </Text>
                 {blockBeingEdited.widget === 'section' ? (
                   <>
                     <Text style={s.fieldLabel}>Section title</Text>
                     <AppInput placeholder="e.g. Operations" value={cfgSection} onChangeText={setCfgSection} />
+                  </>
+                ) : blockBeingEdited.widget === 'stat-tiles' ? (
+                  <>
+                    <Text style={s.fieldLabel}>Stat sources</Text>
+                    <Text style={s.rowSub}>
+                      Pick the count cards to show, in tap order (2–4 works best). Each card only
+                      renders for users with permission to see its data.
+                    </Text>
+                    <View style={s.pickGrid}>
+                      {STAT_SOURCES.map((src) => (
+                        <FilterChip
+                          key={src}
+                          label={STAT_SOURCE_LABELS[src]}
+                          active={cfgStats.includes(src)}
+                          onPress={() => toggleStat(src)}
+                        />
+                      ))}
+                    </View>
+                  </>
+                ) : blockBeingEdited.widget === 'work-list' || blockBeingEdited.widget === 'activity-preview' ? (
+                  <>
+                    {blockBeingEdited.widget === 'work-list' && (
+                      <>
+                        <Text style={s.fieldLabel}>List source</Text>
+                        <View style={s.pickGrid}>
+                          {WORK_LIST_SOURCES.map((src) => (
+                            <FilterChip
+                              key={src}
+                              label={WORK_LIST_SOURCE_LABELS[src]}
+                              active={cfgSource === src}
+                              onPress={() => setCfgSource(src)}
+                            />
+                          ))}
+                        </View>
+                      </>
+                    )}
+                    <Text style={s.fieldLabel}>Title override</Text>
+                    <Text style={s.rowSub}>Blank keeps the default title.</Text>
+                    <AppInput placeholder="Custom title" value={cfgTitle} onChangeText={setCfgTitle} />
+                    <Text style={s.fieldLabel}>Row limit</Text>
+                    <Text style={s.rowSub}>How many rows to show. Blank keeps the default.</Text>
+                    <AppInput
+                      placeholder="5"
+                      value={cfgLimit}
+                      onChangeText={setCfgLimit}
+                      keyboardType="number-pad"
+                      style={{ width: 100 }}
+                    />
                   </>
                 ) : (
                   <>

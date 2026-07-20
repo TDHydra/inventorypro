@@ -11,7 +11,10 @@ export type LayoutPreset = { layout: string | null };
 // Validate + parse a preset's persisted `layout` JSON into a Layout. Returns null
 // on any problem (missing/empty/invalid JSON, not an array, no valid blocks) so the
 // caller falls back to DEFAULT_LAYOUT. Unknown widget types (from another app
-// version) are dropped rather than crashing the render.
+// version — including old presets' now-removed 'search' blocks, since search is
+// pinned by the screen) are dropped rather than crashing the render. Config
+// payloads are carried through as-is: unknown config fields are tolerated and
+// simply ignored by the widget renderers (forward compat).
 export function parsePresetLayout(raw: string | null | undefined): Layout | null {
   if (!raw) return null;
   let parsed: unknown;
@@ -36,17 +39,24 @@ export function parsePresetLayout(raw: string | null | undefined): Layout | null
   return blocks.length > 0 ? blocks : null;
 }
 
-// Precedence resolver: per-user assignment wins over per-role assignment; a
-// resolved-but-missing/invalid preset falls back to DEFAULT_LAYOUT. Deterministic
-// (no DB / module-cache access).
+// Precedence resolver (role dashboards §1): user preset → role preset →
+// `roleDefault` (the caller passes ROLE_DEFAULT_LAYOUTS[user.role]) →
+// DEFAULT_LAYOUT. Each level is tried in turn: a missing/invalid/empty user
+// preset falls through to the role preset (DB), and only then to the role
+// code-default — an admin-curated role preset is never skipped just because a
+// user's personal preset was deleted or corrupted. Deterministic (no DB /
+// module-cache access).
 export function resolveLayout(
   userPresetId: string | null | undefined,
   rolePresetId: string | null | undefined,
   byId: Record<string, LayoutPreset>,
+  roleDefault?: Layout | null,
 ): Layout {
-  const id = userPresetId ?? rolePresetId ?? null;
-  if (!id) return DEFAULT_LAYOUT;
-  const preset = byId[id];
-  if (!preset) return DEFAULT_LAYOUT;
-  return parsePresetLayout(preset.layout) ?? DEFAULT_LAYOUT;
+  for (const id of [userPresetId, rolePresetId]) {
+    if (!id) continue;
+    const preset = byId[id];
+    const parsed = preset ? parsePresetLayout(preset.layout) : null;
+    if (parsed) return parsed;
+  }
+  return roleDefault ?? DEFAULT_LAYOUT;
 }

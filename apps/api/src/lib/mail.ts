@@ -112,6 +112,31 @@ export async function sendEnrollmentCodeEmail(
   return sendMail({ to, subject, text, html, category: 'Account' });
 }
 
+// Email-change verification code (POST /me/email/request-code). The 6-digit
+// code proves the user controls the NEW address before /me/email/confirm
+// commits it to users.email. Plain + HTML bodies, enrollment-email pattern.
+export async function sendEmailChangeCodeEmail(
+  to: string,
+  code: string,
+  userName: string,
+): Promise<SendMailResult> {
+  const subject = 'Your InventoryPro email change code';
+  const text =
+    `Hi ${userName},\n\n` +
+    `Your InventoryPro email change code is: ${code}\n\n` +
+    `Enter this code in the app to confirm your new email address. ` +
+    `The code expires in 10 minutes.\n\n` +
+    `If you didn't request this change, you can ignore this message.`;
+  const html =
+    `<p>Hi ${escapeHtml(userName)},</p>` +
+    `<p>Your InventoryPro email change code is:</p>` +
+    `<p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:16px 0;">${escapeHtml(code)}</p>` +
+    `<p>Enter this code in the app to confirm your new email address. ` +
+    `The code expires in 10 minutes.</p>` +
+    `<p style="color:#888;font-size:12px;">If you didn't request this change, you can ignore this message.</p>`;
+  return sendMail({ to, subject, text, html, category: 'Account' });
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string

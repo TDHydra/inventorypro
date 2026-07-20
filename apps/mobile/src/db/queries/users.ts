@@ -44,6 +44,7 @@ export interface User {
   active: number;
   expires_at: string | null;
   email?: string | null;
+  phone?: string | null; // normalized: optional leading '+', 7–15 digits (migration 049)
   dashboard_preset_id?: string | null;
   is_test?: number; // 1 = public demo account (sandboxed session, code shown at login)
   enrollment_code_public?: string | null; // display-only; non-null only when is_test
@@ -103,13 +104,13 @@ export function upsertUser(user: User): void {
   db.executeSync(
     `INSERT OR REPLACE INTO users
        (id, name, role, pin_length_required, pin_set, permission_overrides,
-        active, expires_at, created_at, updated_at, synced_at, dashboard_preset_id, email, is_test, enrollment_code_public)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        active, expires_at, created_at, updated_at, synced_at, dashboard_preset_id, email, is_test, enrollment_code_public, phone)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([user.id, user.name, user.role,
      user.pin_length_required, user.pin_set, user.permission_overrides,
      user.active, user.expires_at, user.created_at,
      user.updated_at, user.synced_at, user.dashboard_preset_id ?? null, user.email ?? null,
-     user.is_test ?? 0, user.enrollment_code_public ?? null])
+     user.is_test ?? 0, user.enrollment_code_public ?? null, user.phone ?? null])
   );
 }
 
@@ -165,7 +166,7 @@ export function setRoleColor(role: string, color: string | null): string {
 // Apply admin edits to the local users row. PIN/pin_set are NEVER written here —
 // PIN reset is server-only (see resetUserPinOnline in the screen). Returns the
 // updated_at stamp so the caller can mirror it into the sync outbox.
-type EditableUserFields = Partial<Pick<User, 'name' | 'role' | 'active' | 'expires_at' | 'pin_length_required' | 'email'>>;
+type EditableUserFields = Partial<Pick<User, 'name' | 'role' | 'active' | 'expires_at' | 'pin_length_required' | 'email' | 'phone'>>;
 export function updateUserLocal(userId: string, fields: EditableUserFields): string {
   const db = getDb();
   const now = new Date().toISOString();

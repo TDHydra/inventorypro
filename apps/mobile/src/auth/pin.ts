@@ -50,6 +50,44 @@ export async function setPinFirstTime(userId: string, pin: string, enrollmentCod
   return res.json() as Promise<AuthResult>;
 }
 
+/**
+ * Self-service PIN change (POST /me/change-pin, role-dashboards spec §5).
+ * Online-only like every other PIN path — the raw PINs go to the server, which
+ * bcrypt-compares the current PIN and re-validates the new one (format/length
+ * from users.pin_length_required, weakness, and same-as-current). The client
+ * pre-validates with validatePinFormat + isWeakPin for instant feedback, but
+ * the server verdict is authoritative. 204 on success.
+ *
+ * `getValidJwt` is imported dynamically so this module stays loadable under
+ * `node --test` (session.ts pulls in expo-secure-store, a native module) —
+ * same pattern as fullDownload.ts.
+ */
+export async function changePinOnline(currentPin: string, newPin: string): Promise<void> {
+  const { getValidJwt } = await import('./session');
+  const jwt = await getValidJwt();
+  if (!jwt) throw new Error('Connect to the server to change your PIN.');
+
+  const res = await fetch(`${API_BASE}/me/change-pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ currentPin, newPin }),
+  });
+  if (res.ok) return;
+
+  // Prefer the server's specific reason on EVERY status. 403 in particular is
+  // not always "wrong current PIN": the route also 403s "No PIN set for this
+  // account.", and the global write wall 403s test/demo accounts ("read-only
+  // on the server") — blanket-mapping those to a wrong-PIN message sends the
+  // user in circles re-typing a PIN that was never the problem.
+  let serverMsg: string | null = null;
+  try {
+    serverMsg = ((await res.json()) as { error?: string }).error ?? null;
+  } catch { /* non-JSON body — fall through to the status-based message */ }
+  if (serverMsg) throw new Error(serverMsg);
+  if (res.status === 403) throw new Error('Current PIN is incorrect.');
+  throw new Error(`Could not change PIN (${res.status}).`);
+}
+
 // NOTE: PIN verification is intentionally online-only. The bcrypt hash is never
 // stored on the device, so it cannot be extracted from a lost/stolen phone.
 // Returning users unlock with biometrics (see auth/biometric + the unlock

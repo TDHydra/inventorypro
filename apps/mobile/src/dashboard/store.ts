@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { UserSession } from '../auth/permissions';
 import { DEFAULT_LAYOUT, type Layout } from './widgets';
+import { ROLE_DEFAULT_LAYOUTS } from './roleLayouts';
 import { resolveLayout } from './resolve';
 import {
   getDashboardPresets,
@@ -51,16 +52,18 @@ export function loadDashboardCache(): void {
 }
 
 // Resolve the effective layout for a user: users.dashboard_preset_id →
-// role_settings[role].dashboard_preset_id → DEFAULT_LAYOUT. Reads the caller's own
-// preset id from the DB (cheap single-row) and the role assignment from cache; any
-// failure resolves to DEFAULT_LAYOUT so the hub always renders.
+// role_settings[role].dashboard_preset_id → ROLE_DEFAULT_LAYOUTS[role] →
+// DEFAULT_LAYOUT (role dashboards §1). Reads the caller's own preset id from the
+// DB (cheap single-row) and the role assignment from cache; any failure resolves
+// to the role's code default (then DEFAULT_LAYOUT) so the hub always renders.
 export function resolveLayoutFor(user: UserSession): Layout {
+  const roleDefault = ROLE_DEFAULT_LAYOUTS[user.role] ?? null;
   try {
     const userPresetId = getUserDashboardPresetId(user.id);
     const rolePresetId = rolePresetIds[user.role] ?? null;
-    return resolveLayout(userPresetId, rolePresetId, presetsById);
+    return resolveLayout(userPresetId, rolePresetId, presetsById, roleDefault);
   } catch {
-    return DEFAULT_LAYOUT;
+    return roleDefault ?? DEFAULT_LAYOUT;
   }
 }
 

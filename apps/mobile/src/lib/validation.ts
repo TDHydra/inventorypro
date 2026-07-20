@@ -178,6 +178,33 @@ export function validateEmail(input: string): StringResult {
   return { ok: true, value: trimmed };
 }
 
+// Characters people legitimately type between phone digits — stripped before
+// validation AND before storage (the normalized value is '+' + digits only).
+const PHONE_SEPARATORS = /[\s\-().]/g;
+
+/**
+ * An OPTIONAL phone number (role-dashboards spec §4: no SMS infra, so this is a
+ * format check only). Blank → null (cleared). Rule mirrors the server: optional
+ * leading '+', then 7–15 digits after stripping separators/spaces. Returns the
+ * NORMALIZED value ('+15551234567' / '5551234'), which is what gets stored.
+ */
+export function validatePhone(
+  input: string,
+): { ok: true; value: string | null } | { ok: false; error: string; rule: string } {
+  const trimmed = (input ?? '').trim();
+  if (!trimmed) return { ok: true, value: null };
+  const stripped = trimmed.replace(PHONE_SEPARATORS, '');
+  const plus = stripped.startsWith('+');
+  const digits = plus ? stripped.slice(1) : stripped;
+  if (!/^\d+$/.test(digits)) {
+    return { ok: false, error: 'Phone can only contain digits, an optional leading +, and separators.', rule: 'format' };
+  }
+  if (digits.length < 7 || digits.length > 15) {
+    return { ok: false, error: 'Phone must have 7–15 digits.', rule: 'length' };
+  }
+  return { ok: true, value: (plus ? '+' : '') + digits };
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** True when the string is a canonical hyphenated UUID (any version). */

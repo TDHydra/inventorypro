@@ -23,6 +23,9 @@ import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { OnCallWidget } from '../../../src/components/oncall/OnCallWidget';
+import { StatTiles } from '../../../src/components/dashboard/StatTiles';
+import { WorkList } from '../../../src/components/dashboard/WorkList';
+import { ActivityPreview } from '../../../src/components/dashboard/ActivityPreview';
 
 function timeGreeting(): string {
   const hour = new Date().getHours();
@@ -89,10 +92,11 @@ export default function DashboardScreen() {
 
   if (!user) return null;
 
-  // The greeting + tooltip are fixed chrome (not layout widgets). Today they sit
-  // directly after the pinned search, so we inject them right after the `search`
-  // block to keep the default order byte-for-byte. If a custom preset omits search,
-  // they render at the very top instead so the user is never greeting-less.
+  // The greeting + tooltip are fixed chrome (not layout widgets). They render
+  // directly after the pinned search, above whatever layout resolves. The gear
+  // is the guaranteed all-roles path into Settings (role dashboards §4: My
+  // Profile / Theme / Logout are for everyone) — it must NOT depend on a
+  // layout's `settings` tile, which many role defaults/presets omit.
   const greeting = (
     <View key="__greeting">
       <View style={s.greeting}>
@@ -100,6 +104,13 @@ export default function DashboardScreen() {
           <Text style={[s.hi, { color: roleColor(user.role) }]}>{timeGreeting()}, {user.name.split(' ')[0]}</Text>
           <Text style={s.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => router.push('/(app)/(admin)/settings' as never)}
+          style={s.questionBtn}
+          accessibilityLabel="Settings"
+        >
+          <Text style={s.questionBtnText}>⚙</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => reshow?.()} style={s.questionBtn}>
           <Text style={s.questionBtnText}>?</Text>
         </TouchableOpacity>
@@ -182,13 +193,25 @@ export default function DashboardScreen() {
   // header so it hides when the user can't see any tile beneath it.
   const renderBlock = (block: LayoutBlock, key: string, gatePerm?: Permission): ReactNode => {
     switch (block.widget) {
-      case 'search':
-        return <DashboardSearch key={key} />;
       case 'quick-add':
         return <QuickAddBanner key={key} />;
       case 'on-call':
         // Fully self-contained (#128): owns its reads, modal + calendar internally.
         return <OnCallWidget key={key} />;
+      // Config-driven data widgets (role dashboards §2). stat-tiles/work-list
+      // permission-gate per source internally; activity-preview carries the
+      // registry's view_all_logs gate (same as the logs tile), applied here.
+      case 'stat-tiles':
+        return <StatTiles key={key} config={block.config} />;
+      case 'work-list':
+        return <WorkList key={key} config={block.config} />;
+      case 'activity-preview': {
+        const perm = WIDGET_REGISTRY['activity-preview'].requiredPermission;
+        const preview = <ActivityPreview config={block.config} />;
+        return perm
+          ? <PermissionGate key={key} permission={perm}>{preview}</PermissionGate>
+          : <Fragment key={key}>{preview}</Fragment>;
+      }
       case 'section': {
         if (!block.config?.sectionTitle) return null;
         const header = <Text style={s.sectionTitle}>{block.config.sectionTitle}</Text>;
@@ -276,11 +299,10 @@ export default function DashboardScreen() {
 
   // Walk the layout into a flat element list. Consecutive half-width tiles are
   // paired into a responsive row; everything else is full-width and stacked. The
-  // greeting chrome is injected right after the search block (or at the top if the
-  // layout has no search block).
-  const hasSearch = layout.some(b => b.widget === 'search');
-  const elements: ReactNode[] = [];
-  if (!hasSearch) elements.push(greeting);
+  // search bar is PINNED chrome (role dashboards §1): always rendered first,
+  // outside the resolved layout, with the greeting right after it — presets can
+  // no longer add or remove it (old presets' 'search' blocks parse away).
+  const elements: ReactNode[] = [<DashboardSearch key="__search" />, greeting];
 
   for (let i = 0; i < layout.length; i++) {
     const block = layout[i];
@@ -301,7 +323,6 @@ export default function DashboardScreen() {
     } else {
       elements.push(renderBlock(block, `b-${i}`));
     }
-    if (block.widget === 'search') elements.push(greeting);
   }
 
   return (
@@ -317,7 +338,7 @@ export default function DashboardScreen() {
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 16, gap: 10, paddingBottom: 40 },
-  greeting: { marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  greeting: { marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   greetingText: { flex: 1 },
   hi: { fontSize: 24, fontWeight: '700', color: t.colors.brand },
   role: { fontSize: 13, color: t.colors.textSecondary, textTransform: 'capitalize' },

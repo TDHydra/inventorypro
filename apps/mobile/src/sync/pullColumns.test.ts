@@ -85,6 +85,14 @@ test('team_members syncs subteam_id + subteam_role', () => {
   assert.ok(tm.cols.includes('subteam_role'), 'team_members upsert is missing subteam_role');
 });
 
+// Migration 049 (role-dashboards spec §4/§5): users gained phone — the same
+// "added a column to a synced table" trap as subteam_id/subteam_role above.
+test('users syncs phone', () => {
+  const users = upsertStatements().find(s => s.table === 'users');
+  assert.ok(users, 'no users upsert');
+  assert.ok(users.cols.includes('phone'), 'users upsert is missing phone');
+});
+
 // Field-crew epic (#122), migrations 041-044 / API 053-056: all six new tables
 // must be in the pull path (parity with the server's FULL_TABLES).
 test('field-crew tables are present in the pull path', () => {

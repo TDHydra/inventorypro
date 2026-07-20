@@ -12,17 +12,59 @@ import type { Permission } from '../constants/roles';
 // widgets carry no requiredPermission (search/quick-add/low-stock render as they do
 // today; QuickAddBanner self-gates internally).
 
+// NOTE (role dashboards): 'search' is no longer a widget — DashboardSearch is
+// pinned by the dashboard screen above the resolved layout. Old presets that
+// still contain a `search` block parse fine (isWidgetType drops it, so it's
+// skipped rather than rendered twice).
 export type WidgetType =
   | 'fast-checkout' | 'fast-checkin' | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
-  | 'section' | 'search' | 'quick-add' | 'low-stock' | 'on-call'             // non-tile blocks
-  | 'vehicle-checkin' | 'past-due' | 'low-stock-catalog';                    // contextual quick-actions (#144)
+  | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
+  | 'vehicle-checkin' | 'past-due' | 'low-stock-catalog'                     // contextual quick-actions (#144)
+  | 'stat-tiles' | 'work-list' | 'activity-preview';                         // config-driven data widgets (role dashboards)
+
+// --- Per-widget config payloads (role dashboards §2) -------------------------
+// One widget type renders different content depending on its block config.
+// Every field is optional so ANY persisted config object parses; unknown fields
+// from a newer app version are carried through untouched (forward compat) and
+// simply ignored by the renderer.
+
+// Count sources a `stat-tiles` block can show (existing local queries only).
+export type StatSource =
+  | 'my-checkouts'       // my active checkouts (stock + deployed units)
+  | 'open-repairs'       // getRepairs({ done: false })
+  | 'units-due-service'  // getUnitsDueForService
+  | 'low-stock'          // getLowStockItems
+  | 'open-jobs'          // getOpenJobs
+  | 'team-members';      // getAllActiveUsers
+
+// Row sources a `work-list` block can show.
+export type WorkListSource =
+  | 'my-equipment'       // getDeployedUnitsForUser
+  | 'open-jobs'
+  | 'open-repairs'
+  | 'units-due-service'
+  | 'low-stock';
+
+export type WidgetConfig = {
+  // Tile/section overrides (pre-existing).
+  label?: string;
+  icon?: string;
+  sectionTitle?: string;
+  // stat-tiles: which count cards to show, in order (2–4 recommended).
+  stats?: StatSource[];
+  // work-list: which rows to list.
+  source?: WorkListSource;
+  // work-list + activity-preview: card title override and row cap.
+  title?: string;
+  limit?: number;
+};
 
 export type LayoutBlock = {
   widget: WidgetType;
   width: 'full' | 'half';
-  config?: { label?: string; icon?: string; sectionTitle?: string };
+  config?: WidgetConfig;
 };
 
 export type Layout = LayoutBlock[];
@@ -78,11 +120,15 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // Admin
   users:         { label: 'Users & Permissions',     icon: '👤', route: '/(app)/(admin)/users',    requiredPermission: 'manage_users',              kind: 'tile' },
   roles:         { label: 'Roles & Permissions',     icon: '🛡', route: '/(app)/(admin)/roles',    requiredPermission: 'manage_roles_permissions', kind: 'tile' },
-  settings:      { label: 'Settings',                icon: '⚙', route: '/(app)/(admin)/settings', requiredPermission: 'manage_roles_permissions', kind: 'tile' },
+  // Settings is open to EVERY role (role dashboards §4): the screen renders for
+  // everyone (My Profile / Theme / App Info / Logout are all-roles) and gates its
+  // admin sections internally. The dashboard also pins a header gear to this
+  // route, so settings stays reachable even for layouts without this tile.
+  settings:      { label: 'Settings',                icon: '⚙', route: '/(app)/(admin)/settings', kind: 'tile' },
 
-  // Non-tile blocks (no required permission; render as they do today)
+  // Non-tile blocks (no required permission; render as they do today).
+  // ('search' was removed: DashboardSearch is pinned by the screen itself.)
   section:       { label: '', kind: 'block' },
-  search:        { label: '', kind: 'block' },
   'quick-add':   { label: '', kind: 'block' },
   'low-stock':   { label: '', kind: 'block' },
   // On-call block (#128): fully self-contained <OnCallWidget/> (owns its data reads,
@@ -97,6 +143,14 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'vehicle-checkin':   { label: '', kind: 'block' },
   'past-due':          { label: '', kind: 'block' },
   'low-stock-catalog': { label: '', kind: 'block' },
+
+  // Config-driven data widgets (role dashboards §2). stat-tiles and work-list
+  // gate PER SOURCE inside the component (each source mirrors the permission of
+  // the tile/list it taps through to), so the block itself carries none.
+  // activity-preview reuses the Activity Logs gate — same as the logs tile.
+  'stat-tiles':       { label: 'Stat Tiles',       icon: '🔢', kind: 'block' },
+  'work-list':        { label: 'Work List',        icon: '🗒', kind: 'block' },
+  'activity-preview': { label: 'Recent Activity',  icon: '📊', kind: 'block', requiredPermission: 'view_all_logs' },
 };
 
 // The built-in default dashboard, expressed as blocks in the EXACT order/width the
@@ -104,8 +158,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
 // to this, so their dashboard is unchanged. Every tile here is still wrapped in its
 // PermissionGate by the hub, so roles without a permission never see that tile —
 // identical to today. Section headers reproduce the three grouped sections.
+// (No 'search' block: DashboardSearch is pinned above every resolved layout.)
 export const DEFAULT_LAYOUT: Layout = [
-  { widget: 'search', width: 'full' },
   { widget: 'quick-add', width: 'full' },
   // Contextual quick-actions (#144) sit above the tiles: they render nothing at
   // all unless their condition holds, so the default dashboard is unchanged for

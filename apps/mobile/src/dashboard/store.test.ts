@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveLayout, parsePresetLayout, type LayoutPreset } from './resolve';
-import { DEFAULT_LAYOUT, WIDGET_REGISTRY } from './widgets';
+import { DEFAULT_LAYOUT, WIDGET_REGISTRY, isWidgetType, type Layout } from './widgets';
+import { ROLE_DEFAULT_LAYOUTS } from './roleLayouts';
 
 const validLayout = JSON.stringify([
-  { widget: 'search', width: 'full' },
+  { widget: 'quick-add', width: 'full' },
   { widget: 'checkout', width: 'half' },
 ]);
 
@@ -23,7 +24,7 @@ test('no assignment → DEFAULT_LAYOUT', () => {
 test('user preset wins over role preset (precedence)', () => {
   const layout = resolveLayout('p-user', 'p-role', byId);
   assert.deepEqual(layout, [
-    { widget: 'search', width: 'full' },
+    { widget: 'quick-add', width: 'full' },
     { widget: 'checkout', width: 'half' },
   ]);
 });
@@ -125,4 +126,146 @@ test('A2 unit widgets: vehicles/lockers tiles, data-driven (no permission gate)'
     assert.equal(widgets.filter(x => x === w).length, 1, `${w} appears exactly once`);
   }
   assert.ok(widgets.indexOf('vehicles') > widgets.indexOf('locations'), 'unit tiles follow Manage Locations');
+});
+
+// --- Role dashboards: role code-defaults in the resolution chain (§1) --------
+
+const roleDefault: Layout = [
+  { widget: 'fast-checkout', width: 'half' },
+  { widget: 'fast-checkin', width: 'half' },
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'units-due-service'] } },
+];
+
+test('no assignments + role default → role default', () => {
+  assert.equal(resolveLayout(null, null, byId, roleDefault), roleDefault);
+});
+
+test('no assignments + no role default → DEFAULT_LAYOUT', () => {
+  assert.equal(resolveLayout(null, null, byId, null), DEFAULT_LAYOUT);
+  assert.equal(resolveLayout(null, null, byId, undefined), DEFAULT_LAYOUT);
+});
+
+test('user preset wins over role default', () => {
+  assert.deepEqual(resolveLayout('p-user', null, byId, roleDefault), [
+    { widget: 'quick-add', width: 'full' },
+    { widget: 'checkout', width: 'half' },
+  ]);
+});
+
+test('role preset (DB) wins over role default', () => {
+  assert.deepEqual(resolveLayout(null, 'p-role', byId, roleDefault), [
+    { widget: 'jobs', width: 'full' },
+  ]);
+});
+
+test('missing/invalid/empty assigned preset falls through to role default', () => {
+  assert.equal(resolveLayout('does-not-exist', null, byId, roleDefault), roleDefault);
+  assert.equal(resolveLayout('p-bad', null, byId, roleDefault), roleDefault);
+  assert.equal(resolveLayout('p-empty', null, byId, roleDefault), roleDefault);
+  assert.equal(resolveLayout('p-junk', null, byId, roleDefault), roleDefault);
+});
+
+test('missing/invalid user preset falls through to the ROLE PRESET (DB), not past it', () => {
+  // §1 chain: user preset → role preset (DB) → role default → DEFAULT_LAYOUT.
+  // A broken personal preset must not skip the admin-curated role preset.
+  const rolePresetLayout = [{ widget: 'jobs', width: 'full' }];
+  assert.deepEqual(resolveLayout('does-not-exist', 'p-role', byId, roleDefault), rolePresetLayout);
+  assert.deepEqual(resolveLayout('p-bad', 'p-role', byId, roleDefault), rolePresetLayout);
+  assert.deepEqual(resolveLayout('p-empty', 'p-role', byId, roleDefault), rolePresetLayout);
+  assert.deepEqual(resolveLayout('p-junk', 'p-role', byId, roleDefault), rolePresetLayout);
+  // Both levels broken → role default → DEFAULT_LAYOUT.
+  assert.equal(resolveLayout('p-bad', 'p-empty', byId, roleDefault), roleDefault);
+  assert.equal(resolveLayout('p-bad', 'p-empty', byId), DEFAULT_LAYOUT);
+});
+
+test('ROLE_DEFAULT_LAYOUTS entries (as filled in) are valid layouts', () => {
+  // The map ships empty and is filled role by role — this guards every entry a
+  // follow-up adds: real widget types only, sane widths.
+  for (const [role, layout] of Object.entries(ROLE_DEFAULT_LAYOUTS)) {
+    assert.ok(Array.isArray(layout) && layout.length > 0, `${role}: non-empty layout`);
+    for (const b of layout!) {
+      assert.ok(isWidgetType(b.widget), `${role}: '${b.widget}' is a registered widget`);
+      assert.ok(b.width === 'full' || b.width === 'half', `${role}: valid width`);
+    }
+  }
+});
+
+// --- Role dashboards: pinned search (§1) -------------------------------------
+
+test("'search' is no longer a widget type; DEFAULT_LAYOUT carries no search block", () => {
+  assert.equal(isWidgetType('search'), false);
+  assert.ok(!DEFAULT_LAYOUT.some(b => (b.widget as string) === 'search'));
+});
+
+test("old presets containing 'search' parse fine — search skipped, not duplicated", () => {
+  const raw = JSON.stringify([
+    { widget: 'search', width: 'full' },
+    { widget: 'checkout', width: 'full' },
+    { widget: 'search', width: 'full' },
+  ]);
+  assert.deepEqual(parsePresetLayout(raw), [{ widget: 'checkout', width: 'full' }]);
+});
+
+test("old preset with ONLY a search block → null (falls back down the chain)", () => {
+  const raw = JSON.stringify([{ widget: 'search', width: 'full' }]);
+  assert.equal(parsePresetLayout(raw), null);
+});
+
+// --- Role dashboards: config payloads + new data widgets (§2) ----------------
+
+// --- Role dashboards: Settings reachable by ALL roles (§4) -------------------
+
+test('settings tile carries no permission gate (My Profile is all-roles)', () => {
+  // The settings screen renders for everyone and self-gates its admin
+  // sections; gating the tile would strand non-tier-4 roles with no path to
+  // Change PIN / email / phone, Theme, or Logout.
+  assert.equal(WIDGET_REGISTRY.settings.kind, 'tile');
+  assert.equal(WIDGET_REGISTRY.settings.route, '/(app)/(admin)/settings');
+  assert.equal(WIDGET_REGISTRY.settings.requiredPermission, undefined);
+});
+
+test('new data widgets registered: kinds + permission gates', () => {
+  assert.equal(WIDGET_REGISTRY['stat-tiles'].kind, 'block');
+  assert.equal(WIDGET_REGISTRY['stat-tiles'].requiredPermission, undefined);
+  assert.equal(WIDGET_REGISTRY['work-list'].kind, 'block');
+  assert.equal(WIDGET_REGISTRY['work-list'].requiredPermission, undefined);
+  assert.equal(WIDGET_REGISTRY['activity-preview'].kind, 'block');
+  // Same gate as the Activity Logs tile.
+  assert.equal(WIDGET_REGISTRY['activity-preview'].requiredPermission, 'view_all_logs');
+});
+
+test('parsePresetLayout keeps per-widget config payloads intact', () => {
+  const raw = JSON.stringify([
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock'] } },
+    { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs', limit: 3 } },
+    { widget: 'activity-preview', width: 'full', config: { limit: 10 } },
+  ]);
+  assert.deepEqual(parsePresetLayout(raw), [
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock'] } },
+    { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs', limit: 3 } },
+    { widget: 'activity-preview', width: 'full', config: { limit: 10 } },
+  ]);
+});
+
+test('parsePresetLayout tolerates unknown config fields and non-object configs', () => {
+  // Unknown fields (newer app version) ride along untouched…
+  const withUnknown = JSON.stringify([
+    { widget: 'work-list', width: 'full', config: { source: 'low-stock', futureKnob: true } },
+  ]);
+  assert.deepEqual(parsePresetLayout(withUnknown), [
+    { widget: 'work-list', width: 'full', config: { source: 'low-stock', futureKnob: true } },
+  ]);
+  // …and a junk config value is dropped, not crashed on.
+  const junkCfg = JSON.stringify([{ widget: 'checkout', width: 'full', config: 'nope' }]);
+  assert.deepEqual(parsePresetLayout(junkCfg), [{ widget: 'checkout', width: 'full' }]);
+});
+
+test('parsePresetLayout drops unknown widget types but keeps configured known ones', () => {
+  const raw = JSON.stringify([
+    { widget: 'hologram-3d', width: 'full', config: { beam: 'up' } },
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['team-members'] } },
+  ]);
+  assert.deepEqual(parsePresetLayout(raw), [
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['team-members'] } },
+  ]);
 });

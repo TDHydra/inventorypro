@@ -32,6 +32,7 @@ import { getValidJwt } from '../../../src/auth/session';
 import { SearchablePicker } from '../../../src/components/SearchablePicker';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { QrSigningSection } from '../../../src/components/QrSigningSection';
+import { ProfileSection } from '../../../src/components/profile/ProfileSection';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
@@ -442,6 +443,9 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* ── My Profile (ALL roles — self-service PIN / email / phone) ── */}
+        <ProfileSection />
 
         {/* ── Sync ─────────────────────────────────────────────────────── */}
         <View>
