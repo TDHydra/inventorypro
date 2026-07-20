@@ -96,6 +96,7 @@ const STAT_SOURCES = Object.keys(STAT_SOURCE_LABELS) as StatSource[];
 // Keep in lockstep with WORK_LIST_DEFS in src/components/dashboard/WorkList.tsx.
 const WORK_LIST_SOURCE_LABELS: Record<WorkListSource, string> = {
   'my-equipment': 'My Equipment',
+  'my-jobs': 'My Jobs',
   'open-jobs': 'Open Jobs',
   'open-repairs': 'Open Repairs',
   'units-due-service': 'Due for Service',

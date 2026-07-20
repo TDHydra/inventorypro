@@ -11,6 +11,7 @@ import { EmptyState } from '../ui/EmptyState';
 import type { Permission } from '../../constants/roles';
 import type { WidgetConfig, WorkListSource } from '../../dashboard/widgets';
 import { getOpenJobs } from '../../db/queries/jobs';
+import { getMyAssignedJobs } from '../../db/queries/jobAssignments';
 import { getDeployedUnitsForUser } from '../../db/queries/equipmentUnits';
 import { getRepairs } from '../../db/queries/repairs';
 import { getUnitsDueForService } from '../../db/queries/maintenance';
@@ -43,6 +44,9 @@ interface WorkListDef {
   viewAllRoute: string;
   requiredPermission?: Permission;
   read: (userId: string) => WorkRow[];
+  // When present, each row is tappable and navigates to rowRoute(row.id)
+  // (e.g. my-jobs → the job detail screen). Absent = plain rows, as before.
+  rowRoute?: (id: string) => string;
 }
 
 // Existing local queries only. Permission per source mirrors the tile/screen it
@@ -56,6 +60,21 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       primary: `${u.item_name} · ${u.asset_tag}`,
       secondary: u.job_name ? `On job: ${u.job_name}` : null,
       updated_at: u.updated_at ?? null,
+    })),
+  },
+  // Jobs assigned to me (#160): directly, or via a crew I belong to (resolved
+  // at read time from team_members.subteam_id). No requiredPermission — a crew
+  // tech without create_jobs is exactly who this list is for; the job detail
+  // screen renders read-only without the edit permissions.
+  'my-jobs': {
+    title: 'My Jobs', icon: '🏗', emptyTitle: 'No jobs assigned to you',
+    viewAllRoute: '/(app)/(jobs)',
+    rowRoute: id => `/(app)/(jobs)/${id}`,
+    read: uid => getMyAssignedJobs(uid).map(j => ({
+      id: j.id,
+      primary: j.job_number ? `#${j.job_number} · ${j.name}` : j.name,
+      secondary: j.customer_name ?? j.type ?? null,
+      updated_at: j.updated_at,
     })),
   },
   'open-jobs': {
@@ -138,7 +157,12 @@ function WorkListCard({ source, config }: { source: WorkListSource; config?: Wid
         <EmptyState icon={def.icon} title={def.emptyTitle} />
       ) : (
         <View style={s.rows}>
-          {shown.map(r => (
+          {shown.map(r => def.rowRoute ? (
+            <TouchableOpacity key={r.id} style={s.row} onPress={() => router.push(def.rowRoute!(r.id) as never)}>
+              <Text style={s.primary} numberOfLines={1}>{r.primary}</Text>
+              {r.secondary ? <Text style={s.secondary} numberOfLines={1}>{r.secondary}</Text> : null}
+            </TouchableOpacity>
+          ) : (
             <View key={r.id} style={s.row}>
               <Text style={s.primary} numberOfLines={1}>{r.primary}</Text>
               {r.secondary ? <Text style={s.secondary} numberOfLines={1}>{r.secondary}</Text> : null}

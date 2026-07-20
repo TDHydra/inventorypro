@@ -36,6 +36,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   unit_access: `INSERT OR REPLACE INTO unit_access (location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
   on_call_shifts: `INSERT OR REPLACE INTO on_call_shifts (id, subteam_id, week_start, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
   on_call_coverage: `INSERT OR REPLACE INTO on_call_coverage (id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+  job_assignments: `INSERT OR REPLACE INTO job_assignments (id, job_id, assignee_kind, assignee_id, assigned_by, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -73,6 +74,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'unit_access': return [row.location_id, row.user_id, row.can_view ? 1 : 0, row.can_add ? 1 : 0, row.can_remove ? 1 : 0, row.can_move ? 1 : 0, row.can_edit_details ? 1 : 0, row.can_grant ? 1 : 0, row.granted_by ?? null, row.created_at, row.updated_at];
     case 'on_call_shifts': return [row.id, row.subteam_id ?? null, row.week_start, row.created_by ?? null, row.created_at, row.updated_at];
     case 'on_call_coverage': return [row.id, row.date_start, row.date_end, row.user_off ?? null, row.covering_user ?? null, row.note ?? null, row.created_by ?? null, row.created_at, row.updated_at];
+    case 'job_assignments': return [row.id, row.job_id, row.assignee_kind, row.assignee_id, row.assigned_by ?? null, row.active ? 1 : 0, row.created_at, row.updated_at];
     default: return [];
   }
 }

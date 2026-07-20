@@ -42,6 +42,7 @@ export type StatSource =
 // Row sources a `work-list` block can show.
 export type WorkListSource =
   | 'my-equipment'       // getDeployedUnitsForUser
+  | 'my-jobs'            // getMyAssignedJobs (#160: direct or via my crew)
   | 'open-jobs'
   | 'open-repairs'
   | 'units-due-service'

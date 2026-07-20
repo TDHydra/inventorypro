@@ -11,6 +11,11 @@ import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { getAllTeams, getTeamById } from '../../../src/db/queries/teams';
+import {
+  getAssignmentsForJob, getAssignableCrews, assignJobToCrew, assignJobToUser, unassign,
+  JobAssignmentView,
+} from '../../../src/db/queries/jobAssignments';
+import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { ROLE_TIER } from '../../../src/constants/roles';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -29,6 +34,8 @@ import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { SegmentedControl } from '../../../src/components/ui/SegmentedControl';
 import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { track } from '../../../src/telemetry';
@@ -125,6 +132,31 @@ export default function JobDetailScreen() {
   // tier-2 create_jobs editor can't reassign teams.
   const [teamEditing, setTeamEditing] = useState(false);
   const [teamPick, setTeamPick] = useState<PickerOption | null>(null);
+
+  // Assigned crews (#160) — jobs are assigned to a SUBTEAM (crew) or an
+  // individual user; helpers resolve at read time from team_members, so
+  // assigning a crew covers its whole current roster. Gated on create_jobs
+  // (the same permission the server's sync push requires for these writes).
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignKind, setAssignKind] = useState<'crew' | 'user'>('crew');
+  // Own writes bump this so the section refreshes immediately (refreshKey also
+  // covers synced changes from other devices).
+  const [assignBump, setAssignBump] = useState(0);
+  const assignments = useMemo<JobAssignmentView[]>(
+    () => (canEdit ? getAssignmentsForJob(id) : []),
+    [id, refreshKey, assignBump, canEdit],
+  );
+  // Offer only not-yet-assigned crews/users (re-assign is an idempotent no-op
+  // anyway, but hiding them keeps the picker honest).
+  const assignedIds = useMemo(() => new Set(assignments.map(a => a.assignee_id)), [assignments]);
+  const crewOptions = useMemo(
+    () => (canEdit ? getAssignableCrews().filter(c => !assignedIds.has(c.id)) : []),
+    [refreshKey, assignBump, canEdit, assignedIds],
+  );
+  const userOptions = useMemo(
+    () => (canEdit ? getAllActiveUsers().filter(u => !assignedIds.has(u.id)) : []),
+    [refreshKey, assignBump, canEdit, assignedIds],
+  );
 
   function reload() {
     setJob(getJobById(id));
@@ -288,6 +320,45 @@ export default function JobDetailScreen() {
     } else {
       apply();
     }
+  }
+
+  function doAssign(kind: 'crew' | 'user', assigneeId: string, label: string) {
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
+    // The query layer commits the assignment row, its outbox entry, and the
+    // audit log atomically (jobAssignments.ts); re-picking an already-active
+    // assignee is an idempotent no-op.
+    try {
+      if (kind === 'crew') assignJobToCrew(id, assigneeId, user.id);
+      else assignJobToUser(id, assigneeId, user.id);
+    } catch (e) {
+      Alert.alert('Could not assign', e instanceof Error ? e.message : `${label} could not be assigned. Please try again.`);
+      return;
+    }
+    setAssignOpen(false);
+    setAssignBump(b => b + 1);
+  }
+
+  function doUnassign(a: JobAssignmentView) {
+    if (!user) { Alert.alert('Error', 'Not logged in.'); return; }
+    Alert.alert(
+      'Remove assignment',
+      `Remove ${a.assignee_name} from "${job!.name}"?${a.assignee_kind === 'subteam' ? ' The whole crew loses this job from "My jobs".' : ''}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove', style: 'destructive',
+          onPress: () => {
+            try {
+              unassign(a.id, user.id);
+            } catch (e) {
+              Alert.alert('Could not remove', e instanceof Error ? e.message : 'The assignment could not be removed. Please try again.');
+              return;
+            }
+            setAssignBump(b => b + 1);
+          },
+        },
+      ],
+    );
   }
 
   function doArchive() {
@@ -545,6 +616,39 @@ export default function JobDetailScreen() {
                 </Card>
               )}
 
+              {/* Assigned crews (#160) — create_jobs gated (mirrors the server's
+                  sync-push gate on job_assignments writes) */}
+              {canEdit && (
+                <>
+                  <FieldLabel>Assigned Crews</FieldLabel>
+                  <Card variant="detail">
+                    {assignments.length === 0 ? (
+                      <Text style={s.muted}>No crews or users assigned.</Text>
+                    ) : (
+                      assignments.map((a, i) => (
+                        <View key={a.id} style={[s.deployRow, i < assignments.length - 1 && s.divider]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.deployTag}>{a.assignee_name}</Text>
+                            <Text style={s.deploySub}>
+                              {a.assignee_kind === 'subteam' ? 'Crew · members resolve automatically' : 'Individual'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity onPress={() => doUnassign(a)} hitSlop={8}>
+                            <Text style={s.removeText}>Remove</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))
+                    )}
+                    <TouchableOpacity
+                      style={s.assignBtn}
+                      onPress={() => { setAssignKind('crew'); setAssignOpen(true); }}
+                    >
+                      <Text style={s.assignBtnText}>+ Assign crew or user</Text>
+                    </TouchableOpacity>
+                  </Card>
+                </>
+              )}
+
               {/* Deployed section */}
               <FieldLabel>Deployed</FieldLabel>
               <Card variant="detail">
@@ -634,6 +738,51 @@ export default function JobDetailScreen() {
           )}
       </FormScreen>
 
+      {/* ── Assign crew/user (#160) ────────────────────────────────────── */}
+      {canEdit && (
+        <ModalSheet visible={assignOpen} onClose={() => setAssignOpen(false)} scroll>
+          <Text style={s.sheetTitle}>Assign “{job.name}”</Text>
+          <SegmentedControl
+            segments={[{ id: 'crew', label: 'Crews' }, { id: 'user', label: 'Individuals' }]}
+            value={assignKind}
+            onChange={k => setAssignKind(k as 'crew' | 'user')}
+          />
+          {assignKind === 'crew' ? (
+            crewOptions.length === 0 ? (
+              <Text style={[s.muted, s.sheetEmpty]}>No unassigned crews.</Text>
+            ) : (
+              crewOptions.map((c, i) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[s.optionRow, i < crewOptions.length - 1 && s.divider]}
+                  onPress={() => doAssign('crew', c.id, c.name)}
+                >
+                  <Text style={s.deployTag}>{c.name}</Text>
+                  <Text style={s.deploySub}>
+                    {[c.team_name, c.lead_name ? `Lead: ${c.lead_name}` : null].filter(Boolean).join(' · ') || 'Crew'}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )
+          ) : (
+            userOptions.length === 0 ? (
+              <Text style={[s.muted, s.sheetEmpty]}>No unassigned users.</Text>
+            ) : (
+              userOptions.map((u, i) => (
+                <TouchableOpacity
+                  key={u.id}
+                  style={[s.optionRow, i < userOptions.length - 1 && s.divider]}
+                  onPress={() => doAssign('user', u.id, u.name)}
+                >
+                  <Text style={s.deployTag}>{u.name}</Text>
+                  <Text style={s.deploySub}>{u.role.replace(/_/g, ' ')}</Text>
+                </TouchableOpacity>
+              ))
+            )
+          )}
+        </ModalSheet>
+      )}
+
       {/* ── Request Approval (job) ─────────────────────────────────────── */}
       <RequestApprovalSheet
         visible={approvalOpen}
@@ -680,6 +829,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   typeBadgeText: { fontSize: 12, fontWeight: '700', color: t.colors.primaryText },
   typeBadgeItem: { backgroundColor: t.colors.successBg },
   typeBadgeItemText: { color: t.colors.successText },
+
+  // Assigned crews (#160)
+  removeText: { fontSize: 13, fontWeight: '600', color: t.colors.danger, marginLeft: 12 },
+  assignBtn: { marginTop: 10, alignSelf: 'flex-start' },
+  assignBtnText: { fontSize: 14, fontWeight: '600', color: t.colors.primary },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 12 },
+  sheetEmpty: { marginTop: 16 },
+  optionRow: { paddingVertical: 12 },
 
   logRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12 },
   logAction: {

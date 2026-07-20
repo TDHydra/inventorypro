@@ -163,6 +163,9 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   vehicle_service_records: ['created_by'],
   on_call_shifts: ['created_by'],
   on_call_coverage: ['created_by'],
+  // Job assignments (#160): who assigned the crew/user is always the
+  // authenticated caller on INSERT and never reassignable on UPDATE.
+  job_assignments: ['assigned_by'],
 };
 
 export function applyWritePolicy(
@@ -355,6 +358,11 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   on_call_shifts:            { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
   // Coverage rows change who is effectively on call → same roster gate.
   on_call_coverage:          { INSERT: 'manage_teams', UPDATE: 'manage_teams', DELETE: 'manage_teams' },
+  // Job assignments (#160): writes ride the same gate as the jobs table's
+  // INSERT/UPDATE (create_jobs — see `jobs` above). Unassign is a soft-delete
+  // (UPDATE active = FALSE); DELETE is deliberately absent → fails closed
+  // (assignment rows are history, never torn down via sync).
+  job_assignments:           { INSERT: 'create_jobs', UPDATE: 'create_jobs' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -400,6 +408,10 @@ export const ACTIVITY_ACTIONS = new Set([
   'locker_access_granted', 'locker_access_revoked',
   'unit_access_granted', 'unit_access_revoked', 'unit_access_changed',
   'subteam_created', 'subteam_updated', 'on_call_assigned', 'on_call_coverage_added',
+  // Job assignments (#160): logged against entity_type 'job' (entity_id = the
+  // job's uuid — activity_log.entity_id is a UUID column, so string keys like
+  // 'user'/'subteam' go in metadata, never entity_id).
+  'job_assigned', 'job_unassigned',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
@@ -458,6 +470,8 @@ const LOCKER_ACCESS_COLS = 'location_id, user_id, granted_by, created_at, update
 const UNIT_ACCESS_COLS = 'location_id, user_id, can_view, can_add, can_remove, can_move, can_edit_details, can_grant, granted_by, created_at, updated_at';
 const ON_CALL_SHIFTS_COLS = 'id, subteam_id, week_start, created_by, created_at, updated_at';
 const ON_CALL_COVERAGE_COLS = 'id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at';
+// job_assignments (#160): no financial/secret columns — full synced column set.
+const JOB_ASSIGNMENTS_COLS = 'id, job_id, assignee_kind, assignee_id, assigned_by, active, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
@@ -482,5 +496,6 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'unit_access') return UNIT_ACCESS_COLS;
   if (table === 'on_call_shifts') return ON_CALL_SHIFTS_COLS;
   if (table === 'on_call_coverage') return ON_CALL_COVERAGE_COLS;
+  if (table === 'job_assignments') return JOB_ASSIGNMENTS_COLS;
   return '*';
 }

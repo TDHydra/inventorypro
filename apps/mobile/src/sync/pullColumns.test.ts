@@ -110,6 +110,17 @@ test('field-crew tables are present in the pull path', () => {
   }
 });
 
+// Migration 051 / API 063 (#160): job_assignments — new synced table; assert
+// it's in the pull path with the full column set (parity with the server's
+// JOB_ASSIGNMENTS_COLS projection).
+test('job_assignments is present in the pull path with its full column set', () => {
+  const ja = upsertStatements().find(s => s.table === 'job_assignments');
+  assert.ok(ja, 'no job_assignments upsert');
+  for (const c of ['id', 'job_id', 'assignee_kind', 'assignee_id', 'assigned_by', 'active', 'created_at', 'updated_at']) {
+    assert.ok(ja.cols.includes(c), `job_assignments upsert is missing ${c}`);
+  }
+});
+
 // api_request_audit (migration 042) holds cross-user PII and must never reach a device.
 test('server-only tables are absent from the pull path', () => {
   for (const t of ['api_request_audit', 'telemetry_events']) {

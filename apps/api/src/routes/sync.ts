@@ -51,6 +51,7 @@ const ALLOWED_TABLES = new Set([
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
   'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
+  'job_assignments',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -285,6 +286,10 @@ const FULL_TABLES = [
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
   'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
+  // Job assignments (#160): unscoped like vehicle_checkouts — a crew device
+  // needs its subteam's assignments locally and none of the columns are secret
+  // (the job rows themselves stay team-scoped via teamScopeSql above).
+  'job_assignments',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to

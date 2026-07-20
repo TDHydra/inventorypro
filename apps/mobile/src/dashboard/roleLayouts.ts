@@ -24,6 +24,9 @@ const CREW_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
   { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'units-due-service'] } },
+  // #160: jobs assigned to me (directly or via my crew) lead the work lists —
+  // this is the crew's marching orders for the day.
+  { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
   { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
@@ -52,16 +55,46 @@ const TIER2_MANAGER_LAYOUT: Layout = [
 
 // franchise_manager / full_admin: org counts, activity, quick actions, open
 // jobs, then the admin nav tiles.
+// Admins keep the ENTIRE default button set (live review 2026-07-20: the first
+// widgets-only cut "got rid of all my buttons") — new data widgets layer on top.
 const ADMIN_LAYOUT: Layout = [
   { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'open-repairs', 'units-due-service'] } },
-  { widget: 'activity-preview', width: 'full' },
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
+  { widget: 'fast-checkout', width: 'half' },
+  { widget: 'fast-checkin', width: 'half' },
+  { widget: 'checkout', width: 'full' },
+  { widget: 'checkin', width: 'full' },
+  { widget: 'my-checkouts', width: 'full' },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
+  { widget: 'activity-preview', width: 'full' },
+  { widget: 'quick-add', width: 'full' },
+
+  { widget: 'section', width: 'full', config: { sectionTitle: 'Inventory Management' } },
+  { widget: 'add-stock', width: 'full' },
+  { widget: 'equipment', width: 'full' },
+  { widget: 'repairs', width: 'full' },
+  { widget: 'locations', width: 'full' },
+  { widget: 'vehicles', width: 'half' },
+  { widget: 'lockers', width: 'half' },
+  { widget: 'item-catalog', width: 'full' },
+
+  { widget: 'section', width: 'full', config: { sectionTitle: 'Operations' } },
+  { widget: 'chat', width: 'full' },
+  { widget: 'jobs', width: 'full' },
+  { widget: 'teams', width: 'full' },
+  { widget: 'manage-my-team', width: 'full' },
+  { widget: 'media', width: 'full' },
+  { widget: 'logs', width: 'full' },
+
+  { widget: 'section', width: 'full', config: { sectionTitle: 'Admin' } },
   { widget: 'users', width: 'full' },
   { widget: 'roles', width: 'full' },
   { widget: 'settings', width: 'full' },
+
+  { widget: 'low-stock', width: 'full' },
+  { widget: 'on-call', width: 'full' },
 ];
 
 export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
@@ -71,10 +104,11 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
   construction_crew: CREW_LAYOUT,
   carpet_cleaning_crew: CREW_LAYOUT,
 
-  // temporary_employee: fast tiles + "My equipment" only.
+  // temporary_employee: fast tiles + "My jobs" (#160) + "My equipment" only.
   temporary_employee: [
     { widget: 'fast-checkout', width: 'half' },
     { widget: 'fast-checkin', width: 'half' },
+    { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
   ],
 

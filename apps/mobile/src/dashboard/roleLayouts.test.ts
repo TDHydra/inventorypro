@@ -11,7 +11,7 @@ const STAT_SOURCES: StatSource[] = [
   'my-checkouts', 'open-repairs', 'units-due-service', 'low-stock', 'open-jobs', 'team-members',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
-  'my-equipment', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock',
+  'my-equipment', 'my-jobs', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock',
 ];
 
 // --- §3: every one of the 13 roles ships a starter layout --------------------
@@ -52,7 +52,7 @@ test('configured data widgets carry valid sources', () => {
 
 // --- Spot checks on the §3 role groups ---------------------------------------
 
-test('crew roles lead with the fast checkout/check-in pair and list "My equipment"', () => {
+test('crew roles lead with the fast checkout/check-in pair and list "My jobs" + "My equipment"', () => {
   const crew: UserRole[] = ['mitigation_technician', 'contents_crew', 'construction_crew', 'carpet_cleaning_crew'];
   for (const role of crew) {
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
@@ -60,24 +60,27 @@ test('crew roles lead with the fast checkout/check-in pair and list "My equipmen
     assert.equal(layout[1].widget, 'fast-checkin', `${role}: fast-checkin second`);
     const widgets = layout.map(b => b.widget);
     assert.ok(widgets.includes('on-call'), `${role}: on-call present`);
-    const wl = layout.find(b => b.widget === 'work-list');
-    assert.equal(wl?.config?.source, 'my-equipment', `${role}: my-equipment work list`);
+    const sources = layout.filter(b => b.widget === 'work-list').map(b => b.config?.source);
+    // #160: my-jobs (assigned via my crew or directly) leads, my-equipment follows.
+    assert.deepEqual(sources, ['my-jobs', 'my-equipment'], `${role}: my-jobs + my-equipment work lists`);
   }
 });
 
-test('temporary_employee gets fast tiles + "My equipment" ONLY', () => {
+test('temporary_employee gets fast tiles + "My jobs" + "My equipment" ONLY', () => {
   const layout = ROLE_DEFAULT_LAYOUTS.temporary_employee!;
-  assert.deepEqual(layout.map(b => b.widget), ['fast-checkout', 'fast-checkin', 'work-list']);
-  assert.equal(layout[2].config?.source, 'my-equipment');
+  assert.deepEqual(layout.map(b => b.widget), ['fast-checkout', 'fast-checkin', 'work-list', 'work-list']);
+  assert.equal(layout[2].config?.source, 'my-jobs');
+  assert.equal(layout[3].config?.source, 'my-equipment');
 });
 
-test('tier-2 managers get the 4 org stat tiles + open-jobs list + activity', () => {
+test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles + activity', () => {
   const managers: UserRole[] = ['production_manager', 'head_of_construction', 'head_of_contents', 'carpet_cleaning_manager'];
   for (const role of managers) {
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
     const stats = layout.find(b => b.widget === 'stat-tiles')?.config?.stats;
     assert.deepEqual(stats, ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service'], `${role}: stat set`);
     assert.equal(layout.find(b => b.widget === 'work-list')?.config?.source, 'open-jobs', `${role}: open jobs list`);
+    assert.ok(!layout.some(b => b.config?.source === 'my-jobs'), `${role}: managers keep the org-wide list`);
     const widgets = layout.map(b => b.widget);
     assert.ok(widgets.includes('activity-preview'), `${role}: activity preview`);
     assert.ok(widgets.includes('low-stock'), `${role}: low-stock list`);
