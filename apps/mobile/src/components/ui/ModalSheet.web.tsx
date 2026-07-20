@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, Platform, Pressable, ScrollView, View, StyleSheet } from 'react-native';
-// #163 follow-up (user-verified on release build 2026-07-20): RN's own
-// KeyboardAvoidingView stopped lifting Modal-hosted sheets once #118's
-// app-wide KeyboardProvider landed (the gotcha the keyboard-forms memory
-// flagged as unverified). keyboard-controller's drop-in replacement receives
-// its events from the provider, so it works inside Modal windows. Web builds
-// resolve ModalSheet.web.tsx (unchanged RN KAV — keyboard-controller is
-// native-only); keep BOTH files' render trees in sync when editing.
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { Animated, Modal, Platform, Pressable, KeyboardAvoidingView, ScrollView, View, StyleSheet } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { sheetAnimations } from '../../themes/motionPresets';
 import { useTheme } from '../../hooks/useTheme';

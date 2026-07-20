@@ -1092,7 +1092,8 @@ export default function EquipmentModelDetailScreen() {
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
       {/* onClose only hides (= closeAddUnits); state is reset on next openAddUnits() */}
       <ModalSheet visible={addUnitsOpen} onClose={closeAddUnits}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+        {/* flexShrink so the pinned footer below always fits within the sheet's maxHeight */}
+        <ScrollView keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 10 }}>
           <Text style={s.modalTitle}>Add Units — {item.name}</Text>
 
           <FieldLabel>Location *</FieldLabel>
@@ -1129,17 +1130,20 @@ export default function EquipmentModelDetailScreen() {
             </View>
           ))}
 
-          <TouchableOpacity style={[s.btn, s.btnGhost, { marginTop: 4 }]} onPress={addUnitRow}>
-            <Text style={s.btnGhostText}>+ Add another</Text>
-          </TouchableOpacity>
-
-          <View style={s.row}>
-            <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={closeAddUnits}>
-              <Text style={s.btnGhostText}>Cancel</Text>
-            </TouchableOpacity>
-            <PrimaryButton label="Save Units" onPress={saveUnits} disabled={locked} style={{ flex: 1 }} />
-          </View>
         </ScrollView>
+
+        {/* Pinned below the scroll area so the keyboard never buries them
+            (#163 follow-up — the sheet itself is lifted by ModalSheet's KAV). */}
+        <TouchableOpacity style={[s.btn, s.btnGhost, { marginTop: 10 }]} onPress={addUnitRow}>
+          <Text style={s.btnGhostText}>+ Add another</Text>
+        </TouchableOpacity>
+
+        <View style={s.row}>
+          <TouchableOpacity style={[s.btn, s.btnGhost]} onPress={closeAddUnits}>
+            <Text style={s.btnGhostText}>Cancel</Text>
+          </TouchableOpacity>
+          <PrimaryButton label="Save Units" onPress={saveUnits} disabled={locked} style={{ flex: 1 }} />
+        </View>
       </ModalSheet>
     </>
   );
