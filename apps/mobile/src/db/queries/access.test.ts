@@ -113,3 +113,31 @@ test('#139: getCheckoutSourceLocations adds stock-holding main locations, keeps 
   // A Locker holding stock must NOT leak into the main-locations list.
   assert.ok(!src.locations.some(l => l.id === 'lock-g'), 'units never appear as main locations');
 });
+
+test('#157: every Vehicle is visible to everyone; Locker gating is unchanged', () => {
+  const db = testDb.getDb();
+  // owner-z shares NO team with user-a and grants nothing — pre-#157 both of
+  // these would be invisible to user-a.
+  db.executeSync(`
+    INSERT INTO locations (id, name, type, owner_user_id, active, updated_at) VALUES
+      ('veh-other',  'Unshared Van',    'Vehicle', 'owner-z', 1, '2026-07-20T00:00:00.000Z'),
+      ('lock-other', 'Unshared Locker', 'Locker',  'owner-z', 1, '2026-07-20T00:00:00.000Z');
+  `);
+  const acc = access.getAccessibleSourceLocations('user-a');
+  assert.deepEqual(acc.vehicles.map(v => v.id).sort(), ['veh-g', 'veh-other']);
+  assert.ok(!acc.lockers.some(l => l.id === 'lock-other'), 'lockers stay access-gated');
+  // The checkout picker inherits the full vehicle set.
+  const src = access.getCheckoutSourceLocations('user-a');
+  assert.deepEqual(src.vehicles.map(v => v.id).sort(), ['veh-g', 'veh-other']);
+  // getVisibleUnits for a plain crew user (no tier authority, not a manager,
+  // owns nothing): full vehicle census, lockers still accessible-only.
+  const crew = {
+    id: 'user-a', name: 'User A', role: 'construction_crew',
+    permission_overrides: {}, pin_length_required: 4, active: 1, expires_at: null,
+  } as import('../../auth/permissions').UserSession;
+  const veh = access.getVisibleUnits(crew, 'Vehicle');
+  assert.deepEqual(veh.units.map(v => v.id).sort(), ['veh-g', 'veh-other']);
+  assert.equal(veh.showsAll, false);
+  const lock = access.getVisibleUnits(crew, 'Locker');
+  assert.ok(!lock.units.some(l => l.id === 'lock-other'), 'locker census unchanged for crew');
+});

@@ -18,8 +18,11 @@ export function VehicleInlineStatus({ locationId }: { locationId: string }) {
   const status = useMemo(() => getVehicleInlineStatus(locationId), [locationId, version]);
 
   const hasHolder = !!status.holder_name;
-  const waterFull = status.water_tank === 'full';
-  const wasteDirty = status.waste_tank === 'dirty';
+  // #159: tanks belong to the truck-mount rig — never surface tank pills on a
+  // vehicle without one (stale tank state can linger after the rig is removed).
+  const truckMount = !!status.truck_mount;
+  const waterFull = truckMount && status.water_tank === 'full';
+  const wasteDirty = truckMount && status.waste_tank === 'dirty';
   if (!hasHolder && !waterFull && !wasteDirty) return null;
 
   return (

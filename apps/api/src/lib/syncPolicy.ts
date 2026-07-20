@@ -450,7 +450,7 @@ const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at
 // vehicle_service_records.cost is financial (gated behind view_financial_data,
 // the maintenance_events pattern); the other five carry no financial columns.
 const SUBTEAMS_COLS = 'id, team_id, name, active, created_at, updated_at';
-const VEHICLES_COLS = 'location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank';
+const VEHICLES_COLS = 'location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank, checkout_locked';
 const VEHICLE_SERVICE_RECORDS_BASE = 'id, vehicle_location_id, target, event_date, type, notes, odometer, created_by, created_at, updated_at';
 const VEHICLE_SERVICE_RECORDS_SENSITIVE = ', cost';
 const VEHICLE_CHECKOUTS_COLS = 'id, vehicle_location_id, user_id, job_id, checked_out_at, checked_in_at, created_at, updated_at';

@@ -24,6 +24,7 @@ import {
   resolveCheckoutAction, formatSince, waterTankLabel, wasteTankLabel,
 } from './vehicleSessionLogic';
 import { renderIcon } from '../../constants/locationStyles';
+import { ROLE_TIER } from '../../constants/roles';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
@@ -105,6 +106,11 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const holderName = active?.user_name ?? active?.user_id ?? '';
   const isOut = action.kind !== 'check_out';
   const isMine = action.kind === 'check_in';
+  // #157: owner lock. Owner + tier-3+ authority bypass (the canManageLockerAccess
+  // predicate); checking IN an already-held session is never blocked.
+  const canBypassLock = !!user
+    && (location.owner_user_id === user.id || (ROLE_TIER[user.role] ?? 0) >= 3);
+  const checkoutBlocked = !!vehicle?.checkout_locked && !canBypassLock && action.kind !== 'check_in';
 
   function setWaterTank(id: string) {
     if (isWriteBlocked()) return;
@@ -118,6 +124,8 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
 
   async function onPrimaryPress() {
     if (isWriteBlocked()) return;
+    if (checkoutBlocked) return; // #157: locked by owner — button is disabled too
+
     if (action.kind === 'check_out') {
       setSheet({ mode: 'checkout' });
       return;
@@ -160,14 +168,22 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const statusPills = (
     <View style={s.pillRow}>
       {!!vehicle?.truck_mount && <StatusPill label="Truck mount" tone="primary" />}
-      <StatusPill
-        label={waterTankLabel(vehicle?.water_tank ?? 'empty')}
-        tone={vehicle?.water_tank === 'full' ? 'primary' : 'neutral'}
-      />
-      <StatusPill
-        label={wasteTankLabel(vehicle?.waste_tank ?? 'clean')}
-        tone={vehicle?.waste_tank === 'dirty' ? 'warning' : 'neutral'}
-      />
+      {/* #159: the tanks belong to the truck-mount rig — no rig, no tank pills. */}
+      {!!vehicle?.truck_mount && (
+        <StatusPill
+          label={waterTankLabel(vehicle?.water_tank ?? 'empty')}
+          tone={vehicle?.water_tank === 'full' ? 'primary' : 'neutral'}
+        />
+      )}
+      {!!vehicle?.truck_mount && (
+        <StatusPill
+          label={wasteTankLabel(vehicle?.waste_tank ?? 'clean')}
+          tone={vehicle?.waste_tank === 'dirty' ? 'warning' : 'neutral'}
+        />
+      )}
+      {/* #157: visible-but-locked — everyone sees the lock, only the owner
+          (or tier-3+ authority) can still check out. */}
+      {!!vehicle?.checkout_locked && <StatusPill label="🔒 Locked" tone="neutral" />}
 
       <StatusPill
         label={isOut ? `Out · ${holderName}` : 'Available'}
@@ -208,27 +224,33 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
             tone={vehicle?.truck_mount ? 'primary' : 'neutral'}
           />
         </View>
-        <FieldLabel style={s.waterLabel}>Water tank</FieldLabel>
-        {locked ? (
-          <Text style={s.muted}>{waterTankLabel(vehicle?.water_tank ?? 'empty')}</Text>
-        ) : (
-          <SegmentedControl
-            segments={WATER_SEGMENTS}
-            value={vehicle?.water_tank ?? 'empty'}
-            onChange={setWaterTank}
-            size="sm"
-          />
-        )}
-        <FieldLabel style={s.waterLabel}>Waste tank</FieldLabel>
-        {locked ? (
-          <Text style={s.muted}>{wasteTankLabel(vehicle?.waste_tank ?? 'clean')}</Text>
-        ) : (
-          <SegmentedControl
-            segments={WASTE_SEGMENTS}
-            value={vehicle?.waste_tank ?? 'clean'}
-            onChange={setWasteTank}
-            size="sm"
-          />
+        {/* #159: tank state only exists on truck-mount rigs — hide both rows
+            (not just disable) when the vehicle has no truck mount. */}
+        {!!vehicle?.truck_mount && (
+          <>
+            <FieldLabel style={s.waterLabel}>Water tank</FieldLabel>
+            {locked ? (
+              <Text style={s.muted}>{waterTankLabel(vehicle?.water_tank ?? 'empty')}</Text>
+            ) : (
+              <SegmentedControl
+                segments={WATER_SEGMENTS}
+                value={vehicle?.water_tank ?? 'empty'}
+                onChange={setWaterTank}
+                size="sm"
+              />
+            )}
+            <FieldLabel style={s.waterLabel}>Waste tank</FieldLabel>
+            {locked ? (
+              <Text style={s.muted}>{wasteTankLabel(vehicle?.waste_tank ?? 'clean')}</Text>
+            ) : (
+              <SegmentedControl
+                segments={WASTE_SEGMENTS}
+                value={vehicle?.waste_tank ?? 'clean'}
+                onChange={setWasteTank}
+                size="sm"
+              />
+            )}
+          </>
         )}
       </Card>
 
@@ -258,10 +280,12 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
         )}
         {canCheckout && (
           <PrimaryButton
-            label={action.kind === 'check_in' ? 'Check In' : action.kind === 'take_over' ? 'Take Over' : 'Check Out'}
+            label={checkoutBlocked
+              ? '🔒 Locked by owner'
+              : action.kind === 'check_in' ? 'Check In' : action.kind === 'take_over' ? 'Take Over' : 'Check Out'}
             onPress={() => { void onPrimaryPress(); }}
-            tone={action.kind === 'take_over' ? 'danger' : 'primary'}
-            disabled={locked}
+            tone={action.kind === 'take_over' && !checkoutBlocked ? 'danger' : 'primary'}
+            disabled={locked || checkoutBlocked}
             style={s.primaryBtn}
           />
         )}

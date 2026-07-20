@@ -3,6 +3,7 @@ import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
+import { ROLE_TIER, type UserRole } from '../../constants/roles';
 import { buildClosePayload, buildTakeoverNote, FUEL_UP_TYPE } from '../../components/vehicles/vehicleSessionLogic';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Three soft-FK tables:
@@ -41,6 +42,7 @@ export interface VehicleRow {
   model: string | null;
   model_id: string | null;
   notes: string | null;
+  checkout_locked: number; // 0/1 (#157): owner locked the vehicle from checkout
   updated_at: string;
   synced_at: string | null; // local-only
 }
@@ -93,6 +95,7 @@ export interface VehicleStatePatch {
   model?: string | null;
   model_id?: string | null;
   notes?: string | null;
+  checkout_locked?: number; // #157: only offered to the owner / tier-3+ (VehicleEditSheet)
 }
 
 /**
@@ -118,14 +121,15 @@ export function upsertVehicleState(
       model: patch.model !== undefined ? patch.model : existing?.model ?? null,
       model_id: patch.model_id !== undefined ? patch.model_id : existing?.model_id ?? null,
       notes: patch.notes !== undefined ? patch.notes : existing?.notes ?? null,
+      checkout_locked: patch.checkout_locked ?? existing?.checkout_locked ?? 0,
       updated_at: now,
       synced_at: null,
     };
     const db = getDb();
     db.executeSync(
-      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank]),
+      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank, merged.checkout_locked]),
     );
     const { synced_at: _s, water_state: _w, ...row } = merged;
     appendOutbox('INSERT', 'vehicles', row);
@@ -163,14 +167,15 @@ export function ensureVehicleRow(
     const truckMount = init?.truck_mount ?? 0;
     const db = getDb();
     db.executeSync(
-      `INSERT OR IGNORE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank)
-       VALUES (?, ?, NULL, ?, ?, NULL, ?, NULL, 'empty', 'clean')`,
+      `INSERT OR IGNORE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked)
+       VALUES (?, ?, NULL, ?, ?, NULL, ?, NULL, 'empty', 'clean', 0)`,
       bindParams([locationId, truckMount, init?.model ?? null, init?.model_id ?? null, now]),
     );
     appendOutbox('INSERT', 'vehicles', {
       location_id: locationId, truck_mount: truckMount,
       model: init?.model ?? null, model_id: init?.model_id ?? null,
       notes: null, updated_at: now, water_tank: 'empty', waste_tank: 'clean',
+      checkout_locked: 0,
     });
   });
 }
@@ -319,8 +324,39 @@ function insertCheckout(locationId: string, jobId: string | null, userId: string
   return id;
 }
 
+/**
+ * #157 owner lock: true when `vehicle.checkout_locked = 1` AND `userId` is
+ * neither the owning user (locations.owner_user_id) nor tier-3+ org authority —
+ * the same owner-or-authority predicate as canManageLockerAccess. The HARD
+ * guard for every session-opening path (checkOutVehicle / takeOverVehicle);
+ * UI surfaces mirror it for the disabled "🔒 Locked by owner" state.
+ */
+export function isCheckoutLockedFor(locationId: string, userId: string | null): boolean {
+  const db = getDb();
+  const row = rowsAs<{ checkout_locked: number; owner_user_id: string | null; role: string | null }>(
+    db.executeSync(
+      `SELECT v.checkout_locked, l.owner_user_id,
+              (SELECT role FROM users WHERE id = ?) AS role
+         FROM vehicles v JOIN locations l ON l.id = v.location_id
+        WHERE v.location_id = ?`,
+      [userId, locationId],
+    ).rows,
+  )[0];
+  if (!row || !row.checkout_locked) return false;
+  if (userId != null && row.owner_user_id === userId) return false;
+  return (ROLE_TIER[row.role as UserRole] ?? 0) < 3;
+}
+
+/** Throws when the owner lock blocks `userId` — shared by check-out and take-over. */
+function assertCheckoutAllowed(locationId: string, userId: string): void {
+  if (isCheckoutLockedFor(locationId, userId)) {
+    throw new Error('This vehicle is locked from checkout by its owner.');
+  }
+}
+
 /** Open a new session (no open-session check here — callers resolve takeover first). */
 export function checkOutVehicle(locationId: string, jobId: string | null, userId: string): string {
+  assertCheckoutAllowed(locationId, userId);
   return runInTransaction(() => insertCheckout(locationId, jobId, userId, 'checked out'));
 }
 
@@ -380,6 +416,7 @@ export function addJobToActiveCheckout(sessionId: string, jobId: string | null):
  * so the close pushes before the INSERT.
  */
 export function takeOverVehicle(locationId: string, jobId: string | null, userId: string): string {
+  assertCheckoutAllowed(locationId, userId); // #157: takeover must not bypass the owner lock
   return runInTransaction(() => {
     const open = getActiveCheckout(locationId);
     // #141: the activity note preserves who held the vehicle and since when —

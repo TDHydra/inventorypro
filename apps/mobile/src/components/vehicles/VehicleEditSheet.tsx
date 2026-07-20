@@ -11,6 +11,7 @@ import { appendOutbox } from '../../sync/outbox';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useSession } from '../../hooks/useSession';
 import { validateName } from '../../lib/validation';
+import { ROLE_TIER } from '../../constants/roles';
 import { track } from '../../telemetry';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -34,6 +35,10 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
   const [name, setName] = useState('');
   const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
   const [truckMount, setTruckMount] = useState(false);
+  const [checkoutLocked, setCheckoutLocked] = useState(false);
+  // #157: the lock toggle is owner-or-tier-3+ only (the canManageLockerAccess
+  // predicate) — everyone else neither sees it nor writes checkout_locked.
+  const [canLock, setCanLock] = useState(false);
   const [nameError, setNameError] = useState('');
 
   // Re-seed the form each time the sheet opens: it edits the CURRENT row, and a
@@ -46,8 +51,13 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     setName(location?.name ?? '');
     setModel({ id: vehicle?.model_id ?? null, label: vehicle?.model ?? null });
     setTruckMount(!!vehicle?.truck_mount);
+    setCheckoutLocked(!!vehicle?.checkout_locked);
+    setCanLock(!!user && (
+      (location?.owner_user_id != null && location.owner_user_id === user.id)
+      || (ROLE_TIER[user.role] ?? 0) >= 3
+    ));
     setNameError('');
-  }, [visible, locationId]);
+  }, [visible, locationId, user]);
 
   // EntityEditSheet contract: throw to keep the sheet open; return to close.
   function handleSave() {
@@ -91,6 +101,8 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
         upsertVehicleState(locationId, {
           model: model.label, model_id: model.id,
           truck_mount: truckMount ? 1 : 0,
+          // Only the owner/authority patch the lock — others leave it untouched.
+          ...(canLock ? { checkout_locked: checkoutLocked ? 1 : 0 } : {}),
         }, user?.id ?? null);
       });
     } catch (err) {
@@ -123,6 +135,17 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
         />
         <Text style={s.toggleHint}>tap to toggle</Text>
       </Pressable>
+      {/* #157: owner lock — vehicle stays visible everywhere, checkout is
+          blocked for everyone but the owner / tier-3+ authority. */}
+      {canLock && (
+        <Pressable onPress={() => setCheckoutLocked(v => !v)} style={s.truckRow}>
+          <StatusPill
+            label={checkoutLocked ? '🔒 Locked from checkout' : 'Checkout open'}
+            tone={checkoutLocked ? 'warning' : 'neutral'}
+          />
+          <Text style={s.toggleHint}>tap to toggle</Text>
+        </Pressable>
+      )}
     </EntityEditSheet>
   );
 }

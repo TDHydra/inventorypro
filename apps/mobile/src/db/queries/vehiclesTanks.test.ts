@@ -43,6 +43,7 @@ before(async () => {
       location_id TEXT PRIMARY KEY, truck_mount INTEGER NOT NULL DEFAULT 0,
       water_state TEXT, model TEXT, model_id TEXT, notes TEXT,
       water_tank TEXT NOT NULL DEFAULT 'empty', waste_tank TEXT NOT NULL DEFAULT 'clean',
+      checkout_locked INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL, synced_at TEXT
     );
     CREATE TABLE vehicle_checkouts (
@@ -56,7 +57,7 @@ before(async () => {
       cost REAL, created_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       synced_at TEXT
     );
-    CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, role TEXT);
     CREATE TABLE jobs (id TEXT PRIMARY KEY, name TEXT);
     CREATE TABLE activity_log (
       id TEXT PRIMARY KEY, user_id TEXT, team_id TEXT, action TEXT NOT NULL,
@@ -159,6 +160,50 @@ test('#141: odometer timeline returns only rows with readings, newest first', ()
   mk('2026-07-01', 84500);
   const timeline = veh.getOdometerTimeline('van-odo');
   assert.deepEqual(timeline.map(r => r.odometer), [84500, 84000]);
+});
+
+test('#157: checkout lock blocks non-owners; owner and tier-3+ authority bypass', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO locations (id, name, type, owner_user_id, active, updated_at)
+                  VALUES ('van-lock', 'Van Lock', 'Vehicle', 'u-owner', 1, '2026-01-01')`);
+  db.executeSync(`INSERT INTO users (id, name, role) VALUES
+    ('u-owner', 'Owner Olly', 'mitigation_technician'),
+    ('u-crew',  'Crew Carl',  'construction_crew'),
+    ('u-admin', 'Admin Ann',  'full_admin')`);
+  veh.ensureVehicleRow('van-lock');
+  assert.equal(veh.getVehicle('van-lock')!.checkout_locked, 0, 'new rows default unlocked');
+  // Unlocked: no one is blocked.
+  assert.equal(veh.isCheckoutLockedFor('van-lock', 'u-crew'), false);
+
+  veh.upsertVehicleState('van-lock', { checkout_locked: 1 }, 'u-owner');
+  // Locked: a plain crew member is hard-blocked on BOTH session-opening paths.
+  assert.equal(veh.isCheckoutLockedFor('van-lock', 'u-crew'), true);
+  assert.throws(() => veh.checkOutVehicle('van-lock', null, 'u-crew'), /locked from checkout/);
+  assert.throws(() => veh.takeOverVehicle('van-lock', null, 'u-crew'), /locked from checkout/);
+  assert.equal(veh.getActiveCheckout('van-lock'), null, 'blocked attempts must not open a session');
+  // Owner and tier-3+ authority still check out.
+  assert.equal(veh.isCheckoutLockedFor('van-lock', 'u-owner'), false);
+  assert.equal(veh.isCheckoutLockedFor('van-lock', 'u-admin'), false);
+  const ownSession = veh.checkOutVehicle('van-lock', null, 'u-owner');
+  veh.checkInVehicle(ownSession, 'u-owner');
+  const adminSession = veh.checkOutVehicle('van-lock', null, 'u-admin');
+  veh.checkInVehicle(adminSession, 'u-admin');
+});
+
+test('#157: lock survives unrelated state patches and rides the outbox payload', () => {
+  veh.upsertVehicleState('van-lock', { water_tank: 'full' }, 'u-owner');
+  assert.equal(veh.getVehicle('van-lock')!.checkout_locked, 1, 'patching a tank must not clear the lock');
+  const rows = testDb.getDb().executeSync(
+    `SELECT payload FROM outbox WHERE table_name = 'vehicles' ORDER BY rowid DESC LIMIT 1`).rows;
+  const payload = JSON.parse((rows[0] as { payload: string }).payload);
+  assert.equal(payload.checkout_locked, 1, 'outbox payload must carry checkout_locked');
+});
+
+test('#157: a vehicle with no extension row is never treated as locked', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO locations (id, name, type, owner_user_id, active, updated_at)
+                  VALUES ('van-norow', 'Van NoRow', 'Vehicle', 'u-owner', 1, '2026-01-01')`);
+  assert.equal(veh.isCheckoutLockedFor('van-norow', 'u-crew'), false);
 });
 
 test('#141: getFuelUps filters to fuel_up records only', () => {

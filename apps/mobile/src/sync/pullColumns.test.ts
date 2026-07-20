@@ -93,6 +93,14 @@ test('users syncs phone', () => {
   assert.ok(users.cols.includes('phone'), 'users upsert is missing phone');
 });
 
+// Migration 050 / API 062 (#157): vehicles gained checkout_locked — same
+// "added a column to a synced table" trap as phone/subteam_id above.
+test('vehicles syncs checkout_locked', () => {
+  const vehicles = upsertStatements().find(s => s.table === 'vehicles');
+  assert.ok(vehicles, 'no vehicles upsert');
+  assert.ok(vehicles.cols.includes('checkout_locked'), 'vehicles upsert is missing checkout_locked');
+});
+
 // Field-crew epic (#122), migrations 041-044 / API 053-056: all six new tables
 // must be in the pull path (parity with the server's FULL_TABLES).
 test('field-crew tables are present in the pull path', () => {

@@ -39,6 +39,11 @@ export interface AccessibleSourceLocations {
  * not just the subteam). Backs the fast-checkout source picker and Manage My
  * Team. NOTE: org-authority (tier 3+) bypass is deliberately NOT applied here
  * — the picker shows an admin their own assets, not every locker in the org.
+ *
+ * #157: VEHICLES are exempt from the access filter — every Vehicle-kind unit
+ * is visible to everyone (whoever needs the van can find it); the owner's
+ * checkout_locked flag gates the checkout ACTION instead (queries/vehicles.ts
+ * isCheckoutLockedFor). Locker behavior is unchanged.
  */
 export function getAccessibleSourceLocations(userId: string): AccessibleSourceLocations {
   const db = getDb();
@@ -60,9 +65,11 @@ export function getAccessibleSourceLocations(userId: string): AccessibleSourceLo
   const lockers: Location[] = [];
   const vehicles: Location[] = [];
   for (const loc of assets) {
-    if (!accessible.has(loc.id)) continue;
-    if (loc.type === 'Vehicle') vehicles.push(loc);
-    else lockers.push(loc);
+    if (loc.type === 'Vehicle') {
+      vehicles.push(loc); // #157: all vehicles, regardless of ownership/grants
+      continue;
+    }
+    if (accessible.has(loc.id)) lockers.push(loc);
   }
   return { lockers, vehicles };
 }
