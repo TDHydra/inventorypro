@@ -8,7 +8,7 @@ import {
 } from '../../access/accessResolution';
 import {
   getAllLocations, getUnitLocations, isUnitLocation,
-  getStockHoldingSourceLocations, Location,
+  getNonShelfLocations, Location,
 } from './locations';
 import { ROLE_TIER } from '../../constants/roles';
 import type { UserSession } from '../../auth/permissions';
@@ -111,14 +111,17 @@ export interface CheckoutSources {
 /**
  * #139 source taxonomy: the full Location ∪ Vehicle ∪ Locker source set for the
  * fast-checkout picker. Units come from the access-gated resolver (owned ∪
- * granted ∪ teammate); main locations are added explicitly (getStockHoldingSourceLocations)
- * and gated by role only. Kept separate from getAccessibleSourceLocations so
- * Manage My Team / getVisibleUnits (units only) are unaffected.
+ * granted ∪ teammate); main locations are added explicitly and gated by role
+ * only. Kept separate from getAccessibleSourceLocations so Manage My Team /
+ * getVisibleUnits (units only) are unaffected.
+ * #158: ALL active main locations (incl. type-less, incl. empty ones — a truck
+ * restocking an empty warehouse must still be able to start there), not just
+ * stock-holding ones.
  */
 export function getCheckoutSourceLocations(userId: string): CheckoutSources {
   const units = getAccessibleSourceLocations(userId);
   return {
-    locations: getStockHoldingSourceLocations(),
+    locations: getNonShelfLocations({ includeTypeless: true }),
     lockers: units.lockers,
     vehicles: units.vehicles,
   };
