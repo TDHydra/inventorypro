@@ -115,14 +115,15 @@ export interface CheckoutSources {
  * granted ∪ teammate); main locations are added explicitly and gated by role
  * only. Kept separate from getAccessibleSourceLocations so Manage My Team /
  * getVisibleUnits (units only) are unaffected.
- * #158: ALL active main locations (incl. type-less, incl. empty ones — a truck
- * restocking an empty warehouse must still be able to start there), not just
- * stock-holding ones.
+ * #158: ALL active TYPED main locations (incl. empty ones — a truck restocking
+ * an empty warehouse must still be able to start there), not just stock-holding
+ * ones. Type-less rows stay hidden (they're legacy pre-taxonomy child rows,
+ * user-confirmed junk 2026-07-20) — typing a location is what surfaces it.
  */
 export function getCheckoutSourceLocations(userId: string): CheckoutSources {
   const units = getAccessibleSourceLocations(userId);
   return {
-    locations: getNonShelfLocations({ includeTypeless: true }),
+    locations: getNonShelfLocations(),
     lockers: units.lockers,
     vehicles: units.vehicles,
   };

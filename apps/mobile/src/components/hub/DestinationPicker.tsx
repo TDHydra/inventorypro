@@ -97,9 +97,9 @@ export function DestinationPicker({ onResolved }: Props) {
   // The location list is shelf-free and unit-free (LocationShelfPicker reads
   // getNonShelfLocations): shelves come back only as the Shelf sub-field of a
   // has_shelves parent, and vehicles/lockers never appear here (they're reached
-  // via Manager). Unlike the item-assign pickers it DOES include type-less
-  // locations (#158, includeTypeless): any real place is a valid checkout
-  // destination even before it's been given a type. Because selecting a
+  // via Manager). Type-less rows are hidden here too (#158 follow-up: they're
+  // legacy pre-taxonomy child rows, user-confirmed junk 2026-07-20 — typing a
+  // location is what surfaces it). Because selecting a
   // destination IS the commit in this flow, a
   // has_shelves location must NOT auto-commit on the location tap — it waits for
   // a shelf pick (or the explicit "no shelf" button). Shelf-free locations keep
@@ -253,7 +253,6 @@ export function DestinationPicker({ onResolved }: Props) {
         <View style={{ marginTop: 12 }}>
           <LocationShelfPicker
             proximitySort
-            includeTypeless
             locationValue={locationValue}
             shelfValue={shelfValue}
             onChangeLocation={changeLocation}
