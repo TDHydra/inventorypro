@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { PrimaryButton } from '../ui/PrimaryButton';
@@ -29,6 +30,10 @@ function formatTime(iso: string): string {
 // confirmCard/confirmRow styling.
 export function ScanReceipt({ entries, onAddMore, onDone }: Props) {
   const s = useThemedStyles(makeStyles);
+  // Edge-to-edge: the transparent gesture/3-button nav bar overlays the bottom
+  // of the screen — without this inset it stamps right over Add more / Done
+  // (user screenshot 2026-07-20).
+  const insets = useSafeAreaInsets();
   return (
     <View style={s.wrap}>
       <Text style={s.title}>Scan summary</Text>
@@ -63,7 +68,7 @@ export function ScanReceipt({ entries, onAddMore, onDone }: Props) {
           </View>
         ))}
       </ScrollView>
-      <View style={s.actions}>
+      <View style={[s.actions, { paddingBottom: 16 + insets.bottom }]}>
         <PrimaryButton label="➕ Add more" onPress={onAddMore} tone="primary" style={s.actionBtn} />
         <PrimaryButton label="Done" onPress={onDone} tone="primary" style={s.actionBtn} />
       </View>
