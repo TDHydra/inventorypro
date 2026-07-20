@@ -17,10 +17,9 @@ import type { PickerOption } from '../SearchablePicker';
 import { FilterChip } from '../ui/FilterChip';
 import { FieldLabel } from '../ui/FieldLabel';
 import { AppInput } from '../ui/AppInput';
-import { PrimaryButton } from '../ui/PrimaryButton';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { FormScreen } from '../ui/FormScreen';
+import { QuickAddFooter } from './QuickAddFooter';
 import type { Theme } from '../../themes/types';
-import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { track } from '../../telemetry';
@@ -45,7 +44,6 @@ function trackReject(field: string, rule: string) {
 
 export default function RepairQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const t = useTheme();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const canManageLocations = usePermission('manage_locations');
@@ -171,7 +169,13 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // Owns its FormScreen (shell passes wrapForm={false}) so the save bar sits
+    // in the sticky footer slot and floats above the keyboard (#118). Repair
+    // quick-add historically has no Done row (header back exits).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} showDone={false} />}
+    >
       {/* ── Target type ─────────────────────────────────────────────── */}
       <View style={s.fieldWrap}>
         <FieldLabel>What needs repair?</FieldLabel>
@@ -274,20 +278,13 @@ export default function RepairQuickAdd({ onSaved }: Props) {
         />
         {!!partsError && <Text style={s.errorText}>{partsError}</Text>}
       </View>
-
-      <PrimaryButton
-        label="Save & add another"
-        onPress={handleSave}
-        disabled={locked}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 12 },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 12 },
   fieldWrap: { gap: 6 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },

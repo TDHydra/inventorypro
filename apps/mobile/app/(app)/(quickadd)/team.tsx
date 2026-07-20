@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddTeamScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Team">
+    <QuickAddScreenShell title="Quick Add — Team" wrapForm={false}>
       {onSaved => <TeamQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

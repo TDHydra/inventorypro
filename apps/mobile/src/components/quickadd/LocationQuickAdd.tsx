@@ -1,8 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+import { TextInput, StyleSheet } from 'react-native';
 import { generateUUID } from '../../utils/uuid';
 import { upsertLocation, getTopLevelLocations } from '../../db/queries/locations';
 import type { Location } from '../../db/queries/locations';
@@ -13,14 +10,13 @@ import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import type { Theme } from '../../themes/types';
-import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { getTheme } from '../../themes/store';
-import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { FormScreen } from '../ui/FormScreen';
 import { AdvancedFields } from '../ui/AdvancedFields';
 import { AutofillTextField } from '../ui/AutofillTextField';
+import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
 
@@ -32,8 +28,6 @@ interface Props {
 
 export default function LocationQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const t = useTheme();
-  const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
@@ -106,7 +100,12 @@ export default function LocationQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard (#118).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
+    >
       <AutofillTextField
         label="Location name"
         required
@@ -131,23 +130,11 @@ export default function LocationQuickAdd({ onSaved }: Props) {
           onSelect={opt => setParentOption(prev => prev?.id === opt.id ? null : opt)}
         />
       </AdvancedFields>
-
-      <PrimaryButton
-        label="Save & add another"
-        onPress={handleSave}
-        disabled={locked}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-      <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
-        <Text style={s.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 10 },
-  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
-  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
 });

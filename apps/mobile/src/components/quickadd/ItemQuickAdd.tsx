@@ -24,12 +24,12 @@ import { MediaGallery } from '../MediaGallery';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
-import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FilterChip } from '../ui/FilterChip';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { FormScreen } from '../ui/FormScreen';
 import { SelectField } from '../ui/SelectField';
+import { QuickAddFooter } from './QuickAddFooter';
 import { QuantityStepper } from '../ui/QuantityStepper';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
@@ -368,7 +368,12 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard (#118).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
+    >
       <View style={s.topRow}>
         {/* Compact 64×64 photo thumbnail — keyed by itemId so it resets per item. */}
         <MediaGallery key={itemId} entityType="item" entityId={itemId} canUpload variant="thumb" />
@@ -501,22 +506,13 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         onChangeShelf={setShelfValue}
       />
 
-      <PrimaryButton
-        label="Save & add another"
-        onPress={handleSave}
-        disabled={locked}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-      <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
-        <Text style={s.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 10 },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
   nameInput: { flex: 1 },
   input: {
@@ -536,6 +532,4 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   // Item-type chip + its colored type dot, grouped so they read as one unit.
   chipWithDot: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   typeDot: { width: 9, height: 9, borderRadius: 5 },
-  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
-  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

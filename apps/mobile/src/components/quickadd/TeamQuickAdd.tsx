@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import {
   upsertTeam, addTeamMember, TEAM_OVERRIDABLE_PERMISSIONS, TEAM_PERMISSION_LABELS,
@@ -26,9 +25,10 @@ import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
+import { FormScreen } from '../ui/FormScreen';
 import { PrimaryButton } from '../ui/PrimaryButton';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { ModalSheet } from '../ui/ModalSheet';
+import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
 
@@ -48,7 +48,6 @@ interface PendingMember {
 export default function TeamQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
@@ -228,7 +227,12 @@ export default function TeamQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard (#118).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
+    >
       <AppInput
         style={!!nameError && s.inputError}
         placeholder="Team name *"
@@ -281,17 +285,6 @@ export default function TeamQuickAdd({ onSaved }: Props) {
         </View>
       )}
 
-      <PrimaryButton
-        label="Save & add another"
-        onPress={handleSave}
-        disabled={locked}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-      <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
-        <Text style={s.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-
       {/* Per-pending-member permission override editor — draft-only until the team
           (and its members) are actually created by Save. */}
       <ModalSheet visible={permEditIdx !== null} onClose={() => setPermEditIdx(null)}>
@@ -320,16 +313,15 @@ export default function TeamQuickAdd({ onSaved }: Props) {
           <PrimaryButton label="Done" onPress={savePermDraft} style={{ marginTop: 8 }} />
         </ScrollView>
       </ModalSheet>
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 10 },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
   inputError: { borderColor: t.colors.danger },
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
-  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 
   addMemberBtn: {
     alignSelf: 'flex-start', backgroundColor: t.colors.primaryBg, borderRadius: t.radii.md,

@@ -1,7 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
-import { useRouter } from 'expo-router';
 import { createUserOnline, searchUsers, roleColor, getRoleColorMap } from '../../db/queries/users';
 import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
 import { appendLog } from '../../db/queries/log';
@@ -11,10 +10,10 @@ import { useTableVersion } from '../../hooks/useDataVersion';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
-import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { FormScreen } from '../ui/FormScreen';
 import { SelectField } from '../ui/SelectField';
+import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
 
@@ -31,7 +30,6 @@ interface Props {
 export default function UserQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const router = useRouter();
   const { user: sessionUser } = useSession();
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
@@ -94,7 +92,14 @@ export default function UserQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard (#118).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={
+        <QuickAddFooter onSave={handleSave} disabled={locked} loading={saving} locked={locked} />
+      }
+    >
       <FieldLabel>Name</FieldLabel>
       <TextInput
         ref={nameRef}
@@ -129,24 +134,13 @@ export default function UserQuickAdd({ onSaved }: Props) {
       />
 
       <Text style={s.pinNote}>🔒 The employee sets their own PIN at first sign-in.</Text>
-
-      <PrimaryButton
-        label="Save & add another"
-        onPress={handleSave}
-        disabled={locked}
-        loading={saving}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-      <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
-        <Text style={s.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 10 },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
   input: {
     backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
@@ -159,6 +153,4 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   inputError: { borderColor: t.colors.danger },
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
   pinNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
-  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
-  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });

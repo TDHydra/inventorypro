@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddJobScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Job">
+    <QuickAddScreenShell title="Quick Add — Job" wrapForm={false}>
       {onSaved => <JobQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

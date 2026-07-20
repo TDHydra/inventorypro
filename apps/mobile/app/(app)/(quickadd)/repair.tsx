@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddRepairScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Repair">
+    <QuickAddScreenShell title="Quick Add — Repair" wrapForm={false}>
       {onSaved => <RepairQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

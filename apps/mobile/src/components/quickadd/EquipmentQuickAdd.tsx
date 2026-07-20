@@ -3,7 +3,6 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
-import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../../db/tx';
 import { sanitizeScan } from '../../scan/sanitize';
@@ -21,12 +20,11 @@ import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import type { Theme } from '../../themes/types';
-import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
-import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
+import { FormScreen } from '../ui/FormScreen';
+import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateText } from '../../lib/validation';
 import type { QuickAddSaveMeta } from './justAdded';
@@ -54,8 +52,6 @@ function newRow(assetTag = ''): UnitRow {
 
 export default function EquipmentQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const t = useTheme();
-  const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
@@ -253,7 +249,21 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // The form owns its FormScreen (shell passes wrapForm={false}) so the
+    // Save/Done bar can live in the sticky footer slot and float above the
+    // keyboard (#118) instead of scrolling away under it.
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={
+        <QuickAddFooter
+          saveLabel={rows.length > 1 ? `Save ${rows.length} units` : 'Save & add another'}
+          onSave={handleSave}
+          disabled={!selectedItem || locked}
+          locked={locked}
+          error={formError || undefined}
+        />
+      }
+    >
       <FieldLabel>Item (unit-tracked)</FieldLabel>
       <SearchablePicker
         placeholder="Search tracked items..."
@@ -329,28 +339,14 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
         onChangeLocation={setSelectedLocation}
         onChangeShelf={setShelfValue}
       />
-
-      {!!formError && <Text style={s.errorText}>{formError}</Text>}
-
-      <PrimaryButton
-        label={rows.length > 1 ? `Save ${rows.length} units` : 'Save & add another'}
-        onPress={handleSave}
-        disabled={!selectedItem || locked}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-      <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
-        <Text style={s.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 10 },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
-  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
-  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
   rowBlock: {
     gap: 6,
     borderLeftWidth: 2,

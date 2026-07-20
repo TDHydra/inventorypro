@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddEquipmentScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Equipment">
+    <QuickAddScreenShell title="Quick Add — Equipment" wrapForm={false}>
       {onSaved => <EquipmentQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

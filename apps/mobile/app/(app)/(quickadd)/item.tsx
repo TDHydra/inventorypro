@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddItemScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Item">
+    <QuickAddScreenShell title="Quick Add — Item" wrapForm={false}>
       {onSaved => <ItemQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

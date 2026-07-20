@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddLocationScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Location">
+    <QuickAddScreenShell title="Quick Add — Location" wrapForm={false}>
       {onSaved => <LocationQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

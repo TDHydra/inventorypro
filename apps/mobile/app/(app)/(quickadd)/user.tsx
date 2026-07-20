@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddUserScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — User">
+    <QuickAddScreenShell title="Quick Add — User" wrapForm={false}>
       {onSaved => <UserQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

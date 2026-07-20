@@ -3,7 +3,7 @@ import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddSc
 
 export default function QuickAddVehicleScreen() {
   return (
-    <QuickAddScreenShell title="Quick Add — Vehicle">
+    <QuickAddScreenShell title="Quick Add — Vehicle" wrapForm={false}>
       {onSaved => <VehicleQuickAdd onSaved={onSaved} />}
     </QuickAddScreenShell>
   );

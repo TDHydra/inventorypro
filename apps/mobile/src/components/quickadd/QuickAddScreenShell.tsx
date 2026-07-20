@@ -33,9 +33,17 @@ interface RecentEntry {
 export function QuickAddScreenShell({
   title,
   children,
+  wrapForm = true,
 }: {
   title: string;
   children: (onSaved: (label: string, createdId?: string, meta?: QuickAddSaveMeta) => void) => React.ReactNode;
+  /**
+   * Default: the shell wraps children in FormScreen (#118). Pass `false` when
+   * the form renders its OWN FormScreen — required for forms that pin their
+   * save actions in FormScreen's sticky `footer` slot (QuickAddFooter), since
+   * the footer must be a sibling of the scroll area, not scroll content.
+   */
+  wrapForm?: boolean;
 }) {
   const s = useThemedStyles(makeStyles);
   const canQuickAdd = usePermission('quick_add');
@@ -122,9 +130,13 @@ export function QuickAddScreenShell({
             ))}
           </View>
         )}
-        <FormScreen contentContainerStyle={s.content}>
-          {children(onSaved)}
-        </FormScreen>
+        {wrapForm ? (
+          <FormScreen contentContainerStyle={s.content}>
+            {children(onSaved)}
+          </FormScreen>
+        ) : (
+          children(onSaved)
+        )}
       </View>
       <QuickAddEditSheet
         visible={editingRef !== null}

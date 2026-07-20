@@ -1,8 +1,7 @@
 import { useState, useRef, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, Pressable, StyleSheet,
+  Text, TextInput, Pressable, StyleSheet,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { generateUUID } from '../../utils/uuid';
 import { upsertLocation } from '../../db/queries/locations';
 import type { Location } from '../../db/queries/locations';
@@ -22,11 +21,11 @@ import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { getTheme } from '../../themes/store';
-import { PrimaryButton } from '../ui/PrimaryButton';
 import { FieldLabel } from '../ui/FieldLabel';
+import { FormScreen } from '../ui/FormScreen';
 import { StatusPill } from '../ui/StatusPill';
-import { MaintenanceBanner } from '../ui/MaintenanceBanner';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
 
@@ -42,7 +41,6 @@ interface Props {
 export default function VehicleQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
@@ -123,7 +121,12 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
   }
 
   return (
-    <View style={s.container}>
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard (#118).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
+    >
       <TextInput
         ref={nameRef}
         style={[s.input, !!nameError && s.inputError]}
@@ -163,23 +166,13 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
           onSelect={opt => setOwnerOption(prev => prev?.id === opt.id ? null : opt)}
         />
       </AdvancedFields>
-
-      <PrimaryButton
-        label="Save & add another"
-        onPress={handleSave}
-        disabled={locked}
-        style={{ marginTop: t.spacing.md }}
-      />
-      {locked && <MaintenanceBanner />}
-      <TouchableOpacity style={s.doneBtn} onPress={() => router.back()}>
-        <Text style={s.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  container: { gap: 10 },
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
   input: {
     backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
@@ -188,6 +181,4 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
   truckRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
   toggleHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
-  doneBtn: { alignItems: 'center', paddingVertical: t.spacing.md },
-  doneBtnText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },
 });
