@@ -94,12 +94,13 @@ test('hr_manager is people-centric: team-members stat + users/teams/logs tiles',
   for (const w of ['users', 'teams', 'logs'] as const) assert.ok(widgets.includes(w), `hr: ${w} tile`);
 });
 
-test('franchise_manager/full_admin get admin nav tiles + no fast tiles', () => {
+test('franchise_manager/full_admin get admin nav tiles + the full button set', () => {
+  // Live review 2026-07-20: admins keep the ENTIRE default button set (fast
+  // tiles included) with data widgets layered on top.
   for (const role of ['franchise_manager', 'full_admin'] as const) {
     const widgets = ROLE_DEFAULT_LAYOUTS[role]!.map(b => b.widget);
-    for (const w of ['users', 'roles', 'settings', 'activity-preview'] as const) {
+    for (const w of ['users', 'roles', 'settings', 'activity-preview', 'fast-checkout', 'fast-checkin', 'stat-tiles'] as const) {
       assert.ok(widgets.includes(w), `${role}: ${w} present`);
     }
-    assert.ok(!widgets.includes('fast-checkout'), `${role}: no fast tiles`);
   }
 });

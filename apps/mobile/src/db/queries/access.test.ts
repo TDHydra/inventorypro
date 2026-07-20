@@ -105,8 +105,9 @@ test('#139: getCheckoutSourceLocations adds stock-holding main locations, keeps 
       ('it-1','loc-inact',9, '2026-07-19T00:00:00.000Z');
   `);
   const src = access.getCheckoutSourceLocations('user-a');
-  // Main locations: only active ones holding stock; NOT empty, NOT inactive, NOT units.
-  assert.deepEqual(src.locations.map(l => l.id), ['loc-shop']);
+  // #158: ALL active main locations — empty ones included (a restock can start
+  // at an empty warehouse); still NOT inactive, NOT units.
+  assert.deepEqual(src.locations.map(l => l.id).sort(), ['loc-empty', 'loc-shop']);
   // Unit partitions are unchanged (still the accessible locker/vehicle).
   assert.deepEqual(src.lockers.map(l => l.id), ['lock-g']);
   assert.deepEqual(src.vehicles.map(v => v.id), ['veh-g']);
