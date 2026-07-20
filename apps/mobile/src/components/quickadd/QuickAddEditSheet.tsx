@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
 import { confirmDestructive } from '../../lib/confirm';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { runInTransaction } from '../../db/tx';
 import { getDb } from '../../db/schema';
 import { appendOutbox } from '../../sync/outbox';
@@ -19,6 +20,7 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { track } from '../../telemetry';
 import { parseStockQuantity, validateName, validateText } from '../../lib/validation';
 import type { JustAddedRef } from './justAdded';
+import { canSaveStockEdit } from './stockGates';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -57,6 +59,13 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const { user } = useSession();
+  // A "set" (recount) edit re-emits a stock_by_location INSERT, which the server
+  // gates on `checkin_inventory` specifically — NOT the broader canAdjustStock
+  // (checkin OR checkout). A checkout-only role would pass canAdjustStock but
+  // have the INSERT silently Forbidden-dropped server-side, so gate the recount
+  // path on the same perm the server enforces (mirrors StockQuickAdd.canRecount).
+  // Delta adds/undo (ADJUST) stay on canAdjustStock, matching the server's gate.
+  const canRecount = usePermission('checkin_inventory');
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState('');
@@ -84,6 +93,11 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   }, [entityRef]);
 
   if (!entityRef) return null;
+
+  // Editing a 'set' (recount) entry needs the recount perm; 'delta' entries only
+  // need the broader adjust perm (see canRecount above).
+  const canSaveStock = entityRef.kind === 'stock'
+    && canSaveStockEdit(entityRef.mode, { canAdjustStock, canRecount });
 
   // ── Item: name/sku/category edit, active=0 delete (mirrors (inventory)/[id].tsx
   // edits + the (locations)/[id].tsx archive pattern — items have no dedicated
@@ -213,7 +227,9 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
   // checkout use). A "set" (recount) has no prior value to restore, so undo is
   // only offered for "delta" adds. ────────────────────────────────────────────────
   function saveStock(ref: Extract<JustAddedRef, { kind: 'stock' }>) {
-    if (!canAdjustStock) return;
+    // Recount re-saves are a server-side INSERT gated on checkin_inventory —
+    // never let a checkout-only role save one for the server to silently drop.
+    if (!canSaveStockEdit(ref.mode, { canAdjustStock, canRecount })) return;
     // parseStockQuantity keeps the historical parseFloat + copy ('delta' > 0,
     // 'set' recount may be 0), adding the overflow bound.
     const qtyResult = parseStockQuantity(qty, ref.mode);
@@ -328,9 +344,9 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
         <View style={s.body}>
           <Text style={s.title}>Edit stock</Text>
           <FieldLabel>{entityRef.mode === 'set' ? 'New quantity' : 'Quantity added'}</FieldLabel>
-          <AppInput value={qty} onChangeText={setQty} placeholder="Quantity" keyboardType="decimal-pad" autoFocus editable={canAdjustStock} />
+          <AppInput value={qty} onChangeText={setQty} placeholder="Quantity" keyboardType="decimal-pad" autoFocus editable={canSaveStock} />
           {!!error && <Text style={s.error}>{error}</Text>}
-          {canAdjustStock && (
+          {canSaveStock && (
             <>
               <PrimaryButton label="Save" onPress={() => saveStock(entityRef)} style={{ marginTop: t.spacing.md }} />
               {entityRef.mode === 'delta' && (

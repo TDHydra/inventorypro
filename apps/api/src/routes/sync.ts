@@ -176,6 +176,34 @@ async function crewVehicleInsertAllowed(
   }
 }
 
+// May a caller WITHOUT manage_locations INSERT this locations row as a Shelf?
+// A stock recount/add auto-creates a Shelf under the location being counted, so
+// a checkin_inventory/checkout_inventory holder (checked at the call site via
+// `can` — this only resolves the row's type) must be able to land the Shelf row
+// itself: without this the shelf INSERT is Forbidden-dropped client-side and
+// the follow-up stock_by_location INSERT referencing it FK-violates forever.
+// Only Shelf-type rows qualify (label, or type_id when the label is absent) —
+// every other locations write stays behind manage_locations. Fails closed on
+// any lookup error — this is an exemption, not a right.
+async function crewShelfInsertAllowed(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    if (payload.type != null) return String(payload.type) === 'Shelf';
+    if (payload.type_id != null) {
+      const { rows: t } = await pg.query(
+        `SELECT 1 FROM taxonomy_types WHERE id = $1 AND category = 'location_type' AND label = 'Shelf'`,
+        [payload.type_id],
+      );
+      return !!t[0];
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // Resolve the caller's relationship to a conversation for the chat write guards
 // (lib/chatPolicy.ts decides; this only gathers facts). Fails closed: a missing
 // row, a null id, or a malformed uuid (the cast throws) all come back as
@@ -1011,7 +1039,14 @@ const routes: FastifyPluginAsync = async (fastify) => {
           // stays gated exactly as before.
           const crewVehicleOk = entry.table_name === 'locations' && entry.operation === 'INSERT'
             && await crewVehicleInsertAllowed(fastify.pg, entry.payload);
-          if (!crewVehicleOk) {
+          // A stock-mover (checkin/checkout) may INSERT the auto-created Shelf
+          // a recount/add lands on — see crewShelfInsertAllowed. Everything
+          // else stays gated exactly as before.
+          const crewShelfOk = !crewVehicleOk
+            && entry.table_name === 'locations' && entry.operation === 'INSERT'
+            && (can('checkin_inventory') || can('checkout_inventory'))
+            && await crewShelfInsertAllowed(fastify.pg, entry.payload);
+          if (!crewVehicleOk && !crewShelfOk) {
             request.log.warn(
               { userId, role: caller.role, table: entry.table_name, operation: entry.operation, opPerm },
               'sync push op denied (authz)',
@@ -1511,7 +1546,18 @@ const routes: FastifyPluginAsync = async (fastify) => {
         // schema/constraint internals). The real error is logged server-side
         // above (request.log.warn) for diagnosis; the client gets a generic
         // reason so a rejected outbox entry still surfaces as a conflict.
-        conflicts.push({ id: entry.id, error: 'write rejected' });
+        //
+        // FK violation (Postgres 23503) is a genuine orphan — the referenced
+        // row doesn't exist and never will (e.g. its INSERT was permanently
+        // rejected), so retrying can never succeed. The wording must match the
+        // mobile engine's permanent-rejection regex (/forbidden|cannot|not
+        // allowed/i) so the entry dead-letters instead of retry-looping
+        // forever. Every other error stays the generic (transient) wording.
+        const isFkViolation = (err as { code?: string }).code === '23503';
+        conflicts.push({
+          id: entry.id,
+          error: isFkViolation ? 'cannot apply: referenced row missing' : 'write rejected',
+        });
       }
     }
 

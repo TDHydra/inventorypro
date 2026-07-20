@@ -11,6 +11,7 @@ import { getMainStorageLocationId } from '../../db/mainStorage';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { getItemTypes, parseItemTypeMeta, getItemTypeColorMap } from '../../db/queries/taxonomy';
 import { resolveTypeColor } from '../../constants/typeColors';
@@ -34,6 +35,7 @@ import { LocationShelfPicker } from '../pickers';
 import { BarcodeInput } from '../BarcodeInput';
 import { track } from '../../telemetry';
 import type { QuickAddSaveMeta } from './justAdded';
+import { canOfferStartingStock } from './stockGates';
 
 // Pieces class id (migration 012) — the default unit class when no item type is
 // selected (most products are counted in pieces).
@@ -54,6 +56,15 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const router = useRouter();
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
+  // Starting stock emits a stock_by_location INSERT that references the new
+  // item. The server requires `add_inventory` for the parent inventory_items
+  // INSERT and `checkin_inventory` for the stock INSERT itself — without the
+  // former the parent is Forbidden-dropped and the stock INSERT FK-orphans
+  // (retry-looping forever); without the latter the stock INSERT itself is
+  // silently dropped. Only offer/emit starting stock when both gates will pass.
+  const canAddItems = usePermission('add_inventory');
+  const canCheckinStock = usePermission('checkin_inventory');
+  const canStartStock = canOfferStartingStock({ canAddItems, canCheckinStock });
   const nameRef = useRef<TextInput>(null);
   // Prefilled barcode (e.g. arriving from the Scan Hub's "add as new item" flow).
   const params = useLocalSearchParams<{ barcode?: string }>();
@@ -202,8 +213,11 @@ export default function ItemQuickAdd({ onSaved }: Props) {
 
     // Optional starting quantity. Blank → no stock written. If provided, it must
     // be a valid positive number (parseQuantity guards NaN / ≤0 / overflow).
+    // Permission-gated (canStartStock): the field is hidden without the perms,
+    // but never emit the stock INSERT from stale state either — a stock row
+    // whose parent item push is rejected would FK-orphan server-side.
     let stockQty = 0;
-    if (currentStock.trim()) {
+    if (currentStock.trim() && canStartStock) {
       const q = parseQuantity(currentStock, 'Current stock');
       if (!q.ok) { trackReject('item.current_stock', q.rule); Alert.alert('Check current stock', q.error); return; }
       stockQty = q.value;
@@ -399,15 +413,19 @@ export default function ItemQuickAdd({ onSaved }: Props) {
         multiline
       />
 
-      <FieldLabel>Current stock (optional)</FieldLabel>
-      <AppInput
-        placeholder={`Starting quantity — e.g. 12 ${unit || 'each'}`}
-        value={currentStock}
-        onChangeText={setCurrentStock}
-        keyboardType="decimal-pad"
-      />
-      {!!currentStock.trim() && (
-        <Text style={s.skuHint}>📍 Added to the home location set below.</Text>
+      {canStartStock && (
+        <>
+          <FieldLabel>Current stock (optional)</FieldLabel>
+          <AppInput
+            placeholder={`Starting quantity — e.g. 12 ${unit || 'each'}`}
+            value={currentStock}
+            onChangeText={setCurrentStock}
+            keyboardType="decimal-pad"
+          />
+          {!!currentStock.trim() && (
+            <Text style={s.skuHint}>📍 Added to the home location set below.</Text>
+          )}
+        </>
       )}
 
       <FieldLabel>Barcode (optional)</FieldLabel>

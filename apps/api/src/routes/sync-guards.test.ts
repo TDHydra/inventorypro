@@ -79,6 +79,10 @@ interface FakePgOpts {
   parentType?: string;
   /** #122 C: active-PM roster for the on_call fan-out (resolveRoleRecipients). */
   pmRoster?: string[];
+  /** applyEntry failure injection: throw on any sql containing this string. */
+  failOn?: string;
+  /** Postgres error code stamped on the injected failure (e.g. '23503'). */
+  failCode?: string;
 }
 
 // Dispatching fake pg (auth-demo.test.ts pattern). Records every query so the
@@ -91,6 +95,13 @@ function fakePg(opts: FakePgOpts = {}) {
     queries,
     query: async (sql: string, params: unknown[] = []) => {
       queries.push({ sql, params });
+      // Failure injection for the applyEntry catch tests — a raw DB error whose
+      // message must never reach the client verbatim.
+      if (opts.failOn && sql.includes(opts.failOn)) {
+        const e = new Error('insert or update on table "stock_by_location" violates foreign key constraint "stock_by_location_location_id_fkey"');
+        (e as Error & { code?: string }).code = opts.failCode;
+        throw e;
+      }
       if (sql.includes('information_schema.columns')) {
         const rows: Array<{ table_name: string; column_name: string }> = [];
         for (const [t, cols] of Object.entries(COLUMNS)) {
@@ -677,6 +688,93 @@ test('locations INSERT by a crew role: the flag does NOT open non-Vehicle locati
   ]);
   assert.deepEqual(body.ok, []);
   assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+// ── crew shelf exemption: stock-movers may INSERT the auto-created Shelf ─────
+// (mirrors the #84 crew-vehicle exemption; no org flag — the recount/add flow
+// that auto-creates the shelf is core, not opt-in)
+
+test('locations INSERT of a Shelf by a checkin-holding crew role is allowed without manage_locations', async () => {
+  // construction_crew: checkin+checkout, NO manage_locations, vehicle flag off.
+  const pg = fakePg({ callerRole: 'construction_crew' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'shelf-new', name: 'Shelf A', type: 'Shelf', active: true, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.deepEqual(body.conflicts, []);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO locations')), 'the shelf must reach SQL');
+});
+
+test('locations INSERT of a Shelf by a checkout-only role (temporary_employee) is allowed', async () => {
+  // temporary_employee: checkout_inventory=true, checkin_inventory=false — the
+  // exemption is checkin OR checkout, matching who can strand a stock write.
+  const pg = fakePg({ callerRole: 'temporary_employee' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'shelf-new', name: 'Shelf B', type: 'Shelf', active: true, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+});
+
+test('locations INSERT of a Shelf by a role with neither checkin nor checkout stays a permanent rejection', async () => {
+  // hr_manager: no manage_locations, no checkin/checkout — the exemption must
+  // not open shelves to non-stock-movers.
+  const pg = fakePg({ callerRole: 'hr_manager' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'shelf-new', name: 'Shelf C', type: 'Shelf', active: true, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_locations/);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+});
+
+test('the Shelf exemption does not open other location types (crew Room INSERT still rejected)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'loc-new', name: 'Sneaky Room', type: 'Room', active: true, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /manage_locations/);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+});
+
+test('locations UPDATE/DELETE stay behind manage_locations even for a Shelf (exemption is INSERT-only)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'locations', payload: { id: 'shelf-1', name: 'Renamed', type: 'Shelf' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+// ── FK-violation dead-letter: a genuine orphan must read as PERMANENT ────────
+// The client dropped a rejected parent INSERT, so its dependent row can never
+// apply — retrying forever wedges the outbox. 23503 gets the 'cannot' wording
+// the mobile classifier dead-letters on; everything else stays transient.
+
+test('an FK-violating write (23503) returns a permanent \'cannot apply\' conflict without leaking DB internals', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', failOn: 'INSERT INTO stock_by_location', failCode: '23503' });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-ghost', delta: 3, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 1);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /cannot apply/);
+  // A3: the raw Postgres message (table/constraint names) must never echo back.
+  assert.ok(!/foreign key|fkey|constraint|violates/i.test(body.conflicts[0].error), 'DB internals must not leak');
+});
+
+test('a non-FK write failure stays the generic transient \'write rejected\'', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', failOn: 'INSERT INTO stock_by_location' });
+  const body = await push(pg, [
+    { operation: 'ADJUST', table_name: 'stock_by_location', payload: { item_id: 'item-1', location_id: 'loc-1', delta: 3, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts[0].error, 'write rejected');
+  assert.doesNotMatch(body.conflicts[0].error, PERMANENT, 'a possibly-transient failure must keep retrying');
 });
 
 // ── #128: on_call_shifts upserts on week_start ───────────────────────────────
