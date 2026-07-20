@@ -80,6 +80,23 @@ test('type-less locations are hidden from item/checkout pickers but stay browsab
   assert.ok(browsable.includes('typeless-1'), 'type-less location stays browsable/fixable');
 });
 
+test('includeTypeless opt-in (#158): checkout destinations offer type-less rows, still never shelves/units', () => {
+  // The fast/hub checkout DestinationPicker widens the list: any real place is
+  // a valid destination even before it has a type.
+  const ids = loc.getNonShelfLocations({ includeTypeless: true }).map(l => l.id);
+  assert.ok(ids.includes('typeless-1'), 'type-less location IS a checkout destination');
+  assert.ok(ids.includes('shop-1'), 'typed locations still listed');
+  assert.ok(!ids.includes('shelf-a1'), 'parented shelf still excluded (reached via has_shelves sub-picker)');
+  assert.ok(!ids.includes('shelf-top'), 'top-level shelf still excluded');
+  assert.ok(!ids.includes('van-1'), 'vehicles still excluded (own flow)');
+  assert.ok(!ids.includes('locker-1'), 'lockers still excluded (own flow)');
+  // Explicit false and omitted opts behave identically (strict default).
+  assert.deepEqual(
+    loc.getNonShelfLocations({ includeTypeless: false }).map(l => l.id),
+    loc.getNonShelfLocations().map(l => l.id),
+  );
+});
+
 test('units excluded from browse/tree and picker lists (#122 A2)', () => {
   const browsable = loc.getBrowsableLocations().map(l => l.id);
   assert.ok(!browsable.includes('van-1'));

@@ -32,6 +32,7 @@ export function LocationShelfPicker({
   onChangeShelf,
   proximitySort,
   excludeIds,
+  includeTypeless,
 }: {
   locationValue: PickerOption | null;
   shelfValue: PickerOption | null;
@@ -41,6 +42,10 @@ export function LocationShelfPicker({
   // Location ids to hide from the location options (e.g. a transfer's source
   // location). Doesn't touch the Shelf sub-field.
   excludeIds?: string[];
+  // #158: also offer TYPE-LESS locations (checkout DestinationPicker — every
+  // real place is a valid destination). Default off: item-assign pickers keep
+  // hiding malformed/legacy rows. Shelves/units stay excluded regardless.
+  includeTypeless?: boolean;
 }) {
   const t = useTheme();
   // useCurrentPosition is platform-resolved: the native hook imports expo-location,
@@ -55,7 +60,10 @@ export function LocationShelfPicker({
   // Locations added/renamed by a sync pull (or a local write) show up live —
   // both reads below re-run when the locations table version ticks.
   const v = useTableVersion(['locations']);
-  const allLocations = useMemo(() => getNonShelfLocations(), [v]);
+  const allLocations = useMemo(
+    () => getNonShelfLocations({ includeTypeless }),
+    [v, includeTypeless],
+  );
   const locationById = useMemo(
     () => new Map(allLocations.map(l => [l.id, l])),
     [allLocations],
@@ -112,6 +120,7 @@ export function LocationShelfPicker({
           onChange={changeLocation}
           placeholder="Search locations..."
           filter={excludeIds ? l => !excludeIds.includes(l.id) : undefined}
+          includeTypeless={includeTypeless}
         />
       )}
       {locationHasShelves && (

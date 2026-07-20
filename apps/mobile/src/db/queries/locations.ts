@@ -82,8 +82,15 @@ export function getBrowsableLocations(): Location[] {
 // bare `type !== 'Shelf'` test, so they'd otherwise pollute every picker. They
 // stay visible in getBrowsableLocations (the Locations browser) so they can be
 // given a type or retired — this only hides them from item/checkout selection.
-export function getNonShelfLocations(): Location[] {
-  return getAllLocations().filter(l => !!l.type && l.type !== 'Shelf' && !isUnitLocation(l));
+//
+// `includeTypeless` (#158): the fast/hub checkout DestinationPicker must offer
+// EVERY real place as a destination — including type-less rows, which are valid
+// stock holders even while malformed. Opt-in so the item-assign pickers keep
+// the strict default; shelves and units stay excluded either way (shelves are
+// reached via the has_shelves sub-picker, units via their own flows).
+export function getNonShelfLocations(opts: { includeTypeless?: boolean } = {}): Location[] {
+  return getAllLocations().filter(l =>
+    (opts.includeTypeless ? true : !!l.type) && l.type !== 'Shelf' && !isUnitLocation(l));
 }
 
 export interface LocationShelfPick {

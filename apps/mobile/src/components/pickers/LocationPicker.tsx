@@ -19,6 +19,7 @@ export function LocationPicker({
   filter,
   allowCreate,
   disabled,
+  includeTypeless,
 }: {
   value: PickerOption | null;
   onChange: (opt: PickerOption | null) => void;
@@ -27,10 +28,13 @@ export function LocationPicker({
   filter?: (l: Location) => boolean;
   allowCreate?: boolean;
   disabled?: boolean;
+  // #158: opt-in — also list type-less locations (checkout destinations).
+  // Default off keeps malformed/legacy rows out of item-assign pickers.
+  includeTypeless?: boolean;
 }) {
   const version = useTableVersion(['locations']);
   const options = useMemo<PickerOption[]>(() => {
-    const all = getNonShelfLocations();
+    const all = getNonShelfLocations({ includeTypeless });
     const byId = new Map(all.map(l => [l.id, l]));
     const locs = filter ? all.filter(filter) : all;
     // Parent shown as sublabel (same wiring as ItemQuickAdd's locationOptions).
@@ -41,7 +45,7 @@ export function LocationPicker({
     // `filter` is expected stable (defined inline is fine — options recompute only
     // when the locations table changes, so every embedding form sees new rows live).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version]);
+  }, [version, includeTypeless]);
 
   const picker = (
     <SearchablePicker
