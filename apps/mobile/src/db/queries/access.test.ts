@@ -141,3 +141,29 @@ test('#157: every Vehicle is visible to everyone; Locker gating is unchanged', (
   const lock = access.getVisibleUnits(crew, 'Locker');
   assert.ok(!lock.units.some(l => l.id === 'lock-other'), 'locker census unchanged for crew');
 });
+
+test('getTeamUnits: kernel-only set (owned ∪ granted ∪ teammate) — no #157 all-vehicles bypass', () => {
+  const mkUser = (id: string) => ({
+    id, name: id, role: 'construction_crew',
+    permission_overrides: {}, pin_length_required: 4, active: 1, expires_at: null,
+  } as import('../../auth/permissions').UserSession);
+
+  // user-a holds a can_view grant on veh-g/lock-g only; owner-z's unshared
+  // units must NOT leak in (the #157 bypass would have added veh-other).
+  assert.deepEqual(access.getTeamUnits(mkUser('user-a'), 'Vehicle').map(v => v.id), ['veh-g']);
+  assert.deepEqual(access.getTeamUnits(mkUser('user-a'), 'Locker').map(l => l.id), ['lock-g']);
+
+  // Teammate path: user-b shares team-z with owner-z → owner-z's units become
+  // accessible via the parent-team rule, filtered to the requested kind.
+  testDb.getDb().executeSync(`
+    INSERT INTO team_members (team_id, user_id, is_manager) VALUES
+      ('team-z', 'user-b', 0),
+      ('team-z', 'owner-z', 0);
+  `);
+  assert.deepEqual(access.getTeamUnits(mkUser('user-b'), 'Vehicle').map(v => v.id), ['veh-other']);
+  assert.deepEqual(access.getTeamUnits(mkUser('user-b'), 'Locker').map(l => l.id), ['lock-other']);
+
+  // A user with no grants, no owned units, and no team gets the empty set —
+  // the Vehicles screen falls back to the All segment for them.
+  assert.deepEqual(access.getTeamUnits(mkUser('user-nobody'), 'Vehicle'), []);
+});

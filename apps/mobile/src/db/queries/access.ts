@@ -74,6 +74,33 @@ export function getAccessibleSourceLocations(userId: string): AccessibleSourceLo
   return { lockers, vehicles };
 }
 
+/**
+ * The kind-filtered unit set the pure KERNEL grants — owned by me ∪ granted
+ * via unit_access (can_view = 1) ∪ owned by anyone sharing a parent team with
+ * me — WITHOUT the #157 all-vehicles bypass. Backs the "Team Vehicles"
+ * segment on the Vehicles screen; getAccessibleSourceLocations /
+ * getVisibleUnits keep the bypass for every other caller. Additive only —
+ * nothing else routes through this.
+ */
+export function getTeamUnits(user: UserSession, kind: 'Vehicle' | 'Locker'): Location[] {
+  const db = getDb();
+  const assets = getAllLocations().filter(l => l.type === 'Locker' || l.type === 'Vehicle');
+
+  const lockerRows: AccessLockerRow[] = assets.map(l => ({
+    id: l.id,
+    ownerUserId: l.owner_user_id,
+  }));
+  const grants: AccessGrantRow[] = rowsAs<{ location_id: string; user_id: string }>(
+    db.executeSync(`SELECT location_id, user_id FROM unit_access WHERE can_view = 1`).rows,
+  ).map(g => ({ locationId: g.location_id, userId: g.user_id }));
+  const teamMembers: TeamMemberRow[] = rowsAs<{ team_id: string; user_id: string }>(
+    db.executeSync(`SELECT team_id, user_id FROM team_members`).rows,
+  ).map(tm => ({ teamId: tm.team_id, userId: tm.user_id }));
+
+  const accessible = getAccessibleLocationIds({ lockers: lockerRows, grants, teamMembers }, user.id);
+  return assets.filter(l => l.type === kind && accessible.has(l.id));
+}
+
 export interface CheckoutSources {
   /** Main stock-holding locations (role-gated at the screen; no per-object ACL). */
   locations: Location[];

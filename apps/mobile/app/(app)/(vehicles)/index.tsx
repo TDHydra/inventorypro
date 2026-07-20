@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
+import { SegmentedControl } from '../../../src/components/ui/SegmentedControl';
 import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
 import { VehicleSheet } from '../../../src/components/vehicles/VehicleSheet';
-import { getVisibleUnits } from '../../../src/db/queries/access';
+import { getVisibleUnits, getTeamUnits } from '../../../src/db/queries/access';
 import { getUserById } from '../../../src/db/queries/users';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { useSession } from '../../../src/hooks/useSession';
@@ -17,10 +18,22 @@ export default function VehiclesScreen() {
   const router = useRouter();
   const { user } = useSession();
   const refreshKey = useFocusOrDataRefresh();
-  const { units, showsAll } = useMemo(
+  const { units: allUnits, showsAll } = useMemo(
     () => (user ? getVisibleUnits(user, 'Vehicle') : { units: [], showsAll: false }),
     [user?.id, refreshKey],
   );
+  // #157 made getVisibleUnits return EVERY vehicle for everyone; the "Team
+  // Vehicles" segment restores the pre-#157 accessible set (kernel-only, no
+  // all-vehicles bypass) as the default so the list isn't cluttered.
+  const teamUnits = useMemo(
+    () => (user ? getTeamUnits(user, 'Vehicle') : []),
+    [user?.id, refreshKey],
+  );
+  // null = user hasn't touched the control; managers (showsAll) default to All.
+  const [segmentChoice, setSegmentChoice] = useState<'team' | 'all' | null>(null);
+  // Empty team set falls back to All (and the control reflects it).
+  const segment = teamUnits.length === 0 ? 'all' : segmentChoice ?? (showsAll ? 'all' : 'team');
+  const units = segment === 'team' ? teamUnits : allUnits;
   // ⓘ target persists after close so ModalSheet's exit animation has a valid id.
   const [infoId, setInfoId] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -29,12 +42,22 @@ export default function VehiclesScreen() {
     <>
       <Stack.Screen options={{ title: 'Vehicles', headerShown: true }} />
       <ScrollView style={s.screen} contentContainerStyle={s.content}>
+        {allUnits.length > 0 && (
+          <SegmentedControl
+            segments={[
+              { id: 'team', label: 'Team Vehicles' },
+              { id: 'all', label: 'All Vehicles' },
+            ]}
+            value={segment}
+            onChange={id => setSegmentChoice(id === 'team' ? 'team' : 'all')}
+          />
+        )}
         {units.length === 0 ? (
           <EmptyState icon="🚐" title="No vehicles yet"
             subtitle="Vehicles you own, share a team with, or were granted access to show up here." />
         ) : (
           <>
-            {showsAll && <Text style={s.caption}>Manager view — showing every vehicle.</Text>}
+            {showsAll && segment === 'all' && <Text style={s.caption}>Manager view — showing every vehicle.</Text>}
             {units.map(loc => (
               <TouchableOpacity key={loc.id} style={s.row}
                 onPress={() => router.push({ pathname: '/(app)/(vehicles)/[id]', params: { id: loc.id } })}>
