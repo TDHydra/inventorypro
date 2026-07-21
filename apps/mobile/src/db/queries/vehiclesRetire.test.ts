@@ -166,6 +166,11 @@ test('reactivateVehicle: already-active vehicle is a no-op success', () => {
   assert.deepEqual(after, before, 'no redundant outbox write for an already-active vehicle');
 });
 
+test('reactivateVehicle: refuses an unknown id', () => {
+  const res = loc.reactivateVehicle('nope', 'owner-1');
+  assert.equal(res.ok, false);
+});
+
 test('reactivateVehicle: refuses a non-Vehicle location', () => {
   db().executeSync(`UPDATE locations SET active = 0 WHERE id = 'locker-1'`);
   const res = loc.reactivateVehicle('locker-1', 'owner-1');
