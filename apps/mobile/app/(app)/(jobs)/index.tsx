@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, Switch, RefreshControl } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -44,6 +45,10 @@ type StatusFilter = 'open' | 'closed' | 'all';
 export default function JobsScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  // Edge-to-edge: this FAB is position:absolute/bottom:24 (fixed), so the
+  // transparent gesture/3-button nav bar can overlay it without this inset
+  // (same class of bug as BulkActionBar / ScanReceipt, #163).
+  const insets = useSafeAreaInsets();
   const { user } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
@@ -211,7 +216,7 @@ export default function JobsScreen() {
       <View style={s.container}>
         {canCreate && (
           <TouchableOpacity
-            style={s.fab}
+            style={[s.fab, { bottom: 24 + insets.bottom }]}
             onPress={() => router.push('/(app)/(jobs)/create')}
             accessibilityLabel="New Job"
           >

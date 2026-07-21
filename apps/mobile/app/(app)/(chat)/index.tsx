@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import {
   listConversations, createDmConversation, createGroupConversation,
@@ -43,6 +44,10 @@ function titleFor(c: ConversationListItem): string {
 export default function ChatListScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  // Edge-to-edge: this FAB is position:absolute/bottom:24 (fixed), so the
+  // transparent gesture/3-button nav bar can overlay it without this inset
+  // (same class of bug as BulkActionBar / ScanReceipt, #163).
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -179,7 +184,7 @@ export default function ChatListScreen() {
         />
         {/* FAB — same compose flow as the header "+ New", but always visible */}
         <TouchableOpacity
-          style={s.fab}
+          style={[s.fab, { bottom: 24 + insets.bottom }]}
           onPress={openCompose}
           accessibilityLabel="New conversation"
           activeOpacity={0.85}
