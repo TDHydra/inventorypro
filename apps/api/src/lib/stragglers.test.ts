@@ -19,6 +19,16 @@ test('compareVersions treats missing/non-numeric segments as 0', () => {
   assert.ok(compareVersions('1.2.1', '1.2') > 0);
 });
 
+test('compareVersions compares double-digit segments numerically, not lexically', () => {
+  assert.ok(compareVersions('1.10.0', '1.9.0') > 0);
+  assert.ok(compareVersions('1.9.0', '1.10.0') < 0);
+});
+
+test('compareVersions coerces a non-numeric segment to 0', () => {
+  assert.equal(compareVersions('1.2.abc', '1.2.0'), 0);
+  assert.ok(compareVersions('1.2.abc', '1.2.1') < 0);
+});
+
 // ── reduceDeviceRows ─────────────────────────────────────────────────────────
 
 test('reduceDeviceRows picks the latest non-null version per device', () => {
