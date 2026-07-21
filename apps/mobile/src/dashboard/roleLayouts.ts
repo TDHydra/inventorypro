@@ -51,6 +51,10 @@ const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'jobs', width: 'full' },
   { widget: 'equipment', width: 'full' },
   { widget: 'item-catalog', width: 'full' },
+  // #165: managers see their team's vehicles/lockers (view inventory, edit
+  // state, lock checkout via canManageVehicle).
+  { widget: 'vehicles', width: 'half' },
+  { widget: 'lockers', width: 'half' },
 ];
 
 // franchise_manager / full_admin: org counts, activity, quick actions, open

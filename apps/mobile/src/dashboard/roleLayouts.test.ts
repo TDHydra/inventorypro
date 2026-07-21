@@ -104,3 +104,14 @@ test('franchise_manager/full_admin get admin nav tiles + the full button set', (
     }
   }
 });
+
+// #165: every tier-2+ manager and crew dashboard surfaces Vehicles + Lockers.
+test('tier-2 manager layouts include vehicles and lockers tiles (#165)', () => {
+  for (const role of ALL_ROLES) {
+    const tier = ROLE_TIER[role];
+    if (tier < 1 || tier > 2 || role === 'temporary_employee' || role === 'office_manager') continue;
+    const widgets = ROLE_DEFAULT_LAYOUTS[role]!.map(b => b.widget);
+    assert.ok(widgets.includes('vehicles'), `${role}: vehicles tile`);
+    assert.ok(widgets.includes('lockers'), `${role}: lockers tile`);
+  }
+});
