@@ -4,7 +4,7 @@ import { resolveTypeId, resolveLabels, LOCATION_TYPE } from './taxonomy';
 import { generateUUID } from '../../utils/uuid';
 import { runInTransaction } from '../tx';
 import { appendLog } from './log';
-import { ensureVehicleRow } from './vehicles';
+import { ensureVehicleRow, getActiveCheckout } from './vehicles';
 
 export interface Location {
   id: string;
@@ -590,6 +590,94 @@ export function retireLocker(lockerId: string): boolean {
     return false;
   }
   return true;
+}
+
+// #153: result shape for the Vehicle retire/reactivate pair — mirrors
+// PersonalLockerResult (access/personalLocker.ts) so the UI gets a
+// user-facing reason for a refusal instead of a bare boolean. Unlike a
+// Locker (whose stock guard lives one layer up, in personalLocker.ts —
+// there's no equivalent per-vehicle wrapper module) both guards live in
+// retireVehicle itself since the Vehicle panel calls it directly.
+export type RetireUnitResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Retire a Vehicle: active=FALSE through the same local UPDATE + outbox path
+ * as retireLocker, with a fresh updated_at watermark (locations are NEVER
+ * hard-deleted). Refuses (no write) when:
+ *   - the vehicle has an open checkout session — retiring it out from under
+ *     whoever has it checked out would strand them, and
+ *   - the vehicle still holds stock — mirrors the Locker stock guard in
+ *     access/personalLocker.ts's disablePersonalLocker exactly (same
+ *     "N item(s)" phrasing).
+ * Permission gating (manage_locations) is the UI's job — see VehiclePanel;
+ * the outbox write is authorized server-side regardless.
+ */
+export function retireVehicle(locationId: string, userId: string | null): RetireUnitResult {
+  const vehicle = getLocationById(locationId);
+  if (!vehicle || vehicle.type !== 'Vehicle') return { ok: false, reason: 'Not a vehicle.' };
+  if (getActiveCheckout(locationId)) {
+    return { ok: false, reason: 'This vehicle is checked out. Check it in first, then retire it.' };
+  }
+  const stock = getStockAtLocation(locationId);
+  if (stock.length > 0) {
+    const n = stock.length;
+    return {
+      ok: false,
+      reason: `${vehicle.name} still holds stock (${n} item${n === 1 ? '' : 's'}). Move or remove it first, then retire the vehicle.`,
+    };
+  }
+  const now = new Date().toISOString();
+  try {
+    runInTransaction(() => {
+      getDb().executeSync(`UPDATE locations SET active = 0, updated_at = ? WHERE id = ?`, [now, locationId]);
+      appendOutbox('UPDATE', 'locations', { id: locationId, active: false, updated_at: now });
+      // 'location_archived' (not 'unit_retired'): the (locations)/[id] screen's
+      // generic Archive/Restore reroutes through retireVehicle/reactivateVehicle
+      // for Vehicle rows too (#153 — closes a bypass of these guards reachable
+      // via QR scan / repair link / search), so both paths write the SAME
+      // action into the SAME location's Activity feed. ActivityFeed already
+      // has an icon for it (🗄).
+      appendLog({
+        action: 'location_archived', entity_type: 'location', entity_id: locationId,
+        user_id: userId, team_id: null, job_id: null, note: vehicle.name,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('retireVehicle: failed to retire vehicle', err);
+    return { ok: false, reason: 'Could not retire the vehicle. Please try again.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Reactivate a retired Vehicle (active 0→1) — the vehicle counterpart of the
+ * inline reactivate branch in findOrCreateLockerForUser (lockers have no
+ * standalone reactivate helper to reuse; this mirrors that branch's write
+ * shape instead). Already-active vehicle → no-op success.
+ */
+export function reactivateVehicle(locationId: string, userId: string | null): RetireUnitResult {
+  const vehicle = getLocationById(locationId);
+  if (!vehicle || vehicle.type !== 'Vehicle') return { ok: false, reason: 'Not a vehicle.' };
+  if (vehicle.active === 1) return { ok: true };
+  const now = new Date().toISOString();
+  try {
+    runInTransaction(() => {
+      getDb().executeSync(`UPDATE locations SET active = 1, updated_at = ? WHERE id = ?`, [now, locationId]);
+      appendOutbox('UPDATE', 'locations', { id: locationId, active: true, updated_at: now });
+      appendLog({
+        action: 'location_restored', entity_type: 'location', entity_id: locationId,
+        user_id: userId, team_id: null, job_id: null, note: vehicle.name,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('reactivateVehicle: failed to reactivate vehicle', err);
+    return { ok: false, reason: 'Could not reactivate the vehicle. Please try again.' };
+  }
+  return { ok: true };
 }
 
 export function upsertLocation(location: Location): void {
