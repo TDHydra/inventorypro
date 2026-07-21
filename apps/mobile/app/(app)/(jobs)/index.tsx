@@ -214,7 +214,7 @@ export default function JobsScreen() {
     <>
       <Stack.Screen options={{ title: 'Jobs', headerShown: true }} />
       <View style={s.container}>
-        {canCreate && (
+        {canCreate && !ms.active && (
           <TouchableOpacity
             style={[s.fab, { bottom: 24 + insets.bottom }]}
             onPress={() => router.push('/(app)/(jobs)/create')}
