@@ -180,8 +180,9 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
           tone={vehicle?.waste_tank === 'dirty' ? 'warning' : 'neutral'}
         />
       )}
-      {/* #157: visible-but-locked — everyone sees the lock, only the owner
-          (or tier-3+ authority) can still check out. */}
+      {/* #157: visible-but-locked — everyone sees the lock; only the owner,
+          tier-3+ authority, or a same-team tier-2 manager (#165) can still
+          check out. */}
       {!!vehicle?.checkout_locked && <StatusPill label="🔒 Locked" tone="neutral" />}
 
       <StatusPill

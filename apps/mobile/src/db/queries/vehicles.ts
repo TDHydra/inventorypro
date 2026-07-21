@@ -96,7 +96,7 @@ export interface VehicleStatePatch {
   model?: string | null;
   model_id?: string | null;
   notes?: string | null;
-  checkout_locked?: number; // #157: only offered to the owner / tier-3+ (VehicleEditSheet)
+  checkout_locked?: number; // #157/#165: offered to canManageVehicle holders (edit sheet + panel pill)
 }
 
 /**
