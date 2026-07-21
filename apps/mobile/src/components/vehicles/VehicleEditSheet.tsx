@@ -11,7 +11,7 @@ import { appendOutbox } from '../../sync/outbox';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useSession } from '../../hooks/useSession';
 import { validateName } from '../../lib/validation';
-import { ROLE_TIER } from '../../constants/roles';
+import { canManageVehicle } from '../../db/queries/access';
 import { track } from '../../telemetry';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -36,8 +36,8 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
   const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
   const [truckMount, setTruckMount] = useState(false);
   const [checkoutLocked, setCheckoutLocked] = useState(false);
-  // #157: the lock toggle is owner-or-tier-3+ only (the canManageLockerAccess
-  // predicate) — everyone else neither sees it nor writes checkout_locked.
+  // #165: owner / tier-3+ / same-team tier-2 manager (canManageVehicle)
+  // — everyone else neither sees it nor writes checkout_locked.
   const [canLock, setCanLock] = useState(false);
   const [nameError, setNameError] = useState('');
 
@@ -52,10 +52,8 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     setModel({ id: vehicle?.model_id ?? null, label: vehicle?.model ?? null });
     setTruckMount(!!vehicle?.truck_mount);
     setCheckoutLocked(!!vehicle?.checkout_locked);
-    setCanLock(!!user && (
-      (location?.owner_user_id != null && location.owner_user_id === user.id)
-      || (ROLE_TIER[user.role] ?? 0) >= 3
-    ));
+    // #165: owner, tier-3+, or a tier-2 manager on the owner's team.
+    setCanLock(canManageVehicle(user, location ?? null));
     setNameError('');
   }, [visible, locationId, user]);
 

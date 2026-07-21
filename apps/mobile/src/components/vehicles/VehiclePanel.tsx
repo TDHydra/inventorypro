@@ -24,7 +24,7 @@ import {
   resolveCheckoutAction, formatSince, waterTankLabel, wasteTankLabel,
 } from './vehicleSessionLogic';
 import { renderIcon } from '../../constants/locationStyles';
-import { ROLE_TIER } from '../../constants/roles';
+import { canManageVehicle } from '../../db/queries/access';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
@@ -106,10 +106,9 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const holderName = active?.user_name ?? active?.user_id ?? '';
   const isOut = action.kind !== 'check_out';
   const isMine = action.kind === 'check_in';
-  // #157: owner lock. Owner + tier-3+ authority bypass (the canManageLockerAccess
-  // predicate); checking IN an already-held session is never blocked.
-  const canBypassLock = !!user
-    && (location.owner_user_id === user.id || (ROLE_TIER[user.role] ?? 0) >= 3);
+  // #165: shared predicate — owner / tier-3+ / same-team tier-2 manager.
+  const canManage = canManageVehicle(user, location);
+  const canBypassLock = canManage;
   const checkoutBlocked = !!vehicle?.checkout_locked && !canBypassLock && action.kind !== 'check_in';
 
   function setWaterTank(id: string) {
@@ -224,6 +223,28 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
             tone={vehicle?.truck_mount ? 'primary' : 'neutral'}
           />
         </View>
+        {/* #165: lock checkout from the panel — reachable for lock-managers
+            (office/HR have no edit_inventory, so the Edit sheet is closed to
+            them; this pill is their only toggle). Same write as the sheet. */}
+        {canManage && !locked && (
+          <Pressable
+            onPress={() => {
+              if (isWriteBlocked()) return;
+              upsertVehicleState(
+                locationId,
+                { checkout_locked: vehicle?.checkout_locked ? 0 : 1 },
+                user?.id ?? null,
+              );
+            }}
+            style={s.truckRow}
+          >
+            <StatusPill
+              label={vehicle?.checkout_locked ? '🔒 Locked from checkout' : 'Checkout open'}
+              tone={vehicle?.checkout_locked ? 'warning' : 'neutral'}
+            />
+            <Text style={s.toggleHint}>tap to toggle</Text>
+          </Pressable>
+        )}
         {/* #159: tank state only exists on truck-mount rigs — hide both rows
             (not just disable) when the vehicle has no truck mount. */}
         {!!vehicle?.truck_mount && (
@@ -335,6 +356,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm, marginTop: t.spacing.md },
   editLink: { fontSize: t.typography.fontSizes.sm, fontWeight: '600', color: t.colors.brand, marginLeft: t.spacing.sm },
   truckRow: { flexDirection: 'row', alignItems: 'center' },
+  toggleHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
   waterLabel: { marginTop: t.spacing.md },
   muted: { fontSize: t.typography.fontSizes.sm, color: t.colors.textMuted },
   primaryBtn: { marginTop: t.spacing.md },
