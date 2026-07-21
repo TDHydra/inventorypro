@@ -5,6 +5,7 @@ import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
 import { ROLE_TIER, type UserRole } from '../../constants/roles';
 import { buildClosePayload, buildTakeoverNote, FUEL_UP_TYPE } from '../../components/vehicles/vehicleSessionLogic';
+import { sharesTeamWithOwner } from './access';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Three soft-FK tables:
 //   vehicles                 1:1 extension of a Vehicle-typed location (PK =
@@ -326,8 +327,9 @@ function insertCheckout(locationId: string, jobId: string | null, userId: string
 
 /**
  * #157 owner lock: true when `vehicle.checkout_locked = 1` AND `userId` is
- * neither the owning user (locations.owner_user_id) nor tier-3+ org authority —
- * the same owner-or-authority predicate as canManageLockerAccess. The HARD
+ * neither the owning user (locations.owner_user_id) nor tier-3+ org authority
+ * nor a tier-2 manager sharing a team with the owner — the same owner-or-authority
+ * predicate as canManageLockerAccess, plus team-manager bypass (#165). The HARD
  * guard for every session-opening path (checkOutVehicle / takeOverVehicle);
  * UI surfaces mirror it for the disabled "🔒 Locked by owner" state.
  */
@@ -344,7 +346,12 @@ export function isCheckoutLockedFor(locationId: string, userId: string | null): 
   )[0];
   if (!row || !row.checkout_locked) return false;
   if (userId != null && row.owner_user_id === userId) return false;
-  return (ROLE_TIER[row.role as UserRole] ?? 0) < 3;
+  const tier = ROLE_TIER[row.role as UserRole] ?? 0;
+  if (tier >= 3) return false;
+  // #165: tier-2 managers pass for vehicles owned by someone on their team —
+  // same team-scoped authority as canManageVehicle (kept in sync manually:
+  // this path resolves from a bare userId, not a UserSession).
+  return !(tier >= 2 && userId != null && sharesTeamWithOwner(userId, row.owner_user_id));
 }
 
 /** Throws when the owner lock blocks `userId` — shared by check-out and take-over. */
