@@ -1,4 +1,5 @@
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -19,9 +20,13 @@ export function Fab({ onPress, label, accessibilityLabel }: Props) {
   const t = useTheme();
   const s = useThemedStyles(makeStyles);
   const pill = t.components.fab.shape === 'pill';
+  // Edge-to-edge: this is position:absolute/bottom:24 (fixed), so the
+  // transparent gesture/3-button nav bar can overlay it without this inset
+  // (same class of bug as BulkActionBar / ScanReceipt, #163).
+  const insets = useSafeAreaInsets();
   return (
     <TouchableOpacity
-      style={pill ? s.fabPill : s.fab}
+      style={[pill ? s.fabPill : s.fab, { bottom: 24 + insets.bottom }]}
       onPress={onPress}
       activeOpacity={0.85}
       accessibilityRole="button"

@@ -1,5 +1,7 @@
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../themes/types';
+import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
 
 export interface BulkAction {
@@ -25,9 +27,14 @@ interface Props {
  * business logic.
  */
 export function BulkActionBar({ count, actions, onSelectAll, onCancel, disabled }: Props) {
+  const t = useTheme();
   const s = useThemedStyles(makeStyles);
+  // Edge-to-edge: this bar is position:absolute/bottom:0, so the transparent
+  // gesture/3-button nav bar overlays it without this inset (same class of
+  // bug as ScanReceipt's Add more / Done bar, #163).
+  const insets = useSafeAreaInsets();
   return (
-    <View style={s.bar}>
+    <View style={[s.bar, { paddingBottom: t.spacing.xl + insets.bottom }]}>
       <View style={s.topRow}>
         <Text style={s.count}>{count} selected</Text>
         <View style={s.topRight}>

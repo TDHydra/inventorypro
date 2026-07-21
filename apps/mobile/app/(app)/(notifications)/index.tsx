@@ -1,7 +1,18 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, type ComponentProps } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl,
 } from 'react-native';
+// keyboard-controller's KeyboardAwareScrollView (NOT KeyboardChatScrollView —
+// that one is built for chat's shape: an inverted list + an external sticky
+// composer, and its keyboard handler does a content-agnostic
+// scrollTo(offset + keyboardHeight). This list is non-inverted with the input
+// inline inside a row, so we need the variant that tracks the focused
+// TextInput's own layout and scrolls it above the keyboard).
+// With KeyboardProvider mounted app-wide, a plain FlatList only offers
+// keyboardShouldPersistTaps='handled' — a low row's AppInput still ends up
+// hidden behind the keyboard when focused. Swapping the scroll surface keeps
+// the focused input visible.
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Stack, useRouter } from 'expo-router';
 import {
   listNotifications, markRead, markAllRead, countUnread, NotificationRow,
@@ -44,6 +55,12 @@ const TYPE_ICON: Record<string, string> = {
 function iconFor(type: string): string {
   return TYPE_ICON[type] ?? '🔔';
 }
+
+// Module-level (stable identity) so the FlatList isn't re-created each render
+// — same render-fn idiom as app/(app)/(chat)/[id].tsx's renderChatScroll.
+const renderKeyboardScroll = (props: ComponentProps<typeof KeyboardAwareScrollView>) => (
+  <KeyboardAwareScrollView {...props} />
+);
 
 function parseData(raw: string | null): Record<string, unknown> | undefined {
   if (!raw) return undefined;
@@ -185,6 +202,7 @@ export default function NotificationsScreen() {
           data={rows}
           keyExtractor={n => n.id}
           keyboardShouldPersistTaps="handled"
+          renderScrollComponent={renderKeyboardScroll}
           contentContainerStyle={s.list}
           refreshControl={
             <RefreshControl

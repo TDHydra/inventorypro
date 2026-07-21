@@ -11,6 +11,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Alert } from '../../../src/lib/themedAlert';
 import { SearchFlap } from '../../../src/components/hub/SearchFlap';
 import { DestinationPicker, type ResolvedDestination } from '../../../src/components/hub/DestinationPicker';
@@ -50,6 +51,11 @@ type Mode = 'browse' | 'scanning' | 'inout' | 'destination' | 'receipt';
 
 export default function HubScreen() {
   const s = useThemedStyles(makeStyles);
+  // Edge-to-edge: the batch-scan panel is position:absolute/bottom:40 (fixed)
+  // over the full-screen camera, so the transparent gesture/3-button nav bar
+  // can overlay its "Done scanning" button without this inset (same class of
+  // bug as BulkActionBar / ScanReceipt, #163).
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useSession();
   const { coords, request } = useCurrentPosition();
@@ -630,7 +636,7 @@ export default function HubScreen() {
       <View style={{ flex: 1 }}>
         <BarcodeScanner active onScanned={onScan} onClose={onScannerClose} />
         {equipBatch.length > 0 && (
-          <View style={s.batchBar} pointerEvents="box-none">
+          <View style={[s.batchBar, { bottom: 40 + insets.bottom }]} pointerEvents="box-none">
             <View style={s.batchPanel} pointerEvents="auto">
               <Text style={s.batchHeading}>
                 {equipBatch.length} unit{equipBatch.length > 1 ? 's' : ''} queued
