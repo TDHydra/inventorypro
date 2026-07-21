@@ -1,7 +1,13 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, type ComponentProps } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl,
 } from 'react-native';
+// keyboard-controller's chat scroll view (same fix as the chat thread screen,
+// #118): with KeyboardProvider mounted app-wide, a plain FlatList only offers
+// keyboardShouldPersistTaps='handled' — a low row's AppInput still ends up
+// hidden behind the keyboard when focused. Swapping the scroll surface keeps
+// the focused row visible.
+import { KeyboardChatScrollView } from 'react-native-keyboard-controller';
 import { Stack, useRouter } from 'expo-router';
 import {
   listNotifications, markRead, markAllRead, countUnread, NotificationRow,
@@ -44,6 +50,12 @@ const TYPE_ICON: Record<string, string> = {
 function iconFor(type: string): string {
   return TYPE_ICON[type] ?? '🔔';
 }
+
+// Module-level (stable identity) so the FlatList isn't re-created each render
+// — mirrors app/(app)/(chat)/[id].tsx's renderChatScroll.
+const renderKeyboardScroll = (props: ComponentProps<typeof KeyboardChatScrollView>) => (
+  <KeyboardChatScrollView {...props} />
+);
 
 function parseData(raw: string | null): Record<string, unknown> | undefined {
   if (!raw) return undefined;
@@ -185,6 +197,7 @@ export default function NotificationsScreen() {
           data={rows}
           keyExtractor={n => n.id}
           keyboardShouldPersistTaps="handled"
+          renderScrollComponent={renderKeyboardScroll}
           contentContainerStyle={s.list}
           refreshControl={
             <RefreshControl
