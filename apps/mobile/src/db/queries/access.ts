@@ -332,3 +332,20 @@ export function canManageLockerAccess(
   return (ROLE_TIER[user.role] ?? 0) >= 3;
 }
 
+/**
+ * #165: vehicle management authority — lock/unlock checkout, bypass a lock,
+ * edit state. Owner and tier-3+ (same as canManageLockerAccess), PLUS tier-2
+ * managers for vehicles owned by someone on one of their teams ("their team's
+ * vehicles" — the PM slice of the #156 device review).
+ */
+export function canManageVehicle(
+  user: UserSession | null | undefined,
+  location: Pick<Location, 'owner_user_id'> | null | undefined,
+): boolean {
+  if (!user || !location) return false;
+  if (location.owner_user_id !== null && location.owner_user_id === user.id) return true;
+  const tier = ROLE_TIER[user.role] ?? 0;
+  if (tier >= 3) return true;
+  return tier >= 2 && sharesTeamWithOwner(user.id, location.owner_user_id);
+}
+

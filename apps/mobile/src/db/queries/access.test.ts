@@ -222,3 +222,36 @@ test('#162: getUnitInventoryLock — foreign-team unit locked; own/team/ownerles
   assert.equal(access.getUnitInventoryLock(mkUser('user-a'), 'veh-other').locked, false);
   db.executeSync(`DELETE FROM role_settings WHERE role = 'construction_crew'`);
 });
+
+// #165: canManageVehicle — owner ∥ tier>=3 ∥ tier>=2 sharing a team with the owner.
+function session(id: string, role: string) {
+  return { id, name: id, role, permission_overrides: {}, pin_length_required: 4, active: 1, expires_at: null } as never;
+}
+
+test('canManageVehicle: owner manages own vehicle regardless of tier', () => {
+  assert.equal(access.canManageVehicle(session('crew-owner', 'mitigation_technician'), { owner_user_id: 'crew-owner' }), true);
+});
+
+test('canManageVehicle: tier-3 office manager manages ANY vehicle', () => {
+  assert.equal(access.canManageVehicle(session('om-1', 'office_manager'), { owner_user_id: 'someone-else' }), true);
+  assert.equal(access.canManageVehicle(session('om-1', 'office_manager'), { owner_user_id: null }), true);
+});
+
+test('canManageVehicle: tier-2 PM manages a vehicle owned by a teammate', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO team_members (team_id, user_id) VALUES ('team-v', 'pm-1'), ('team-v', 'tech-owner')`);
+  assert.equal(access.canManageVehicle(session('pm-1', 'production_manager'), { owner_user_id: 'tech-owner' }), true);
+});
+
+test('canManageVehicle: tier-2 PM does NOT manage other-team or unowned vehicles', () => {
+  assert.equal(access.canManageVehicle(session('pm-1', 'production_manager'), { owner_user_id: 'stranger' }), false);
+  assert.equal(access.canManageVehicle(session('pm-1', 'production_manager'), { owner_user_id: null }), false);
+});
+
+test('canManageVehicle: tier-1 crew non-owner never manages; null args false', () => {
+  const db = testDb.getDb();
+  db.executeSync(`INSERT INTO team_members (team_id, user_id) VALUES ('team-v', 'crew-2')`);
+  assert.equal(access.canManageVehicle(session('crew-2', 'mitigation_technician'), { owner_user_id: 'tech-owner' }), false);
+  assert.equal(access.canManageVehicle(null, { owner_user_id: 'x' }), false);
+  assert.equal(access.canManageVehicle(session('pm-1', 'production_manager'), null), false);
+});
