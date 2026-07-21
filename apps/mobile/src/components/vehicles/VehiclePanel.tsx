@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Alert } from '../../lib/themedAlert';
 import { Card } from '../ui/Card';
 import { KeyValueRow } from '../ui/KeyValueRow';
 import { TypeBadge } from '../ui/StatusBadge';
@@ -17,7 +18,7 @@ import {
   getVehicle, upsertVehicleState, getActiveCheckout,
   checkInVehicle, VEHICLE_MODEL_CATEGORY, type WaterTank, type WasteTank,
 } from '../../db/queries/vehicles';
-import { getLocationById } from '../../db/queries/locations';
+import { getLocationById, retireVehicle, reactivateVehicle } from '../../db/queries/locations';
 import { getUserById } from '../../db/queries/users';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import {
@@ -66,6 +67,10 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const { user } = useSession();
   const canCheckout = usePermission('checkout_inventory');
   const canEdit = usePermission('edit_inventory');
+  // #153: retire/reactivate is a locations write, so it's gated the same way
+  // the personal-locker toggle is (MemberPermissionsSheet) — the outbox UPDATE
+  // is server-authorized regardless, this only hides the action in the UI.
+  const canManageLocations = usePermission('manage_locations');
   const { locked } = useMaintenanceMode();
 
   // Refocus + per-table pull granularity: re-read when the screen regains focus
@@ -144,6 +149,37 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
     if (ok) setSheet({ mode: 'takeover' });
   }
 
+  // #153: retire hides the vehicle from every unit list/picker (getUnitLocations
+  // filters active=1, same as lockers) without hard-deleting it. Refuses (via
+  // retireVehicle's guards) while checked out or still holding stock — those
+  // reasons surface here since the query layer can't raise UI.
+  async function onRetirePress() {
+    if (isWriteBlocked()) return;
+    const ok = await confirmSheet({
+      title: 'Retire this vehicle?',
+      // Non-null: onRetirePress is only reachable from the full-variant render,
+      // which already returned early above when `location` is null.
+      message: `${location!.name} will be hidden from vehicle lists. You can reactivate it later.`,
+      confirmLabel: 'Retire',
+      destructive: true,
+    });
+    if (!ok) return;
+    const res = retireVehicle(locationId, user?.id ?? null);
+    if (!res.ok) Alert.alert('Could not retire vehicle', res.reason);
+  }
+
+  async function onReactivatePress() {
+    if (isWriteBlocked()) return;
+    const ok = await confirmSheet({
+      title: 'Reactivate this vehicle?',
+      message: `${location!.name} will show up in vehicle lists again.`,
+      confirmLabel: 'Reactivate',
+    });
+    if (!ok) return;
+    const res = reactivateVehicle(locationId, user?.id ?? null);
+    if (!res.ok) Alert.alert('Could not reactivate vehicle', res.reason);
+  }
+
   const header = (
     <View>
       <View style={s.headerRow}>
@@ -185,10 +221,18 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
           check out. */}
       {!!vehicle?.checkout_locked && <StatusPill label="🔒 Locked" tone="neutral" />}
 
-      <StatusPill
-        label={isOut ? `Out · ${holderName}` : 'Available'}
-        tone={isOut ? 'warning' : 'success'}
-      />
+      {/* #153: retired vehicles are filtered out of every list/picker (same
+          active=1 filter as lockers), but a stale deep link or the summary
+          embed on a location's detail screen can still reach one — flag it
+          rather than showing "Available" as if it were live. */}
+      {location.active === 1 ? (
+        <StatusPill
+          label={isOut ? `Out · ${holderName}` : 'Available'}
+          tone={isOut ? 'warning' : 'success'}
+        />
+      ) : (
+        <StatusPill label="Retired" tone="danger" />
+      )}
     </View>
   );
 
@@ -324,6 +368,23 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
 
       {/* Usage / miles / fuel-ups (#141) — the embeddable history surface. */}
       <VehicleHistoryPanel locationId={locationId} />
+
+      {/* #153: retire (hide from lists, never delete) / reactivate — gated on
+          manage_locations like the personal-locker toggle. */}
+      {canManageLocations && !locked && (
+        location.active === 1 ? (
+          <PrimaryButton
+            label="Retire Vehicle"
+            tone="danger"
+            onPress={() => { void onRetirePress(); }}
+          />
+        ) : (
+          <PrimaryButton
+            label="Reactivate Vehicle"
+            onPress={() => { void onReactivatePress(); }}
+          />
+        )
+      )}
 
       {sheet && (
         <VehicleCheckoutSheet

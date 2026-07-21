@@ -7,6 +7,7 @@ import {
   getLocationById, getStockAtLocation, upsertLocation,
   getBrowsableLocations, getLocationPath, getDescendantIds,
   getShelvesForParent, setShelfColor, getRoomsForParent, findOrCreateShelf,
+  retireVehicle, reactivateVehicle,
   StockAtLocation, Location,
 } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
@@ -307,6 +308,16 @@ export default function LocationDetailScreen() {
         {
           text: 'Restore',
           onPress: () => {
+            // #153: a Vehicle can reach this generic screen too (QR scan,
+            // repair link, search) — route through reactivateVehicle so it
+            // stays consistent with the dedicated vehicle-panel action rather
+            // than a second, divergent raw-UPDATE write path.
+            if (location.type === 'Vehicle') {
+              const res = reactivateVehicle(id, user?.id ?? null);
+              if (!res.ok) { Alert.alert('Restore failed', res.reason); return; }
+              setLocation(getLocationById(id));
+              return;
+            }
             const now = new Date().toISOString();
             try {
               runInTransaction(() => {
@@ -353,6 +364,15 @@ export default function LocationDetailScreen() {
       destructive: true,
     });
     if (!ok) return;
+    // #153: same reroute as handleUnarchive — a Vehicle's archive goes through
+    // retireVehicle so its open-checkout / stock guards apply here too, not
+    // just from the dedicated vehicle panel.
+    if (location.type === 'Vehicle') {
+      const res = retireVehicle(id, user?.id ?? null);
+      if (!res.ok) { Alert.alert('Archive failed', res.reason); return; }
+      router.back();
+      return;
+    }
     const now = new Date().toISOString();
     try {
       runInTransaction(() => {
