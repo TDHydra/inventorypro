@@ -251,6 +251,10 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
     <View style={s.stack}>
       <Card variant="detail">
         {onNavigate ? <Pressable onPress={onNavigate}>{header}</Pressable> : header}
+        {/* #153: the full variant is the vehicle detail screen the Retire/
+            Reactivate button lives on — it needs the same Retired/Available
+            pill the summary embed shows, not just the raw button. */}
+        {statusPills}
       </Card>
 
       {/* State: tank levels. Writes upsertVehicleState (creates the extension
