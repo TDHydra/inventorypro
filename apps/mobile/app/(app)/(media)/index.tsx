@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, Image, StyleSheet,
   Dimensions, RefreshControl,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -37,6 +37,7 @@ const FILTERS: { label: string; value: MediaHubFilter }[] = [
 export default function MediaHubScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  const router = useRouter();
   // 'everything' surfaces media on non-job entities too — same gate as Activity Logs.
   const canViewAll = usePermission('view_all_logs');
   const canDelete = usePermission('delete_media');
@@ -125,10 +126,26 @@ export default function MediaHubScreen() {
   // #87: push/inbox deep-link → open the shared photo. The push can beat the
   // pull: if the row isn't local yet, trigger a sync; dataVersion bumps on
   // the next pull and re-runs this effect, opening the sheet once it lands.
+  // Clears the `id` param the moment it's acted on (same idiom as
+  // (locations)/index.tsx's createUnder) so a later UNRELATED background
+  // sync doesn't re-fire this effect and hijack the sheet the user has since
+  // closed or navigated away from. attemptedSyncRef caps our own syncNow()
+  // nudge to once per linkedId — getMediaById is still rechecked on every
+  // dataVersion bump either way, so a row that lands via the engine's normal
+  // periodic sync still opens the sheet; we just don't re-trigger our own
+  // sync over and over for an id that never resolves.
+  const attemptedSyncRef = useRef<string | null>(null);
   useEffect(() => {
     if (!linkedId) return;
-    if (getMediaById(linkedId)) { setSelectedId(linkedId); return; }
+    if (getMediaById(linkedId)) {
+      setSelectedId(linkedId);
+      router.setParams({ id: undefined });
+      return;
+    }
+    if (attemptedSyncRef.current === linkedId) return;
+    attemptedSyncRef.current = linkedId;
     void syncNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedId, dataVersion]);
 
   const emptyTitle = query
