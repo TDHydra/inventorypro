@@ -34,6 +34,9 @@ export interface UploadMediaInput {
   size?: number; // bytes when the caller already knows it; statted otherwise
   userId: string;
   locationNote?: string | null;
+  caption?: string | null; // #148: optional note
+  audience?: 'team' | 'everyone' | 'users' | null; // #87: pool shares only
+  audienceUserIds?: string[] | null; // #87: when audience === 'users'
 }
 
 export interface UploadedMedia {
@@ -79,14 +82,21 @@ export function insertMediaRow(input: UploadMediaInput, publicUrl: string): Uplo
   const id = generateUUID();
   const now = new Date().toISOString();
   const locationNote = input.locationNote ?? null;
+  const caption = input.caption ?? null;
+  // audience/audience_user_ids are pool-share-only (#87): a job/entity photo
+  // always gets NULL here regardless of what the caller passed.
+  const isPool = input.entityType === 'pool';
+  const audience = isPool ? input.audience ?? null : null;
+  const audienceUserIds = isPool && input.audience === 'users' && input.audienceUserIds?.length
+    ? JSON.stringify(input.audienceUserIds) : null;
 
   const db = getDb();
   // updated_at is set locally for immediate ordering; the server stamps its
   // own authoritative NOW() on apply (so it's not in the outbox payload).
   db.executeSync(
-    `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, location_note, is_primary, uploaded_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
-    [id, input.entityType, input.entityId, input.mediaType, publicUrl, locationNote, isPrimary ? 1 : 0, input.userId, now, now]
+    `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, location_note, is_primary, uploaded_by, created_at, updated_at, audience, audience_user_ids)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, input.entityType, input.entityId, input.mediaType, publicUrl, caption, locationNote, isPrimary ? 1 : 0, input.userId, now, now, audience, audienceUserIds]
   );
 
   appendOutbox('INSERT', 'media', {
@@ -95,10 +105,13 @@ export function insertMediaRow(input: UploadMediaInput, publicUrl: string): Uplo
     entity_id: input.entityId,
     media_type: input.mediaType,
     url: publicUrl,
+    caption,
     location_note: locationNote,
     is_primary: isPrimary, // boolean — server column is BOOLEAN
     uploaded_by: input.userId,
     created_at: now,
+    ...(audience ? { audience } : {}),
+    ...(audienceUserIds ? { audience_user_ids: audienceUserIds } : {}),
   });
 
   return { id, url: publicUrl };
