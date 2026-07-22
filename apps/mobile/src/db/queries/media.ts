@@ -87,6 +87,19 @@ export function getLocationNoteSuggestions(jobId: string): string[] {
   return (result.rows as unknown as { location_note: string }[]).map(r => r.location_note);
 }
 
+// #148: Room/Area suggestions for pool quick-photos — the uploader's own past
+// pool notes (job flow keeps the job-scoped variant above).
+export function getPoolLocationNoteSuggestions(userId: string): string[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT location_note, MAX(updated_at) AS last_used FROM media
+     WHERE entity_type = 'pool' AND uploaded_by = ? AND location_note IS NOT NULL AND TRIM(location_note) != ''
+     GROUP BY location_note ORDER BY last_used DESC LIMIT 8`,
+    [userId]
+  );
+  return (result.rows as unknown as { location_note: string }[]).map(r => r.location_note);
+}
+
 // ── Mutations (offline-first: local write + outbox; server re-authorizes) ────
 
 function logMediaAction(action: 'media_updated' | 'media_deleted', mediaId: string, userId: string | null, note: string | null): void {
