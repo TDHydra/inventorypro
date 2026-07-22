@@ -139,14 +139,19 @@ function chatScopeSql(table: string, callerParam: string): string | null {
   }
 }
 
-// Media pull scoping (#29-H): message attachments are private to the message's
-// conversation — a media row linked to a message the caller cannot see must not
-// sync down to their device. Non-message media (items, jobs, locations, …) stays
-// unscoped: that is the normal shared media surface. Same subquery shape as
-// chatScopeSql, parameterized on the caller id via `callerParam`.
+// Media pull scoping. #29-H: message attachments are private to the message's
+// conversation. #87/#148: pool shares are visible to the uploader, 'everyone'
+// shares, the uploader's teammates ('team'), and listed users ('users' — the
+// JSON-array LIKE is exact enough: UUIDs are fixed-form and quoted in the
+// array, so no substring false positives). Other entity media stays unscoped.
 function mediaScopeSql(callerParam: string): string {
   const mine = `SELECT conversation_id FROM conversation_participants WHERE user_id = ${callerParam}`;
-  return `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
+  const myTeams = `SELECT team_id FROM team_members WHERE user_id = ${callerParam}`;
+  const msg = `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
+  const pool = `(entity_type != 'pool' OR uploaded_by = ${callerParam} OR audience = 'everyone'
+    OR (audience = 'team' AND uploaded_by IN (SELECT user_id FROM team_members WHERE team_id IN (${myTeams})))
+    OR (audience = 'users' AND audience_user_ids LIKE '%' || ${callerParam} || '%'))`;
+  return `(${msg} AND ${pool})`;
 }
 
 // #84: may a caller WITHOUT manage_locations INSERT this locations row? Only
