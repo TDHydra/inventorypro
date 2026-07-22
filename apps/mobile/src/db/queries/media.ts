@@ -35,6 +35,14 @@ export function getPrimaryMedia(entityType: string, entityId: string): MediaReco
   return (result.rows[0] as unknown as MediaRecord) ?? null;
 }
 
+// #87: deep-link lookup — is a pushed/notified media id already local? Used to
+// decide between opening the sheet immediately vs. triggering a sync first.
+export function getMediaById(id: string): MediaRecord | null {
+  const db = getDb();
+  const result = db.executeSync(`SELECT * FROM media WHERE id = ?`, [id]);
+  return (result.rows[0] as unknown as MediaRecord) ?? null;
+}
+
 // ── Media hub ────────────────────────────────────────────────────────────────
 
 // The SQL builder is pure and lives in ./mediaHubQuery (DB-free so it runs

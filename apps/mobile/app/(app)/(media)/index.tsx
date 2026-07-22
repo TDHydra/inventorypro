@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, Image, StyleSheet,
   Dimensions, RefreshControl,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -18,7 +18,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { Alert } from '../../../src/lib/themedAlert';
-import { getMediaHubPage, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
+import { getMediaHubPage, getMediaById, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
 import { syncNow } from '../../../src/sync/engine';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
@@ -30,6 +30,7 @@ const PAGE_SIZE = 30;
 const FILTERS: { label: string; value: MediaHubFilter }[] = [
   { label: 'Open jobs', value: 'open' },
   { label: 'All jobs', value: 'all' },
+  { label: 'Shared', value: 'shared' },
   { label: 'Everything', value: 'everything' },
 ];
 
@@ -42,6 +43,8 @@ export default function MediaHubScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<MediaHubRow>();
+  // #87: push/inbox deep-link — a shared photo's id, if we were routed here for one.
+  const { id: linkedId } = useLocalSearchParams<{ id?: string }>();
 
   const [filter, setFilter] = useState<MediaHubFilter>('open');
   const [query, setQuery] = useState('');
@@ -119,9 +122,20 @@ export default function MediaHubScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataVersion]);
 
+  // #87: push/inbox deep-link → open the shared photo. The push can beat the
+  // pull: if the row isn't local yet, trigger a sync; dataVersion bumps on
+  // the next pull and re-runs this effect, opening the sheet once it lands.
+  useEffect(() => {
+    if (!linkedId) return;
+    if (getMediaById(linkedId)) { setSelectedId(linkedId); return; }
+    void syncNow();
+  }, [linkedId, dataVersion]);
+
   const emptyTitle = query
     ? `No media matching "${query}"`
-    : filter === 'open' ? 'No media on open jobs' : 'No media yet';
+    : filter === 'open' ? 'No media on open jobs'
+    : filter === 'shared' ? 'No shared photos yet'
+    : 'No media yet';
 
   // Bulk delete — permanently removes selected media (offline-first, same as
   // single delete). Gated on delete_media; server re-checks on sync push.

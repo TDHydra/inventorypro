@@ -170,6 +170,9 @@ export default function NotificationsScreen() {
       case 'jobs':
         if (id) router.push({ pathname: '/(app)/(jobs)/[id]', params: { id } });
         return;
+      case 'media':
+        if (id) router.push({ pathname: '/(app)/(media)', params: { id } });
+        return;
       default:
         /* 'notifications' / unknown → stay on the inbox */
         return;
