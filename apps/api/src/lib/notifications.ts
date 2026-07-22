@@ -51,6 +51,34 @@ export async function resolveRoleRecipients(pg: Pg, roles: string[]): Promise<st
   return rows.map(r => r.id as string);
 }
 
+// #87: recipients for a pool photo share. 'users' → the listed ids; 'team' →
+// active members of every team the sender is on; 'everyone' → [] (everyone-
+// shares are deliberately quiet: media hub + scope SQL carry them, no blast).
+// Sender always excluded.
+export async function resolvePoolRecipients(
+  pg: Pg,
+  audience: 'team' | 'users' | 'everyone',
+  audienceUserIds: unknown,
+  senderId: string,
+): Promise<string[]> {
+  const ids = new Set<string>();
+  if (audience === 'users') {
+    try {
+      const parsed = JSON.parse(String(audienceUserIds));
+      if (Array.isArray(parsed)) parsed.forEach(v => { if (typeof v === 'string') ids.add(v); });
+    } catch { /* malformed → no recipients */ }
+  } else if (audience === 'team') {
+    (await pg.query(
+      `SELECT DISTINCT tm.user_id FROM team_members tm
+         JOIN users u ON u.id = tm.user_id AND u.active = TRUE
+        WHERE tm.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1)`,
+      [senderId],
+    )).rows.forEach(r => ids.add(r.user_id as string));
+  }
+  ids.delete(senderId);
+  return [...ids];
+}
+
 export async function getNotifyConfig(pg: Pg): Promise<{ enabled: boolean; pollMin: number; idleMin: number }> {
   const { rows } = await pg.query(
     `SELECT key, value FROM app_config WHERE key = ANY($1)`,
@@ -72,7 +100,7 @@ export async function getNotifyConfig(pg: Pg): Promise<{ enabled: boolean; pollM
 export async function deliver(
   pg: Pg,
   userIds: string[],
-  p: { type: string; title: string; body: string; data?: Record<string, unknown>; createdBy?: string },
+  p: { type: string; title: string; body: string; data?: Record<string, unknown>; createdBy?: string; push?: boolean },
 ): Promise<void> {
   try {
     const ids = [...new Set(userIds)].filter(Boolean);
@@ -84,7 +112,9 @@ export async function deliver(
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [randomUUID(), uid, p.type, p.title, p.body, dataJson, p.createdBy ?? null]);
     }
-    await sendPush(pg, ids, { title: p.title, body: p.body, data: p.data });
+    // #87: inbox-only channels (e.g. an 'everyone' pool share) pass push:false —
+    // the inbox row above still lands, only the device push nudge is skipped.
+    if (p.push !== false) await sendPush(pg, ids, { title: p.title, body: p.body, data: p.data });
   } catch { /* never disrupt callers */ }
 }
 
