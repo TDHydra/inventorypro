@@ -16,15 +16,18 @@ export type { UploadMediaInput, UploadedMedia } from './uploadCore';
 export async function uploadMediaAsset(input: UploadMediaInput): Promise<UploadedMedia> {
   if (!input.uri) throw new Error('Upload failed (no file).');
 
-  // Size the picker-cache file so the server can enforce the 25 MB cap at
-  // signing time (content_length); if it can't be statted, omit it.
-  let size = input.size;
-  if (size === undefined) {
-    try {
-      const info = await FileSystem.getInfoAsync(input.uri);
-      if (info.exists && typeof info.size === 'number') size = info.size;
-    } catch { /* size stays undefined */ }
-  }
+  // Size the file we will actually STREAM (input.uri) so the server binds the
+  // exact ContentLength into the presigned signature (#31-D2). Never prefer the
+  // caller's declared size: gallery pickers report the ORIGINAL asset's bytes,
+  // but quality<1 re-encodes into a different-sized cache file, and a signed
+  // length that mismatches the streamed bytes is rejected by MinIO as
+  // SignatureDoesNotMatch (403). Caller size is only a stat-failure fallback.
+  let size: number | undefined;
+  try {
+    const info = await FileSystem.getInfoAsync(input.uri);
+    if (info.exists && typeof info.size === 'number') size = info.size;
+  } catch { /* fall through to the caller's declared size */ }
+  if (size === undefined) size = input.size;
   if (size !== undefined && size > MAX_UPLOAD_BYTES) throw new MediaTooLargeError();
 
   const { uploadUrl, publicUrl, contentType } = await requestUploadUrl(input, size);
