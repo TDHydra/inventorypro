@@ -25,6 +25,12 @@ test('everything filter: no entity restriction at all', () => {
   assert.ok(sql.includes('LEFT JOIN users'));
 });
 
+test('shared filter: pool-entity media only', () => {
+  const { sql, params } = buildMediaHubQuery('shared', '', 30, 0);
+  assert.ok(sql.includes(`WHERE m.entity_type = 'pool'`));
+  assert.deepEqual(params, [30, 0]);
+});
+
 test('search adds one LIKE param per searched column, always parameterized', () => {
   const { sql, params } = buildMediaHubQuery('open', 'master bedroom', 30, 60);
   assert.ok(sql.includes('j.name LIKE ?'));

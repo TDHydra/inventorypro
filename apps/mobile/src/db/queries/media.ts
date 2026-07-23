@@ -35,6 +35,14 @@ export function getPrimaryMedia(entityType: string, entityId: string): MediaReco
   return (result.rows[0] as unknown as MediaRecord) ?? null;
 }
 
+// #87: deep-link lookup — is a pushed/notified media id already local? Used to
+// decide between opening the sheet immediately vs. triggering a sync first.
+export function getMediaById(id: string): MediaRecord | null {
+  const db = getDb();
+  const result = db.executeSync(`SELECT * FROM media WHERE id = ?`, [id]);
+  return (result.rows[0] as unknown as MediaRecord) ?? null;
+}
+
 // ── Media hub ────────────────────────────────────────────────────────────────
 
 // The SQL builder is pure and lives in ./mediaHubQuery (DB-free so it runs
@@ -83,6 +91,19 @@ export function getLocationNoteSuggestions(jobId: string): string[] {
      WHERE entity_type = 'job' AND entity_id = ? AND location_note IS NOT NULL AND TRIM(location_note) != ''
      GROUP BY location_note ORDER BY last_used DESC LIMIT 8`,
     [jobId]
+  );
+  return (result.rows as unknown as { location_note: string }[]).map(r => r.location_note);
+}
+
+// #148: Room/Area suggestions for pool quick-photos — the uploader's own past
+// pool notes (job flow keeps the job-scoped variant above).
+export function getPoolLocationNoteSuggestions(userId: string): string[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT location_note, MAX(updated_at) AS last_used FROM media
+     WHERE entity_type = 'pool' AND uploaded_by = ? AND location_note IS NOT NULL AND TRIM(location_note) != ''
+     GROUP BY location_note ORDER BY last_used DESC LIMIT 8`,
+    [userId]
   );
   return (result.rows as unknown as { location_note: string }[]).map(r => r.location_note);
 }

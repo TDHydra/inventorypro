@@ -125,3 +125,26 @@ test('GET /media/message/:id for a foreign message is 403 (REST list cannot bypa
   assert.equal(res.statusCode, 403);
   await app.close();
 });
+
+// #87 — pool shares are keyed to the UPLOADER's user id, and user ids are
+// discoverable via the public /auth/roster. The REST list must therefore be
+// uploader-only; recipients receive their pool rows through the scoped sync
+// pull (mediaScopeSql), never through this route.
+
+test('GET /media/pool/:id for the caller\'s OWN pool lists (200)', async () => {
+  const app = await buildApp(fakePg());
+  const res = await app.inject({ method: 'GET', url: `/media/pool/${CALLER}` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { media: [] });
+  await app.close();
+});
+
+test('GET /media/pool/:id for ANOTHER user\'s pool is 403 (pool media is uploader-only via REST)', async () => {
+  const pg = fakePg();
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: `/media/pool/${OTHER}` });
+  assert.equal(res.statusCode, 403);
+  assert.match((res.json() as { error: string }).error, /uploader-only/i);
+  assert.ok(!pg.queries.some(q => q.sql.includes('FROM media')), 'no media rows may be read');
+  await app.close();
+});

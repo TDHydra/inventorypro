@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent } from './notifications';
+import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients } from './notifications';
 
 test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.assign('r1', 'u1'), 'assign:repair:r1:u1');
@@ -164,4 +164,83 @@ test('getNotifyConfig clamps durations to [1,1440] (guards setInterval overflow 
   // Invalid/zero/garbage → falls back to the default (0 is falsy → default), never < 1.
   const pgZero = { query: async () => ({ rows: [{ key: 'notify_poll_interval_min', value: '0' }] }) };
   assert.equal((await getNotifyConfig(pgZero as any)).pollMin, 5);
+});
+
+// #87: resolvePoolRecipients — recipient targeting for a pool media share.
+// UUID-shaped ids: the 'users' branch drops non-UUID strings before its
+// active-users DB filter (users.id is a uuid PK — a non-uuid would throw).
+const SENDER = 'aaaaaaaa-0000-4000-8000-000000000001';
+const U1 = 'aaaaaaaa-0000-4000-8000-000000000002';
+const U2 = 'aaaaaaaa-0000-4000-8000-000000000003';
+const TEAMMATE = 'aaaaaaaa-0000-4000-8000-000000000004';
+
+function stubPg() {
+  return { query: async () => ({ rows: [] as any[] }) };
+}
+function stubPgWithTeam(teamUserIds: string[]) {
+  return { query: async (sql: string) => {
+    if (sql.includes('team_members')) return { rows: teamUserIds.map(id => ({ user_id: id })) };
+    return { rows: [] as any[] };
+  } };
+}
+// Answers the users-audience active filter: only ids in `activeIds` exist + are active.
+function stubPgWithActiveUsers(activeIds: string[]) {
+  return { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM users')) {
+      const asked = (params[0] as string[]) ?? [];
+      return { rows: asked.filter(id => activeIds.includes(id)).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+}
+
+test('resolvePoolRecipients: users audience → parsed ids minus sender', async () => {
+  const ids = await resolvePoolRecipients(stubPgWithActiveUsers([U1, U2, SENDER]) as any, 'users',
+    `["${U1}", "${U2}", "${SENDER}"]`, SENDER);
+  assert.deepEqual(ids.sort(), [U1, U2].sort());
+});
+
+// #87 hardening: notifications.user_id has an FK to users(id), and deliver()'s
+// per-user insert loop shares one try/catch — a single nonexistent-but-well-formed
+// UUID in audience_user_ids would abort every remaining inbox insert AND skip
+// sendPush. The 'users' branch must filter its ids through active users.
+test('resolvePoolRecipients: users audience drops nonexistent/inactive ids (one bad UUID cannot kill delivery)', async () => {
+  const GHOST = '00000000-0000-4000-8000-000000000000'; // well-formed, but no such user
+  const ids = await resolvePoolRecipients(stubPgWithActiveUsers([U1]) as any, 'users',
+    `["${U1}", "${GHOST}", "not-a-uuid"]`, SENDER);
+  assert.deepEqual(ids, [U1]);
+});
+
+test('resolvePoolRecipients: garbage audience_user_ids → empty', async () => {
+  assert.deepEqual(await resolvePoolRecipients(stubPg() as any, 'users', 'not-json', SENDER), []);
+  assert.deepEqual(await resolvePoolRecipients(stubPg() as any, 'users', null, SENDER), []);
+});
+
+test('resolvePoolRecipients: team audience → active teammates minus sender', async () => {
+  // stubPg returns TEAMMATE rows for the team_members join (sender is filtered out below).
+  const ids = await resolvePoolRecipients(stubPgWithTeam([SENDER, TEAMMATE]) as any, 'team', null, SENDER);
+  assert.deepEqual(ids, [TEAMMATE]);
+});
+
+test('resolvePoolRecipients: everyone → empty (inbox handled separately, no push targeting)', async () => {
+  assert.deepEqual(await resolvePoolRecipients(stubPg() as any, 'everyone', null, SENDER), []);
+});
+
+// #87: deliver's push flag — inbox rows always land; push:false skips sendPush.
+test('deliver: push:false writes inbox rows but skips sendPush', async () => {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = { query: async (sql: string, params: unknown[]) => { calls.push({ sql, params }); return { rows: [] as any[] }; } };
+  await deliver(pg as any, ['u1', 'u2'], { type: 'media_share', title: 't', body: 'b', push: false });
+  const inserts = calls.filter(c => c.sql.includes('INSERT INTO notifications'));
+  assert.equal(inserts.length, 2);
+  const pushLookups = calls.filter(c => c.sql.includes('device_push_tokens'));
+  assert.equal(pushLookups.length, 0);
+});
+
+test('deliver: push defaults to true (sendPush still fires when omitted)', async () => {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = { query: async (sql: string, params: unknown[]) => { calls.push({ sql, params }); return { rows: [] as any[] }; } };
+  await deliver(pg as any, ['u1'], { type: 'media_share', title: 't', body: 'b' });
+  const pushLookups = calls.filter(c => c.sql.includes('device_push_tokens'));
+  assert.equal(pushLookups.length, 1);
 });

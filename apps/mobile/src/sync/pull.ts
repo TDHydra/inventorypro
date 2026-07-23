@@ -14,7 +14,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   jobs: `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at, job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier, type_id, team_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   teams: `INSERT OR REPLACE INTO teams (id, name, type, updated_at, type_id) VALUES (?,?,?,?,?)`,
   team_members: `INSERT OR REPLACE INTO team_members (team_id, user_id, team_permission_overrides, added_by, joined_at, is_manager, updated_at, subteam_id, subteam_role) VALUES (?,?,?,?,?,?,?,?,?)`,
-  media: `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, is_primary, uploaded_by, created_at, location_note, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  media: `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, is_primary, uploaded_by, created_at, location_note, updated_at, audience, audience_user_ids) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   app_config: `INSERT OR REPLACE INTO app_config (key, value, updated_at) VALUES (?, ?, ?)`,
   user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, updated_at) VALUES (?, ?, ?)`,
   taxonomy_types: `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta) VALUES (?,?,?,?,?,?,?,?)`,
@@ -50,7 +50,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'jobs': return [row.id, row.name, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.job_number ?? null, row.customer_name ?? null, row.site_address ?? null, row.site_location_id ?? null, row.description ?? null, row.type ?? null, row.reference_number ?? null, row.insurance_carrier ?? null, row.type_id ?? null, row.team_id ?? null];
     case 'teams': return [row.id, row.name, row.type, row.updated_at, row.type_id ?? null];
     case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at, row.is_manager ? 1 : 0, row.updated_at, row.subteam_id ?? null, row.subteam_role ?? null];
-    case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at, row.location_note ?? null, row.updated_at ?? row.created_at];
+    case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at, row.location_note ?? null, row.updated_at ?? row.created_at, row.audience ?? null, row.audience_user_ids ?? null];
     case 'app_config': return [row.key, row.value, row.updated_at];
     case 'user_prefs': return [row.user_id, row.theme ?? null, row.updated_at];
     case 'taxonomy_types': return [row.id, row.category, row.label, row.icon ?? null, row.sort_order, row.active ? 1 : 0, row.updated_at, row.meta ?? null];

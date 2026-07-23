@@ -10,6 +10,7 @@ import {
   sanitizeTeamOverrides,
   TEAM_OVERRIDABLE_PERMISSIONS,
   validateMediaWrite,
+  MEDIA_ENTITY_TYPES,
 } from './syncPolicy';
 
 const real = new Map([['jobs', new Set(['id', 'name', 'status'])]]);
@@ -339,6 +340,44 @@ test('validateMediaWrite: UPDATE rejects any url/thumbnail_url change', () => {
   assert.notEqual(validateMediaWrite('UPDATE', {
     id: 'm1', entity_type: 'job', entity_id: 'j2', url: mediaUrlFor('job', 'j2'),
   }), null);
+});
+
+// ── #87/#148: media pool audience validation ─────────────────────────────────
+// url fixtures follow the same server-issued-key convention as every other
+// entity type (see mediaUrlFor above) — validateMediaUrlField has no
+// per-entity special-casing, so pool just needs `${base}/pool/${entity_id}/${uuid}.ext`.
+
+test('media INSERT: pool requires a valid audience', () => {
+  const base = { entity_type: 'pool', entity_id: 'user-1', url: mediaUrlFor('pool', 'user-1') };
+  assert.match(validateMediaWrite('INSERT', { ...base }) ?? '', /audience/);
+  assert.match(validateMediaWrite('INSERT', { ...base, audience: 'friends' }) ?? '', /audience/);
+  assert.equal(validateMediaWrite('INSERT', { ...base, audience: 'team' }), null);
+  assert.equal(validateMediaWrite('INSERT', { ...base, audience: 'everyone' }), null);
+});
+
+test('media INSERT: audience=users requires a JSON array of UUIDs', () => {
+  const base = { entity_type: 'pool', entity_id: 'user-1', url: mediaUrlFor('pool', 'user-1'), audience: 'users' };
+  assert.match(validateMediaWrite('INSERT', { ...base }) ?? '', /audience_user_ids/);
+  assert.match(validateMediaWrite('INSERT', { ...base, audience_user_ids: '["not-a-uuid"]' }) ?? '', /audience_user_ids/);
+  assert.match(validateMediaWrite('INSERT', { ...base, audience_user_ids: '{}' }) ?? '', /audience_user_ids/);
+  assert.equal(validateMediaWrite('INSERT', {
+    ...base, audience_user_ids: '["6f1e1c2a-9b3d-4e5f-8a7b-0c1d2e3f4a5b"]',
+  }), null);
+});
+
+test('media INSERT: non-pool photos must not carry an audience', () => {
+  assert.match(validateMediaWrite('INSERT', {
+    entity_type: 'job', entity_id: 'job-1', url: mediaUrlFor('job', 'job-1'), audience: 'team',
+  }) ?? '', /audience/);
+});
+
+test('media UPDATE: audience columns are immutable', () => {
+  assert.match(validateMediaWrite('UPDATE', { audience: 'everyone' }) ?? '', /audience/);
+  assert.match(validateMediaWrite('UPDATE', { audience_user_ids: '[]' }) ?? '', /audience/);
+});
+
+test("MEDIA_ENTITY_TYPES includes 'pool'", () => {
+  assert.ok(MEDIA_ENTITY_TYPES.has('pool'));
 });
 
 test('applyWritePolicy always rejects is_test + enrollment_code_public on users, even with manage_roles_permissions', () => {

@@ -226,7 +226,10 @@ type Op = 'INSERT' | 'UPDATE' | 'DELETE';
 // app_config (a fixed IDOR sink — see routes/media.ts, which imports this).
 // 'message' (#29-H chat attachments) is additionally participant-gated: writes
 // in routes/media.ts, pulls via mediaScopeSql in routes/sync.ts.
-export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log', 'message']);
+export const MEDIA_ENTITY_TYPES = new Set(['item', 'equipment_unit', 'job', 'location', 'repair', 'activity_log', 'message', 'pool']);
+// #87/#148: pool-share audiences. TEXT values, validated on INSERT, immutable after.
+export const AUDIENCE_VALUES = new Set(['team', 'everyone', 'users']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Server-issued object key shape: entity_type/entity_id/uuid.ext — anchors any
 // media URL/delete to a key WE generated in /upload-url, never a client path.
@@ -290,10 +293,28 @@ export function validateMediaWrite(
       const thumbErr = validateMediaUrlField('thumbnail_url', payload.thumbnail_url, entityType, entityId);
       if (thumbErr) return thumbErr;
     }
+    const isPool = entityType === 'pool';
+    const audience = payload.audience == null ? null : String(payload.audience);
+    if (isPool) {
+      if (audience == null || !AUDIENCE_VALUES.has(audience)) return 'media audience not allowed';
+      if (audience === 'users') {
+        let ids: unknown;
+        try { ids = JSON.parse(String(payload.audience_user_ids)); } catch { ids = null; }
+        if (!Array.isArray(ids) || ids.length === 0 || ids.length > 50
+          || !ids.every(v => typeof v === 'string' && UUID_RE.test(v))) {
+          return 'media audience_user_ids must be a JSON array of user UUIDs';
+        }
+      }
+    } else if (audience != null || payload.audience_user_ids != null) {
+      return 'media audience only applies to pool photos';
+    }
     return null;
   }
   if ('url' in payload || 'thumbnail_url' in payload) {
     return 'media url/thumbnail_url cannot be changed via sync';
+  }
+  if ('audience' in payload || 'audience_user_ids' in payload) {
+    return 'media audience cannot be changed via sync';
   }
   const touchesLink = payload.entity_type !== undefined || payload.entity_id !== undefined;
   if (!touchesLink) return null;

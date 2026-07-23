@@ -17,7 +17,7 @@ import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
 import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
-import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, claimEvent, releaseEvent, dedupKeys } from '../lib/notifications';
+import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, resolvePoolRecipients, claimEvent, releaseEvent, dedupKeys } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
 import { sendPush, messageRecipients } from '../lib/push';
@@ -139,14 +139,19 @@ function chatScopeSql(table: string, callerParam: string): string | null {
   }
 }
 
-// Media pull scoping (#29-H): message attachments are private to the message's
-// conversation — a media row linked to a message the caller cannot see must not
-// sync down to their device. Non-message media (items, jobs, locations, …) stays
-// unscoped: that is the normal shared media surface. Same subquery shape as
-// chatScopeSql, parameterized on the caller id via `callerParam`.
+// Media pull scoping. #29-H: message attachments are private to the message's
+// conversation. #87/#148: pool shares are visible to the uploader, 'everyone'
+// shares, the uploader's teammates ('team'), and listed users ('users' — the
+// JSON-array LIKE is exact enough: UUIDs are fixed-form and quoted in the
+// array, so no substring false positives). Other entity media stays unscoped.
 function mediaScopeSql(callerParam: string): string {
   const mine = `SELECT conversation_id FROM conversation_participants WHERE user_id = ${callerParam}`;
-  return `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
+  const myTeams = `SELECT team_id FROM team_members WHERE user_id = ${callerParam}`;
+  const msg = `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
+  const pool = `(entity_type != 'pool' OR uploaded_by = ${callerParam} OR audience = 'everyone'
+    OR (audience = 'team' AND uploaded_by IN (SELECT user_id FROM team_members WHERE team_id IN (${myTeams})))
+    OR (audience = 'users' AND audience_user_ids LIKE '%' || ${callerParam} || '%'))`;
+  return `(${msg} AND ${pool})`;
 }
 
 // #84: may a caller WITHOUT manage_locations INSERT this locations row? Only
@@ -1586,6 +1591,42 @@ const routes: FastifyPluginAsync = async (fastify) => {
               const title = isGroup && conv?.title ? conv.title : senderName;
               const pushBody = isGroup ? `${senderName}: ${body}` : body;
               await sendPush(fastify.pg, recipients, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) } });
+            } catch { /* never disrupt sync */ }
+          })();
+        }
+        // #87: pool photo share → notify the audience. users/team push+inbox;
+        // 'everyone' inbox-only for ALL active users (no company-wide push
+        // blast). Fire-and-forget: never blocks or fails the sync write.
+        if (entry.table_name === 'media' && entry.operation === 'INSERT'
+          && entry.payload.entity_type === 'pool') {
+          const aud = String(entry.payload.audience ?? '');
+          const mediaId = String(entry.payload.id ?? '');
+          const note = typeof entry.payload.location_note === 'string' && entry.payload.location_note.trim()
+            ? entry.payload.location_note.trim() : null;
+          const audienceUserIds = entry.payload.audience_user_ids;
+          void (async () => {
+            try {
+              let recipients: string[];
+              let push = true;
+              if (aud === 'everyone') {
+                recipients = (await fastify.pg.query(
+                  `SELECT id FROM users WHERE active = TRUE AND id != $1`, [userId],
+                )).rows.map(r => r.id as string);
+                push = false;
+              } else if (aud === 'team' || aud === 'users') {
+                recipients = await resolvePoolRecipients(fastify.pg, aud, audienceUserIds, userId);
+              } else return;
+              if (!recipients.length || !mediaId) return;
+              const { rows: uRows } = await fastify.pg.query(`SELECT name FROM users WHERE id = $1`, [userId]);
+              const senderName = uRows[0] ? String((uRows[0] as { name: string }).name) : 'Photo shared';
+              await deliver(fastify.pg, recipients, {
+                type: 'media_share',
+                title: senderName,
+                body: note ? `Shared a photo — ${note}` : 'Shared a photo',
+                data: { screen: 'media', id: mediaId },
+                createdBy: userId,
+                push,
+              });
             } catch { /* never disrupt sync */ }
           })();
         }

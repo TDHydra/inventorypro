@@ -5,6 +5,7 @@ import { useSession } from '../../src/hooks/useSession';
 import { SyncIndicator } from '../../src/components/SyncIndicator';
 import { NotificationBell } from '../../src/components/NotificationBell';
 import { ChatBell } from '../../src/components/ChatBell';
+import { QuickPhotoFlow, openQuickPhoto } from '../../src/components/quickphoto/QuickPhotoFlow';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
@@ -89,6 +90,9 @@ export default function AppLayout() {
           headerTitleStyle: { fontWeight: t.typography.weights.bold, fontFamily: t.typography.fontFamily.bold },
           headerRight: () => (
             <View style={styles.headerRight}>
+              <TouchableOpacity style={styles.switchBtn} onPress={openQuickPhoto} hitSlop={8}>
+                <Text style={styles.switchText}>📷</Text>
+              </TouchableOpacity>
               <ChatBell />
               <NotificationBell />
               <SyncIndicator />
@@ -115,6 +119,7 @@ export default function AppLayout() {
             parent renders the route-group name "(chat)" over the top (#89). */}
         <Stack.Screen name="(chat)" options={{ headerShown: false }} />
       </Stack>
+      <QuickPhotoFlow />
     </View>
   );
 }

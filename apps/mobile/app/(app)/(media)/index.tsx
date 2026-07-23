@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, Image, StyleSheet,
   Dimensions, RefreshControl,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -18,7 +18,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { Alert } from '../../../src/lib/themedAlert';
-import { getMediaHubPage, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
+import { getMediaHubPage, getMediaById, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
 import { syncNow } from '../../../src/sync/engine';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 
@@ -30,18 +30,22 @@ const PAGE_SIZE = 30;
 const FILTERS: { label: string; value: MediaHubFilter }[] = [
   { label: 'Open jobs', value: 'open' },
   { label: 'All jobs', value: 'all' },
+  { label: 'Shared', value: 'shared' },
   { label: 'Everything', value: 'everything' },
 ];
 
 export default function MediaHubScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  const router = useRouter();
   // 'everything' surfaces media on non-job entities too — same gate as Activity Logs.
   const canViewAll = usePermission('view_all_logs');
   const canDelete = usePermission('delete_media');
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<MediaHubRow>();
+  // #87: push/inbox deep-link — a shared photo's id, if we were routed here for one.
+  const { id: linkedId } = useLocalSearchParams<{ id?: string }>();
 
   const [filter, setFilter] = useState<MediaHubFilter>('open');
   const [query, setQuery] = useState('');
@@ -119,9 +123,36 @@ export default function MediaHubScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataVersion]);
 
+  // #87: push/inbox deep-link → open the shared photo. The push can beat the
+  // pull: if the row isn't local yet, trigger a sync; dataVersion bumps on
+  // the next pull and re-runs this effect, opening the sheet once it lands.
+  // Clears the `id` param the moment it's acted on (same idiom as
+  // (locations)/index.tsx's createUnder) so a later UNRELATED background
+  // sync doesn't re-fire this effect and hijack the sheet the user has since
+  // closed or navigated away from. attemptedSyncRef caps our own syncNow()
+  // nudge to once per linkedId — getMediaById is still rechecked on every
+  // dataVersion bump either way, so a row that lands via the engine's normal
+  // periodic sync still opens the sheet; we just don't re-trigger our own
+  // sync over and over for an id that never resolves.
+  const attemptedSyncRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!linkedId) return;
+    if (getMediaById(linkedId)) {
+      setSelectedId(linkedId);
+      router.setParams({ id: undefined });
+      return;
+    }
+    if (attemptedSyncRef.current === linkedId) return;
+    attemptedSyncRef.current = linkedId;
+    void syncNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedId, dataVersion]);
+
   const emptyTitle = query
     ? `No media matching "${query}"`
-    : filter === 'open' ? 'No media on open jobs' : 'No media yet';
+    : filter === 'open' ? 'No media on open jobs'
+    : filter === 'shared' ? 'No shared photos yet'
+    : 'No media yet';
 
   // Bulk delete — permanently removes selected media (offline-first, same as
   // single delete). Gated on delete_media; server re-checks on sync push.

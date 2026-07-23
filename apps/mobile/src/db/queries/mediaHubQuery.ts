@@ -8,9 +8,14 @@
 //   all        → job media regardless of job status
 //   everything → every entity's media (items, equipment, repairs, …) — the
 //                caller gates this behind view_all_logs
+//   shared     → #87/#148: pool-shared photos (entity_type='pool'). NOT gated
+//                behind view_all_logs — a device only ever holds the pool rows
+//                the server's mediaScopeSql already decided this user may see
+//                (uploader/team/everyone/listed-user), so it's personal inbox
+//                content, not an org-wide browse like 'everything'.
 // Search is a LIKE over job name, location note, caption, and uploader name.
 
-export type MediaHubFilter = 'open' | 'all' | 'everything';
+export type MediaHubFilter = 'open' | 'all' | 'everything' | 'shared';
 
 export function buildMediaHubQuery(
   filter: MediaHubFilter,
@@ -24,6 +29,8 @@ export function buildMediaHubQuery(
     where.push(`m.entity_type = 'job'`, `j.status = 'open'`);
   } else if (filter === 'all') {
     where.push(`m.entity_type = 'job'`);
+  } else if (filter === 'shared') {
+    where.push(`m.entity_type = 'pool'`);
   }
   const q = search.trim();
   if (q) {

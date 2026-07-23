@@ -42,6 +42,11 @@ function navigateToPayload(router: Router, data: Record<string, unknown> | undef
       else router.push('/(app)/(chat)');
       return;
     }
+    case 'media':
+      // #87: pool photo share — open the media hub on the shared photo.
+      if (id) router.push({ pathname: '/(app)/(media)', params: { id } });
+      else router.push('/(app)/(media)');
+      return;
     case 'notifications':
       // broadcast / approval / checkout-idle pushes open the in-app inbox
       router.push('/(app)/(notifications)');

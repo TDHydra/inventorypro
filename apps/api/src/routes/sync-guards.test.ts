@@ -29,10 +29,23 @@ const MESSAGE_CONV: Record<string, string> = {
   'msg-mine': 'conv-mine',
   'msg-foreign': 'conv-foreign',
 };
+// team-a: caller's own team (shared with teammate-1); team-b: a different team
+// (not-my-teammate is on it, caller is not) — models the #87/#148 'team'
+// pool-share audience (uploader's teammates only).
+const TEAM_MEMBERS: Record<string, string[]> = {
+  'team-a': [CALLER, 'teammate-1'],
+  'team-b': ['not-my-teammate'],
+};
 const MEDIA_ROWS = [
   { id: 'media-item', entity_type: 'item', entity_id: 'item-1' },
   { id: 'media-msg-mine', entity_type: 'message', entity_id: 'msg-mine' },
   { id: 'media-msg-foreign', entity_type: 'message', entity_id: 'msg-foreign' },
+  { id: 'media-pool-mine', entity_type: 'pool', uploaded_by: CALLER, audience: 'users', audience_user_ids: '["other-user"]' },
+  { id: 'media-pool-everyone', entity_type: 'pool', uploaded_by: 'stranger', audience: 'everyone', audience_user_ids: null },
+  { id: 'media-pool-team', entity_type: 'pool', uploaded_by: 'teammate-1', audience: 'team', audience_user_ids: null },
+  { id: 'media-pool-otherteam', entity_type: 'pool', uploaded_by: 'not-my-teammate', audience: 'team', audience_user_ids: null },
+  { id: 'media-pool-listed', entity_type: 'pool', uploaded_by: 'stranger', audience: 'users', audience_user_ids: `["${CALLER}"]` },
+  { id: 'media-pool-notlisted', entity_type: 'pool', uploaded_by: 'stranger', audience: 'users', audience_user_ids: '["someone-else"]' },
 ];
 
 // Boot-time column introspection result — just the tables these tests write to.
@@ -195,16 +208,31 @@ function fakePg(opts: FakePgOpts = {}) {
         return { rows: opts.messageSender ? [{ sender_id: opts.messageSender }] : [] };
       }
       if (sql.includes('FROM media')) {
-        const scoped = sql.includes(`entity_type != 'message'`)
+        const msgScoped = sql.includes(`entity_type != 'message'`)
           && sql.includes('conversation_participants WHERE user_id =');
-        if (!scoped) return { rows: MEDIA_ROWS };
+        // #87/#148: pool-share scoping fragment.
+        const poolScoped = sql.includes(`entity_type != 'pool'`);
+        if (!msgScoped && !poolScoped) return { rows: MEDIA_ROWS };
         // Emulate the predicate for the caller-id param (last positional in
         // both /pull ($2) and /full ($3)).
         const uid = String(params[params.length - 1]);
+        const teamsOf = (userId: string) =>
+          Object.keys(TEAM_MEMBERS).filter(t => TEAM_MEMBERS[t].includes(userId));
+        const sharesTeamWith = (otherUserId: string) => {
+          const myTeams = teamsOf(uid);
+          return teamsOf(otherUserId).some(t => myTeams.includes(t));
+        };
         return {
-          rows: MEDIA_ROWS.filter(m =>
-            m.entity_type !== 'message'
-            || (PARTICIPANTS[MESSAGE_CONV[m.entity_id]] ?? []).includes(uid)),
+          rows: MEDIA_ROWS.filter(m => {
+            const msgOk = !msgScoped || m.entity_type !== 'message'
+              || (PARTICIPANTS[MESSAGE_CONV[m.entity_id as keyof typeof MESSAGE_CONV]] ?? []).includes(uid);
+            const poolOk = !poolScoped || m.entity_type !== 'pool'
+              || m.uploaded_by === uid
+              || m.audience === 'everyone'
+              || (m.audience === 'team' && sharesTeamWith(m.uploaded_by as string))
+              || (m.audience === 'users' && typeof m.audience_user_ids === 'string' && m.audience_user_ids.includes(uid));
+            return msgOk && poolOk;
+          }),
         };
       }
       return { rows: [] };
@@ -386,7 +414,10 @@ test('pull: message-attachment media from a foreign conversation is excluded; ot
   const res = await app.inject({ method: 'GET', url: '/sync/pull?since=2020-01-01T00:00:00.000Z' });
   assert.equal(res.statusCode, 200);
   const media = (res.json() as Record<string, { rows: Array<{ id: string }> }>).media.rows;
-  assert.deepEqual(media.map(r => r.id).sort(), ['media-item', 'media-msg-mine']);
+  // media-msg-foreign stays excluded; the visible pool shares (#87/#148) now
+  // also appear alongside the always-unscoped item media.
+  assert.deepEqual(media.map(r => r.id).sort(),
+    ['media-item', 'media-msg-mine', 'media-pool-everyone', 'media-pool-listed', 'media-pool-mine', 'media-pool-team']);
   await app.close();
 });
 
@@ -395,7 +426,30 @@ test('full: the media page is scoped the same way as the incremental pull', asyn
   const res = await app.inject({ method: 'GET', url: '/sync/full?table=media' });
   assert.equal(res.statusCode, 200);
   const { rows } = res.json() as { rows: Array<{ id: string }> };
-  assert.deepEqual(rows.map(r => r.id).sort(), ['media-item', 'media-msg-mine']);
+  assert.deepEqual(rows.map(r => r.id).sort(),
+    ['media-item', 'media-msg-mine', 'media-pool-everyone', 'media-pool-listed', 'media-pool-mine', 'media-pool-team']);
+  await app.close();
+});
+
+// ── #87/#148: media pull scoping for pool shares ──────────────────────────────
+
+test('pull: pool media scoped to uploader/everyone/team/listed users', async () => {
+  const app = await buildApp(fakePg());
+  const res = await app.inject({ method: 'GET', url: '/sync/pull?since=2020-01-01T00:00:00.000Z' });
+  assert.equal(res.statusCode, 200);
+  const media = (res.json() as Record<string, { rows: Array<{ id: string }> }>).media.rows;
+  assert.deepEqual(media.map(r => r.id).sort(),
+    ['media-item', 'media-msg-mine', 'media-pool-everyone', 'media-pool-listed', 'media-pool-mine', 'media-pool-team']);
+  await app.close();
+});
+
+test('full: pool media scoped identically', async () => {
+  const app = await buildApp(fakePg());
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=media' });
+  assert.equal(res.statusCode, 200);
+  const { rows } = res.json() as { rows: Array<{ id: string }> };
+  assert.deepEqual(rows.map(r => r.id).sort(),
+    ['media-item', 'media-msg-mine', 'media-pool-everyone', 'media-pool-listed', 'media-pool-mine', 'media-pool-team']);
   await app.close();
 });
 
