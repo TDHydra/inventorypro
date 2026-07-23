@@ -174,6 +174,10 @@ export default function ChatThreadScreen() {
     setDraft('');
     setAttaching(true);
     try {
+      // The presign route's participant gate looks the message up SERVER-side
+      // (messages ⋈ conversation_participants), so the outbox row must be
+      // pushed before we can ask for an upload URL — otherwise a guaranteed 403.
+      await syncNow().catch(() => { /* upload below surfaces connectivity errors */ });
       await uploadMediaAsset({
         entityType: 'message', entityId: msg.id,
         mediaType: 'image', ext,
