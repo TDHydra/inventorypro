@@ -222,6 +222,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
           return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
         }
       }
+      // #87: pool shares are keyed to the UPLOADER's user id (discoverable via
+      // the public /auth/roster), so an unscoped list would leak any user's pool
+      // to any authenticated caller. REST is uploader-only; recipients get their
+      // pool rows through the scoped sync pull (mediaScopeSql), never this route.
+      if (entityType === 'pool') {
+        const callerId = (request.user as { sub: string }).sub;
+        if (entityId !== callerId) {
+          return reply.status(403).send({ error: 'Forbidden: pool media is uploader-only via REST' });
+        }
+      }
       const { rows } = await fastify.pg.query(
         `SELECT * FROM media
          WHERE entity_type = $1 AND entity_id = $2

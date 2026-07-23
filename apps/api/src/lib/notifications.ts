@@ -51,6 +51,8 @@ export async function resolveRoleRecipients(pg: Pg, roles: string[]): Promise<st
   return rows.map(r => r.id as string);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // #87: recipients for a pool photo share. 'users' → the listed ids; 'team' →
 // active members of every team the sender is on; 'everyone' → [] (everyone-
 // shares are deliberately quiet: media hub + scope SQL carry them, no blast).
@@ -63,10 +65,23 @@ export async function resolvePoolRecipients(
 ): Promise<string[]> {
   const ids = new Set<string>();
   if (audience === 'users') {
+    const listed: string[] = [];
     try {
       const parsed = JSON.parse(String(audienceUserIds));
-      if (Array.isArray(parsed)) parsed.forEach(v => { if (typeof v === 'string') ids.add(v); });
+      // Only UUID-shaped strings survive: a non-UUID string would make the
+      // active-users filter below throw on the uuid cast (id = ANY($1)),
+      // zeroing out the whole share's recipients.
+      if (Array.isArray(parsed)) parsed.forEach(v => { if (typeof v === 'string' && UUID_RE.test(v)) listed.push(v); });
     } catch { /* malformed → no recipients */ }
+    // Filter through active users (mirrors the 'team' branch's u.active join):
+    // notifications.user_id has an FK to users(id) and deliver()'s insert loop
+    // shares one try/catch, so a single stale/forged-but-well-formed UUID here
+    // would abort every remaining inbox insert AND skip sendPush.
+    if (listed.length) {
+      (await pg.query(
+        `SELECT id FROM users WHERE id = ANY($1) AND active = TRUE`, [listed],
+      )).rows.forEach(r => ids.add(r.id as string));
+    }
   } else if (audience === 'team') {
     (await pg.query(
       `SELECT DISTINCT tm.user_id FROM team_members tm

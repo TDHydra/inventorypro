@@ -167,10 +167,12 @@ test('getNotifyConfig clamps durations to [1,1440] (guards setInterval overflow 
 });
 
 // #87: resolvePoolRecipients — recipient targeting for a pool media share.
-const SENDER = 'sender1';
-const U1 = 'u1';
-const U2 = 'u2';
-const TEAMMATE = 'teammate1';
+// UUID-shaped ids: the 'users' branch drops non-UUID strings before its
+// active-users DB filter (users.id is a uuid PK — a non-uuid would throw).
+const SENDER = 'aaaaaaaa-0000-4000-8000-000000000001';
+const U1 = 'aaaaaaaa-0000-4000-8000-000000000002';
+const U2 = 'aaaaaaaa-0000-4000-8000-000000000003';
+const TEAMMATE = 'aaaaaaaa-0000-4000-8000-000000000004';
 
 function stubPg() {
   return { query: async () => ({ rows: [] as any[] }) };
@@ -181,11 +183,32 @@ function stubPgWithTeam(teamUserIds: string[]) {
     return { rows: [] as any[] };
   } };
 }
+// Answers the users-audience active filter: only ids in `activeIds` exist + are active.
+function stubPgWithActiveUsers(activeIds: string[]) {
+  return { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM users')) {
+      const asked = (params[0] as string[]) ?? [];
+      return { rows: asked.filter(id => activeIds.includes(id)).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+}
 
 test('resolvePoolRecipients: users audience → parsed ids minus sender', async () => {
-  const ids = await resolvePoolRecipients(stubPg() as any, 'users',
+  const ids = await resolvePoolRecipients(stubPgWithActiveUsers([U1, U2, SENDER]) as any, 'users',
     `["${U1}", "${U2}", "${SENDER}"]`, SENDER);
   assert.deepEqual(ids.sort(), [U1, U2].sort());
+});
+
+// #87 hardening: notifications.user_id has an FK to users(id), and deliver()'s
+// per-user insert loop shares one try/catch — a single nonexistent-but-well-formed
+// UUID in audience_user_ids would abort every remaining inbox insert AND skip
+// sendPush. The 'users' branch must filter its ids through active users.
+test('resolvePoolRecipients: users audience drops nonexistent/inactive ids (one bad UUID cannot kill delivery)', async () => {
+  const GHOST = '00000000-0000-4000-8000-000000000000'; // well-formed, but no such user
+  const ids = await resolvePoolRecipients(stubPgWithActiveUsers([U1]) as any, 'users',
+    `["${U1}", "${GHOST}", "not-a-uuid"]`, SENDER);
+  assert.deepEqual(ids, [U1]);
 });
 
 test('resolvePoolRecipients: garbage audience_user_ids → empty', async () => {
