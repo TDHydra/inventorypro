@@ -140,3 +140,21 @@ test('pull suspends FK enforcement while applying server rows and restores it', 
   assert.ok(/finally\s*{[^}]*PRAGMA foreign_keys\s*=\s*ON/is.test(src),
     'FK enforcement must be restored in a finally block');
 });
+
+// Migrations 053/054 / API 065/066 (phase 0, #152/#155/#167/#168): vehicles
+// gained four option columns and service records gained receipt fields — the
+// same "added a column to a synced table" trap as checkout_locked above.
+test('vehicles syncs the phase-0 option columns', () => {
+  const vehicles = upsertStatements().find(s => s.table === 'vehicles');
+  assert.ok(vehicles, 'no vehicles upsert');
+  for (const col of ['debris_option', 'debris_level', 'open_checkout', 'locked_by']) {
+    assert.ok(vehicles.cols.includes(col), `vehicles upsert is missing ${col}`);
+  }
+});
+
+test('vehicle_service_records syncs payer and job_id', () => {
+  const recs = upsertStatements().find(s => s.table === 'vehicle_service_records');
+  assert.ok(recs, 'no vehicle_service_records upsert');
+  assert.ok(recs.cols.includes('payer'), 'missing payer');
+  assert.ok(recs.cols.includes('job_id'), 'missing job_id');
+});
