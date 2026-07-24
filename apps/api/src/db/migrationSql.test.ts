@@ -70,3 +70,12 @@ test('065: no backfill — defaults converge, no watermark bump wanted', () => {
   const sql = read('065_vehicle_options.sql');
   assert.doesNotMatch(sql, /UPDATE vehicles/i);
 });
+
+test('066: receipt fields are nullable TEXT/UUID adds, never enum, no backfill', () => {
+  const sql = read('066_receipt_fields.sql');
+  assert.match(sql, /ALTER TABLE vehicle_service_records ADD COLUMN IF NOT EXISTS payer TEXT/);
+  assert.match(sql, /ALTER TABLE vehicle_service_records ADD COLUMN IF NOT EXISTS job_id UUID/);
+  assert.doesNotMatch(sql, /CREATE TYPE/i);
+  assert.doesNotMatch(sql, /NOT NULL/);
+  assert.doesNotMatch(sql, /UPDATE vehicle_service_records/i);
+});
