@@ -53,3 +53,20 @@ test('059: vehicle dedupe survivor choice matches mobile 047 (updated_at ASC, id
     assert.ok(sql.includes(t), `${t} re-pointed`);
   }
 });
+
+// ── Phase 0 (#152/#155/#167): vehicle options wave ───────────────────────────
+
+test('065: four vehicle option columns, pinned defaults, never a PG enum', () => {
+  const sql = read('065_vehicle_options.sql');
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS debris_option BOOLEAN NOT NULL DEFAULT false/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS debris_level INTEGER NOT NULL DEFAULT 0/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS open_checkout BOOLEAN NOT NULL DEFAULT false/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS locked_by UUID/);
+  assert.doesNotMatch(sql, /CREATE TYPE/i);
+  assert.doesNotMatch(sql, /DROP COLUMN/i);
+});
+
+test('065: no backfill — defaults converge, no watermark bump wanted', () => {
+  const sql = read('065_vehicle_options.sql');
+  assert.doesNotMatch(sql, /UPDATE vehicles/i);
+});
