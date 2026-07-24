@@ -557,3 +557,30 @@ test('on_call_coverage: explicit pull projection, never *', () => {
 test('on_call_coverage_added is an allowed activity against team', () => {
   assert.equal(isAllowedActivity('on_call_coverage_added', 'team'), true);
 });
+
+// ── Phase 0 (#152/#155/#167/#168): vehicles wave sync surface ────────────────
+
+test('media INSERT: service_record is an allowed entity type', () => {
+  assert.ok(MEDIA_ENTITY_TYPES.has('service_record'));
+  const err = validateMediaWrite('INSERT', {
+    entity_type: 'service_record',
+    entity_id: '9c9e2c1a-0000-4000-8000-000000000001',
+    url: mediaUrlFor('service_record', '9c9e2c1a-0000-4000-8000-000000000001'),
+  });
+  assert.equal(err, null);
+});
+
+test('vehicles pull carries the phase-0 option columns', () => {
+  const cols = selectColumnsFor('vehicles', false);
+  for (const col of ['debris_option', 'debris_level', 'open_checkout', 'locked_by']) {
+    assert.ok(cols.includes(col), `VEHICLES_COLS missing ${col}`);
+  }
+});
+
+test('service-record pull carries payer/job_id ungated; cost stays financial-gated', () => {
+  const base = selectColumnsFor('vehicle_service_records', false);
+  assert.ok(base.includes('payer'), 'BASE missing payer');
+  assert.ok(base.includes('job_id'), 'BASE missing job_id');
+  assert.ok(!base.includes('cost'), 'cost must stay financial-gated, not in BASE');
+  assert.ok(selectColumnsFor('vehicle_service_records', true).includes('cost'));
+});
