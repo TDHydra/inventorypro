@@ -44,6 +44,8 @@ before(async () => {
       water_state TEXT, model TEXT, model_id TEXT, notes TEXT,
       water_tank TEXT NOT NULL DEFAULT 'empty', waste_tank TEXT NOT NULL DEFAULT 'clean',
       checkout_locked INTEGER NOT NULL DEFAULT 0,
+      debris_option INTEGER NOT NULL DEFAULT 0, debris_level INTEGER NOT NULL DEFAULT 0,
+      open_checkout INTEGER NOT NULL DEFAULT 0, locked_by TEXT,
       updated_at TEXT NOT NULL, synced_at TEXT
     );
     CREATE TABLE vehicle_checkouts (
@@ -55,6 +57,7 @@ before(async () => {
       id TEXT PRIMARY KEY, vehicle_location_id TEXT NOT NULL, target TEXT NOT NULL,
       event_date TEXT NOT NULL, type TEXT NOT NULL, notes TEXT, odometer REAL,
       cost REAL, created_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      payer TEXT, job_id TEXT,
       synced_at TEXT
     );
     CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, role TEXT);
