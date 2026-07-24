@@ -135,3 +135,21 @@ export function odometerDeltas<T extends { odometer: number }>(rowsDesc: readonl
     return older ? r.odometer - older.odometer : null;
   });
 }
+
+/**
+ * #167 phase 0: who holds the lock after applying `patch`.
+ * 0→1 stamps the acting user; 1→1 keeps the original locker (a legacy NULL
+ * locker adopts the actor); →0 clears; a patch not touching checkout_locked
+ * carries the existing stamp. The unlock RULE (tier comparison) is the #167
+ * UI phase — this is write plumbing only.
+ */
+export function resolveLockStamp(
+  patch: { checkout_locked?: number },
+  existing: { checkout_locked: number; locked_by: string | null } | null,
+  userId: string | null,
+): string | null {
+  if (patch.checkout_locked === undefined) return existing?.locked_by ?? null;
+  if (!patch.checkout_locked) return null;
+  if (existing?.checkout_locked) return existing.locked_by ?? userId;
+  return userId;
+}

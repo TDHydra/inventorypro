@@ -4,7 +4,7 @@ import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
 import { ROLE_TIER, type UserRole } from '../../constants/roles';
-import { buildClosePayload, buildTakeoverNote, FUEL_UP_TYPE } from '../../components/vehicles/vehicleSessionLogic';
+import { buildClosePayload, buildTakeoverNote, FUEL_UP_TYPE, resolveLockStamp } from '../../components/vehicles/vehicleSessionLogic';
 import { sharesTeamWithOwner } from './access';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Three soft-FK tables:
@@ -44,6 +44,10 @@ export interface VehicleRow {
   model_id: string | null;
   notes: string | null;
   checkout_locked: number; // 0/1 (#157): owner locked the vehicle from checkout
+  debris_option: number; // 0/1 (#152): vehicle has the debris tracker
+  debris_level: number; // 0-100 (#152)
+  open_checkout: number; // 0/1 (#155): owner-assigned vehicle opted into general checkout
+  locked_by: string | null; // UUID (#167): who set checkout_locked; NULL = legacy lock
   updated_at: string;
   synced_at: string | null; // local-only
 }
@@ -57,6 +61,8 @@ export interface VehicleServiceRecord {
   notes: string | null;
   odometer: number | null;
   cost: number | null;
+  payer: string | null; // #168: gas-receipt payer from app_config gas_receipt_payers
+  job_id: string | null; // #168: optional job (soft FK)
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -97,6 +103,9 @@ export interface VehicleStatePatch {
   model_id?: string | null;
   notes?: string | null;
   checkout_locked?: number; // #157/#165: offered to canManageVehicle holders (edit sheet + panel pill)
+  debris_option?: number; // #152
+  debris_level?: number; // #152 (0-100; UI clamps)
+  open_checkout?: number; // #155: owner opt-in toggle
 }
 
 /**
@@ -123,14 +132,18 @@ export function upsertVehicleState(
       model_id: patch.model_id !== undefined ? patch.model_id : existing?.model_id ?? null,
       notes: patch.notes !== undefined ? patch.notes : existing?.notes ?? null,
       checkout_locked: patch.checkout_locked ?? existing?.checkout_locked ?? 0,
+      debris_option: patch.debris_option ?? existing?.debris_option ?? 0,
+      debris_level: patch.debris_level ?? existing?.debris_level ?? 0,
+      open_checkout: patch.open_checkout ?? existing?.open_checkout ?? 0,
+      locked_by: resolveLockStamp(patch, existing, userId),
       updated_at: now,
       synced_at: null,
     };
     const db = getDb();
     db.executeSync(
-      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank, merged.checkout_locked]),
+      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked, debris_option, debris_level, open_checkout, locked_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank, merged.checkout_locked, merged.debris_option, merged.debris_level, merged.open_checkout, merged.locked_by]),
     );
     const { synced_at: _s, water_state: _w, ...row } = merged;
     appendOutbox('INSERT', 'vehicles', row);
@@ -201,6 +214,8 @@ export function createServiceRecord(input: {
   notes?: string | null;
   odometer?: number | null;
   cost?: number | null;
+  payer?: string | null; // #168: gas-receipt payer (app_config gas_receipt_payers)
+  jobId?: string | null; // #168: optional job (soft FK)
   userId: string | null;
 }): string {
   const id = generateUUID();
@@ -208,17 +223,20 @@ export function createServiceRecord(input: {
   const notes = input.notes ?? null;
   const odometer = input.odometer ?? null;
   const cost = input.cost ?? null;
+  const payer = input.payer ?? null;
+  const jobId = input.jobId ?? null;
 
   runInTransaction(() => {
     const db = getDb();
     db.executeSync(
-      `INSERT INTO vehicle_service_records (id, vehicle_location_id, target, event_date, type, notes, odometer, cost, created_by, created_at, updated_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-      bindParams([id, input.vehicleLocationId, input.target, input.eventDate, input.type, notes, odometer, cost, input.userId, now, now]),
+      `INSERT INTO vehicle_service_records (id, vehicle_location_id, target, event_date, type, notes, odometer, cost, created_by, created_at, updated_at, payer, job_id, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      bindParams([id, input.vehicleLocationId, input.target, input.eventDate, input.type, notes, odometer, cost, input.userId, now, now, payer, jobId]),
     );
     appendOutbox('INSERT', 'vehicle_service_records', {
       id, vehicle_location_id: input.vehicleLocationId, target: input.target,
       event_date: input.eventDate, type: input.type, notes, odometer, cost,
+      payer, job_id: jobId,
       created_by: input.userId, created_at: now, updated_at: now,
     });
     appendLog({

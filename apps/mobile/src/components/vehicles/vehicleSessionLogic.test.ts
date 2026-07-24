@@ -133,3 +133,25 @@ test('odometerDeltas: each row minus the next-older reading, oldest is null', ()
   assert.deepEqual(odometerDeltas(rows), [300, 200, null]);
   assert.deepEqual(odometerDeltas([]), []);
 });
+
+// ── #167: locked_by stamping (phase 0 — write plumbing only, rule comes later)
+import { resolveLockStamp } from './vehicleSessionLogic';
+
+test('resolveLockStamp: 0→1 stamps the acting user', () => {
+  assert.equal(resolveLockStamp({ checkout_locked: 1 }, { checkout_locked: 0, locked_by: null }, 'u-1'), 'u-1');
+  assert.equal(resolveLockStamp({ checkout_locked: 1 }, null, 'u-1'), 'u-1');
+});
+
+test('resolveLockStamp: 1→1 keeps the original locker', () => {
+  assert.equal(resolveLockStamp({ checkout_locked: 1 }, { checkout_locked: 1, locked_by: 'u-orig' }, 'u-2'), 'u-orig');
+});
+
+test('resolveLockStamp: 1→1 legacy lock (NULL locker) adopts the acting user', () => {
+  assert.equal(resolveLockStamp({ checkout_locked: 1 }, { checkout_locked: 1, locked_by: null }, 'u-2'), 'u-2');
+});
+
+test('resolveLockStamp: →0 clears; untouched patch carries existing', () => {
+  assert.equal(resolveLockStamp({ checkout_locked: 0 }, { checkout_locked: 1, locked_by: 'u-orig' }, 'u-2'), null);
+  assert.equal(resolveLockStamp({}, { checkout_locked: 1, locked_by: 'u-orig' }, 'u-2'), 'u-orig');
+  assert.equal(resolveLockStamp({}, null, 'u-2'), null);
+});
