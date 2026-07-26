@@ -202,3 +202,11 @@ export function snapDebrisLevel(raw: number): number {
   if (!Number.isFinite(raw)) return 0;
   return Math.min(100, Math.max(0, Math.round(raw / 10) * 10));
 }
+
+/**
+ * #168: the user has a vehicle checked out but filed the gas receipt against a
+ * different one — allowed, but the mismatch is recorded in the activity log.
+ */
+export function buildReceiptVehicleMismatchNote(checkedOutName: string, chosenName: string): string {
+  return `fuel_up receipt: user checked out ${checkedOutName} but logged against ${chosenName}`;
+}

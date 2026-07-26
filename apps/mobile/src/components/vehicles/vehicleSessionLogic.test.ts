@@ -15,6 +15,7 @@ import {
   resolveVehicleAvailability,
   canLiftVehicleLock,
   snapDebrisLevel,
+  buildReceiptVehicleMismatchNote,
 } from './vehicleSessionLogic';
 
 const open = (userId: string) => ({ id: 's1', user_id: userId, checked_in_at: null });
@@ -243,4 +244,12 @@ test('snapDebrisLevel: rounds to nearest 10 and clamps', () => {
   assert.equal(snapDebrisLevel(104), 100);
   assert.equal(snapDebrisLevel(-3), 0);
   assert.equal(snapDebrisLevel(NaN), 0);
+});
+
+// ── #168: receipt logged against a different vehicle than the active checkout
+test('buildReceiptVehicleMismatchNote names both vehicles', () => {
+  assert.equal(
+    buildReceiptVehicleMismatchNote('Van 1', 'Box Truck'),
+    'fuel_up receipt: user checked out Van 1 but logged against Box Truck',
+  );
 });
