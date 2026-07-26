@@ -217,6 +217,7 @@ export function createServiceRecord(input: {
   cost?: number | null;
   payer?: string | null; // #168: gas-receipt payer (app_config gas_receipt_payers)
   jobId?: string | null; // #168: optional job (soft FK)
+  logNote?: string | null; // #168: overrides the activity-log note (vehicle-mismatch receipts)
   userId: string | null;
 }): string {
   const id = generateUUID();
@@ -247,7 +248,7 @@ export function createServiceRecord(input: {
       user_id: input.userId,
       team_id: null,
       job_id: null,
-      note: input.type,
+      note: input.logNote ?? input.type,
       from_location_id: null,
       to_location_id: null,
       quantity: null,
