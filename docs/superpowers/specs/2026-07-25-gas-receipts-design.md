@@ -29,7 +29,10 @@ Fields, top to bottom:
   (`src/media/upload.ts` + `.web.ts` twin) with `entity_type: 'service_record'`,
   `entity_id: <record id>`. Optional; when saving without one, the submit path shows a
   one-time inline warning ("No receipt photo attached — save anyway?" via `confirmSheet`).
-  Offline-first: the record commits locally; the upload rides the media pipeline's queue.
+  Offline: the RECORD always commits locally (offline-first), but the photo upload is
+  online-only (presigned PUT — there is no offline media queue). On upload failure the
+  record stays saved and the user is told the photo didn't attach (`MediaTooLargeError`
+  gets its own message, matching QuickPhotoFlow).
 - **Payer** — REQUIRED. Chip row (Pressable + StatusPill, the repo's chip idiom) fed by
   `getGasReceiptPayers()` — the list is short by design (settings guard, min 1); component subscribes via `subscribeGasReceiptPayers` +
   `getGasReceiptPayersVersion` (useSyncExternalStore pattern) so settings edits show live.
