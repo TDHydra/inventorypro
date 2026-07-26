@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { TEAM_OVERRIDABLE_PERMISSIONS } from './syncPolicy';
 
 // KEEP IN SYNC with apps/mobile/src/constants/roles.ts
 
@@ -145,6 +146,8 @@ const tier4: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
   add_inventory:              true,
+  // #76: quick_add — KEEP IN SYNC with apps/mobile/src/constants/roles.ts tier maps.
+  quick_add:                  true,
   edit_inventory:             true,
   delete_inventory:           true,
   transfer_between_locations: true,
@@ -176,6 +179,7 @@ const tier3: PermissionMap = {
   checkout_inventory:         false,
   checkin_inventory:          false,
   add_inventory:              false,
+  quick_add:                  true,
   edit_inventory:             false,
   delete_inventory:           false,
   transfer_between_locations: false,
@@ -204,6 +208,7 @@ const tier2: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
   add_inventory:              true,
+  quick_add:                  true,
   edit_inventory:             true,
   delete_inventory:           false,
   transfer_between_locations: true,
@@ -232,6 +237,7 @@ const tier1: PermissionMap = {
   checkout_inventory:         true,
   checkin_inventory:          true,
   add_inventory:              false,
+  quick_add:                  false,
   edit_inventory:             false,
   delete_inventory:           false,
   transfer_between_locations: false,
@@ -260,6 +266,11 @@ const tempEmployee: PermissionMap = {
   ...tier1,
   checkin_inventory:  false,
   upload_media:       false,
+  // #76: explicit byte-parity with apps/mobile/src/constants/roles.ts (:261-268)
+  // — mobile lists these explicitly even though tier1 already defaults both to
+  // false; kept explicit here so the two source files stay comparable line-for-line.
+  edit_media:         false,
+  delete_media:       false,
   checkout_for_team:  false,
 };
 
@@ -279,14 +290,31 @@ export const ROLE_DEFAULTS: Record<string, PermissionMap> = {
   temporary_employee:       tempEmployee,
 };
 
-// Resolution order (last match wins): ROLE_DEFAULTS → role override → user override.
-// roleOverrides is the role_settings.permission_overrides deviation map (may be
-// null when the role has no row / no deviations).
+// Resolution order (last match wins): ROLE_DEFAULTS → role override → team
+// override union → user override. roleOverrides is the role_settings.
+// permission_overrides deviation map (may be null when the role has no row /
+// no deviations).
+//
+// #76 team-override union layer (the root-cause fix): mobile's hasPermission
+// resolves a SINGLE active team context — role default → role override → THAT
+// team's override (may grant OR deny) → global user override (always wins).
+// The server has no equivalent "active team" per push entry (an outbox entry
+// carries no team context), so exact parity is impossible. Instead it accepts
+// the UNION of every team the caller belongs to: for perms on the
+// TEAM_OVERRIDABLE_PERMISSIONS allowlist, a POSITIVE grant (=== true) in ANY
+// one of the caller's teams is enough. A negative override in a team is never
+// applied — it can't narrow access, only a grant elsewhere can widen it.
+// Documented asymmetry: this makes the server's check a superset of what any
+// single client team-context could show (client could show it enabled in team
+// T ⇒ server also accepts it), and it can never be MORE restrictive than the
+// role/user baseline. teamOverridesList is every team_members row's
+// team_permission_overrides for the caller (order irrelevant).
 export function userHasPermission(
   role: string,
   userOverrides: Record<string, boolean> | null,
   perm: string,
   roleOverrides?: Record<string, boolean> | null,
+  teamOverridesList?: Array<Record<string, boolean> | null> | null,
 ): boolean {
   // 0. Self-lockout floor — full_admin can never lose these (overrides ignored).
   if (role === 'full_admin' && FULL_ADMIN_FLOOR.has(perm)) return true;
@@ -294,7 +322,14 @@ export function userHasPermission(
   let result = ROLE_DEFAULTS[role]?.[perm] ?? false;
   // 2. Role-level override (runtime deviation from ROLE_DEFAULTS)
   if (roleOverrides && perm in roleOverrides) result = !!roleOverrides[perm];
-  // 3. User override (always wins)
+  // 3. Team-override union — grants only (see comment above).
+  if (TEAM_OVERRIDABLE_PERMISSIONS.has(perm) && teamOverridesList) {
+    for (const teamOverrides of teamOverridesList) {
+      if (teamOverrides && teamOverrides[perm] === true) { result = true; break; }
+    }
+  }
+  // 4. User override (always wins — even over a team grant, matching mobile's
+  // "global user override always wins" precedence).
   if (userOverrides && perm in userOverrides) result = !!userOverrides[perm];
   return result;
 }

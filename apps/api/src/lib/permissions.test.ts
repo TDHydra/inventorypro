@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ROLE_TIER, effectiveTier, canActOnTarget, canAssignRole, userHasPermission } from './permissions';
+import { ROLE_TIER, effectiveTier, canActOnTarget, canAssignRole, userHasPermission, ROLE_DEFAULTS } from './permissions';
+import { TEAM_OVERRIDABLE_PERMISSIONS } from './syncPolicy';
 
 // One representative role per tier (1..4). ROLE_TIER is the source of truth.
 // Tier 4 here uses franchise_manager (a NON-apex tier-4 role) so the generic
@@ -139,4 +140,107 @@ test('media permission family tier defaults mirror the inventory family', () => 
   assert.equal(userHasPermission('construction_crew', null, 'delete_media', null), false);
   // overrides still apply per the normal resolution chain
   assert.equal(userHasPermission('construction_crew', { edit_media: true }, 'edit_media', null), true);
+});
+
+// ── #76: quick_add parity — MUST mirror apps/mobile/src/constants/roles.ts
+// ROLE_DEFAULTS exactly (tier4/tier3/tier2 = true, tier1/tempEmployee = false).
+// This closes the silent drift that let quick_add gate nothing server-side.
+
+const EXPECTED_QUICK_ADD: Record<string, boolean> = {
+  full_admin:               true,
+  franchise_manager:        true,
+  hr_manager:               true,
+  office_manager:           true,
+  head_of_construction:     true,
+  head_of_contents:         true,
+  production_manager:       true,
+  carpet_cleaning_manager:  true,
+  construction_crew:        false,
+  contents_crew:            false,
+  mitigation_technician:    false,
+  carpet_cleaning_crew:     false,
+  temporary_employee:       false,
+};
+
+test('quick_add: every ROLE_DEFAULTS role carries a quick_add key matching mobile roles.ts', () => {
+  const roles = Object.keys(ROLE_DEFAULTS);
+  assert.equal(roles.length, Object.keys(EXPECTED_QUICK_ADD).length);
+  for (const role of roles) {
+    assert.ok('quick_add' in ROLE_DEFAULTS[role], `${role} is missing a quick_add key`);
+    assert.equal(
+      userHasPermission(role, null, 'quick_add', null),
+      EXPECTED_QUICK_ADD[role],
+      `quick_add for ${role} should be ${EXPECTED_QUICK_ADD[role]}`,
+    );
+  }
+});
+
+// ── #76: tempEmployee byte-parity with mobile roles.ts (:261-268) — edit_media
+// and delete_media are explicit false (mobile lists them explicitly even
+// though tier1 already defaults both to false; this locks that in). ──────────
+
+test('tempEmployee: edit_media and delete_media are false (byte-parity with mobile)', () => {
+  assert.equal(userHasPermission('temporary_employee', null, 'edit_media', null), false);
+  assert.equal(userHasPermission('temporary_employee', null, 'delete_media', null), false);
+});
+
+// ── #76: team-override union layer ────────────────────────────────────────────
+// Server has no per-push team context (unlike mobile's hasPermission(teamId)),
+// so full per-team parity is impossible. Documented asymmetry: the server
+// accepts the UNION of positive grants across every team the caller belongs
+// to, for perms on the TEAM_OVERRIDABLE_PERMISSIONS allowlist only. A denial
+// in a team override NEVER narrows access below the role/role-override
+// baseline — only an explicit TRUE in ANY team's map can grant.
+
+test('team override union: a grant in ANY team the caller belongs to is accepted', () => {
+  // construction_crew (tier1) defaults create_jobs=false; a team grant widens it.
+  assert.equal(
+    userHasPermission('construction_crew', null, 'create_jobs', null, [{ create_jobs: true }]),
+    true,
+  );
+});
+
+test('team override union: denial in one team + grant in another team ⇒ accepted (union, grants-only)', () => {
+  assert.equal(
+    userHasPermission('construction_crew', null, 'create_jobs', null, [
+      { create_jobs: false },
+      { create_jobs: true },
+    ]),
+    true,
+  );
+});
+
+test('team override union: a denial-only team override never grants (positive grants only)', () => {
+  assert.equal(
+    userHasPermission('construction_crew', null, 'create_jobs', null, [{ create_jobs: false }]),
+    false,
+  );
+});
+
+test('team override union: no matching key in any team map leaves the baseline unchanged', () => {
+  assert.equal(
+    userHasPermission('construction_crew', null, 'create_jobs', null, [{ upload_media: true }]),
+    false,
+  );
+});
+
+test('team override union: only consulted for perms on TEAM_OVERRIDABLE_PERMISSIONS — a non-overridable perm ignores team grants', () => {
+  assert.ok(!TEAM_OVERRIDABLE_PERMISSIONS.has('manage_teams'), 'test assumption: manage_teams is not team-overridable');
+  assert.equal(
+    userHasPermission('construction_crew', null, 'manage_teams', null, [{ manage_teams: true }]),
+    false,
+  );
+});
+
+test('team override union: an explicit user-level override always wins over a team grant (matches mobile precedence)', () => {
+  assert.equal(
+    userHasPermission('construction_crew', { create_jobs: false }, 'create_jobs', null, [{ create_jobs: true }]),
+    false,
+  );
+});
+
+test('team override union: no team memberships (empty/absent list) behaves exactly as before', () => {
+  assert.equal(userHasPermission('construction_crew', null, 'create_jobs', null, []), false);
+  assert.equal(userHasPermission('construction_crew', null, 'create_jobs', null, null), false);
+  assert.equal(userHasPermission('construction_crew', null, 'create_jobs'), false);
 });
