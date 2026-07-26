@@ -23,6 +23,7 @@ import { ItemCard } from '../../../src/components/ItemCard';
 import { BarcodeScanner } from '../../../src/components/BarcodeScanner';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { classifyScan, type ScanClass } from '../../../src/scan/scanSession';
+import { validateReturnDestination, buildReturnLogRows } from '../../../src/scan/returnBatch';
 import { sanitizeScan } from '../../../src/scan/sanitize';
 import { isHidSupported, connectHidScanner } from '../../../src/scan/hidScanner.web';
 import { applyConsumableAction } from '../../../src/scan/stockActions';
@@ -121,6 +122,11 @@ export default function HubScreen() {
   // Equipment batch-checkout accumulator (Task 15). Carries the item name so the
   // batch bar can list each queued unit ("AM-004 · Drill"), not just a count.
   const [equipBatch, setEquipBatch] = useState<(EquipmentUnit & { item_name: string })[]>([]);
+
+  // #151: hub equipment RETURNS accumulator (Fast Check-In, dir=in). Same shape
+  // as equipBatch — the two never populate in the same session since flowDir is
+  // fixed per screen open (out → equipBatch, in → returnBatch).
+  const [returnBatch, setReturnBatch] = useState<(EquipmentUnit & { item_name: string })[]>([]);
 
   // Session receipt.
   const [receipt, setReceipt] = useState<ScanReceiptEntry[]>([]);
@@ -232,16 +238,12 @@ export default function HubScreen() {
     if (c.kind === 'rejected') { Alert.alert('Unverified code', 'This code couldn’t be verified — it may be damaged, forged, or not an InventoryPro label.'); return; }
     if (c.kind === 'unknown') { promptAddNewItem(c.code); return; }       // Task 14 (c.code is the sanitized scan)
     if (c.kind === 'consumable') { setPendingItem(c.item); setMode('inout'); return; }
-    // Equipment batch flow is check-OUT only (deploy/transfer). In a check-IN
-    // flow, don't misroute a scanned unit into a checkout — tell the user where
-    // equipment check-in lives instead. (Bidirectional equipment scan-in is a
-    // separate feature — see the smart-scan backlog item.)
+    // #151: in the Fast Check-In flow, an equipment-unit scan is a hub RETURN,
+    // not a checkout — enqueue it into returnBatch instead. (Scanning a bare
+    // equipment MODEL tag in this flow still can't be resolved to one physical
+    // unit; bidirectional smart-scan disambiguation is a separate backlog item.)
     if (flowDir === 'in') {
-      setMode('browse');
-      Alert.alert(
-        'Check in equipment from its page',
-        'Fast check-in handles stock items. To check a piece of equipment back in, open it from the Equipment screen.',
-      );
+      enqueueReturn(c);
       return;
     }
     // equipment-unit / equipment-model → batch checkout (Task 15)
@@ -251,7 +253,7 @@ export default function HubScreen() {
   // Closing the scanner: if we've accumulated equipment, go resolve a destination;
   // otherwise return to browse.
   function onScannerClose() {
-    if (equipBatch.length > 0) { setMode('destination'); return; }
+    if (equipBatch.length > 0 || returnBatch.length > 0) { setMode('destination'); return; }
     setMode('browse');
   }
 
@@ -277,6 +279,10 @@ export default function HubScreen() {
     if (c.kind === 'equipment-unit') {
       if (c.unit.status === 'available') {
         setEquipBatch(prev => (prev.some(u => u.id === c.unit.id) ? prev : [...prev, { ...c.unit, item_name: c.item.name }]));
+      } else if (c.unit.status === 'deployed') {
+        // #151: a deployed unit belongs in a RETURN, not a checkout — point the
+        // user at Fast Check-In instead of a dead-end "not available".
+        Alert.alert('Not available', `${c.unit.asset_tag} is checked out, not available to check out again. Use Fast Check-In to return it.`);
       } else {
         Alert.alert('Not available', `${c.unit.asset_tag} is ${c.unit.status}, not available to check out.`);
       }
@@ -290,6 +296,28 @@ export default function HubScreen() {
   // Drop a wrongly-scanned unit from the batch without leaving the scanner.
   function removeFromBatch(id: string) {
     setEquipBatch(prev => prev.filter(u => u.id !== id));
+  }
+
+  // #151 — hub returns (Fast Check-In, dir=in): accumulate scanned deployed
+  // units into returnBatch, reopen the camera. Policy: ANY deployed unit
+  // qualifies, not just the scanner's own — this is a supervisor tool; the
+  // dedicated Check In screen keeps its own-units restriction.
+  function enqueueReturn(c: ScanClass) {
+    if (c.kind === 'equipment-unit') {
+      if (c.unit.status === 'deployed') {
+        setReturnBatch(prev => (prev.some(u => u.id === c.unit.id) ? prev : [...prev, { ...c.unit, item_name: c.item.name }]));
+      } else {
+        Alert.alert('Not checked out', `${c.unit.asset_tag} isn’t checked out.`);
+      }
+    } else if (c.kind === 'equipment-model') {
+      Alert.alert('Scan a unit tag', 'Scan the asset tag on the specific unit to return it.');
+    }
+    setMode('scanning');
+  }
+
+  // Drop a wrongly-scanned unit from the return batch without leaving the scanner.
+  function removeFromReturnBatch(id: string) {
+    setReturnBatch(prev => prev.filter(u => u.id !== id));
   }
 
   // ── consumable in/out ──────────────────────────────────────────────────────
@@ -482,6 +510,9 @@ export default function HubScreen() {
   function onDestResolved(dest: ResolvedDestination | null) {
     if (!dest) return; // incomplete selection
 
+    // #151 — hub returns path: location-only destinations (v1 policy).
+    if (returnBatch.length > 0) { commitReturnBatch(dest); return; }
+
     // Equipment batch path (Task 15 Step 2).
     if (equipBatch.length > 0) { commitEquipmentBatch(dest); return; }
 
@@ -607,6 +638,71 @@ export default function HubScreen() {
     askAnythingElse();
   }
 
+  // #151 — commit the hub RETURN batch. Mirrors commitEquipmentBatch above and
+  // the checkin unit loop ((checkin)/index.tsx:271-364): v1 policy restricts
+  // the destination to a Location (validateReturnDestination); #162 guards the
+  // destination itself (a queued unit has no current_location_id while
+  // deployed, so there's nothing to lock-check on the source side, unlike the
+  // checkout batch above). One runInTransaction, stable event UUID on the
+  // first log row (buildReturnLogRows), aggregate ScanReceipt + askAnythingElse.
+  function commitReturnBatch(dest: ResolvedDestination) {
+    const check = validateReturnDestination(dest);
+    if (!check.ok) {
+      Alert.alert('Pick a location', check.reason);
+      return;
+    }
+    const toLocationId = dest.toLocationId as string;
+    const destLock = getUnitInventoryLock(user, toLocationId);
+    if (destLock.locked) {
+      Alert.alert('Team inventory', destLock.reason ?? 'This unit belongs to another team.');
+      return;
+    }
+    const baseLog = {
+      user_id: user?.id ?? null,
+      team_id: null as string | null,
+      entity_type: 'item',
+      unit: null as string | null,
+      metadata: null as string | null,
+      device_id: null as string | null,
+      latitude: coords?.latitude ?? null,
+      longitude: coords?.longitude ?? null,
+      location_accuracy: coords?.accuracy ?? null,
+    };
+    const eventId = generateUUID();
+    const logRows = buildReturnLogRows(returnBatch, toLocationId, eventId);
+    let failedUnit: string | null = null;
+    try {
+      runInTransaction(() => {
+        returnBatch.forEach((u, i) => {
+          failedUnit = u.asset_tag;
+          const updated = setUnitStatus(u.id, {
+            status: 'available', current_location_id: toLocationId, current_job_id: null,
+          });
+          outboxUnit(updated);
+          appendLog({ ...baseLog, ...logRows[i] });
+        });
+      });
+    } catch (err) {
+      Alert.alert(
+        'Check-in failed',
+        `Couldn't return ${failedUnit ? `unit ${failedUnit}` : 'the batch'}. ` +
+          'Nothing was changed — no units were moved.' +
+          ((err as Error)?.message ? `\n\n${(err as Error).message}` : ''),
+      );
+      setReturnBatch([]);
+      setMode('scanning');
+      return;
+    }
+    const n = returnBatch.length;
+    const label = `${n} unit${n > 1 ? 's' : ''}`;
+    pushReceiptEntry({
+      id: generateUUID(), itemName: label, direction: 'in',
+      qtyLabel: label, destLabel: receiptLabelFor('in', dest), at: new Date().toISOString(),
+    });
+    setReturnBatch([]);
+    askAnythingElse();
+  }
+
   // ── search result routing ──────────────────────────────────────────────────
   const goItem = (id: string) => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id } });
   const goEquipment = (id: string) => router.push({ pathname: '/(app)/(equipment)/[id]', params: { id } });
@@ -649,6 +745,34 @@ export default function HubScreen() {
                     </Text>
                     <TouchableOpacity
                       onPress={() => removeFromBatch(u.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={s.batchRemove}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={s.batchDone} onPress={() => setMode('destination')}>
+                <Text style={s.batchDoneText}>Done scanning →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        {/* #151: hub returns batch — same panel, "↩" row prefix + return copy. */}
+        {returnBatch.length > 0 && (
+          <View style={[s.batchBar, { bottom: 40 + insets.bottom }]} pointerEvents="box-none">
+            <View style={s.batchPanel} pointerEvents="auto">
+              <Text style={s.batchHeading}>
+                {returnBatch.length} unit{returnBatch.length > 1 ? 's' : ''} to return
+              </Text>
+              <ScrollView style={s.batchList} keyboardShouldPersistTaps="handled">
+                {returnBatch.map(u => (
+                  <View key={u.id} style={s.batchRow}>
+                    <Text style={s.batchRowText} numberOfLines={1}>
+                      ↩ {u.asset_tag} · {u.item_name}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => removeFromReturnBatch(u.id)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
                       <Text style={s.batchRemove}>✕</Text>
@@ -826,13 +950,17 @@ export default function HubScreen() {
         onSecondary={locContext ? onInOutToDestination : undefined}
       />
 
-      {/* Destination resolve (consumable + equipment batch) */}
+      {/* Destination resolve (consumable + equipment batch + return batch) */}
       <ModalSheet
         visible={mode === 'destination'}
-        onClose={() => { resetConsumable(); setEquipBatch([]); setMode('browse'); }}
+        onClose={() => { resetConsumable(); setEquipBatch([]); setReturnBatch([]); setMode('browse'); }}
         scroll
       >
-        {equipBatch.length > 0 ? (
+        {returnBatch.length > 0 ? (
+          <Text style={s.sheetTitle}>
+            {returnBatch.length} unit{returnBatch.length > 1 ? 's' : ''} to return → where to?
+          </Text>
+        ) : equipBatch.length > 0 ? (
           <Text style={s.sheetTitle}>
             {equipBatch.length} unit{equipBatch.length > 1 ? 's' : ''} → where to?
           </Text>
