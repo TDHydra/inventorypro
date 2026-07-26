@@ -153,3 +153,52 @@ export function resolveLockStamp(
   if (existing?.checkout_locked) return existing.locked_by ?? userId;
   return userId;
 }
+
+// ── #155: checkout availability (role-free, owner-aware) ───────────────────
+
+export type AvailabilityReason = 'checked_out' | 'owned_closed';
+export interface VehicleAvailability { available: boolean; reason: AvailabilityReason | null; }
+
+/**
+ * #155: available ⇔ no open session AND (unowned OR opted in OR caller owns it).
+ * Role NEVER gates vehicle checkout. Locking (#167) composes on top via
+ * isCheckoutLockedFor — it is deliberately not this function's concern.
+ */
+export function resolveVehicleAvailability(input: {
+  ownerUserId: string | null;
+  openCheckout: number; // vehicles.open_checkout 0/1
+  hasOpenSession: boolean;
+  userId: string | null;
+}): VehicleAvailability {
+  if (input.hasOpenSession) return { available: false, reason: 'checked_out' };
+  if (input.ownerUserId == null) return { available: true, reason: null };
+  if (input.userId != null && input.userId === input.ownerUserId) return { available: true, reason: null };
+  if (input.openCheckout) return { available: true, reason: null };
+  return { available: false, reason: 'owned_closed' };
+}
+
+/**
+ * #167 lock hierarchy: may the caller LIFT (and therefore bypass) the current
+ * lock? canManage is the caller's canManageVehicle result; tiers are ROLE_TIER
+ * values resolved by the caller (this module stays DB-free). Legacy NULL locker
+ * and self-locks are always liftable by a manager; otherwise tier must be >=
+ * the locker's CURRENT tier (deleted locker → pass 0).
+ */
+export function canLiftVehicleLock(input: {
+  canManage: boolean;
+  lockedBy: string | null;
+  lockerTier: number;
+  userId: string | null;
+  userTier: number;
+}): boolean {
+  if (!input.canManage) return false;
+  if (input.lockedBy == null) return true;
+  if (input.userId != null && input.lockedBy === input.userId) return true;
+  return input.userTier >= input.lockerTier;
+}
+
+/** #152: committed debris values snap to 10s and clamp to 0–100 (drag is continuous, commit is coarse). */
+export function snapDebrisLevel(raw: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(100, Math.max(0, Math.round(raw / 10) * 10));
+}

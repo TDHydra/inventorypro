@@ -12,6 +12,9 @@ import {
   parseFuelUpGallons,
   serviceTypeLabel,
   odometerDeltas,
+  resolveVehicleAvailability,
+  canLiftVehicleLock,
+  snapDebrisLevel,
 } from './vehicleSessionLogic';
 
 const open = (userId: string) => ({ id: 's1', user_id: userId, checked_in_at: null });
@@ -154,4 +157,90 @@ test('resolveLockStamp: →0 clears; untouched patch carries existing', () => {
   assert.equal(resolveLockStamp({ checkout_locked: 0 }, { checkout_locked: 1, locked_by: 'u-orig' }, 'u-2'), null);
   assert.equal(resolveLockStamp({}, { checkout_locked: 1, locked_by: 'u-orig' }, 'u-2'), 'u-orig');
   assert.equal(resolveLockStamp({}, null, 'u-2'), null);
+});
+
+// ── #155: availability ───────────────────────────────────────────────────────
+test('availability: open session wins over everything → checked_out', () => {
+  assert.deepEqual(
+    resolveVehicleAvailability({ ownerUserId: 'me', openCheckout: 1, hasOpenSession: true, userId: 'me' }),
+    { available: false, reason: 'checked_out' },
+  );
+});
+
+test('availability: unowned + free → available', () => {
+  assert.deepEqual(
+    resolveVehicleAvailability({ ownerUserId: null, openCheckout: 0, hasOpenSession: false, userId: 'me' }),
+    { available: true, reason: null },
+  );
+});
+
+test('availability: owned, closed, not mine → owned_closed', () => {
+  assert.deepEqual(
+    resolveVehicleAvailability({ ownerUserId: 'frank', openCheckout: 0, hasOpenSession: false, userId: 'me' }),
+    { available: false, reason: 'owned_closed' },
+  );
+});
+
+test('availability: owned but opted in → available', () => {
+  assert.deepEqual(
+    resolveVehicleAvailability({ ownerUserId: 'frank', openCheckout: 1, hasOpenSession: false, userId: 'me' }),
+    { available: true, reason: null },
+  );
+});
+
+test('availability: my own vehicle is always available to me when free', () => {
+  assert.deepEqual(
+    resolveVehicleAvailability({ ownerUserId: 'me', openCheckout: 0, hasOpenSession: false, userId: 'me' }),
+    { available: true, reason: null },
+  );
+});
+
+test('availability: anonymous user does not match a null owner', () => {
+  assert.deepEqual(
+    resolveVehicleAvailability({ ownerUserId: 'frank', openCheckout: 0, hasOpenSession: false, userId: null }),
+    { available: false, reason: 'owned_closed' },
+  );
+});
+
+// ── #167: lock lift (tiers: 1 crew / 2 PM / 3 office / 4 admin) ─────────────
+const lift = (over: Partial<Parameters<typeof canLiftVehicleLock>[0]>) =>
+  canLiftVehicleLock({ canManage: true, lockedBy: 'pm', lockerTier: 2, userId: 'me', userTier: 1, ...over });
+
+test('lift: no manage authority → never', () => {
+  assert.equal(lift({ canManage: false, userTier: 4 }), false);
+});
+
+test('lift: legacy NULL locker → any manager may lift', () => {
+  assert.equal(lift({ lockedBy: null, lockerTier: 0 }), true);
+});
+
+test('lift: self-lock → may lift regardless of tier', () => {
+  assert.equal(lift({ lockedBy: 'me', lockerTier: 4, userTier: 1 }), true);
+});
+
+test('lift: crew owner vs PM lock → blocked (the #167 case)', () => {
+  assert.equal(lift({ userTier: 1, lockerTier: 2 }), false);
+});
+
+test('lift: equal tier → allowed', () => {
+  assert.equal(lift({ userTier: 2, lockerTier: 2 }), true);
+});
+
+test('lift: higher tier → allowed', () => {
+  assert.equal(lift({ userTier: 3, lockerTier: 2 }), true);
+});
+
+test('lift: deleted locker resolves to tier 0 → any manager may lift', () => {
+  assert.equal(lift({ lockedBy: 'ghost', lockerTier: 0, userTier: 1 }), true);
+});
+
+// ── #152: debris snap ────────────────────────────────────────────────────────
+test('snapDebrisLevel: rounds to nearest 10 and clamps', () => {
+  assert.equal(snapDebrisLevel(0), 0);
+  assert.equal(snapDebrisLevel(14.9), 10);
+  assert.equal(snapDebrisLevel(15), 20);
+  assert.equal(snapDebrisLevel(73), 70);
+  assert.equal(snapDebrisLevel(104), 100);
+  assert.equal(snapDebrisLevel(-3), 0);
+  assert.equal(snapDebrisLevel(NaN), 0);
 });
