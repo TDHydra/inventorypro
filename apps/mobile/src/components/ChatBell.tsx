@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useTotalUnread, loadChatCache } from '../chat/store';
-import { useTableVersion } from '../hooks/useDataVersion';
+import { totalUnread } from '../db/queries/chat';
+import { useDbQuery } from '../hooks/useDbQuery';
 import { useSession } from '../hooks/useSession';
 
 // Cast through Href for the same reason as NotificationBell's INBOX_ROUTE: the
@@ -16,16 +17,27 @@ const CHAT_ROUTE = '/(app)/(chat)' as Href;
 // locally (which doesn't bump any table version) clears promptly.
 export function ChatBell() {
   const router = useRouter();
-  const dataVersion = useTableVersion(['messages', 'media']);
   const { user } = useSession();
   const userId = user?.id ?? null;
   const count = useTotalUnread();
+
+  // Replaces the old useTableVersion(['messages','media']) + useEffect([...,
+  // dataVersion]) pairing (#63): useDbQuery(#60) does the same synchronous
+  // local read (a cheap COUNT — mirrors what loadChatCache itself does inside
+  // chat/store.ts) and its return value changes whenever a local write OR a
+  // background sync pull touches messages/media, so it doubles as the effect
+  // trigger below without this component managing its own version plumbing.
+  const unreadVersion = useDbQuery(
+    () => (userId ? totalUnread(userId) : 0),
+    [userId],
+    ['messages', 'media'],
+  );
 
   useEffect(() => {
     loadChatCache(userId);
     const interval = setInterval(() => loadChatCache(userId), 4000);
     return () => clearInterval(interval);
-  }, [userId, dataVersion]);
+  }, [userId, unreadVersion]);
 
   const badge = count > 99 ? '99+' : String(count);
 
