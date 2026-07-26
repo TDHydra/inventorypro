@@ -92,10 +92,9 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
-  // #168 "For" — checkout-taxonomy pair: which kind, then the picked entity.
-  const [forType, setForType] = useState<'team' | 'job' | null>(null);
-  const [forTeam, setForTeam] = useState<PickerOption | null>(null);
-  const [forJob, setForJob] = useState<PickerOption | null>(null);
+  // #168 "For" — ONE dynamic search over teams + jobs (user review #3: a
+  // single type-ahead like the rest of the app, no toggle).
+  const [forPick, setForPick] = useState<PickerOption | null>(null);
   const [vehicle, setVehicle] = useState<PickerOption | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -109,14 +108,14 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     () => (locationId || !visible ? [] : getUnitLocations('Vehicle').map(l => ({ id: l.id, label: l.name }))),
     [visible, locationId],
   );
-  const jobOptions = useMemo<PickerOption[]>(
-    () => (visible ? getOpenJobs().map(j => ({ id: j.id, label: j.name })) : []),
-    [visible],
-  );
-  const teamOptions = useMemo<PickerOption[]>(
-    () => (visible ? getAllTeams().map(tm => ({ id: tm.id, label: tm.name })) : []),
-    [visible],
-  );
+  // "For" options: teams and open jobs in ONE ranked search, sublabel telling
+  // them apart. jobIds resolves the picked kind at submit time.
+  const { forOptions, jobIds } = useMemo(() => {
+    if (!visible) return { forOptions: [] as PickerOption[], jobIds: new Set<string>() };
+    const teams = getAllTeams().map(tm => ({ id: tm.id, label: tm.name, sublabel: 'Team' }));
+    const jobs = getOpenJobs().map(j => ({ id: j.id, label: j.name, sublabel: 'Job' }));
+    return { forOptions: [...teams, ...jobs], jobIds: new Set(jobs.map(j => j.id)) };
+  }, [visible]);
 
   // Fresh form on every open (the sheet component itself stays mounted while
   // hidden, so state would otherwise leak between opens).
@@ -131,9 +130,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     setCost('');
     setNotes('');
     setPhoto(null);
-    setForType(null);
-    setForTeam(null);
-    setForJob(null);
+    setForPick(null);
     if (locationId) {
       const loc = getLocationById(locationId);
       setVehicle(loc ? { id: loc.id, label: loc.name } : null);
@@ -151,7 +148,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     type.trim().length > 0 || notes.trim().length > 0 ||
     odometer.trim().length > 0 || cost.trim().length > 0 ||
     gallons.trim().length > 0 || kind !== initialKind || target !== 'vehicle' ||
-    photo != null || forType != null;
+    photo != null || forPick != null;
 
   function reject(field: string, rule: string) {
     track('audit', 'validation_reject', { screen: 'vehicle_service', props: { field, rule } });
@@ -185,8 +182,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
       return;
     }
     // #168: every fuel-up is charged to someone — For (team or job) is REQUIRED.
-    const forPick = forType === 'team' ? forTeam : forType === 'job' ? forJob : null;
-    if (isFuelUp && (!forType || !forPick)) {
+    if (isFuelUp && !forPick) {
       reject('vehicle_service.payer', 'required');
       Alert.alert('Required', "Pick who it's for — a team or a job.");
       return;
@@ -242,7 +238,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
         // payer is a TEXT snapshot of the chosen team/job name; job receipts
         // additionally carry the durable job_id.
         payer: isFuelUp ? forPick?.label ?? null : null,
-        jobId: isFuelUp && forType === 'job' ? forJob?.id ?? null : null,
+        jobId: isFuelUp && forPick && jobIds.has(forPick.id) ? forPick.id : null,
         logNote,
         userId: user?.id ?? null,
       });
@@ -363,39 +359,17 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
                 )}
               </View>
             </View>
-            {/* #168: "For" mirrors the checkout Destination Type taxonomy —
-                Team (DB teams) or Job (open jobs), toggle-row styling. */}
+            {/* #168: "For" is ONE dynamic type-ahead over teams + open jobs
+                (sublabel says which) — same search idiom as the rest of the
+                app; the checkout taxonomy without a mode toggle. */}
             <View>
               <FieldLabel>For *</FieldLabel>
-              <View style={s.forRow}>
-                {(['team', 'job'] as const).map(opt => (
-                  <TouchableOpacity
-                    key={opt}
-                    style={[s.forBtn, forType === opt && s.forBtnActive]}
-                    onPress={() => { setForType(opt); }}
-                  >
-                    <Text style={[s.forBtnText, forType === opt && s.forBtnTextActive]}>
-                      {opt === 'team' ? 'Team' : 'Job'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              {forType === 'team' && (
-                <SearchablePicker
-                  placeholder="Search teams..."
-                  options={teamOptions}
-                  value={forTeam}
-                  onSelect={opt => setForTeam(opt)}
-                />
-              )}
-              {forType === 'job' && (
-                <SearchablePicker
-                  placeholder="Search open jobs..."
-                  options={jobOptions}
-                  value={forJob}
-                  onSelect={opt => setForJob(opt)}
-                />
-              )}
+              <SearchablePicker
+                placeholder="Type a team or job..."
+                options={forOptions}
+                value={forPick}
+                onSelect={opt => setForPick(opt)}
+              />
             </View>
             <TextField
               label="Gallons (optional)"
@@ -469,16 +443,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
   remove: { color: t.colors.danger, fontWeight: '600', fontSize: t.typography.fontSizes.sm },
   mismatch: { fontSize: t.typography.fontSizes.xs, color: t.colors.warningText, marginTop: t.spacing.xs },
-  // "For" toggle — the checkout screen's Destination Type row (keep in sync).
-  forRow: { flexDirection: 'row', gap: t.spacing.sm, marginBottom: t.spacing.sm },
-  forBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: t.spacing.md,
-    borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
-    backgroundColor: t.colors.background,
-  },
-  forBtnActive: { backgroundColor: t.colors.primaryBgStrong, borderColor: t.colors.primary },
-  forBtnText: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textSecondary },
-  forBtnTextActive: { color: t.colors.primaryText },
   // Photo attach — MediaGallery's thumb-variant dashed box (the house element).
   thumbBox: {
     width: 64, height: 64, borderRadius: 10,
