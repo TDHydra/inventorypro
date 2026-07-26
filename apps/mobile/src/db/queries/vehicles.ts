@@ -4,7 +4,7 @@ import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
 import { ROLE_TIER, type UserRole } from '../../constants/roles';
-import { buildClosePayload, buildTakeoverNote, FUEL_UP_TYPE, resolveLockStamp } from '../../components/vehicles/vehicleSessionLogic';
+import { buildClosePayload, buildTakeoverNote, canLiftVehicleLock, FUEL_UP_TYPE, resolveLockStamp } from '../../components/vehicles/vehicleSessionLogic';
 import { sharesTeamWithOwner } from './access';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Three soft-FK tables:
@@ -344,38 +344,49 @@ function insertCheckout(locationId: string, jobId: string | null, userId: string
 }
 
 /**
- * #157 owner lock: true when `vehicle.checkout_locked = 1` AND `userId` is
- * neither the owning user (locations.owner_user_id) nor tier-3+ org authority
- * nor a tier-2 manager sharing a team with the owner — the same owner-or-authority
- * predicate as canManageLockerAccess, plus team-manager bypass (#165). The HARD
- * guard for every session-opening path (checkOutVehicle / takeOverVehicle);
- * UI surfaces mirror it for the disabled "🔒 Locked by owner" state.
+ * Lock guard for every session-opening path (checkOutVehicle / takeOverVehicle).
+ * #157 introduced the lock; #167 made BYPASS FOLLOW UNLOCK: when locked, only a
+ * caller who could lift the lock passes — canManageVehicle AND (legacy NULL
+ * locker OR self-lock OR own tier >= locker's CURRENT tier). A crew owner whose
+ * vehicle was locked by a PM is blocked from checkout too. The manage predicate
+ * below duplicates canManageVehicle (queries/access.ts) — kept in sync manually:
+ * this path resolves from a bare userId, not a UserSession.
  */
 export function isCheckoutLockedFor(locationId: string, userId: string | null): boolean {
   const db = getDb();
-  const row = rowsAs<{ checkout_locked: number; owner_user_id: string | null; role: string | null }>(
+  const row = rowsAs<{
+    checkout_locked: number; locked_by: string | null; owner_user_id: string | null;
+    role: string | null; locker_role: string | null;
+  }>(
     db.executeSync(
-      `SELECT v.checkout_locked, l.owner_user_id,
-              (SELECT role FROM users WHERE id = ?) AS role
+      `SELECT v.checkout_locked, v.locked_by, l.owner_user_id,
+              (SELECT role FROM users WHERE id = ?) AS role,
+              (SELECT role FROM users WHERE id = v.locked_by) AS locker_role
          FROM vehicles v JOIN locations l ON l.id = v.location_id
         WHERE v.location_id = ?`,
       [userId, locationId],
     ).rows,
   )[0];
   if (!row || !row.checkout_locked) return false;
-  if (userId != null && row.owner_user_id === userId) return false;
   const tier = ROLE_TIER[row.role as UserRole] ?? 0;
-  if (tier >= 3) return false;
-  // #165: tier-2 managers pass for vehicles owned by someone on their team —
-  // same team-scoped authority as canManageVehicle (kept in sync manually:
-  // this path resolves from a bare userId, not a UserSession).
-  return !(tier >= 2 && userId != null && sharesTeamWithOwner(userId, row.owner_user_id));
+  const manages =
+    (userId != null && row.owner_user_id === userId)
+    || tier >= 3
+    || (tier >= 2 && userId != null && sharesTeamWithOwner(userId, row.owner_user_id));
+  if (!manages) return true;
+  return !canLiftVehicleLock({
+    canManage: true,
+    lockedBy: row.locked_by,
+    lockerTier: ROLE_TIER[row.locker_role as UserRole] ?? 0,
+    userId,
+    userTier: tier,
+  });
 }
 
 /** Throws when the owner lock blocks `userId` — shared by check-out and take-over. */
 function assertCheckoutAllowed(locationId: string, userId: string): void {
   if (isCheckoutLockedFor(locationId, userId)) {
-    throw new Error('This vehicle is locked from checkout by its owner.');
+    throw new Error('This vehicle is locked from checkout.');
   }
 }
 

@@ -42,6 +42,8 @@ before(async () => {
       water_state TEXT, model TEXT, model_id TEXT, notes TEXT,
       water_tank TEXT NOT NULL DEFAULT 'empty', waste_tank TEXT NOT NULL DEFAULT 'clean',
       checkout_locked INTEGER NOT NULL DEFAULT 0,
+      debris_option INTEGER NOT NULL DEFAULT 0, debris_level INTEGER NOT NULL DEFAULT 0,
+      open_checkout INTEGER NOT NULL DEFAULT 0, locked_by TEXT,
       updated_at TEXT NOT NULL, synced_at TEXT
     );
     CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, role TEXT);
@@ -88,4 +90,38 @@ test('unlocked vehicle: never locked for anyone', () => {
   testDb.getDb().executeSync(`UPDATE vehicles SET checkout_locked = 0 WHERE location_id = 'van-1'`);
   assert.equal(veh.isCheckoutLockedFor('van-1', 'crew-team'), false);
   testDb.getDb().executeSync(`UPDATE vehicles SET checkout_locked = 1 WHERE location_id = 'van-1'`);
+});
+
+// ── #167: bypass follows unlock — locked_by tier gates even owners/managers ──
+
+test('#167 PM lock: crew owner can no longer bypass (tier 1 < locker tier 2)', () => {
+  testDb.getDb().executeSync(`UPDATE vehicles SET locked_by = 'pm-team' WHERE location_id = 'van-1'`);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'tech-owner'), true);
+});
+
+test('#167 PM lock: the locker (self) and equal/higher tiers still pass', () => {
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'pm-team'), false); // self-lock
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'om-1'), false);    // tier 3 > 2
+});
+
+test('#167 PM lock: non-managers stay locked regardless of tier rule', () => {
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'pm-other'), true); // no manage authority
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'crew-team'), true);
+});
+
+test('#167 admin lock: even a same-team PM is blocked (tier 2 < 4)', () => {
+  testDb.getDb().executeSync(`INSERT INTO users (id, name, role) VALUES ('admin-1','Admin','full_admin')`);
+  testDb.getDb().executeSync(`UPDATE vehicles SET locked_by = 'admin-1' WHERE location_id = 'van-1'`);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'pm-team'), true);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'tech-owner'), true);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'om-1'), true);    // tier 3 < 4
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'admin-1'), false); // self
+});
+
+test('#167 deleted locker resolves to tier 0: any manager lifts', () => {
+  testDb.getDb().executeSync(`UPDATE vehicles SET locked_by = 'ghost-user' WHERE location_id = 'van-1'`);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'tech-owner'), false);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'pm-team'), false);
+  assert.equal(veh.isCheckoutLockedFor('van-1', 'crew-team'), true); // still no manage authority
+  testDb.getDb().executeSync(`UPDATE vehicles SET locked_by = NULL WHERE location_id = 'van-1'`);
 });
