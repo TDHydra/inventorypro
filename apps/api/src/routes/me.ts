@@ -123,6 +123,16 @@ const routes: FastifyPluginAsync<MeRoutesOpts> = async (fastify, opts) => {
       `UPDATE users SET pin_hash = $1, updated_at = NOW() WHERE id = $2`,
       [pinHash, userId]
     );
+
+    // Server-authoritative audit row (#172) — same pattern as auth.ts's
+    // pin_set/login inserts: request_id correlates this row to its
+    // api_request_audit entry. This is a self-service change, so user_id and
+    // entity_id are both the caller.
+    await fastify.pg.query(
+      `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at, metadata)
+       VALUES (gen_random_uuid(), $1, 'pin_change', 'user', $1, NOW(), NOW(), $2)`,
+      [userId, JSON.stringify({ request_id: request.id })]
+    );
     return reply.status(204).send();
   });
 

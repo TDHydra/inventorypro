@@ -407,7 +407,10 @@ export function requiredOperationPerm(table: string, op: Op): string | null | 'D
 // both so no legitimate in-use action is rejected. Extend here if a new action
 // string is introduced client-side.
 export const ACTIVITY_ACTIONS = new Set([
-  'login', 'pin_set', 'checkout', 'checkin', 'transfer', 'adjust_stock',
+  // pin_change is server-only today (#172: POST /me/change-pin writes it
+  // directly, no client push) — listed anyway so the allowlist stays truthful
+  // if a client ever pushes it.
+  'login', 'pin_set', 'pin_change', 'checkout', 'checkin', 'transfer', 'adjust_stock',
   'add_inventory', 'edit_inventory', 'delete_inventory', 'create_job', 'close_job',
   'create_location', 'edit_location', 'role_color_changed', 'role_permission_changed',
   'role_min_pin_changed', 'user_created', 'user_updated', 'team_created', 'team_updated',

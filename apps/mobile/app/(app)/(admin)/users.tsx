@@ -480,15 +480,9 @@ export default function AdminUsersScreen() {
     setBusy(true);
     try {
       await resetUserPinOnline(editUser.id);
-      appendLog({
-        action: 'user_pin_reset',
-        entity_type: 'user',
-        entity_id: editUser.id,
-        user_id: sessionUser?.id ?? null,
-        note: editUser.name,
-        team_id: null, from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-      });
+      // No client-side appendLog here — the server writes the authoritative
+      // 'user_pin_reset' activity_log row on this same request (#172); logging
+      // it again here would double it once the row syncs back down.
       setEditUser({ ...editUser, pin_set: 0 });
       refresh();
       Alert.alert('PIN reset', `${editUser.name} will set a new PIN at next sign-in.`);
@@ -516,15 +510,9 @@ export default function AdminUsersScreen() {
     setBusy(true);
     try {
       const { emailed, code } = await resetEnrollmentCodeOnline(editUser.id);
-      appendLog({
-        action: 'user_pin_reset',
-        entity_type: 'user',
-        entity_id: editUser.id,
-        user_id: sessionUser?.id ?? null,
-        note: `${editUser.name}: access code reissued${emailed ? ' + emailed' : ' (email not sent)'}`,
-        team_id: null, from_location_id: null, to_location_id: null,
-        quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-      });
+      // No client-side appendLog here — the server writes the authoritative
+      // 'user_pin_reset' activity_log row on this same request (#172); logging
+      // it again here would double it once the row syncs back down.
       Alert.alert(
         emailed ? 'Access code reset + emailed' : 'Access code reset',
         (emailed
@@ -774,24 +762,16 @@ export default function AdminUsersScreen() {
     });
     if (!ok0) return;
     setBusy(true);
-    const adminId = sessionUser?.id ?? null;
     let ok = 0, fail = 0;
     let lastErr = '';
     // Sequential — PIN reset is an online round-trip per user; surface a
     // success/failure tally (and the error if everything failed offline).
     for (const id of ids) {
-      const u = users.find(x => x.id === id);
       try {
         await resetUserPinOnline(id); // already marks pin_set=0 locally
-        appendLog({
-          action: 'user_pin_reset',
-          entity_type: 'user',
-          entity_id: id,
-          user_id: adminId,
-          note: u?.name ?? id,
-          team_id: null, from_location_id: null, to_location_id: null,
-          quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
-        });
+        // No client-side appendLog here — the server writes the authoritative
+        // 'user_pin_reset' activity_log row on this same request (#172); logging
+        // it again here would double it once the row syncs back down.
         ok++;
       } catch (err) {
         fail++;

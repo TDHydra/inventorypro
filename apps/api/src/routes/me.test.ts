@@ -156,6 +156,37 @@ test('change-pin: valid change → 204, new hash stored, updated_at bumped', asy
   await app.close();
 });
 
+// #172 — the server writes the authoritative 'pin_change' activity_log row
+// itself (mobile no longer logs this client-side); copies the auth.ts
+// pin_set/login INSERT pattern exactly.
+test('change-pin: valid change → activity_log row written (action=pin_change, self-referencing)', async () => {
+  const { app, pg } = await buildApp({ callerId: 'cp-audit' });
+  const res = await app.inject({
+    method: 'POST', url: '/me/change-pin',
+    payload: { currentPin: CURRENT_PIN, newPin: '7391' },
+  });
+  assert.equal(res.statusCode, 204);
+  const log = pg.queries.find(q => q.sql.includes('INSERT INTO activity_log'));
+  assert.ok(log, 'activity_log INSERT ran');
+  assert.match(log!.sql, /'pin_change'/);
+  assert.match(log!.sql, /'user'/);
+  assert.equal(log!.params[0], 'cp-audit'); // user_id (caller) and entity_id share $1
+  const metadata = JSON.parse(String(log!.params[1]));
+  assert.ok(metadata.request_id, 'metadata carries request_id');
+  await app.close();
+});
+
+test('change-pin: rejected attempt (wrong current PIN) → no activity_log row', async () => {
+  const { app, pg } = await buildApp({ callerId: 'cp-wrong-audit' });
+  const res = await app.inject({
+    method: 'POST', url: '/me/change-pin',
+    payload: { currentPin: '9999', newPin: '7391' },
+  });
+  assert.equal(res.statusCode, 403);
+  assert.ok(!wrote(pg, 'INSERT INTO activity_log'), 'no audit row on a rejected attempt');
+  await app.close();
+});
+
 test('change-pin: no PIN set yet → 403 (flow does not apply)', async () => {
   const { app } = await buildApp({
     callerId: 'cp-nopin',

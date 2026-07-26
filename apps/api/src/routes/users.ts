@@ -265,6 +265,19 @@ const routes: FastifyPluginAsync = async (fastify) => {
       values
     );
     if (!rows[0]) return reply.status(404).send({ error: 'User not found' });
+
+    // Server-authoritative audit row (#172) for an EXPLICIT admin-initiated PIN
+    // reset only — a role change that implicitly resets the PIN (pinLengthMismatch)
+    // is already covered by the caller's own 'user_role_changed' log, so it is
+    // deliberately not double-logged here. entity_id is the target (UUID-only per
+    // lib/activityLog.ts rules); the target's name goes in note.
+    if (reset_pin) {
+      await fastify.pg.query(
+        `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at, note, metadata)
+         VALUES (gen_random_uuid(), $1, 'user_pin_reset', 'user', $2, NOW(), NOW(), $3, $4)`,
+        [userId, targetId, rows[0].name, JSON.stringify({ request_id: request.id })]
+      );
+    }
     return newEnrollmentCode ? { ...rows[0], enrollment_code: newEnrollmentCode } : rows[0];
   });
 
@@ -332,6 +345,15 @@ const routes: FastifyPluginAsync = async (fastify) => {
     await fastify.pg.query(
       `UPDATE users SET enrollment_code_hash = $1, enrollment_code_expires_at = NOW() + INTERVAL '7 days', updated_at = NOW() WHERE id = $2`,
       [hash, targetId],
+    );
+
+    // Server-authoritative audit row (#172) — same 'user_pin_reset' action as the
+    // PATCH reset_pin path (both re-arm PIN onboarding for the target). entity_id
+    // is the target (UUID-only per lib/activityLog.ts rules); target name in note.
+    await fastify.pg.query(
+      `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at, note, metadata)
+       VALUES (gen_random_uuid(), $1, 'user_pin_reset', 'user', $2, NOW(), NOW(), $3, $4)`,
+      [callerId, targetId, user.name, JSON.stringify({ request_id: request.id })]
     );
 
     const mail = recipient ? await sendEnrollmentCodeEmail(recipient, code, user.name) : { sent: false };
