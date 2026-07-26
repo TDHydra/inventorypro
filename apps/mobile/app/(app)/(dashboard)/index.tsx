@@ -7,6 +7,7 @@ import { DashboardSearch } from '../../../src/components/DashboardSearch';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { getLowStockItems } from '../../../src/db/queries/items';
 import { getActiveCheckoutForUser } from '../../../src/db/queries/vehicles';
+import { AddServiceRecordSheet } from '../../../src/components/vehicles/AddServiceRecordSheet';
 import { getRepairs } from '../../../src/db/queries/repairs';
 import { getUnitsDueForService } from '../../../src/db/queries/maintenance';
 import { isTerminalStatus } from '../../../src/db/queries/taxonomy';
@@ -59,6 +60,9 @@ export default function DashboardScreen() {
   const { user } = useSession();
   const router = useRouter();
   const [reshow, setReshow] = useState<(() => void) | null>(null);
+  // #168: the gas-receipt quick-action opens the Log Service sheet in place,
+  // pre-filled with the checked-out vehicle (no navigation detour).
+  const [gasVehicleId, setGasVehicleId] = useState<string | null>(null);
   // Keyed on dataVersion so the low-stock widget updates live after a sync pull
   // (the layout is already reactive via useDashboardLayout; the DATA wasn't) (#61).
   const dataVersion = useDataVersion();
@@ -222,6 +226,7 @@ export default function DashboardScreen() {
       // Contextual quick-actions (#144): each renders nothing unless its
       // computed action exists, so an empty context leaves the layout untouched.
       case 'vehicle-checkin':
+      case 'gas-receipt':
       case 'past-due':
       case 'low-stock-catalog': {
         const action = quickActions.find(a => a.key === block.widget);
@@ -243,6 +248,14 @@ export default function DashboardScreen() {
                 sub: 'Pick one from the Vehicles list',
                 onPress: () => router.push('/(app)/(vehicles)' as never),
               },
+          // #168: file the pump receipt against the vehicle you're driving.
+          'gas-receipt': {
+            icon: '⛽',
+            sub: 'Photo + payer for the vehicle you have out',
+            onPress: () => {
+              if (action.key === 'gas-receipt') setGasVehicleId(action.vehicleLocationId);
+            },
+          },
           'past-due': {
             icon: '⏰',
             sub: 'Repairs & service needing attention',
@@ -331,6 +344,16 @@ export default function DashboardScreen() {
       <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         {elements}
       </ScrollView>
+      {/* #168: gas-receipt quick-action target — Log Service sheet on the
+          Fuel-up kind, vehicle fixed to the caller's active checkout. */}
+      {gasVehicleId && (
+        <AddServiceRecordSheet
+          locationId={gasVehicleId}
+          visible
+          initialKind="fuel_up"
+          onClose={() => setGasVehicleId(null)}
+        />
+      )}
     </>
   );
 }

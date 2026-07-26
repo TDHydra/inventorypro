@@ -39,13 +39,32 @@ test('#144: active vehicle checkout → check-in action with vehicle name', () =
     ...NONE,
     activeVehicleCheckout: { vehicle_location_id: 'v1', vehicle_name: 'Van 2' },
   });
-  assert.equal(actions.length, 1);
+  // #168: an open session also surfaces the gas-receipt card.
+  assert.equal(actions.length, 2);
   assert.deepEqual(actions[0], {
     key: 'vehicle-checkin',
     mode: 'check_in',
     vehicleLocationId: 'v1',
     label: 'Check In Van 2',
   });
+  assert.deepEqual(actions[1], {
+    key: 'gas-receipt',
+    vehicleLocationId: 'v1',
+    label: 'Gas Receipt · Van 2',
+  });
+});
+
+test('#168: no active checkout → no gas-receipt card', () => {
+  assert.equal(computeQuickActions(NONE).some(a => a.key === 'gas-receipt'), false);
+});
+
+test('#168: gas-receipt label falls back without a vehicle name', () => {
+  const actions = computeQuickActions({
+    ...NONE,
+    activeVehicleCheckout: { vehicle_location_id: 'v1', vehicle_name: null },
+  });
+  const gas = actions.find(a => a.key === 'gas-receipt');
+  assert.equal(gas?.label, 'Gas Receipt');
 });
 
 test('#144: checkout without a name falls back to generic label', () => {
@@ -94,7 +113,7 @@ test('#144: singular label for one low stock item', () => {
   assert.equal(a.label, '1 low stock item');
 });
 
-test('#144: all three conditions → all three actions, checkin first', () => {
+test('#144: all conditions → all actions, checkin first (gas rides the session, #168)', () => {
   const actions = computeQuickActions({
     activeVehicleCheckout: { vehicle_location_id: 'v1', vehicle_name: 'Van 2' },
     overdueRepairCount: 1,
@@ -102,6 +121,6 @@ test('#144: all three conditions → all three actions, checkin first', () => {
     canEditInventory: true,
     lowStockCount: 2,
   });
-  assert.deepEqual(actions.map(a => a.key), ['vehicle-checkin', 'past-due', 'low-stock-catalog']);
+  assert.deepEqual(actions.map(a => a.key), ['vehicle-checkin', 'gas-receipt', 'past-due', 'low-stock-catalog']);
   assert.equal((actions[0] as { mode: string }).mode, 'check_in');
 });

@@ -21,7 +21,7 @@ export type WidgetType =
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
-  | 'vehicle-checkin' | 'past-due' | 'low-stock-catalog'                     // contextual quick-actions (#144)
+  | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog'     // contextual quick-actions (#144, #168)
   | 'stat-tiles' | 'work-list' | 'activity-preview';                         // config-driven data widgets (role dashboards)
 
 // --- Per-widget config payloads (role dashboards §2) -------------------------
@@ -142,6 +142,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // no requiredPermission — past-due and low-stock self-gate on edit_inventory
   // inside the compute, mirroring localAlerts' scoping.
   'vehicle-checkin':   { label: '', kind: 'block' },
+  'gas-receipt':       { label: '', kind: 'block' }, // #168: shows only with an open vehicle session
   'past-due':          { label: '', kind: 'block' },
   'low-stock-catalog': { label: '', kind: 'block' },
 
@@ -166,6 +167,7 @@ export const DEFAULT_LAYOUT: Layout = [
   // all unless their condition holds, so the default dashboard is unchanged for
   // anyone without an open vehicle session / past-due work / low stock.
   { widget: 'vehicle-checkin', width: 'full' },
+  { widget: 'gas-receipt', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
   // Fast checkout leads the dashboard (#127); fast check-in (#83) pairs with it.
