@@ -15,6 +15,7 @@ import {
   resolveVehicleAvailability,
   canLiftVehicleLock,
   snapDebrisLevel,
+  snapFuelLevel,
   buildReceiptVehicleMismatchNote,
 } from './vehicleSessionLogic';
 
@@ -244,6 +245,17 @@ test('snapDebrisLevel: rounds to nearest 10 and clamps', () => {
   assert.equal(snapDebrisLevel(104), 100);
   assert.equal(snapDebrisLevel(-3), 0);
   assert.equal(snapDebrisLevel(NaN), 0);
+});
+
+// ── #174: fuel snap ───────────────────────────────────────────────────────────
+test('snapFuelLevel: rounds to nearest 10 and clamps', () => {
+  assert.equal(snapFuelLevel(0), 0);
+  assert.equal(snapFuelLevel(14.9), 10);
+  assert.equal(snapFuelLevel(15), 20);
+  assert.equal(snapFuelLevel(73), 70);
+  assert.equal(snapFuelLevel(104), 100);
+  assert.equal(snapFuelLevel(-3), 0);
+  assert.equal(snapFuelLevel(NaN), 0);
 });
 
 // ── #168: receipt logged against a different vehicle than the active checkout

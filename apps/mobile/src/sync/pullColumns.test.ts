@@ -152,9 +152,59 @@ test('vehicles syncs the phase-0 option columns', () => {
   }
 });
 
+// Migration 055 / API 067 (#174): vehicles gained fuel_level — same
+// "added a column to a synced table" trap as the phase-0 option columns above.
+// Mirrors apps/api/src/lib/syncPolicy.test.ts's "vehicles pull carries
+// fuel_level (#174)", which only asserts the API's own VEHICLES_COLS in
+// isolation; this asserts the mobile-side pull.ts upsert independently. Note
+// this pair is presence-only for this one column — it does NOT by itself
+// catch a drift elsewhere in the two lists; that's what the full-set-equality
+// test below ("vehicles pull.ts upsert columns match the API VEHICLES_COLS
+// set exactly") is for.
+test('vehicles syncs fuel_level', () => {
+  const vehicles = upsertStatements().find(s => s.table === 'vehicles');
+  assert.ok(vehicles, 'no vehicles upsert');
+  assert.ok(vehicles.cols.includes('fuel_level'), 'vehicles upsert is missing fuel_level');
+});
+
 test('vehicle_service_records syncs payer and job_id', () => {
   const recs = upsertStatements().find(s => s.table === 'vehicle_service_records');
   assert.ok(recs, 'no vehicle_service_records upsert');
   assert.ok(recs.cols.includes('payer'), 'missing payer');
   assert.ok(recs.cols.includes('job_id'), 'missing job_id');
+});
+
+// Cross-repo parity: the presence-only tests above (and syncPolicy.test.ts's
+// mirror assertions) only ever check the specific columns each was written for
+// — a column renamed/added/removed on one side outside those enumerated names
+// would slip past all of them. This diffs the FULL column sets for real, the
+// same way rowToValuesArity above avoids drifting with the code it checks:
+// by parsing both sides' source text (syncPolicy.ts can't be imported here
+// any more than pull.ts can — same native-module problem — so this reads its
+// source text too, exactly like SRC above does for pull.ts).
+test('vehicles pull.ts upsert columns match the API VEHICLES_COLS set exactly', () => {
+  const vehicles = upsertStatements().find(s => s.table === 'vehicles');
+  assert.ok(vehicles, 'no vehicles upsert');
+
+  const apiSrcPath = join(
+    dirname(new URL(import.meta.url).pathname),
+    '../../../api/src/lib/syncPolicy.ts',
+  );
+  const apiSrc = readFileSync(apiSrcPath, 'utf8');
+  const m = /const VEHICLES_COLS\s*=\s*'([^']*)'/.exec(apiSrc);
+  assert.ok(m, 'could not find VEHICLES_COLS in apps/api/src/lib/syncPolicy.ts — did it move/get renamed?');
+  const apiCols = m[1].split(',').map(s => s.trim()).filter(Boolean);
+
+  const mobileSet = new Set(vehicles.cols);
+  const apiSet = new Set(apiCols);
+  const onlyInMobile = vehicles.cols.filter(c => !apiSet.has(c));
+  const onlyInApi = apiCols.filter(c => !mobileSet.has(c));
+  assert.deepEqual(
+    onlyInMobile, [],
+    `pull.ts vehicles upsert has columns the API's VEHICLES_COLS lacks: ${onlyInMobile.join(', ')}`,
+  );
+  assert.deepEqual(
+    onlyInApi, [],
+    `API's VEHICLES_COLS has columns pull.ts's vehicles upsert lacks: ${onlyInApi.join(', ')}`,
+  );
 });

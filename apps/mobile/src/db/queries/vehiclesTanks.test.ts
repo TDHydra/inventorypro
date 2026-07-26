@@ -46,6 +46,7 @@ before(async () => {
       checkout_locked INTEGER NOT NULL DEFAULT 0,
       debris_option INTEGER NOT NULL DEFAULT 0, debris_level INTEGER NOT NULL DEFAULT 0,
       open_checkout INTEGER NOT NULL DEFAULT 0, locked_by TEXT,
+      fuel_level INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL, synced_at TEXT
     );
     CREATE TABLE vehicle_checkouts (
