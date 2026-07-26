@@ -55,7 +55,7 @@ const COLUMNS: Record<string, string[]> = {
   messages: ['id', 'conversation_id', 'sender_id', 'body', 'urgency', 'created_at', 'updated_at', 'edited_at', 'deleted_at'],
   // field-crew (#122)
   subteams: ['id', 'team_id', 'name', 'active', 'created_at', 'updated_at'],
-  vehicles: ['location_id', 'truck_mount', 'water_state', 'model', 'model_id', 'notes', 'updated_at'],
+  vehicles: ['location_id', 'truck_mount', 'water_state', 'model', 'model_id', 'notes', 'updated_at', 'water_tank', 'waste_tank', 'checkout_locked', 'debris_option', 'debris_level', 'open_checkout', 'locked_by'],
   vehicle_checkouts: ['id', 'vehicle_location_id', 'user_id', 'job_id', 'checked_out_at', 'checked_in_at', 'created_at', 'updated_at'],
   locker_access: ['location_id', 'user_id', 'granted_by', 'created_at', 'updated_at'],
   unit_access: ['location_id', 'user_id', 'can_view', 'can_add', 'can_remove', 'can_move', 'can_edit_details', 'can_grant', 'granted_by', 'created_at', 'updated_at'],
@@ -87,6 +87,18 @@ interface FakePgOpts {
   managesOwnerTeam?: boolean;
   /** vehicle_checkouts UPDATE pre-read row; absent → no row. */
   checkoutRow?: { user_id: string | null; checked_in_at: string | null };
+  /** #176 vehicles lock/share guard facts (single fact query, aliased
+   *  shares_owner_team); absent field → unowned/unlocked/no-team-share defaults. */
+  vehicleFacts?: {
+    ownerUserId?: string | null;
+    checkoutLocked?: boolean;
+    openCheckout?: boolean;
+    lockedBy?: string | null;
+    lockedByRole?: string | null;
+    sharesOwnerTeam?: boolean;
+  };
+  /** #176: the vehicle's location row is missing entirely (fails closed). */
+  vehicleLocMissing?: boolean;
   /** ADJUST locker guard facts; absent → location row missing. owner_user_id
    *  feeds the #162 team-unit guard (undefined → ownerless → passes it). */
   adjustLoc?: { type: string | null; is_owner: boolean; has_grant: boolean; shares_team: boolean; owner_user_id?: string | null };
@@ -176,6 +188,21 @@ function fakePg(opts: FakePgOpts = {}) {
       // no-sub-areas guard parent lookup.
       if (sql.includes('SELECT type FROM locations')) {
         return { rows: opts.parentType ? [{ type: opts.parentType }] : [] };
+      }
+      // #176 vehicles lock/share guard fact query.
+      if (sql.includes('shares_owner_team')) {
+        if (opts.vehicleLocMissing) return { rows: [] };
+        const vf = opts.vehicleFacts ?? {};
+        return {
+          rows: [{
+            owner_user_id: vf.ownerUserId ?? null,
+            checkout_locked: vf.checkoutLocked ?? false,
+            open_checkout: vf.openCheckout ?? false,
+            locked_by: vf.lockedBy ?? null,
+            shares_owner_team: vf.sharesOwnerTeam ?? false,
+            locked_by_role: vf.lockedByRole ?? null,
+          }],
+        };
       }
       // unit_access guard fact query (#122 Phase B).
       if (sql.includes('manages_owner_team')) {
@@ -678,6 +705,109 @@ test('vehicle_checkouts UPDATE: manage_teams may edit any session', async () => 
     { operation: 'UPDATE', table_name: 'vehicle_checkouts', payload: { id: 'vc1', job_id: 'job-9' } },
   ]);
   assert.deepEqual(body.ok, ['e1']);
+});
+
+// ── #176: vehicles lock/share guard (value-change keyed) ────────────────────
+
+const VEH_ROW = { location_id: 'veh-1', truck_mount: 0, updated_at: NOW };
+
+test('vehicles: a crew fuel/tank write carrying UNCHANGED lock cols passes untouched (the non-negotiable case)', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew', // tier-1, not the owner, no team share — no manage authority at all
+    vehicleFacts: {
+      ownerUserId: OTHER, checkoutLocked: true, openCheckout: false,
+      lockedBy: 'pm-1', lockedByRole: 'production_manager', sharesOwnerTeam: false,
+    },
+  });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicles', payload: {
+      ...VEH_ROW, debris_level: 40, checkout_locked: true, open_checkout: false, locked_by: 'pm-1',
+    } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO vehicles'));
+  assert.ok(ins, 'the write must reach SQL');
+  assert.ok(ins!.params.includes('pm-1'), 'the unchanged locked_by must survive as-is');
+});
+
+test('vehicles: a crew caller flipping checkout_locked ON is a permanent rejection', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew',
+    vehicleFacts: { ownerUserId: OTHER, checkoutLocked: false, openCheckout: false, sharesOwnerTeam: false },
+  });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicles', payload: { ...VEH_ROW, checkout_locked: true, open_checkout: false, locked_by: CALLER } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO vehicles')));
+});
+
+test('vehicles: locking ON is server-stamped to the CALLER, ignoring a forged locked_by', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew',
+    vehicleFacts: { ownerUserId: CALLER, checkoutLocked: false, openCheckout: false, sharesOwnerTeam: false },
+  });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicles', payload: { ...VEH_ROW, checkout_locked: true, open_checkout: false, locked_by: OTHER } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO vehicles'));
+  assert.ok(ins!.params.includes(CALLER), 'locked_by must be the authenticated caller');
+  assert.ok(!ins!.params.includes(OTHER), 'the forged locker must not survive');
+});
+
+test('vehicles: a lower-tier owner cannot lift a higher-tier PM lock (the #167 case)', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew', // tier-1
+    vehicleFacts: {
+      ownerUserId: CALLER, checkoutLocked: true, openCheckout: false,
+      lockedBy: 'pm-1', lockedByRole: 'production_manager', // tier-2
+    },
+  });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicles', payload: { ...VEH_ROW, checkout_locked: false, open_checkout: false, locked_by: null } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO vehicles')));
+});
+
+test('vehicles: the owner may lift their OWN lock', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew',
+    vehicleFacts: { ownerUserId: CALLER, checkoutLocked: true, openCheckout: false, lockedBy: CALLER },
+  });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicles', payload: { ...VEH_ROW, checkout_locked: false, open_checkout: false, locked_by: null } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO vehicles'));
+  assert.ok(ins, 'the unlock must reach SQL');
+});
+
+test('vehicles: locked_by drift WITHOUT a lock transition is stripped back to the DB value (not rejected)', async () => {
+  const pg = fakePg({
+    callerRole: 'construction_crew', // no manage authority — proves this path needs none
+    vehicleFacts: { ownerUserId: OTHER, checkoutLocked: true, openCheckout: false, lockedBy: 'pm-1', lockedByRole: 'production_manager', sharesOwnerTeam: false },
+  });
+  const body = await push(pg, [
+    // checkout_locked unchanged (still true); locked_by claims a different user.
+    { operation: 'INSERT', table_name: 'vehicles', payload: { ...VEH_ROW, checkout_locked: true, open_checkout: false, locked_by: CALLER } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  const ins = pg.queries.find(q => q.sql.includes('INSERT INTO vehicles'));
+  assert.ok(ins!.params.includes('pm-1'), 'drifted locked_by must be stripped back to the DB value');
+  assert.ok(!ins!.params.includes(CALLER), 'the claimed locked_by must not survive');
+});
+
+test('vehicles: a write against a missing location fails closed (permanent)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', vehicleLocMissing: true });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'vehicles', payload: { ...VEH_ROW, location_id: 'veh-ghost' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
 });
 
 // ── #126: hard locker enforcement on ADJUST ──────────────────────────────────
