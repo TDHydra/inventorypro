@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Card } from '../ui/Card';
+import { OdometerRoll } from '../ui/OdometerRoll';
 import { StatusPill } from '../ui/StatusPill';
 import { ServiceRecordList } from './ServiceRecordList';
 import {
@@ -73,19 +74,24 @@ export function VehicleHistoryPanel({ locationId, sessionsLimit = 5, includeServ
         {odometer.length === 0 ? (
           <Text style={s.muted}>No odometer readings yet.</Text>
         ) : (
-          odometer.map((r, i) => (
-            <View key={r.id} style={[s.row, i < odometer.length - 1 && s.divider]}>
-              <View style={s.rowMain}>
-                <Text style={s.rowTitle}>{r.odometer.toLocaleString()} mi</Text>
-                <Text style={s.rowSub}>
-                  {new Date(r.event_date).toLocaleDateString()} · {serviceTypeLabel(r.type)}
-                </Text>
-              </View>
-              {deltas[i] != null && deltas[i]! > 0 && (
-                <Text style={s.delta}>+{deltas[i]!.toLocaleString()}</Text>
-              )}
+          <>
+            <View style={[s.odometerHeader, s.divider]}>
+              <OdometerRoll value={odometer[0].odometer} />
             </View>
-          ))
+            {odometer.map((r, i) => (
+              <View key={r.id} style={[s.row, i < odometer.length - 1 && s.divider]}>
+                <View style={s.rowMain}>
+                  <Text style={s.rowTitle}>{r.odometer.toLocaleString()} mi</Text>
+                  <Text style={s.rowSub}>
+                    {new Date(r.event_date).toLocaleDateString()} · {serviceTypeLabel(r.type)}
+                  </Text>
+                </View>
+                {deltas[i] != null && deltas[i]! > 0 && (
+                  <Text style={s.delta}>+{deltas[i]!.toLocaleString()}</Text>
+                )}
+              </View>
+            ))}
+          </>
         )}
       </Card>
 
@@ -139,6 +145,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingVertical: t.spacing.sm,
   },
   divider: { borderBottomWidth: 1, borderBottomColor: t.colors.border },
+  odometerHeader: { paddingBottom: t.spacing.sm, marginBottom: t.spacing.xs },
   rowMain: { flex: 1 },
   rowTitle: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
   rowSub: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, marginTop: 2 },
