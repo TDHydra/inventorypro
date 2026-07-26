@@ -1,6 +1,6 @@
 import { getDb } from '../db/schema';
 import { getValidJwt, getSavedUserId } from '../auth/session';
-import { bumpDataVersion } from './dataVersion';
+import { bumpTablesVersion } from './dataVersion';
 import { loadChatCache } from '../chat/store';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -116,8 +116,13 @@ export async function reconcileChat(): Promise<number> {
   setFlag(LAST_RUN_KEY, String(Date.now()));
 
   if (removed > 0) {
-    // Open screens re-query (useDataVersion) and the unread badge recomputes.
-    bumpDataVersion();
+    // Open screens re-query and the unread badge recomputes. Per-table (#64):
+    // purge only ever touches messages/conversation_participants/conversations,
+    // so bump 'messages' and 'media' specifically — a screen subscribed via
+    // useTableVersion/useDbQuery to just those tables was previously missing
+    // this event entirely (bumpDataVersion() only reaches useDataVersion()
+    // subscribers, not per-table ones).
+    bumpTablesVersion(['messages', 'media']);
     const userId = await getSavedUserId();
     loadChatCache(userId);
   }

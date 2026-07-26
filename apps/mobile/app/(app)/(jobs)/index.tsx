@@ -8,7 +8,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import {
   getAllJobs, getActiveCheckoutsForUser, updateJobFields, archiveJob, Job,
 } from '../../../src/db/queries/jobs';
@@ -60,27 +60,25 @@ export default function JobsScreen() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [showArchived, setShowArchived] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  // Re-run the DB reads below when a background sync pull applies changes, so a
-  // job/type created on another device appears while this screen is open (#60).
-  const dataVersion = useDataVersion();
-  const reloadLocalData = useCallback(() => setReloadKey(k => k + 1), []);
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
-    try { await syncNow(); } catch { /* offline — local reload still runs */ }
-    reloadLocalData();
+    // No explicit local reload needed after this: the pull's own table bumps
+    // (src/sync/pull.ts) drive the useDbQuery reads below (#60/#63).
+    try { await syncNow(); } catch { /* offline — nothing to sync */ }
     setRefreshing(false);
-  }, [refreshing, reloadLocalData]);
+  }, [refreshing]);
 
-  const myCheckouts = useMemo(() => {
+  // Re-runs whenever a local write OR a background sync pull touches one of
+  // these tables (#60/#63) — no manual reload key needed.
+  const myCheckouts = useDbQuery(() => {
     if (!user) return [];
     return rowsAs<Checkout>(getActiveCheckoutsForUser(user.id));
-  }, [user, reloadKey, dataVersion]);
+  }, [user], ['activity_log', 'jobs', 'locations', 'inventory_items']);
 
-  const allJobs = useMemo((): Job[] => {
+  const allJobs = useDbQuery((): Job[] => {
     const jobs = getAllJobs(showArchived);
     const byStatus: Job[] = statusFilter === 'all'
       ? jobs
@@ -88,10 +86,10 @@ export default function JobsScreen() {
     if (!search.trim()) return byStatus;
     const q = search.trim().toLowerCase();
     return byStatus.filter(j => j.name.toLowerCase().includes(q));
-  }, [search, statusFilter, showArchived, reloadKey, dataVersion]);
+  }, [search, statusFilter, showArchived], ['jobs']);
 
   // --- Bulk multi-select ---
-  const jobTypes = useMemo(() => getTaxonomyTypesWithFallback('job'), [dataVersion]);
+  const jobTypes = useDbQuery(() => getTaxonomyTypesWithFallback('job'), [], ['taxonomy_types']);
   const typeOptions = useMemo<PickerOption[]>(
     () => jobTypes.map(t => ({ id: t.label, label: t.label })),
     [jobTypes],
@@ -132,9 +130,10 @@ export default function JobsScreen() {
       );
       return;
     }
-    reloadLocalData();
+    // No explicit reload: the transaction's own table bump (src/db/tx.ts) drives
+    // the useDbQuery(['jobs']) read above once it commits.
     ms.exit();
-  }, [ms, reloadLocalData, logJob]);
+  }, [ms, logJob]);
 
   const doClose = useCallback(() => bulkSetStatus('closed'), [bulkSetStatus]);
   const doReopen = useCallback(() => bulkSetStatus('open'), [bulkSetStatus]);
@@ -169,9 +168,8 @@ export default function JobsScreen() {
       );
       return;
     }
-    reloadLocalData();
     ms.exit();
-  }, [ms, reloadLocalData, logJob]);
+  }, [ms, logJob]);
 
   const applyType = useCallback((type: string) => {
     setTypePickerOpen(false);
@@ -195,9 +193,8 @@ export default function JobsScreen() {
       );
       return;
     }
-    reloadLocalData();
     ms.exit();
-  }, [ms, reloadLocalData, logJob]);
+  }, [ms, logJob]);
 
   const bulkActions = useMemo<BulkAction[]>(() => {
     const a: BulkAction[] = [];
