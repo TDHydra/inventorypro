@@ -105,6 +105,8 @@ export function VehicleHistoryPanel({ locationId, sessionsLimit = 5, includeServ
                     {gallons != null ? ` · ${gallons} gal` : ''}
                   </Text>
                   {r.odometer != null && <Text style={s.rowSub}>{r.odometer.toLocaleString()} mi</Text>}
+                  {/* #168: gas receipts carry who they're charged to. */}
+                  {!!r.payer && <Text style={s.rowSub}>For: {r.payer}</Text>}
                 </View>
                 {canViewFinancial && r.cost != null && (
                   <Text style={s.cost}>{formatMoney(r.cost)}</Text>

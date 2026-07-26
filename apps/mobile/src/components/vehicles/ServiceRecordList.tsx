@@ -5,6 +5,7 @@ import { StatusPill } from '../ui/StatusPill';
 import { AddServiceRecordSheet } from './AddServiceRecordSheet';
 import { GasReceiptSheet } from './GasReceiptSheet';
 import { getServiceRecords } from '../../db/queries/vehicles';
+import { getMediaForEntity } from '../../db/queries/media';
 import { serviceTargetLabel, serviceTypeLabel } from './vehicleSessionLogic';
 import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
@@ -28,7 +29,7 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
   const canEdit = usePermission('edit_inventory');
   const canViewFinancial = usePermission('view_financial_data');
   const { locked } = useMaintenanceMode();
-  const version = useTableVersion(['vehicle_service_records']);
+  const version = useTableVersion(['vehicle_service_records', 'media']);
   const [addOpen, setAddOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
 
@@ -54,8 +55,13 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
                   {r.target !== 'vehicle' && (
                     <StatusPill label={serviceTargetLabel(r.target)} tone="accent" />
                   )}
+                  {/* #168: receipt photo indicator. */}
+                  {getMediaForEntity('service_record', r.id).length > 0 && (
+                    <Text style={s.rowSub}>📷</Text>
+                  )}
                 </View>
                 {r.odometer != null && <Text style={s.rowSub}>{r.odometer.toLocaleString()} mi</Text>}
+                {!!r.payer && <Text style={s.rowSub}>For: {r.payer}</Text>}
                 {!!r.notes && <Text style={s.rowSub}>{r.notes}</Text>}
               </View>
               {canViewFinancial && r.cost != null && (
