@@ -681,23 +681,44 @@ async function applyEntry(
 // Resolve the caller's *current* role + permission overrides from the DB — not
 // the JWT role claim, which can be stale or forged-stale within the 15m token
 // window. Shared by /full, /pull, and /push so all three authorize identically.
+type Caller = {
+  role: string;
+  permission_overrides: Record<string, boolean> | null;
+  role_overrides: Record<string, boolean> | null;
+  is_test: boolean;
+  // #76: team_permission_overrides from every team_members row the caller
+  // belongs to — fed to userHasPermission's positive-grants team-override
+  // union (see lib/permissions.ts). Empty array when the caller is on no team.
+  team_overrides: Array<Record<string, boolean>>;
+};
+
 async function resolveCaller(
   pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   userId: string,
-): Promise<
-  | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null; is_test: boolean }
-  | undefined
-> {
+): Promise<Caller | undefined> {
   const { rows } = await pg.query(
-    `SELECT u.role, u.permission_overrides, u.is_test, rs.permission_overrides AS role_overrides
+    `SELECT u.role, u.permission_overrides, u.is_test, rs.permission_overrides AS role_overrides,
+            COALESCE(
+              (SELECT jsonb_agg(tm.team_permission_overrides)
+                 FROM team_members tm WHERE tm.user_id = u.id),
+              '[]'::jsonb
+            ) AS team_overrides
        FROM users u
        LEFT JOIN role_settings rs ON rs.role = u.role
       WHERE u.id = $1`,
     [userId],
   );
-  return rows[0] as
-    | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null; is_test: boolean }
+  const row = rows[0] as
+    | {
+        role: string;
+        permission_overrides: Record<string, boolean> | null;
+        role_overrides: Record<string, boolean> | null;
+        is_test: boolean;
+        team_overrides?: Array<Record<string, boolean> | null> | null;
+      }
     | undefined;
+  if (!row) return undefined;
+  return { ...row, team_overrides: (row.team_overrides ?? []).filter((t): t is Record<string, boolean> => t != null) };
 }
 
 const routes: FastifyPluginAsync = async (fastify) => {
@@ -740,7 +761,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
     const caller = await resolveCaller(fastify.pg, userId);
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
-    const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
+    const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides, caller.team_overrides);
 
     // Scoped tables (e.g. notifications) only ever return the caller's own rows;
     // chat tables are scoped to the caller's own conversations (chatScopeSql); team
@@ -791,7 +812,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
     const caller = await resolveCaller(fastify.pg, userId);
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
-    const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides);
+    const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides, caller.team_overrides);
 
     for (const table of FULL_TABLES) {
       // media used created_at here until migration 044 added updated_at (backfilled
@@ -848,7 +869,7 @@ const routes: FastifyPluginAsync = async (fastify) => {
     const caller = await resolveCaller(fastify.pg, userId);
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
     const can = (perm: string) =>
-      userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
+      userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides, caller.team_overrides);
 
     // Server-side maintenance freeze: when on, only admins (system_settings) may
     // write — mirrors the client's assertWritable() so a device with queued
@@ -1037,6 +1058,23 @@ const routes: FastifyPluginAsync = async (fastify) => {
           conflicts.push({ id: entry.id, error: 'Forbidden: deactivating an item requires delete_inventory' });
           continue;
         }
+      } else if (
+        entry.table_name === 'vehicle_service_records'
+        && entry.operation === 'INSERT'
+        && entry.payload.type === 'fuel_up'
+      ) {
+        // #76/#168 fuel_up carve-out (live regression on gas receipts):
+        // AddServiceRecordSheet locks non-editors to the Fuel-up kind — any
+        // crew member may file a gas receipt — but the generic OPERATION_PERM
+        // for vehicle_service_records is edit_inventory, which would wrongly
+        // reject that write. Strict equality against the ONE known carve-out
+        // kind: any other `type` string (oil change, etc.) falls through to
+        // the generic edit_inventory gate below, as do UPDATE/DELETE on
+        // fuel_up rows regardless of kind. HARD RULE: implemented HERE, not
+        // by adding a key to syncPolicy.ts's OPERATION_PERM object literal (a
+        // parallel-batch task adds a `repair_steps` entry to that same
+        // object — this avoids an add-add merge conflict).
+        // No permission required — the INSERT passes through unconditionally.
       } else {
         const opPerm = requiredOperationPerm(entry.table_name, entry.operation as 'INSERT' | 'UPDATE' | 'DELETE');
         if (opPerm === 'DENY') {
