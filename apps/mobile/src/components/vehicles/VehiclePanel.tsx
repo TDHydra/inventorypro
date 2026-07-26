@@ -23,9 +23,11 @@ import { getUserById } from '../../db/queries/users';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import {
   resolveCheckoutAction, formatSince, waterTankLabel, wasteTankLabel,
+  resolveVehicleAvailability, snapDebrisLevel,
 } from './vehicleSessionLogic';
+import { VerticalLevelSlider } from '../ui/VerticalLevelSlider';
 import { renderIcon } from '../../constants/locationStyles';
-import { canManageVehicle } from '../../db/queries/access';
+import { canManageVehicle, canLiftVehicleLockFor } from '../../db/queries/access';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
@@ -65,7 +67,7 @@ const WASTE_SEGMENTS = [
 export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
-  const canCheckout = usePermission('checkout_inventory');
+  // #155: role never gates VEHICLE checkout — no checkout_inventory check here.
   const canEdit = usePermission('edit_inventory');
   // #153: retire/reactivate is a locations write, so it's gated the same way
   // the personal-locker toggle is (MemberPermissionsSheet) — the outbox UPDATE
@@ -113,8 +115,19 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
   const isMine = action.kind === 'check_in';
   // #165: shared predicate — owner / tier-3+ / same-team tier-2 manager.
   const canManage = canManageVehicle(user, location);
-  const canBypassLock = canManage;
+  // #167: bypass follows unlock — only a caller who could lift the lock passes.
+  const canBypassLock = canLiftVehicleLockFor(user, location, vehicle);
+  const lockerName = vehicle?.locked_by ? (getUserById(vehicle.locked_by)?.name ?? null) : null;
   const checkoutBlocked = !!vehicle?.checkout_locked && !canBypassLock && action.kind !== 'check_in';
+  // #155: owner-aware availability (session state handled by `action` above,
+  // so hasOpenSession is false here — this decides the owned/opt-in half only).
+  const availability = resolveVehicleAvailability({
+    ownerUserId: location.owner_user_id,
+    openCheckout: vehicle?.open_checkout ?? 0,
+    hasOpenSession: false,
+    userId: user?.id ?? null,
+  });
+  const ownedBlocked = !availability.available && action.kind !== 'check_in';
 
   function setWaterTank(id: string) {
     if (isWriteBlocked()) return;
@@ -128,7 +141,7 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
 
   async function onPrimaryPress() {
     if (isWriteBlocked()) return;
-    if (checkoutBlocked) return; // #157: locked by owner — button is disabled too
+    if (checkoutBlocked || ownedBlocked) return; // #157/#167 lock, #155 owner-closed
 
     if (action.kind === 'check_out') {
       setSheet({ mode: 'checkout' });
@@ -184,7 +197,7 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
     <View>
       <View style={s.headerRow}>
         <Text style={s.name} numberOfLines={1}>{location.icon ? `${renderIcon(location.icon)} ` : ''}{location.name}</Text>
-        {variant === 'full' && canEdit && !locked && (
+        {variant === 'full' && (canEdit || location.owner_user_id === user?.id) && !locked && (
           <Pressable onPress={() => setEditOpen(true)} hitSlop={8}>
             <Text style={s.editLink}>Edit</Text>
           </Pressable>
@@ -216,10 +229,18 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
           tone={vehicle?.waste_tank === 'dirty' ? 'warning' : 'neutral'}
         />
       )}
-      {/* #157: visible-but-locked — everyone sees the lock; only the owner,
-          tier-3+ authority, or a same-team tier-2 manager (#165) can still
-          check out. */}
-      {!!vehicle?.checkout_locked && <StatusPill label="🔒 Locked" tone="neutral" />}
+      {/* #157/#167: visible-but-locked — everyone sees the lock and who set it;
+          only someone who can lift it (tier rule) can still check out. */}
+      {!!vehicle?.checkout_locked && (
+        <StatusPill label={`🔒 Locked${lockerName ? ` by ${lockerName}` : ''}`} tone="neutral" />
+      )}
+      {/* #152: debris level rides the pill row whenever the tracker is on. */}
+      {!!vehicle?.debris_option && (
+        <StatusPill
+          label={`Debris ${vehicle?.debris_level ?? 0}%`}
+          tone={(vehicle?.debris_level ?? 0) >= 80 ? 'warning' : 'neutral'}
+        />
+      )}
 
       {/* #153: retired vehicles are filtered out of every list/picker (same
           active=1 filter as lockers), but a stale deep link or the summary
@@ -272,27 +293,34 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
             tone={vehicle?.truck_mount ? 'primary' : 'neutral'}
           />
         </View>
-        {/* #165: lock checkout from the panel — reachable for lock-managers
-            (office/HR have no edit_inventory, so the Edit sheet is closed to
-            them; this pill is their only toggle). Same write as the sheet. */}
+        {/* #165/#167: lock toggle — reachable for lock-managers (office/HR have
+            no edit_inventory, so the Edit sheet is closed to them). Locking ON
+            needs canManage; flipping an existing lock OFF also needs the lift
+            rule (tier >= locker's tier). Not liftable → read-only pill. */}
         {canManage && !locked && (
-          <Pressable
-            onPress={() => {
-              if (isWriteBlocked()) return;
-              upsertVehicleState(
-                locationId,
-                { checkout_locked: vehicle?.checkout_locked ? 0 : 1 },
-                user?.id ?? null,
-              );
-            }}
-            style={s.truckRow}
-          >
-            <StatusPill
-              label={vehicle?.checkout_locked ? '🔒 Locked from checkout' : 'Checkout open'}
-              tone={vehicle?.checkout_locked ? 'warning' : 'neutral'}
-            />
-            <Text style={s.toggleHint}>tap to toggle</Text>
-          </Pressable>
+          (vehicle?.checkout_locked ? canBypassLock : true) ? (
+            <Pressable
+              onPress={() => {
+                if (isWriteBlocked()) return;
+                upsertVehicleState(
+                  locationId,
+                  { checkout_locked: vehicle?.checkout_locked ? 0 : 1 },
+                  user?.id ?? null,
+                );
+              }}
+              style={s.truckRow}
+            >
+              <StatusPill
+                label={vehicle?.checkout_locked ? '🔒 Locked from checkout' : 'Checkout open'}
+                tone={vehicle?.checkout_locked ? 'warning' : 'neutral'}
+              />
+              <Text style={s.toggleHint}>tap to toggle</Text>
+            </Pressable>
+          ) : (
+            <View style={s.truckRow}>
+              <StatusPill label={`🔒 Locked by ${lockerName ?? 'a manager'}`} tone="warning" />
+            </View>
+          )
         )}
         {/* #159: tank state only exists on truck-mount rigs — hide both rows
             (not just disable) when the vehicle has no truck mount. */}
@@ -318,6 +346,24 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
                 value={vehicle?.waste_tank ?? 'clean'}
                 onChange={setWasteTank}
                 size="sm"
+              />
+            )}
+          </>
+        )}
+        {/* #152: debris level — independent of the truck mount; drag commits
+            snapped to 10s. Ungated like the tanks (crew-level state). */}
+        {!!vehicle?.debris_option && (
+          <>
+            <FieldLabel style={s.waterLabel}>Debris level</FieldLabel>
+            {locked ? (
+              <Text style={s.muted}>{`${vehicle?.debris_level ?? 0}%`}</Text>
+            ) : (
+              <VerticalLevelSlider
+                value={vehicle?.debris_level ?? 0}
+                onCommit={raw => {
+                  if (isWriteBlocked()) return;
+                  upsertVehicleState(locationId, { debris_level: snapDebrisLevel(raw) }, user?.id ?? null);
+                }}
               />
             )}
           </>
@@ -348,17 +394,20 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
         ) : (
           <Text style={s.muted}>Not checked out.</Text>
         )}
-        {canCheckout && (
-          <PrimaryButton
-            label={checkoutBlocked
-              ? '🔒 Locked by owner'
-              : action.kind === 'check_in' ? 'Check In' : action.kind === 'take_over' ? 'Take Over' : 'Check Out'}
-            onPress={() => { void onPrimaryPress(); }}
-            tone={action.kind === 'take_over' && !checkoutBlocked ? 'danger' : 'primary'}
-            disabled={locked || checkoutBlocked}
-            style={s.primaryBtn}
-          />
-        )}
+        {/* #155: no permission wrapper — any role may check out an available
+            vehicle; unavailability disables with the reason instead. */}
+        <PrimaryButton
+          label={
+            action.kind === 'check_in' ? 'Check In'
+            : ownedBlocked ? `Owned by ${owner?.name ?? 'someone'}`
+            : checkoutBlocked ? `🔒 Locked by ${lockerName ?? 'owner'}`
+            : action.kind === 'take_over' ? 'Take Over' : 'Check Out'
+          }
+          onPress={() => { void onPrimaryPress(); }}
+          tone={action.kind === 'take_over' && !checkoutBlocked && !ownedBlocked ? 'danger' : 'primary'}
+          disabled={locked || checkoutBlocked || ownedBlocked}
+          style={s.primaryBtn}
+        />
       </Card>
 
       {/* Contents (A2 Task 5) — per-action gated list + add/remove/move. */}
