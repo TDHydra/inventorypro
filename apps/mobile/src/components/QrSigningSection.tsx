@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { View, Text, TouchableOpacity, Switch, StyleSheet } from 'react-native';
 import { Alert } from '../lib/themedAlert';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { useDbQuery } from '../hooks/useDbQuery';
 import {
   getQrSignConfig, generateQrSecret, setQrSigningSecret, rotateQrSigningKey,
   clearPrevQrKey, clearQrSigning, setRequireSignedQr,
@@ -17,44 +17,44 @@ import {
  */
 export function QrSigningSection() {
   const s = useThemedStyles(makeStyles);
-  const [version, setVersion] = useState(0);
-  const cfg = getQrSignConfig(); // re-read each render; `version` forces refresh after writes
+  // Re-runs whenever a local write OR a background sync pull touches app_config
+  // (#60/#63) — every admin action below writes app_config via appendOutbox,
+  // whose own table bump (../sync/outbox.ts) already drives this read, so no
+  // hand-rolled version counter is needed.
+  const cfg = useDbQuery(() => getQrSignConfig(), [], ['app_config']);
   const enabled = !!cfg.secret;
   const rotating = !!cfg.prevSecret; // a previous key is still accepted
-  const reload = () => setVersion(v => v + 1);
 
   function enable() {
     setQrSigningSecret(generateQrSecret());
-    reload();
     Alert.alert('Signing enabled', 'New labels will be signed. Existing labels still scan (grace mode) until you require signatures.');
   }
   function rotate() {
     Alert.alert('Rotate signing key?', 'A fresh key is generated for new labels. Labels printed with the current key KEEP verifying during the changeover — reprint them, then tap “Finish rotation”.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Rotate', onPress: () => { rotateQrSigningKey(); reload(); } },
+      { text: 'Rotate', onPress: () => rotateQrSigningKey() },
     ]);
   }
   function finishRotation() {
     Alert.alert('Finish rotation?', 'The previous key is dropped — any label still using the OLD key will no longer verify. Only do this once everything has been reprinted.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Finish', style: 'destructive', onPress: () => { clearPrevQrKey(); reload(); } },
+      { text: 'Finish', style: 'destructive', onPress: () => clearPrevQrKey() },
     ]);
   }
   function turnOff() {
     Alert.alert('Turn off signing?', 'New labels will be unsigned. Enforcement is also cleared.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Turn off', style: 'destructive', onPress: () => { clearQrSigning(); setRequireSignedQr(false); reload(); } },
+      { text: 'Turn off', style: 'destructive', onPress: () => { clearQrSigning(); setRequireSignedQr(false); } },
     ]);
   }
   function toggleRequire(on: boolean) {
     if (on) {
       Alert.alert('Require signed labels?', 'Unsigned/legacy labels will be REJECTED on scan. Only turn this on once everything has been reprinted with signing enabled.', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Require', style: 'destructive', onPress: () => { setRequireSignedQr(true); reload(); } },
+        { text: 'Require', style: 'destructive', onPress: () => setRequireSignedQr(true) },
       ]);
     } else {
       setRequireSignedQr(false);
-      reload();
     }
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Modal, TouchableOpacity, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from '../../lib/themedAlert';
@@ -19,6 +19,7 @@ import { uploadMediaAsset, MediaTooLargeError } from '../../media/upload';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { isWriteBlocked } from '../../db/maintenance';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import {
   parseOptionalCount, parseOptionalDate, parseOptionalNonNegative, validateText,
 } from '../../lib/validation';
@@ -105,21 +106,25 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
   const effectiveKind = isEditor ? kind : 'fuel_up';
   const isFuelUp = effectiveKind === 'fuel_up';
 
-  const vehicleOptions = useMemo<PickerOption[]>(
+  // Re-runs whenever a local write OR a background sync pull touches locations
+  // (#60/#63) — no manual reload key needed.
+  const vehicleOptions = useDbQuery<PickerOption[]>(
     () => (locationId || !visible ? [] : getUnitLocations('Vehicle').map(l => ({ id: l.id, label: l.name }))),
     [visible, locationId],
+    ['locations'],
   );
   // "For" options: payers (Office, … — the 'payer' taxonomy, managed in
   // Manage Types), teams, and open jobs in ONE ranked search, sublabel telling
   // them apart. jobIds resolves the picked kind at submit time; payer and team
-  // picks both land as a TEXT snapshot only.
-  const { forOptions, jobIds } = useMemo(() => {
+  // picks both land as a TEXT snapshot only. Re-runs on a local write OR a
+  // background sync pull touching any of these tables (#60/#63).
+  const { forOptions, jobIds } = useDbQuery(() => {
     if (!visible) return { forOptions: [] as PickerOption[], jobIds: new Set<string>() };
     const payers = getPayerTypes().map(p => ({ id: p.id, label: p.label, sublabel: 'Payer' }));
     const teams = getAllTeams().map(tm => ({ id: tm.id, label: tm.name, sublabel: 'Team' }));
     const jobs = getOpenJobs().map(j => ({ id: j.id, label: j.name, sublabel: 'Job' }));
     return { forOptions: [...payers, ...teams, ...jobs], jobIds: new Set(jobs.map(j => j.id)) };
-  }, [visible]);
+  }, [visible], ['jobs', 'teams', 'taxonomy_types']);
 
   // Fresh form on every open (the sheet component itself stays mounted while
   // hidden, so state would otherwise leak between opens).

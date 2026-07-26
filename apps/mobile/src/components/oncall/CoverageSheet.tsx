@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Alert } from '../../lib/themedAlert';
 import { FormSheet } from '../ui/FormSheet';
@@ -9,6 +9,7 @@ import { getAllActiveUsers } from '../../db/queries/users';
 import { createCoverage } from '../../db/queries/oncall';
 import { useSession } from '../../hooks/useSession';
 import { isWriteBlocked } from '../../db/maintenance';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import { localTodayIso } from './OnCallCalendar';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -45,9 +46,12 @@ export function CoverageSheet({ visible, onClose }: Props) {
     }
   }, [visible]);
 
-  const users = useMemo<SelectOption[]>(
+  // Re-runs whenever a local write OR a background sync pull touches users
+  // (#60/#63) — no manual reload key needed.
+  const users = useDbQuery<SelectOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
     [],
+    ['users'],
   );
 
   const dirty =

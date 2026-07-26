@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
@@ -14,6 +14,7 @@ import { getUnitInventoryLock } from '../../db/queries/access';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { LocationShelfPicker } from '../pickers';
@@ -68,7 +69,11 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
   // post-filter) — faithfully restores the old unit_tracked===1 filter. NB:
   // kind='equipment' is NOT equivalent (an equipment item can have unit_tracked=0,
   // and attaching units to it would create stock-invisible phantom inventory).
-  const itemSearch = useMemo(
+  // The returned function's identity changes whenever inventory_items or
+  // equipment_units changes (local write or sync pull, #60/#63), which drives
+  // SearchablePicker's own memo (keyed on searchFn identity) to re-run the
+  // still-open query against fresh data instead of staying frozen.
+  const itemSearch = useDbQuery(
     () => (q: string): PickerOption[] =>
       searchItems(q, 12, 0, undefined, undefined, true).map(i => ({
         id: i.id,
@@ -76,6 +81,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
         sublabel: i.tag_prefix ?? undefined,
       })),
     [],
+    ['inventory_items', 'equipment_units'],
   );
 
   function updateRow(key: string, patch: Partial<UnitRow>) {

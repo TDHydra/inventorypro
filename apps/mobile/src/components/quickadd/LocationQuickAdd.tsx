@@ -6,6 +6,7 @@ import type { Location } from '../../db/queries/locations';
 import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import { SearchablePicker } from '../SearchablePicker';
 import type { PickerOption } from '../SearchablePicker';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -35,10 +36,10 @@ export default function LocationQuickAdd({ onSaved }: Props) {
   const [name, setName] = useState('');
   const [parentOption, setParentOption] = useState<PickerOption | null>(null); // sticky
   const [nameError, setNameError] = useState('');
-  // Increment to trigger a re-fetch of top-level locations after each save
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  const topLevel = useMemo(() => getTopLevelLocations(), [refreshKey]);
+  // Re-runs on any local write OR background sync pull touching locations
+  // (#60/#63) — no manual refresh key needed.
+  const topLevel = useDbQuery(() => getTopLevelLocations(), [], ['locations']);
   const parentOptions: PickerOption[] = useMemo(
     () => topLevel.map(l => ({ id: l.id, label: l.name })),
     [topLevel],
@@ -95,7 +96,8 @@ export default function LocationQuickAdd({ onSaved }: Props) {
 
     onSaved(trimmedName, id);
     setName(''); // clear name; keep parent sticky
-    setRefreshKey(k => k + 1); // refresh parent picker with newly added locations
+    // No explicit reload: appendOutbox's table bump (../../sync/outbox.ts) drives
+    // the useDbQuery(['locations']) read above, refreshing the parent picker.
     setTimeout(() => nameRef.current?.focus(), 100);
   }
 

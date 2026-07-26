@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { EntityEditSheet } from '../ui/EntityEditSheet';
 import { SelectField, type SelectOption } from '../ui/SelectField';
@@ -8,6 +8,7 @@ import {
 } from '../../db/queries/vehicles';
 import { useSession } from '../../hooks/useSession';
 import { isWriteBlocked } from '../../db/maintenance';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 
@@ -56,13 +57,16 @@ export function VehicleCheckoutSheet({
     if (visible) setJobId(initialJobId ?? null);
   }, [visible, initialJobId]);
 
-  const jobOptions = useMemo<SelectOption[]>(
+  // Re-runs whenever a local write OR a background sync pull touches jobs
+  // (#60/#63) — no manual reload key needed.
+  const jobOptions = useDbQuery<SelectOption[]>(
     () => (visible ? getOpenJobs().map(j => ({
       id: j.id,
       label: j.name,
       sublabel: [j.job_number, j.customer_name].filter(Boolean).join(' · ') || undefined,
     })) : []),
     [visible],
+    ['jobs'],
   );
 
   function save() {

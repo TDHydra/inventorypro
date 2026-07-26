@@ -2,9 +2,7 @@ import { View, StyleSheet } from 'react-native';
 import { searchItems } from '../../db/queries/items';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
 import { Field } from '../ui/Field';
-
-const itemSearchFn = (q: string): PickerOption[] =>
-  searchItems(q).map(i => ({ id: i.id, label: i.name }));
+import { useDbQuery } from '../../hooks/useDbQuery';
 
 // The item-catalog dropdown the checkout/stock screens hand-roll, extracted once.
 // The catalog has >1000 rows, so this MUST go through SearchablePicker's searchFn
@@ -26,6 +24,16 @@ export function ItemPicker({
   allowCreate?: boolean;
   disabled?: boolean;
 }) {
+  // The returned function's identity changes whenever inventory_items or
+  // equipment_units changes (local write or sync pull, #60/#63), which drives
+  // SearchablePicker's own memo (keyed on searchFn identity) to re-run the
+  // still-open query against fresh data instead of staying frozen.
+  const itemSearchFn = useDbQuery(
+    () => (q: string): PickerOption[] => searchItems(q).map(i => ({ id: i.id, label: i.name })),
+    [],
+    ['inventory_items', 'equipment_units'],
+  );
+
   const picker = (
     <SearchablePicker
       placeholder={placeholder}
