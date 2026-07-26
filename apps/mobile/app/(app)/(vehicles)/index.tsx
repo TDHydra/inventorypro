@@ -6,7 +6,7 @@ import { SegmentedControl } from '../../../src/components/ui/SegmentedControl';
 import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
 import { VehicleSheet } from '../../../src/components/vehicles/VehicleSheet';
 import { getVisibleUnits, getTeamUnits } from '../../../src/db/queries/access';
-import { isVehicleAvailableForCheckout } from '../../../src/db/queries/vehicles';
+import { isVehicleAvailableForCheckout, getActiveCheckout } from '../../../src/db/queries/vehicles';
 import { getUserById } from '../../../src/db/queries/users';
 import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { renderIcon } from '../../../src/constants/locationStyles';
@@ -76,11 +76,18 @@ export default function VehiclesScreen() {
         ) : (
           <>
             {showsAll && segment === 'all' && <Text style={s.caption}>Manager view — showing every vehicle.</Text>}
-            {units.map(loc => (
+            {units.map(loc => {
+              // #168 review follow-up: mark rows the CALLER can't check out
+              // right now (owned-closed, locked against them, or held by
+              // someone else). Your own held vehicle isn't "locked" to you.
+              const unavailable =
+                !isVehicleAvailableForCheckout(loc.id, user?.id ?? null)
+                && getActiveCheckout(loc.id)?.user_id !== user?.id;
+              return (
               <TouchableOpacity key={loc.id} style={s.row}
                 onPress={() => router.push({ pathname: '/(app)/(vehicles)/[id]', params: { id: loc.id } })}>
                 <View style={s.rowMain}>
-                  <Text style={s.rowName}>{loc.icon ? `${renderIcon(loc.icon)} ` : ''}{loc.name}</Text>
+                  <Text style={s.rowName}>{loc.icon ? `${renderIcon(loc.icon)} ` : ''}{loc.name}{unavailable ? ' 🔒' : ''}</Text>
                   <Text style={s.rowSub}>{loc.owner_user_id ? getUserById(loc.owner_user_id)?.name ?? 'Owner' : 'No owner'}</Text>
                   <VehicleInlineStatus locationId={loc.id} />
                 </View>
@@ -89,7 +96,8 @@ export default function VehiclesScreen() {
                   <Text style={s.info}>ⓘ</Text>
                 </TouchableOpacity>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </>
         )}
       </ScrollView>
