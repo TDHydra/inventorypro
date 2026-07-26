@@ -48,6 +48,7 @@ export interface VehicleRow {
   debris_level: number; // 0-100 (#152)
   open_checkout: number; // 0/1 (#155): owner-assigned vehicle opted into general checkout
   locked_by: string | null; // UUID (#167): who set checkout_locked; NULL = legacy lock
+  fuel_level: number; // 0-100 (#174): drag-to-fill fuel gauge, same idiom as debris_level
   updated_at: string;
   synced_at: string | null; // local-only
 }
@@ -106,6 +107,7 @@ export interface VehicleStatePatch {
   debris_option?: number; // #152
   debris_level?: number; // #152 (0-100; UI clamps)
   open_checkout?: number; // #155: owner opt-in toggle
+  fuel_level?: number; // #174 (0-100; UI clamps)
 }
 
 /**
@@ -136,14 +138,15 @@ export function upsertVehicleState(
       debris_level: patch.debris_level ?? existing?.debris_level ?? 0,
       open_checkout: patch.open_checkout ?? existing?.open_checkout ?? 0,
       locked_by: resolveLockStamp(patch, existing, userId),
+      fuel_level: patch.fuel_level ?? existing?.fuel_level ?? 0,
       updated_at: now,
       synced_at: null,
     };
     const db = getDb();
     db.executeSync(
-      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked, debris_option, debris_level, open_checkout, locked_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
-      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank, merged.checkout_locked, merged.debris_option, merged.debris_level, merged.open_checkout, merged.locked_by]),
+      `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked, debris_option, debris_level, open_checkout, locked_by, fuel_level)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      bindParams([merged.location_id, merged.truck_mount, merged.water_state, merged.model, merged.model_id, merged.notes, merged.updated_at, merged.water_tank, merged.waste_tank, merged.checkout_locked, merged.debris_option, merged.debris_level, merged.open_checkout, merged.locked_by, merged.fuel_level]),
     );
     const { synced_at: _s, water_state: _w, ...row } = merged;
     appendOutbox('INSERT', 'vehicles', row);

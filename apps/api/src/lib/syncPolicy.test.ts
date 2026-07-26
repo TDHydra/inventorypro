@@ -577,6 +577,11 @@ test('vehicles pull carries the phase-0 option columns', () => {
   }
 });
 
+test('vehicles pull carries fuel_level (#174)', () => {
+  const cols = selectColumnsFor('vehicles', false);
+  assert.ok(cols.includes('fuel_level'), 'VEHICLES_COLS missing fuel_level');
+});
+
 test('service-record pull carries payer/job_id ungated; cost stays financial-gated', () => {
   const base = selectColumnsFor('vehicle_service_records', false);
   assert.ok(base.includes('payer'), 'BASE missing payer');

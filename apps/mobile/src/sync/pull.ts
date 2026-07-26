@@ -29,7 +29,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   conversation_participants: `INSERT OR REPLACE INTO conversation_participants (conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at) VALUES (?,?,?,?,?,?)`,
   messages: `INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?)`,
   subteams: `INSERT OR REPLACE INTO subteams (id, team_id, name, active, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
-  vehicles: `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank, checkout_locked, debris_option, debris_level, open_checkout, locked_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  vehicles: `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank, checkout_locked, debris_option, debris_level, open_checkout, locked_by, fuel_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   vehicle_service_records: `INSERT OR REPLACE INTO vehicle_service_records (id, vehicle_location_id, target, event_date, type, notes, odometer, cost, created_by, created_at, updated_at, payer, job_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   vehicle_checkouts: `INSERT OR REPLACE INTO vehicle_checkouts (id, vehicle_location_id, user_id, job_id, checked_out_at, checked_in_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
   locker_access: `INSERT OR REPLACE INTO locker_access (location_id, user_id, granted_by, created_at, updated_at) VALUES (?,?,?,?,?)`,
@@ -65,7 +65,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'conversation_participants': return [row.conversation_id, row.user_id, row.notify_pref ?? 'all', row.last_read_at ?? null, row.added_at, row.updated_at];
     case 'messages': return [row.id, row.conversation_id, row.sender_id ?? null, row.body, row.urgency ?? 'urgent', row.created_at, row.updated_at, row.edited_at ?? null, row.deleted_at ?? null];
     case 'subteams': return [row.id, row.team_id, row.name, row.active ? 1 : 0, row.created_at, row.updated_at];
-    case 'vehicles': return [row.location_id, row.truck_mount ? 1 : 0, row.water_state ?? null, row.model ?? null, row.model_id ?? null, row.notes ?? null, row.updated_at, row.water_tank ?? 'empty', row.waste_tank ?? 'clean', row.checkout_locked ? 1 : 0, row.debris_option ? 1 : 0, row.debris_level ?? 0, row.open_checkout ? 1 : 0, row.locked_by ?? null];
+    case 'vehicles': return [row.location_id, row.truck_mount ? 1 : 0, row.water_state ?? null, row.model ?? null, row.model_id ?? null, row.notes ?? null, row.updated_at, row.water_tank ?? 'empty', row.waste_tank ?? 'clean', row.checkout_locked ? 1 : 0, row.debris_option ? 1 : 0, row.debris_level ?? 0, row.open_checkout ? 1 : 0, row.locked_by ?? null, row.fuel_level ?? 0];
     // cost is financial: the server omits it for callers without
     // view_financial_data (maintenance_events pattern) → null locally.
     case 'vehicle_service_records': return [row.id, row.vehicle_location_id, row.target ?? 'vehicle', row.event_date, row.type, row.notes ?? null, row.odometer ?? null, row.cost ?? null, row.created_by ?? null, row.created_at, row.updated_at, row.payer ?? null, row.job_id ?? null];

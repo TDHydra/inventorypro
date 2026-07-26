@@ -23,7 +23,7 @@ import { getUserById } from '../../db/queries/users';
 import { getTaxonomyTypes } from '../../db/queries/taxonomy';
 import {
   resolveCheckoutAction, formatSince, waterTankLabel, wasteTankLabel,
-  resolveVehicleAvailability, snapDebrisLevel,
+  resolveVehicleAvailability, snapDebrisLevel, snapFuelLevel,
 } from './vehicleSessionLogic';
 import { VerticalLevelSlider } from '../ui/VerticalLevelSlider';
 import { renderIcon } from '../../constants/locationStyles';
@@ -241,6 +241,11 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
           tone={(vehicle?.debris_level ?? 0) >= 80 ? 'warning' : 'neutral'}
         />
       )}
+      {/* #174: fuel gauge — ungated (every vehicle has fuel, unlike debris_option). */}
+      <StatusPill
+        label={`${vehicle?.fuel_level ?? 0}% fuel`}
+        tone={(vehicle?.fuel_level ?? 0) <= 20 ? 'warning' : 'neutral'}
+      />
 
       {/* #153: retired vehicles are filtered out of every list/picker (same
           active=1 filter as lockers), but a stale deep link or the summary
@@ -367,6 +372,21 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
               />
             )}
           </>
+        )}
+        {/* #174: fuel level — ungated (every vehicle has fuel, unlike the
+            debris tracker) and permission-less like the other vehicle state
+            writes; drag commits snapped to 10s. */}
+        <FieldLabel style={s.waterLabel}>Fuel</FieldLabel>
+        {locked ? (
+          <Text style={s.muted}>{`${vehicle?.fuel_level ?? 0}%`}</Text>
+        ) : (
+          <VerticalLevelSlider
+            value={vehicle?.fuel_level ?? 0}
+            onCommit={raw => {
+              if (isWriteBlocked()) return;
+              upsertVehicleState(locationId, { fuel_level: snapFuelLevel(raw) }, user?.id ?? null);
+            }}
+          />
         )}
       </Card>
 
