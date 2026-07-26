@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
-import { useSession } from '../../../src/hooks/useSession';
 import { ROLE_TIER, ROLE_DISPLAY_NAMES, type UserRole } from '../../../src/constants/roles';
 import {
   WIDGET_REGISTRY,
@@ -17,6 +16,7 @@ import { loadDashboardCache } from '../../../src/dashboard/store';
 import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
 import { roleHasPermission } from '../../../src/auth/permissions';
+import { usePermission } from '../../../src/hooks/usePermission';
 import {
   getDashboardPresets,
   getDashboardPresetById,
@@ -133,8 +133,9 @@ function widgetDisplay(block: LayoutBlock): { icon: string; label: string } {
 
 export default function DashboardsScreen() {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
-  const isTier4 = user != null && ROLE_TIER[user.role] === 4;
+  // #76: server gates dashboard_presets writes on system_settings, not a tier
+  // floor — the client gate now matches (was isTier4).
+  const canManageDashboards = usePermission('system_settings');
 
   // Re-read whenever a local write or sync pull touches the preset tables —
   // replaces the old manual refreshPresets()/setRoleMap re-reads after writes.
@@ -367,12 +368,12 @@ export default function DashboardsScreen() {
 
   // ── Render guards ────────────────────────────────────────────────────────────
 
-  if (!isTier4) {
+  if (!canManageDashboards) {
     return (
       <>
         <Stack.Screen options={{ title: 'Dashboards', headerShown: true }} />
         <View style={s.unauthorizedWrap}>
-          <Text style={s.unauthorizedText}>This screen requires Tier 4 (Owner) access.</Text>
+          <Text style={s.unauthorizedText}>This screen requires the "Change system settings" permission.</Text>
         </View>
       </>
     );

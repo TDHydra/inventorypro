@@ -25,6 +25,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { FormScreen } from '../ui/FormScreen';
 import { StatusPill } from '../ui/StatusPill';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { PermissionGate } from '../PermissionGate';
 import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
@@ -127,7 +128,14 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
     // sits in the sticky footer slot and floats above the keyboard (#118).
     <FormScreen
       contentContainerStyle={s.content}
-      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
+      footer={(
+        // A vehicle IS a location insert (upsertLocation above) — server
+        // enforces manage_locations on that path, so gate the save control the
+        // same way instead of letting a denied user hit a sync conflict (#76).
+        <PermissionGate permission="manage_locations" mode="disable">
+          <QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />
+        </PermissionGate>
+      )}
     >
       <TextInput
         ref={nameRef}

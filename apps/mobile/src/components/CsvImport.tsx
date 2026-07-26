@@ -18,6 +18,7 @@ import { useThemedStyles } from '../hooks/useThemedStyles';
 import { PrimaryButton } from './ui/PrimaryButton';
 import { FieldLabel } from './ui/FieldLabel';
 import { MaintenanceBanner } from './ui/MaintenanceBanner';
+import { PermissionGate } from './PermissionGate';
 
 interface Props {
   // Fired once, after a batch import completes, with a human label (e.g. "12
@@ -430,13 +431,17 @@ export default function CsvImport({ onImported }: Props) {
             <TouchableOpacity style={s.editBtn} onPress={handleEditAgain} disabled={importing}>
               <Text style={s.editBtnText}>Back to edit</Text>
             </TouchableOpacity>
-            <PrimaryButton
-              label={importing ? 'Importing…' : `Import ${validCount} item${validCount === 1 ? '' : 's'}`}
-              onPress={handleImport}
-              disabled={validCount === 0 || locked}
-              loading={importing}
-              style={{ flex: 1 }}
-            />
+            {/* server requires add_inventory (via add/edit_inventory) for the item
+                inserts this triggers — gate it so a denied user learns why (#76). */}
+            <PermissionGate permission="add_inventory" mode="disable">
+              <PrimaryButton
+                label={importing ? 'Importing…' : `Import ${validCount} item${validCount === 1 ? '' : 's'}`}
+                onPress={handleImport}
+                disabled={validCount === 0 || locked}
+                loading={importing}
+                style={{ flex: 1 }}
+              />
+            </PermissionGate>
           </View>
           {locked && <MaintenanceBanner />}
         </>

@@ -21,6 +21,7 @@ import { AppInput } from '../ui/AppInput';
 import { FieldLabel } from '../ui/FieldLabel';
 import { FormScreen } from '../ui/FormScreen';
 import { AdvancedFields } from '../ui/AdvancedFields';
+import { PermissionGate } from '../PermissionGate';
 import { QuickAddFooter } from './QuickAddFooter';
 import { AutofillTextField } from '../ui/AutofillTextField';
 import { TextField } from '../ui/TextField';
@@ -201,7 +202,14 @@ export default function JobQuickAdd({ onSaved }: Props) {
     // is off.
     <FormScreen
       contentContainerStyle={s.content}
-      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} showDone={false} />}
+      footer={(
+        // server requires create_jobs to accept the push (syncPolicy.ts:331) —
+        // gate the save control so a denied user learns why instead of hitting
+        // a sync conflict (#76).
+        <PermissionGate permission="create_jobs" mode="disable">
+          <QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} showDone={false} />
+        </PermissionGate>
+      )}
     >
       <View style={s.hint}>
         <Text style={s.hintText}>

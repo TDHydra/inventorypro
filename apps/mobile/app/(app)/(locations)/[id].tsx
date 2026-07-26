@@ -475,7 +475,10 @@ export default function LocationDetailScreen() {
               <Text style={s.addStockBtnText}>+ Add Stock Here</Text>
             </TouchableOpacity>
           )}
-          {canManage && stock.length > 0 && (
+          {/* server enforces edit_inventory via stock_by_location for moves,
+              not manage_locations (#76) — reuse canAddStock, already the same
+              permission check used for "+ Add Stock Here" above. */}
+          {canAddStock && stock.length > 0 && (
             <TouchableOpacity
               style={s.moveStockBtn}
               onPress={() => setShowMoveStock(true)}

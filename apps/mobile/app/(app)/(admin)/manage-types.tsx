@@ -3,8 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Switch, Animated, PanResponder } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
-import { useSession } from '../../../src/hooks/useSession';
-import { ROLE_TIER } from '../../../src/constants/roles';
+import { usePermission } from '../../../src/hooks/usePermission';
 import {
   TaxonomyType,
   ProductClass,
@@ -352,8 +351,9 @@ function loadAllLists(): Record<string, TaxonomyType[]> {
 
 export default function ManageTypesScreen() {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
-  const isTier4 = user != null && ROLE_TIER[user.role] === 4;
+  // #76: server gates taxonomy writes on add/edit_inventory, not a tier floor —
+  // the client gate now matches (was isTier4).
+  const canManageTypes = usePermission('edit_inventory');
   const { locked } = useMaintenanceMode();
 
   // True while any section's row is mid-drag; disables the outer ScrollView so
@@ -784,10 +784,10 @@ export default function ManageTypesScreen() {
     <>
       <Stack.Screen options={{ title: 'Manage Types', headerShown: true }} />
 
-      {!isTier4 ? (
+      {!canManageTypes ? (
         <View style={s.unauthorizedWrap}>
           <Text style={s.unauthorizedText}>
-            This screen requires Tier 4 (Owner) access.
+            This screen requires the "Edit catalog items" permission.
           </Text>
         </View>
       ) : (

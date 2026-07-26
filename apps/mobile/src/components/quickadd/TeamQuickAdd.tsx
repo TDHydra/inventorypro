@@ -28,6 +28,7 @@ import { FieldLabel } from '../ui/FieldLabel';
 import { FormScreen } from '../ui/FormScreen';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { ModalSheet } from '../ui/ModalSheet';
+import { PermissionGate } from '../PermissionGate';
 import { QuickAddFooter } from './QuickAddFooter';
 import { track } from '../../telemetry';
 import { validateName } from '../../lib/validation';
@@ -231,7 +232,14 @@ export default function TeamQuickAdd({ onSaved }: Props) {
     // sits in the sticky footer slot and floats above the keyboard (#118).
     <FormScreen
       contentContainerStyle={s.content}
-      footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
+      footer={(
+        // server requires manage_teams for this privileged table (PRIVILEGED_TABLE_PERM) —
+        // gate the save control so a denied user learns why instead of hitting
+        // a sync conflict (#76).
+        <PermissionGate permission="manage_teams" mode="disable">
+          <QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />
+        </PermissionGate>
+      )}
     >
       <AppInput
         style={!!nameError && s.inputError}
