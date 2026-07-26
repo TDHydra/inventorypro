@@ -4,7 +4,7 @@ import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
 import { ROLE_TIER, type UserRole } from '../../constants/roles';
-import { buildClosePayload, buildTakeoverNote, canLiftVehicleLock, FUEL_UP_TYPE, resolveLockStamp } from '../../components/vehicles/vehicleSessionLogic';
+import { buildClosePayload, buildTakeoverNote, canLiftVehicleLock, FUEL_UP_TYPE, resolveLockStamp, resolveVehicleAvailability } from '../../components/vehicles/vehicleSessionLogic';
 import { sharesTeamWithOwner } from './access';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Three soft-FK tables:
@@ -382,6 +382,34 @@ export function isCheckoutLockedFor(locationId: string, userId: string | null): 
     userId,
     userTier: tier,
   });
+}
+
+/**
+ * #155: is this vehicle in the caller's checkable set RIGHT NOW? Free of an
+ * open session AND (unowned OR opted in OR theirs) AND not locked against them
+ * (#167 tier rule via isCheckoutLockedFor). Backs the list's Available segment;
+ * the panel button derives the same answer from its own loaded rows.
+ */
+export function isVehicleAvailableForCheckout(locationId: string, userId: string | null): boolean {
+  const db = getDb();
+  const row = rowsAs<{ owner_user_id: string | null; open_checkout: number | null; has_open: number }>(
+    db.executeSync(
+      `SELECT l.owner_user_id, v.open_checkout,
+              EXISTS(SELECT 1 FROM vehicle_checkouts c
+                      WHERE c.vehicle_location_id = l.id AND c.checked_in_at IS NULL) AS has_open
+         FROM locations l LEFT JOIN vehicles v ON v.location_id = l.id
+        WHERE l.id = ?`,
+      [locationId],
+    ).rows,
+  )[0];
+  if (!row) return false;
+  const a = resolveVehicleAvailability({
+    ownerUserId: row.owner_user_id,
+    openCheckout: row.open_checkout ?? 0,
+    hasOpenSession: !!row.has_open,
+    userId,
+  });
+  return a.available && !isCheckoutLockedFor(locationId, userId);
 }
 
 /** Throws when the owner lock blocks `userId` — shared by check-out and take-over. */

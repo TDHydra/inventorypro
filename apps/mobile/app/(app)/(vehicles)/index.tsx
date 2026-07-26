@@ -6,7 +6,9 @@ import { SegmentedControl } from '../../../src/components/ui/SegmentedControl';
 import { VehicleInlineStatus } from '../../../src/components/vehicles/VehicleInlineStatus';
 import { VehicleSheet } from '../../../src/components/vehicles/VehicleSheet';
 import { getVisibleUnits, getTeamUnits } from '../../../src/db/queries/access';
+import { isVehicleAvailableForCheckout } from '../../../src/db/queries/vehicles';
 import { getUserById } from '../../../src/db/queries/users';
+import { useTableVersion } from '../../../src/hooks/useDataVersion';
 import { renderIcon } from '../../../src/constants/locationStyles';
 import { useSession } from '../../../src/hooks/useSession';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
@@ -30,10 +32,20 @@ export default function VehiclesScreen() {
     [user?.id, refreshKey],
   );
   // null = user hasn't touched the control; managers (showsAll) default to All.
-  const [segmentChoice, setSegmentChoice] = useState<'team' | 'all' | null>(null);
+  const [segmentChoice, setSegmentChoice] = useState<'team' | 'all' | 'available' | null>(null);
   // Empty team set falls back to All (and the control reflects it).
-  const segment = teamUnits.length === 0 ? 'all' : segmentChoice ?? (showsAll ? 'all' : 'team');
-  const units = segment === 'team' ? teamUnits : allUnits;
+  const segment = segmentChoice === 'team' && teamUnits.length === 0
+    ? 'all'
+    : segmentChoice ?? (teamUnits.length === 0 || showsAll ? 'all' : 'team');
+  // #155: the checkable set — availability + the #167 lock, per caller.
+  const tableKey = useTableVersion(['vehicles', 'vehicle_checkouts']);
+  const availableUnits = useMemo(
+    () => (segment === 'available'
+      ? allUnits.filter(l => isVehicleAvailableForCheckout(l.id, user?.id ?? null))
+      : []),
+    [segment, allUnits, user?.id, refreshKey, tableKey],
+  );
+  const units = segment === 'team' ? teamUnits : segment === 'available' ? availableUnits : allUnits;
   // ⓘ target persists after close so ModalSheet's exit animation has a valid id.
   const [infoId, setInfoId] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -47,14 +59,20 @@ export default function VehiclesScreen() {
             segments={[
               { id: 'team', label: 'Team Vehicles' },
               { id: 'all', label: 'All Vehicles' },
+              { id: 'available', label: 'Available' },
             ]}
             value={segment}
-            onChange={id => setSegmentChoice(id === 'team' ? 'team' : 'all')}
+            onChange={id => setSegmentChoice(id as 'team' | 'all' | 'available')}
           />
         )}
         {units.length === 0 ? (
-          <EmptyState icon="🚐" title="No vehicles yet"
-            subtitle="Vehicles you own, share a team with, or were granted access to show up here." />
+          segment === 'available' ? (
+            <EmptyState icon="🚐" title="No vehicles available"
+              subtitle="Nothing is free to check out right now — owned vehicles appear here when their owner opts in." />
+          ) : (
+            <EmptyState icon="🚐" title="No vehicles yet"
+              subtitle="Vehicles you own, share a team with, or were granted access to show up here." />
+          )
         ) : (
           <>
             {showsAll && segment === 'all' && <Text style={s.caption}>Manager view — showing every vehicle.</Text>}
