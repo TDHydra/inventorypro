@@ -14,6 +14,7 @@ import {
 import { ROLE_TIER, ROLE_DEFAULTS, UserRole } from '../../constants/roles';
 import type { UserSession } from '../../auth/permissions';
 import { canManageUnitAccess } from '../../access/unitAccessPolicy';
+import { canLiftVehicleLock } from '../../components/vehicles/vehicleSessionLogic';
 
 // Locker/vehicle access queries (#126) — the DB-backed wrapper around the pure
 // access kernel in src/access/accessResolution.ts. The kernel mirrors the
@@ -347,5 +348,34 @@ export function canManageVehicle(
   const tier = ROLE_TIER[user.role] ?? 0;
   if (tier >= 3) return true;
   return tier >= 2 && sharesTeamWithOwner(user.id, location.owner_user_id);
+}
+
+/**
+ * #167: may `user` lift the vehicle's current lock (and therefore flip the
+ * toggle OFF / bypass it)? Unlocked → true (locking ON is gated by
+ * canManageVehicle alone). Locker tier resolves from their CURRENT role;
+ * a deleted locker resolves to tier 0. SQL twin: isCheckoutLockedFor
+ * (queries/vehicles.ts) — kept in sync manually.
+ */
+export function canLiftVehicleLockFor(
+  user: UserSession | null | undefined,
+  location: Pick<Location, 'owner_user_id'> | null | undefined,
+  vehicle: { checkout_locked: number; locked_by: string | null } | null | undefined,
+): boolean {
+  if (!user || !location) return false;
+  if (!vehicle?.checkout_locked) return true;
+  let lockerRole: string | null = null;
+  if (vehicle.locked_by) {
+    lockerRole = rowsAs<{ role: string | null }>(getDb().executeSync(
+      `SELECT role FROM users WHERE id = ?`, [vehicle.locked_by],
+    ).rows)[0]?.role ?? null;
+  }
+  return canLiftVehicleLock({
+    canManage: canManageVehicle(user, location),
+    lockedBy: vehicle.locked_by,
+    lockerTier: ROLE_TIER[lockerRole as UserRole] ?? 0,
+    userId: user.id,
+    userTier: ROLE_TIER[user.role] ?? 0,
+  });
 }
 
