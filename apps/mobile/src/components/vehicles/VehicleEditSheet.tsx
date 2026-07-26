@@ -5,13 +5,15 @@ import { TextField } from '../ui/TextField';
 import { StatusPill } from '../ui/StatusPill';
 import { TaxonomyChips } from '../pickers';
 import { getLocationById, upsertLocation } from '../../db/queries/locations';
-import { getVehicle, upsertVehicleState, VEHICLE_MODEL_CATEGORY } from '../../db/queries/vehicles';
+import { getVehicle, upsertVehicleState, VEHICLE_MODEL_CATEGORY, type VehicleStatePatch } from '../../db/queries/vehicles';
+import { getUserById } from '../../db/queries/users';
 import { runInTransaction } from '../../db/tx';
 import { appendOutbox } from '../../sync/outbox';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useSession } from '../../hooks/useSession';
+import { usePermission } from '../../hooks/usePermission';
 import { validateName } from '../../lib/validation';
-import { canManageVehicle } from '../../db/queries/access';
+import { canManageVehicle, canLiftVehicleLockFor } from '../../db/queries/access';
 import { track } from '../../telemetry';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -23,22 +25,30 @@ interface Props {
 }
 
 /**
- * Edit a vehicle's identity/spec: name, model, truck mount. Truck mount lives
- * here (and in VehicleQuickAdd) rather than on the panel because it's equipment
- * spec, not day-to-day state like the tanks — see #122 follow-up. Callers gate
- * visibility on edit_inventory; day-to-day tank state stays ungated on the panel.
+ * Edit a vehicle's identity/spec: name, model, truck mount, debris option
+ * (#152). Equipment spec lives here (not the panel) — see #122 follow-up.
+ * #155 widened access: the OWNER can open this sheet without edit_inventory,
+ * but sees only the shared-access rows (lock + open_checkout); identity/spec
+ * stays editor-only. #167: an existing lock set by a higher tier renders
+ * read-only here — canLiftVehicleLockFor gates flipping it off.
  */
 export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
+  const isEditor = usePermission('edit_inventory');
 
   const [name, setName] = useState('');
   const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
   const [truckMount, setTruckMount] = useState(false);
+  const [debrisOption, setDebrisOption] = useState(false);
   const [checkoutLocked, setCheckoutLocked] = useState(false);
-  // #165: owner / tier-3+ / same-team tier-2 manager (canManageVehicle)
-  // — everyone else neither sees it nor writes checkout_locked.
+  const [openCheckout, setOpenCheckout] = useState(false);
+  const [hasOwner, setHasOwner] = useState(false);
+  // #165: owner / tier-3+ / same-team tier-2 manager (canManageVehicle).
   const [canLock, setCanLock] = useState(false);
+  // #167: may flip an EXISTING lock off (tier >= locker's tier, or self/legacy).
+  const [canLift, setCanLift] = useState(true);
+  const [lockerName, setLockerName] = useState<string | null>(null);
   const [nameError, setNameError] = useState('');
 
   // Re-seed the form each time the sheet opens: it edits the CURRENT row, and a
@@ -51,9 +61,13 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     setName(location?.name ?? '');
     setModel({ id: vehicle?.model_id ?? null, label: vehicle?.model ?? null });
     setTruckMount(!!vehicle?.truck_mount);
+    setDebrisOption(!!vehicle?.debris_option);
     setCheckoutLocked(!!vehicle?.checkout_locked);
-    // #165: owner, tier-3+, or a tier-2 manager on the owner's team.
+    setOpenCheckout(!!vehicle?.open_checkout);
+    setHasOwner(location?.owner_user_id != null);
     setCanLock(canManageVehicle(user, location ?? null));
+    setCanLift(canLiftVehicleLockFor(user, location ?? null, vehicle));
+    setLockerName(vehicle?.locked_by ? getUserById(vehicle.locked_by)?.name ?? null : null);
     setNameError('');
   }, [visible, locationId, user]);
 
@@ -63,21 +77,39 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     const location = getLocationById(locationId);
     if (!location) throw new Error('vehicle location missing');
 
-    const nameResult = validateName(name);
-    if (!nameResult.ok) {
-      track('audit', 'validation_reject', { screen: 'vehicle_edit', props: { field: 'vehicle.name', rule: nameResult.rule } });
-      setNameError(nameResult.error);
-      throw new Error(`validation: ${nameResult.rule}`);
+    let newName = location.name;
+    if (isEditor) {
+      const nameResult = validateName(name);
+      if (!nameResult.ok) {
+        track('audit', 'validation_reject', { screen: 'vehicle_edit', props: { field: 'vehicle.name', rule: nameResult.rule } });
+        setNameError(nameResult.error);
+        throw new Error(`validation: ${nameResult.rule}`);
+      }
+      newName = nameResult.value;
     }
     setNameError('');
     const now = new Date().toISOString();
+
+    // Each holder patches only the fields their gate covers; everything else
+    // stays untouched so concurrent writers don't clobber each other.
+    const patch: VehicleStatePatch = {
+      ...(isEditor ? {
+        model: model.label, model_id: model.id,
+        truck_mount: truckMount ? 1 : 0,
+        debris_option: debrisOption ? 1 : 0,
+      } : {}),
+      // #167: only include the lock when the caller may write the transition —
+      // locking ON needs canLock; flipping an existing lock OFF also needs canLift.
+      ...(canLock && (canLift || checkoutLocked) ? { checkout_locked: checkoutLocked ? 1 : 0 } : {}),
+      ...(canLock && hasOwner ? { open_checkout: openCheckout ? 1 : 0 } : {}),
+    };
 
     try {
       // Atomic: renamed location + its outbox entry + the vehicle spec write
       // (which appends its own outbox + vehicle_state_changed log) land together.
       runInTransaction(() => {
-        if (nameResult.value !== location.name) {
-          const updated = { ...location, name: nameResult.value, updated_at: now, synced_at: null };
+        if (isEditor && newName !== location.name) {
+          const updated = { ...location, name: newName, updated_at: now, synced_at: null };
           upsertLocation(updated);
           // synced_at is local-only — strip from the outbox payload (server has
           // no such column); active as boolean mirrors VehicleQuickAdd.
@@ -96,12 +128,9 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
             has_shelves: !!has_shelves,
           });
         }
-        upsertVehicleState(locationId, {
-          model: model.label, model_id: model.id,
-          truck_mount: truckMount ? 1 : 0,
-          // Only the owner/authority patch the lock — others leave it untouched.
-          ...(canLock ? { checkout_locked: checkoutLocked ? 1 : 0 } : {}),
-        }, user?.id ?? null);
+        if (Object.keys(patch).length > 0) {
+          upsertVehicleState(locationId, patch, user?.id ?? null);
+        }
       });
     } catch (err) {
       Alert.alert('Save failed', err instanceof Error ? err.message : 'Unknown error');
@@ -111,35 +140,61 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
 
   return (
     <EntityEditSheet visible={visible} onClose={onClose} title="Edit Vehicle" onSave={handleSave}>
-      <TextField
-        label="Name"
-        required
-        value={name}
-        onChangeText={v => { setName(v); if (nameError) setNameError(''); }}
-        error={nameError || null}
-      />
-      <TaxonomyChips
-        category={VEHICLE_MODEL_CATEGORY}
-        label="Model"
-        deselectable
-        valueId={model.id}
-        valueLabel={model.label}
-        onChange={setModel}
-      />
-      <Pressable onPress={() => setTruckMount(v => !v)} style={s.truckRow}>
-        <StatusPill
-          label={truckMount ? 'Truck mount' : 'No truck mount'}
-          tone={truckMount ? 'primary' : 'neutral'}
-        />
-        <Text style={s.toggleHint}>tap to toggle</Text>
-      </Pressable>
-      {/* #157: owner lock — vehicle stays visible everywhere, checkout is
-          blocked for everyone but the owner / tier-3+ authority. */}
-      {canLock && (
+      {isEditor && (
+        <>
+          <TextField
+            label="Name"
+            required
+            value={name}
+            onChangeText={v => { setName(v); if (nameError) setNameError(''); }}
+            error={nameError || null}
+          />
+          <TaxonomyChips
+            category={VEHICLE_MODEL_CATEGORY}
+            label="Model"
+            deselectable
+            valueId={model.id}
+            valueLabel={model.label}
+            onChange={setModel}
+          />
+          <Pressable onPress={() => setTruckMount(v => !v)} style={s.truckRow}>
+            <StatusPill
+              label={truckMount ? 'Truck mount' : 'No truck mount'}
+              tone={truckMount ? 'primary' : 'neutral'}
+            />
+            <Text style={s.toggleHint}>tap to toggle</Text>
+          </Pressable>
+          {/* #152: debris tracker is equipment spec like the truck mount. */}
+          <Pressable onPress={() => setDebrisOption(v => !v)} style={s.truckRow}>
+            <StatusPill
+              label={debrisOption ? 'Debris tracker' : 'No debris tracker'}
+              tone={debrisOption ? 'primary' : 'neutral'}
+            />
+            <Text style={s.toggleHint}>tap to toggle</Text>
+          </Pressable>
+        </>
+      )}
+      {/* #157/#167: lock row. Not liftable → read-only display, no hint. */}
+      {canLock && (canLift || !checkoutLocked ? (
         <Pressable onPress={() => setCheckoutLocked(v => !v)} style={s.truckRow}>
           <StatusPill
             label={checkoutLocked ? '🔒 Locked from checkout' : 'Checkout open'}
             tone={checkoutLocked ? 'warning' : 'neutral'}
+          />
+          <Text style={s.toggleHint}>tap to toggle</Text>
+        </Pressable>
+      ) : (
+        <Pressable style={s.truckRow} disabled>
+          <StatusPill label={`🔒 Locked by ${lockerName ?? 'a manager'}`} tone="warning" />
+        </Pressable>
+      ))}
+      {/* #155: owner opt-in — meaningful only on owned vehicles. Wording is
+          deliberately distinct from the lock's "Checkout open". */}
+      {canLock && hasOwner && (
+        <Pressable onPress={() => setOpenCheckout(v => !v)} style={s.truckRow}>
+          <StatusPill
+            label={openCheckout ? 'Anyone can check out' : 'Owner-only'}
+            tone={openCheckout ? 'primary' : 'neutral'}
           />
           <Text style={s.toggleHint}>tap to toggle</Text>
         </Pressable>
