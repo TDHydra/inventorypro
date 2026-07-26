@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Modal, TouchableOpacity, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from '../../lib/themedAlert';
@@ -7,15 +7,12 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { TextField } from '../ui/TextField';
 import { DateField } from '../ui/DateField';
 import { FieldLabel } from '../ui/FieldLabel';
-import { FilterChip } from '../ui/FilterChip';
 import { confirmSheet } from '../ui/ConfirmSheet';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
 import { createServiceRecord, getActiveCheckoutForUser, type ServiceTarget } from '../../db/queries/vehicles';
 import { getUnitLocations, getLocationById } from '../../db/queries/locations';
 import { getOpenJobs } from '../../db/queries/jobs';
-import {
-  getGasReceiptPayers, subscribeGasReceiptPayers, getGasReceiptPayersVersion,
-} from '../../db/gasReceiptPayers';
+import { getAllTeams } from '../../db/queries/teams';
 import { FUEL_UP_TYPE, buildFuelUpNotes, buildReceiptVehicleMismatchNote } from './vehicleSessionLogic';
 import { uploadMediaAsset, MediaTooLargeError } from '../../media/upload';
 import { useSession } from '../../hooks/useSession';
@@ -35,12 +32,15 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 // (which part was serviced) and an optional odometer reading.
 //
 // #168 grew the Fuel-up branch into the gas receipt (user decision: ONE form,
-// not a parallel sheet): photo (nudged-optional), payer (REQUIRED, live list
-// from app_config), optional job. Non-editors are locked to the Fuel-up kind —
-// any crew member files a receipt; service records stay edit_inventory-only.
-// Without `locationId` (QuickAdd entry) a vehicle picker appears, defaulting
-// to the caller's active checkout; picking a different vehicle is allowed but
-// logged (buildReceiptVehicleMismatchNote).
+// not a parallel sheet): photo (nudged-optional) and a REQUIRED "For" that
+// follows the CHECKOUT taxonomy (user review #2): Team (real teams from the
+// DB) or Job (open jobs) — not a parallel app_config payer list. payer stores
+// the chosen name as a TEXT snapshot; job receipts also set job_id.
+// Non-editors are locked to the Fuel-up kind — any crew member files a
+// receipt; service records stay edit_inventory-only. Without `locationId`
+// (QuickAdd entry) a vehicle picker appears, defaulting to the caller's
+// active checkout; picking a different vehicle is allowed but logged
+// (buildReceiptVehicleMismatchNote).
 const TARGET_SEGMENTS = [
   { id: 'vehicle', label: 'Vehicle' },
   { id: 'truck_mount', label: 'Truck mount' },
@@ -82,10 +82,6 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
   // arbitrary service records remain an editor action.
   const isEditor = usePermission('edit_inventory');
 
-  // Live payer list — settings edits show without remount (hiddenFields pattern).
-  const payersVersion = useSyncExternalStore(subscribeGasReceiptPayers, getGasReceiptPayersVersion, getGasReceiptPayersVersion);
-  const payers = useMemo(() => getGasReceiptPayers(), [payersVersion]);
-
   const [kind, setKind] = useState<'service' | 'fuel_up'>(initialKind);
   const [target, setTarget] = useState<ServiceTarget>('vehicle');
   const [type, setType] = useState('');
@@ -96,8 +92,10 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
   const [notes, setNotes] = useState('');
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [payer, setPayer] = useState<string | null>(null);
-  const [job, setJob] = useState<PickerOption | null>(null);
+  // #168 "For" — checkout-taxonomy pair: which kind, then the picked entity.
+  const [forType, setForType] = useState<'team' | 'job' | null>(null);
+  const [forTeam, setForTeam] = useState<PickerOption | null>(null);
+  const [forJob, setForJob] = useState<PickerOption | null>(null);
   const [vehicle, setVehicle] = useState<PickerOption | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -115,6 +113,10 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     () => (visible ? getOpenJobs().map(j => ({ id: j.id, label: j.name })) : []),
     [visible],
   );
+  const teamOptions = useMemo<PickerOption[]>(
+    () => (visible ? getAllTeams().map(tm => ({ id: tm.id, label: tm.name })) : []),
+    [visible],
+  );
 
   // Fresh form on every open (the sheet component itself stays mounted while
   // hidden, so state would otherwise leak between opens).
@@ -129,8 +131,9 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     setCost('');
     setNotes('');
     setPhoto(null);
-    setPayer(null);
-    setJob(null);
+    setForType(null);
+    setForTeam(null);
+    setForJob(null);
     if (locationId) {
       const loc = getLocationById(locationId);
       setVehicle(loc ? { id: loc.id, label: loc.name } : null);
@@ -148,7 +151,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     type.trim().length > 0 || notes.trim().length > 0 ||
     odometer.trim().length > 0 || cost.trim().length > 0 ||
     gallons.trim().length > 0 || kind !== initialKind || target !== 'vehicle' ||
-    photo != null || payer != null || job != null;
+    photo != null || forType != null;
 
   function reject(field: string, rule: string) {
     track('audit', 'validation_reject', { screen: 'vehicle_service', props: { field, rule } });
@@ -181,10 +184,11 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
       Alert.alert('Required', 'Enter a service type.');
       return;
     }
-    // #168: every fuel-up is charged to someone — payer is REQUIRED.
-    if (isFuelUp && !payer) {
+    // #168: every fuel-up is charged to someone — For (team or job) is REQUIRED.
+    const forPick = forType === 'team' ? forTeam : forType === 'job' ? forJob : null;
+    if (isFuelUp && (!forType || !forPick)) {
       reject('vehicle_service.payer', 'required');
-      Alert.alert('Required', "Pick who it's for.");
+      Alert.alert('Required', "Pick who it's for — a team or a job.");
       return;
     }
     const typeResult = validateText(isFuelUp ? FUEL_UP_TYPE : type, { label: 'Service type', max: 100 });
@@ -235,8 +239,10 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
         notes: isFuelUp ? buildFuelUpNotes(gallonsValue, notesResult.value) : (notesResult.value || null),
         odometer: odoResult.value,
         cost: costValue,
-        payer: isFuelUp ? payer : null,
-        jobId: isFuelUp ? job?.id ?? null : null,
+        // payer is a TEXT snapshot of the chosen team/job name; job receipts
+        // additionally carry the durable job_id.
+        payer: isFuelUp ? forPick?.label ?? null : null,
+        jobId: isFuelUp && forType === 'job' ? forJob?.id ?? null : null,
         logNote,
         userId: user?.id ?? null,
       });
@@ -357,13 +363,39 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
                 )}
               </View>
             </View>
+            {/* #168: "For" mirrors the checkout Destination Type taxonomy —
+                Team (DB teams) or Job (open jobs), toggle-row styling. */}
             <View>
-              <FieldLabel>Who is it for? *</FieldLabel>
-              <View style={s.chipRow}>
-                {payers.map(p => (
-                  <FilterChip key={p} label={p} active={payer === p} onPress={() => setPayer(p)} />
+              <FieldLabel>For *</FieldLabel>
+              <View style={s.forRow}>
+                {(['team', 'job'] as const).map(opt => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[s.forBtn, forType === opt && s.forBtnActive]}
+                    onPress={() => { setForType(opt); }}
+                  >
+                    <Text style={[s.forBtnText, forType === opt && s.forBtnTextActive]}>
+                      {opt === 'team' ? 'Team' : 'Job'}
+                    </Text>
+                  </TouchableOpacity>
                 ))}
               </View>
+              {forType === 'team' && (
+                <SearchablePicker
+                  placeholder="Search teams..."
+                  options={teamOptions}
+                  value={forTeam}
+                  onSelect={opt => setForTeam(opt)}
+                />
+              )}
+              {forType === 'job' && (
+                <SearchablePicker
+                  placeholder="Search open jobs..."
+                  options={jobOptions}
+                  value={forJob}
+                  onSelect={opt => setForJob(opt)}
+                />
+              )}
             </View>
             <TextField
               label="Gallons (optional)"
@@ -372,15 +404,6 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
               placeholder="e.g. 12.5"
               keyboardType="numeric"
             />
-            <View>
-              <FieldLabel>Job (optional)</FieldLabel>
-              <SearchablePicker
-                placeholder="Search open jobs..."
-                options={jobOptions}
-                value={job}
-                onSelect={opt => setJob(prev => prev?.id === opt.id ? null : opt)}
-              />
-            </View>
           </>
         )}
         <DateField label="Date" value={date} onChange={setDate} />
@@ -445,8 +468,17 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   fields: { gap: t.spacing.md, paddingBottom: t.spacing.sm },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
   remove: { color: t.colors.danger, fontWeight: '600', fontSize: t.typography.fontSizes.sm },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },
   mismatch: { fontSize: t.typography.fontSizes.xs, color: t.colors.warningText, marginTop: t.spacing.xs },
+  // "For" toggle — the checkout screen's Destination Type row (keep in sync).
+  forRow: { flexDirection: 'row', gap: t.spacing.sm, marginBottom: t.spacing.sm },
+  forBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: t.spacing.md,
+    borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    backgroundColor: t.colors.background,
+  },
+  forBtnActive: { backgroundColor: t.colors.primaryBgStrong, borderColor: t.colors.primary },
+  forBtnText: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textSecondary },
+  forBtnTextActive: { color: t.colors.primaryText },
   // Photo attach — MediaGallery's thumb-variant dashed box (the house element).
   thumbBox: {
     width: 64, height: 64, borderRadius: 10,

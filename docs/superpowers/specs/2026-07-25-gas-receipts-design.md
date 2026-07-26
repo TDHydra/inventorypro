@@ -13,8 +13,12 @@ shipped 2026-07-25 @ `7d37828`.
 |---|---|
 | Entry points | BOTH: vehicle-page button (vehicle fixed) + QuickAdd hub entry (picker defaults to active checkout) |
 | Photo | Optional, **nudged** — saving without one shows a warning state, never blocks |
-| Form surface | New dedicated `GasReceiptSheet`; `AddServiceRecordSheet` untouched |
+| Form surface | ~~New dedicated `GasReceiptSheet`~~ **REVISED in-build (user review 2026-07-25): ONE form — the receipt fields grew into `AddServiceRecordSheet`'s Fuel-up branch; `GasReceiptSheet` deleted** |
 | Data model | A receipt IS a `fuel_up` service record + optional `service_record` media (settled in phase 0 — no new table) |
+| Access (revision) | "+ Log service" UNGATED; non-editors get the sheet locked to the Fuel-up kind (crew receipts, editor-only service records) |
+| Payer (revision) | REQUIRED on every fuel-up (fuel-up = receipt); old records without payer unaffected |
+| QuickAdd (revision) | ⛽ tile stays — opens the merged sheet with no fixed vehicle, `initialKind='fuel_up'` |
+| **"For" taxonomy (revision #2, user review 2026-07-25)** | The static payer list is GONE. "For" mirrors the checkout Destination Type: **Team** (DB teams via SearchablePicker) or **Job** (open jobs) with the checkout's toggle-row styling. `payer` stores the chosen name as a TEXT snapshot; job receipts also set `job_id`. The payer admin screen, its settings row, and the entire `gasReceiptPayers` module family (unused `app_config` key) were REMOVED. Scope additions same review cycle: ⛽ dashboard contextual quick-action while a vehicle is out; 🔒 unavailable-to-you marker on vehicles-list rows; photo attach uses MediaGallery's dashed thumbBox + source sheet. GPS-default destination filed as #179. |
 
 ## 1. `GasReceiptSheet` (new, `src/components/vehicles/GasReceiptSheet.tsx`)
 
