@@ -44,6 +44,40 @@ export type Permission =
   | 'view_audit_log'
   | 'send_notifications';
 
+// Human-readable label per Permission — the single source of truth for both
+// the role editor (roles.tsx) and PermissionGate's disable-mode reason text
+// ("Requires " + PERMISSION_LABELS[permission], #76). Kept here (not local to
+// roles.tsx) so PermissionGate can import it without a circular admin-screen
+// dependency.
+export const PERMISSION_LABELS: Record<Permission, string> = {
+  checkout_inventory: 'Check out inventory',
+  checkin_inventory: 'Check in inventory',
+  add_inventory: 'Add catalog items',
+  quick_add: 'Quick add (items / stock / equipment)',
+  edit_inventory: 'Edit catalog items',
+  delete_inventory: 'Delete catalog items',
+  transfer_between_locations: 'Transfer between locations',
+  manage_other_team_inventory: "Manage other teams' inventory",
+  create_jobs: 'Create jobs',
+  close_jobs: 'Close jobs',
+  manage_locations: 'Manage locations',
+  upload_media: 'Upload photos/video',
+  edit_media: 'Edit media details (caption/location, move)',
+  delete_media: 'Delete photos/video',
+  view_all_logs: 'View all activity logs',
+  view_own_logs: 'View own activity logs',
+  view_team_activity: "View team's activity",
+  manage_teams: 'Manage teams',
+  checkout_for_team: 'Check out for a team',
+  manage_users: 'Manage users',
+  set_pins: 'Set / reset PINs',
+  manage_roles_permissions: 'Manage roles & permissions',
+  view_financial_data: 'View financial data',
+  system_settings: 'Change system settings',
+  send_notifications: 'Send broadcast notifications',
+  view_audit_log: 'View the API audit log',
+};
+
 export const ROLE_TIER: Record<UserRole, 1 | 2 | 3 | 4> = {
   temporary_employee:       1,
   carpet_cleaning_crew:     1,
