@@ -323,7 +323,32 @@ const CATEGORY_NOUN: Record<string, string> = {
   location_subtype: 'Location Sub-Type',
   repair_status: 'Repair Status',
   equipment: 'Equipment Type',
+  payer: 'Payer',
 };
+
+// The one list that drives the screen: every category renders through the same
+// collapsible section, so adding a taxonomy just means adding a row here (plus
+// a CATEGORY_NOUN entry above). `hint` is the one-liner under the title that
+// says where the types show up — the wall-of-lists cleanup.
+const SECTIONS: { category: string; title: string; addLabel: string; hint: string }[] = [
+  { category: 'team', title: 'Team Types', addLabel: '+ Add Team Type', hint: 'Categories teams are grouped by' },
+  { category: 'job', title: 'Job Types', addLabel: '+ Add Job Type', hint: 'Categories for jobs' },
+  { category: 'payer', title: 'Payers', addLabel: '+ Add Payer', hint: 'Gas receipt "For" options besides teams and jobs (e.g. Office)' },
+  { category: 'product_class', title: 'Product Classes', addLabel: '+ Add Product Class', hint: 'Unit families — how quantities format' },
+  { category: 'item_category', title: 'Item Types', addLabel: '+ Add Item Type', hint: 'Catalog item categories (PPE, Filters, …)' },
+  { category: 'location_type', title: 'Location Types', addLabel: '+ Add Location Type', hint: 'Top-level places (Shop, Vehicle, …)' },
+  { category: 'location_subtype', title: 'Location Sub-Types', addLabel: '+ Add Location Sub-Type', hint: 'Areas inside a location (Shelf, Bin, …)' },
+  { category: 'repair_status', title: 'Repair Statuses', addLabel: '+ Add Repair Status', hint: 'Stages a repair moves through' },
+  { category: 'equipment', title: 'Equipment Types', addLabel: '+ Add Equipment Type', hint: 'Equipment categories (Generator, Air Mover, …)' },
+];
+
+function loadAllLists(): Record<string, TaxonomyType[]> {
+  const out: Record<string, TaxonomyType[]> = {};
+  for (const sec of SECTIONS) {
+    out[sec.category] = getTaxonomyTypes(sec.category, { includeInactive: true });
+  }
+  return out;
+}
 
 export default function ManageTypesScreen() {
   const s = useThemedStyles(makeStyles);
@@ -335,32 +360,23 @@ export default function ManageTypesScreen() {
   // the parent doesn't steal the row PanResponder's vertical gesture.
   const [dragging, setDragging] = useState(false);
 
-  const [teamTypes, setTeamTypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('team', { includeInactive: true }),
-  );
-  const [jobTypes, setJobTypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('job', { includeInactive: true }),
-  );
-  const [classTypes, setClassTypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('product_class', { includeInactive: true }),
-  );
-  const [itemCatTypes, setItemCatTypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('item_category', { includeInactive: true }),
-  );
-  const [locTypes, setLocTypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('location_type', { includeInactive: true }),
-  );
-  const [locSubtypes, setLocSubtypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('location_subtype', { includeInactive: true }),
-  );
-  const [repairStatuses, setRepairStatuses] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('repair_status', { includeInactive: true }),
-  );
-  const [equipmentTypes, setEquipmentTypes] = useState<TaxonomyType[]>(() =>
-    getTaxonomyTypes('equipment', { includeInactive: true }),
-  );
+  // One record keyed by category (see SECTIONS) instead of a useState per list.
+  const [lists, setLists] = useState<Record<string, TaxonomyType[]>>(loadAllLists);
+  const classTypes = lists['product_class'] ?? [];
 
-  // Re-read all seven lists on sync pull so a taxonomy value created on another
+  // Collapsed by default — the screen opens as a compact index of categories
+  // (with counts) instead of nine stacked lists. Multiple sections may be open.
+  const [openSections, setOpenSections] = useState<Set<string>>(() => new Set());
+  function toggleSection(category: string) {
+    setOpenSections(prev => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }
+
+  // Re-read all lists on sync pull so a taxonomy value created on another
   // device appears while this screen is open. Skipped mid-drag so a pull can't
   // yank rows out from under the gesture; deps include `dragging`, so the
   // re-read catches up as soon as the drag ends (#61).
@@ -398,14 +414,7 @@ export default function ManageTypesScreen() {
   const [editTerminalOriginal, setEditTerminalOriginal] = useState(false);
 
   function refresh() {
-    setTeamTypes(getTaxonomyTypes('team', { includeInactive: true }));
-    setJobTypes(getTaxonomyTypes('job', { includeInactive: true }));
-    setClassTypes(getTaxonomyTypes('product_class', { includeInactive: true }));
-    setItemCatTypes(getTaxonomyTypes('item_category', { includeInactive: true }));
-    setLocTypes(getTaxonomyTypes('location_type', { includeInactive: true }));
-    setLocSubtypes(getTaxonomyTypes('location_subtype', { includeInactive: true }));
-    setRepairStatuses(getTaxonomyTypes('repair_status', { includeInactive: true }));
-    setEquipmentTypes(getTaxonomyTypes('equipment', { includeInactive: true }));
+    setLists(loadAllLists());
   }
 
   // ── Add handlers ────────────────────────────────────────────────────────────
@@ -692,37 +701,54 @@ export default function ManageTypesScreen() {
 
   // ── Section renderer ────────────────────────────────────────────────────────
 
-  function renderSection(
-    title: string,
-    category: string,
-    list: TaxonomyType[],
-    addLabel: string,
-  ) {
+  function renderSection(sec: (typeof SECTIONS)[number]) {
+    const list = lists[sec.category] ?? [];
+    const open = openSections.has(sec.category);
+    const activeCount = list.filter(t => t.active === 1).length;
+    const archivedCount = list.length - activeCount;
     return (
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>{title}</Text>
-        <View style={s.card}>
-          {list.length === 0 ? (
-            <Text style={s.emptyText}>No types yet. Add one below.</Text>
-          ) : (
-            <DraggableTypeList
-              list={list}
-              locked={locked}
-              onEdit={openEdit}
-              onReorder={ids => handleReorderCommit(list, ids)}
-              onMoveUp={i => handleMoveUp(list, i)}
-              onMoveDown={i => handleMoveDown(list, i)}
-              onDraggingChange={setDragging}
-            />
-          )}
-        </View>
+      <View key={sec.category} style={s.section}>
         <TouchableOpacity
-          style={s.addRow}
-          onPress={() => openAdd(category)}
-          disabled={locked}
+          style={[s.sectionHeader, open && s.sectionHeaderOpen]}
+          onPress={() => toggleSection(sec.category)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
         >
-          <Text style={[s.addRowText, locked && s.addRowTextDisabled]}>{addLabel}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.sectionHeaderTitle}>{sec.title}</Text>
+            <Text style={s.sectionHeaderHint} numberOfLines={1}>{sec.hint}</Text>
+          </View>
+          <Text style={s.sectionCount}>
+            {activeCount}{archivedCount > 0 ? ` +${archivedCount} archived` : ''}
+          </Text>
+          <Text style={s.sectionChevron}>{open ? '▾' : '▸'}</Text>
         </TouchableOpacity>
+        {open && (
+          <>
+            <View style={s.card}>
+              {list.length === 0 ? (
+                <Text style={s.emptyText}>No types yet. Add one below.</Text>
+              ) : (
+                <DraggableTypeList
+                  list={list}
+                  locked={locked}
+                  onEdit={openEdit}
+                  onReorder={ids => handleReorderCommit(list, ids)}
+                  onMoveUp={i => handleMoveUp(list, i)}
+                  onMoveDown={i => handleMoveDown(list, i)}
+                  onDraggingChange={setDragging}
+                />
+              )}
+            </View>
+            <TouchableOpacity
+              style={s.addRow}
+              onPress={() => openAdd(sec.category)}
+              disabled={locked}
+            >
+              <Text style={[s.addRowText, locked && s.addRowTextDisabled]}>{sec.addLabel}</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     );
   }
@@ -767,14 +793,7 @@ export default function ManageTypesScreen() {
       ) : (
         <ScrollView style={s.container} contentContainerStyle={s.content} scrollEnabled={!dragging}>
           {locked && <MaintenanceBanner />}
-          {renderSection('Team Types', 'team', teamTypes, '+ Add Team Type')}
-          {renderSection('Job Types', 'job', jobTypes, '+ Add Job Type')}
-          {renderSection('Product Classes', 'product_class', classTypes, '+ Add Product Class')}
-          {renderSection('Item Types', 'item_category', itemCatTypes, '+ Add Item Type')}
-          {renderSection('Location Types', 'location_type', locTypes, '+ Add Location Type')}
-          {renderSection('Location Sub-Types', 'location_subtype', locSubtypes, '+ Add Location Sub-Type')}
-          {renderSection('Repair Statuses', 'repair_status', repairStatuses, '+ Add Repair Status')}
-          {renderSection('Equipment Types', 'equipment', equipmentTypes, '+ Add Equipment Type')}
+          {SECTIONS.map(renderSection)}
         </ScrollView>
       )}
 
@@ -1048,15 +1067,41 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center',
   },
 
-  // Sections
+  // Sections (collapsible: header row is the always-visible index entry)
   section: { gap: t.spacing.sm },
-  sectionTitle: {
-    fontSize: t.typography.fontSizes.caption,
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.sm,
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.md,
+  },
+  sectionHeaderOpen: { borderColor: t.colors.primary },
+  sectionHeaderTitle: {
+    fontSize: t.typography.fontSizes.body,
     fontWeight: '700',
+    color: t.colors.textPrimary,
+  },
+  sectionHeaderHint: {
+    fontSize: t.typography.fontSizes.sm,
+    color: t.colors.textMuted,
+    marginTop: 1,
+  },
+  sectionCount: {
+    fontSize: t.typography.fontSizes.sm,
+    fontWeight: '600',
     color: t.colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
+  },
+  sectionChevron: {
+    fontSize: 16,
+    color: t.colors.textSecondary,
+    fontWeight: '700',
+    width: 16,
+    textAlign: 'center',
   },
 
   card: {

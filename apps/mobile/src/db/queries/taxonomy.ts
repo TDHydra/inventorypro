@@ -32,6 +32,14 @@ export const ITEM_CATEGORY = 'item_category';
 export const JOB_CATEGORY = 'job';
 export const TEAM_CATEGORY = 'team';
 export const EQUIPMENT_CATEGORY = 'equipment';
+// Fuel-receipt payers (Office, …) — the non-team, non-job "For" options
+// (migration 068 seeds 'Office'; the list is managed in Manage Types).
+export const PAYER_CATEGORY = 'payer';
+
+// Active payers for the gas receipt's "For" picker.
+export function getPayerTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(PAYER_CATEGORY, opts);
+}
 
 // Resolve a taxonomy row id from its (category, label) — the write-time bridge for
 // the label→FK cutover (#74). Deterministic when duplicate labels exist (active

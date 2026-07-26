@@ -33,6 +33,7 @@ export const CATEGORY_DEFAULT_ICON: Record<string, string> = {
   location_type: '🏭',
   location_subtype: '🚪',
   repair_status: '🔧',
+  payer: '🏢',
 };
 
 export const COLOR_OPTIONS = [

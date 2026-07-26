@@ -13,6 +13,7 @@ import { createServiceRecord, getActiveCheckoutForUser, type ServiceTarget } fro
 import { getUnitLocations, getLocationById } from '../../db/queries/locations';
 import { getOpenJobs } from '../../db/queries/jobs';
 import { getAllTeams } from '../../db/queries/teams';
+import { getPayerTypes } from '../../db/queries/taxonomy';
 import { FUEL_UP_TYPE, buildFuelUpNotes, buildReceiptVehicleMismatchNote } from './vehicleSessionLogic';
 import { uploadMediaAsset, MediaTooLargeError } from '../../media/upload';
 import { useSession } from '../../hooks/useSession';
@@ -32,10 +33,10 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 // (which part was serviced) and an optional odometer reading.
 //
 // #168 grew the Fuel-up branch into the gas receipt (user decision: ONE form,
-// not a parallel sheet): photo (nudged-optional) and a REQUIRED "For" that
-// follows the CHECKOUT taxonomy (user review #2): Team (real teams from the
-// DB) or Job (open jobs) — not a parallel app_config payer list. payer stores
-// the chosen name as a TEXT snapshot; job receipts also set job_id.
+// not a parallel sheet): photo (nudged-optional) and a REQUIRED "For": a
+// Payer ('payer' taxonomy — Office etc., managed in Manage Types), a Team
+// (real teams from the DB), or a Job (open jobs). payer stores the chosen
+// name as a TEXT snapshot; job receipts also set job_id.
 // Non-editors are locked to the Fuel-up kind — any crew member files a
 // receipt; service records stay edit_inventory-only. Without `locationId`
 // (QuickAdd entry) a vehicle picker appears, defaulting to the caller's
@@ -108,13 +109,16 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     () => (locationId || !visible ? [] : getUnitLocations('Vehicle').map(l => ({ id: l.id, label: l.name }))),
     [visible, locationId],
   );
-  // "For" options: teams and open jobs in ONE ranked search, sublabel telling
-  // them apart. jobIds resolves the picked kind at submit time.
+  // "For" options: payers (Office, … — the 'payer' taxonomy, managed in
+  // Manage Types), teams, and open jobs in ONE ranked search, sublabel telling
+  // them apart. jobIds resolves the picked kind at submit time; payer and team
+  // picks both land as a TEXT snapshot only.
   const { forOptions, jobIds } = useMemo(() => {
     if (!visible) return { forOptions: [] as PickerOption[], jobIds: new Set<string>() };
+    const payers = getPayerTypes().map(p => ({ id: p.id, label: p.label, sublabel: 'Payer' }));
     const teams = getAllTeams().map(tm => ({ id: tm.id, label: tm.name, sublabel: 'Team' }));
     const jobs = getOpenJobs().map(j => ({ id: j.id, label: j.name, sublabel: 'Job' }));
-    return { forOptions: [...teams, ...jobs], jobIds: new Set(jobs.map(j => j.id)) };
+    return { forOptions: [...payers, ...teams, ...jobs], jobIds: new Set(jobs.map(j => j.id)) };
   }, [visible]);
 
   // Fresh form on every open (the sheet component itself stays mounted while
@@ -184,7 +188,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     // #168: every fuel-up is charged to someone — For (team or job) is REQUIRED.
     if (isFuelUp && !forPick) {
       reject('vehicle_service.payer', 'required');
-      Alert.alert('Required', "Pick who it's for — a team or a job.");
+      Alert.alert('Required', "Pick who it's for — a team, a job, or a payer like Office.");
       return;
     }
     const typeResult = validateText(isFuelUp ? FUEL_UP_TYPE : type, { label: 'Service type', max: 100 });
@@ -365,7 +369,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
             <View>
               <FieldLabel>For *</FieldLabel>
               <SearchablePicker
-                placeholder="Type a team or job..."
+                placeholder="Type a team, job, or Office..."
                 options={forOptions}
                 value={forPick}
                 onSelect={opt => setForPick(opt)}
