@@ -41,6 +41,8 @@ interface Props {
   onClose: () => void;
   /** Vehicle-page entry: vehicle fixed to this location, no picker. */
   lockedVehicleId?: string;
+  /** Fired after a successful save, before onClose (QuickAdd shell toast). */
+  onSaved?: () => void;
 }
 
 /**
@@ -50,7 +52,7 @@ interface Props {
  * (buildReceiptVehicleMismatchNote). The record commits offline-first; the
  * photo upload is online-only — failure never rolls back the record.
  */
-export function GasReceiptSheet({ visible, onClose, lockedVehicleId }: Props) {
+export function GasReceiptSheet({ visible, onClose, lockedVehicleId, onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const canViewFinancial = usePermission('view_financial_data');
@@ -190,6 +192,7 @@ export function GasReceiptSheet({ visible, onClose, lockedVehicleId }: Props) {
           );
         }
       }
+      onSaved?.();
       onClose();
     } finally {
       setBusy(false);
