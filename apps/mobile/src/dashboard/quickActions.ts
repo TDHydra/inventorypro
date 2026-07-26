@@ -16,6 +16,8 @@ export type QuickAction =
   | { key: 'vehicle-checkin'; mode: 'check_in'; vehicleLocationId: string; label: string }
   // #149: no active session → the card flips to a check-OUT call-to-action.
   | { key: 'vehicle-checkin'; mode: 'check_out'; label: string }
+  // #168: open session → one-tap gas receipt against that vehicle.
+  | { key: 'gas-receipt'; vehicleLocationId: string; label: string }
   | { key: 'past-due'; count: number; target: 'repairs' | 'equipment'; label: string }
   | { key: 'low-stock-catalog'; count: number; label: string };
 
@@ -39,6 +41,12 @@ export function computeQuickActions(input: QuickActionsInput): QuickAction[] {
       mode: 'check_in',
       vehicleLocationId: input.activeVehicleCheckout.vehicle_location_id,
       label: `Check In ${name ?? 'Vehicle'}`,
+    });
+    // #168: while a vehicle is out, filing the fuel receipt is one tap away.
+    out.push({
+      key: 'gas-receipt',
+      vehicleLocationId: input.activeVehicleCheckout.vehicle_location_id,
+      label: name ? `Gas Receipt · ${name}` : 'Gas Receipt',
     });
   } else {
     out.push({ key: 'vehicle-checkin', mode: 'check_out', label: 'Check Out a Vehicle' });
