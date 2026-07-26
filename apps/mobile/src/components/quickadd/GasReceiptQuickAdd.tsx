@@ -1,16 +1,15 @@
 import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { GasReceiptSheet } from '../vehicles/GasReceiptSheet';
+import { AddServiceRecordSheet } from '../vehicles/AddServiceRecordSheet';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 /**
- * QuickAdd host for the gas-receipt sheet (#168): the sheet opens immediately;
- * after a save (or a cancel) the shell stays up with an add-another button, so
- * a crew member can file several receipts in one stop. The shell's toast /
- * counter fire via onSaved only on real saves — closing without saving logs
- * nothing.
+ * QuickAdd host for gas receipts (#168): opens the merged Log Service sheet
+ * (no fixed vehicle → picker defaults to the active checkout) on the Fuel-up
+ * kind. After a save (or a cancel) the shell stays up with an add-another
+ * button. The shell's toast/counter fire via onSaved only on real saves.
  */
 export default function GasReceiptQuickAdd({ onSaved }: { onSaved: (label: string, createdId?: string) => void }) {
   const s = useThemedStyles(makeStyles);
@@ -18,8 +17,9 @@ export default function GasReceiptQuickAdd({ onSaved }: { onSaved: (label: strin
   return (
     <View style={s.body}>
       <PrimaryButton label="+ Add Gas Receipt" onPress={() => setOpen(true)} />
-      <GasReceiptSheet
+      <AddServiceRecordSheet
         visible={open}
+        initialKind="fuel_up"
         onClose={() => setOpen(false)}
         onSaved={() => onSaved('Gas receipt')}
       />

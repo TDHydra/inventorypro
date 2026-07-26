@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Card } from '../ui/Card';
 import { StatusPill } from '../ui/StatusPill';
 import { AddServiceRecordSheet } from './AddServiceRecordSheet';
-import { GasReceiptSheet } from './GasReceiptSheet';
 import { getServiceRecords } from '../../db/queries/vehicles';
 import { getMediaForEntity } from '../../db/queries/media';
 import { serviceTargetLabel, serviceTypeLabel } from './vehicleSessionLogic';
@@ -31,7 +30,6 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
   const { locked } = useMaintenanceMode();
   const version = useTableVersion(['vehicle_service_records', 'media']);
   const [addOpen, setAddOpen] = useState(false);
-  const [receiptOpen, setReceiptOpen] = useState(false);
 
   const records = useMemo(
     () => getServiceRecords(locationId, limit),
@@ -70,16 +68,12 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
             </View>
           ))
         )}
+        {/* #168: UNGATED — receipts merged into this sheet, and any crew
+            member may file one. Non-editors get the sheet locked to the
+            Fuel-up kind; service records stay editor-only inside. */}
         <View style={s.btnRow}>
-          {canEdit && (
-            <TouchableOpacity style={s.addBtn} onPress={() => setAddOpen(true)} disabled={locked}>
-              <Text style={s.addText}>+ Log service</Text>
-            </TouchableOpacity>
-          )}
-          {/* #168: ungated — any crew member files a gas receipt (crew-level
-              write, like tank state). */}
-          <TouchableOpacity style={s.addBtn} onPress={() => setReceiptOpen(true)} disabled={locked}>
-            <Text style={s.addText}>+ Gas receipt</Text>
+          <TouchableOpacity style={s.addBtn} onPress={() => setAddOpen(true)} disabled={locked}>
+            <Text style={s.addText}>{canEdit ? '+ Log service' : '+ Fuel-up / receipt'}</Text>
           </TouchableOpacity>
         </View>
       </Card>
@@ -88,11 +82,6 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
         locationId={locationId}
         visible={addOpen}
         onClose={() => setAddOpen(false)}
-      />
-      <GasReceiptSheet
-        visible={receiptOpen}
-        onClose={() => setReceiptOpen(false)}
-        lockedVehicleId={locationId}
       />
     </>
   );
