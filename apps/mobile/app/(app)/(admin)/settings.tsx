@@ -927,25 +927,6 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* ── Gas Receipt Payers (#168 — synced via app_config) ────────── */}
-        {isAdmin && (
-          <View>
-            <Text style={s.sectionTitle}>Gas Receipts</Text>
-            <View style={s.card}>
-              <TouchableOpacity
-                style={s.row}
-                onPress={() => router.push('/(app)/(admin)/gas-receipt-payers')}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.rowLabel}>⛽ Gas Receipt Payers</Text>
-                  <Text style={s.rowSub}>Who receipts can be charged to.</Text>
-                </View>
-                <Text style={s.rowSub}>›</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
         {/* ── Unit Access Defaults (admin only — synced via app_config) ── */}
         {isAdmin && (
           <View>
