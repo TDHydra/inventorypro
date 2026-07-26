@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useTotalUnread, loadChatCache } from '../chat/store';
-import { useDataVersion } from '../hooks/useDataVersion';
+import { useTableVersion } from '../hooks/useDataVersion';
 import { useSession } from '../hooks/useSession';
 
 // Cast through Href for the same reason as NotificationBell's INBOX_ROUTE: the
@@ -10,12 +10,13 @@ import { useSession } from '../hooks/useSession';
 const CHAT_ROUTE = '/(app)/(chat)' as Href;
 
 // Header chat icon with a total-unread badge — a clone of NotificationBell, but
-// the count comes from the reactive chat store (useTotalUnread). Re-reads on
-// every sync pull (useDataVersion) AND on a short interval, so a conversation
-// marked read locally (which does not bump the data version) clears promptly.
+// the count comes from the reactive chat store (useTotalUnread). Re-reads on a
+// messages/media table bump (#64 — chatPurge.ts and the pull path both bump
+// these specifically) AND on a short interval, so a conversation marked read
+// locally (which doesn't bump any table version) clears promptly.
 export function ChatBell() {
   const router = useRouter();
-  const dataVersion = useDataVersion();
+  const dataVersion = useTableVersion(['messages', 'media']);
   const { user } = useSession();
   const userId = user?.id ?? null;
   const count = useTotalUnread();

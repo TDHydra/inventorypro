@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -45,6 +45,7 @@ import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
 import { track } from '../../../src/telemetry';
@@ -84,7 +85,6 @@ export default function EquipmentModelDetailScreen() {
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-  const [item, setItem] = useState<InventoryItem | null>(() => getItemById(id));
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   // Equipment type (taxonomy category 'equipment', #28): label cache + durable id.
@@ -101,13 +101,21 @@ export default function EquipmentModelDetailScreen() {
   const [addUnitsShelf, setAddUnitsShelf] = useState<PickerOption | null>(null);
   const [unitRows, setUnitRows] = useState<Array<{ tag: string; serial: string }>>([{ tag: '', serial: '' }]);
   const [tagErrors, setTagErrors] = useState<Record<number, string>>({});
-  const [units, setUnits] = useState<EquipmentUnit[]>(() => getUnitsForItem(id));
-  const [unitCounts, setUnitCounts] = useState(() => countUnitsByStatus(id));
 
-  // Maintenance history keyed by unit id (newest first), refreshed by reload().
-  const [maintByUnit, setMaintByUnit] = useState<Map<string, MaintenanceEvent[]>>(
-    () => buildMaintMap(getUnitsForItem(id)),
-  );
+  // Item + units + unit-status counts + maintenance history, combined: re-runs
+  // whenever a local write OR a background sync pull touches one of these
+  // tables (#60/#63) — replaces the old useState+useEffect(dataVersion) triple
+  // and its manual reload() (every write below already goes through
+  // appendOutbox, which bumps the relevant table itself).
+  const { item, units, unitCounts, maintByUnit } = useDbQuery(() => {
+    const nextUnits = getUnitsForItem(id);
+    return {
+      item: getItemById(id),
+      units: nextUnits,
+      unitCounts: countUnitsByStatus(id),
+      maintByUnit: buildMaintMap(nextUnits),
+    };
+  }, [id], ['inventory_items', 'equipment_units', 'maintenance_events']);
 
   // Add-maintenance-event sheet state.
   const [maintUnit, setMaintUnit] = useState<EquipmentUnit | null>(null);
@@ -178,19 +186,6 @@ export default function EquipmentModelDetailScreen() {
     return Array.from(map.values()).sort((a, b) => a.locationName.localeCompare(b.locationName));
   }, [units, locationMap]);
 
-  const reload = useCallback(() => {
-    const nextUnits = getUnitsForItem(id);
-    setItem(getItemById(id));
-    setUnits(nextUnits);
-    setUnitCounts(countUnitsByStatus(id));
-    setMaintByUnit(buildMaintMap(nextUnits));
-  }, [id]);
-
-  // A background sync pull that brings new units/maintenance rows bumps
-  // dataVersion; re-run the existing loader so the maintenance list (and unit
-  // data) refreshes without waiting on a local write or a remount.
-  useEffect(() => { reload(); }, [dataVersion, reload]);
-
   if (!item) {
     return (
       <>
@@ -255,7 +250,6 @@ export default function EquipmentModelDetailScreen() {
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
     appendOutbox('UPDATE', 'inventory_items', { ...synced, returnable: editReturnable });
     setEditing(false);
-    reload();
   }
 
   const setField = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -418,7 +412,6 @@ export default function EquipmentModelDetailScreen() {
     });
 
     closeAddUnits();
-    reload();
   }
 
   // ── Repair helpers ───────────────────────────────────────────────────────
@@ -453,7 +446,6 @@ export default function EquipmentModelDetailScreen() {
     setRepairInUnit(null);
     setRepairInLoc(null);
     setRepairInShelf(null);
-    reload();
   }
 
   // ── Unit Edit / Retire / History helpers ────────────────────────────────
@@ -524,7 +516,6 @@ export default function EquipmentModelDetailScreen() {
       metadata: null, device_id: null,
     });
     setEditUnit(null);
-    reload();
   }
 
   function doRetireUnit(unit: EquipmentUnit) {
@@ -547,7 +538,6 @@ export default function EquipmentModelDetailScreen() {
               note: 'retired ' + unit.asset_tag,
               metadata: null, device_id: null,
             });
-            reload();
           },
         },
       ],
@@ -601,7 +591,6 @@ export default function EquipmentModelDetailScreen() {
       userId: user.id,
     });
     setMaintUnit(null);
-    reload();
   }
 
   return (
