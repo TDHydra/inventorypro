@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Card } from '../ui/Card';
 import { StatusPill } from '../ui/StatusPill';
 import { AddServiceRecordSheet } from './AddServiceRecordSheet';
+import { GasReceiptSheet } from './GasReceiptSheet';
 import { getServiceRecords } from '../../db/queries/vehicles';
 import { serviceTargetLabel, serviceTypeLabel } from './vehicleSessionLogic';
 import { usePermission } from '../../hooks/usePermission';
@@ -29,6 +30,7 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
   const { locked } = useMaintenanceMode();
   const version = useTableVersion(['vehicle_service_records']);
   const [addOpen, setAddOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   const records = useMemo(
     () => getServiceRecords(locationId, limit),
@@ -62,17 +64,29 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
             </View>
           ))
         )}
-        {canEdit && (
-          <TouchableOpacity style={s.addBtn} onPress={() => setAddOpen(true)} disabled={locked}>
-            <Text style={s.addText}>+ Log service</Text>
+        <View style={s.btnRow}>
+          {canEdit && (
+            <TouchableOpacity style={s.addBtn} onPress={() => setAddOpen(true)} disabled={locked}>
+              <Text style={s.addText}>+ Log service</Text>
+            </TouchableOpacity>
+          )}
+          {/* #168: ungated — any crew member files a gas receipt (crew-level
+              write, like tank state). */}
+          <TouchableOpacity style={s.addBtn} onPress={() => setReceiptOpen(true)} disabled={locked}>
+            <Text style={s.addText}>+ Gas receipt</Text>
           </TouchableOpacity>
-        )}
+        </View>
       </Card>
 
       <AddServiceRecordSheet
         locationId={locationId}
         visible={addOpen}
         onClose={() => setAddOpen(false)}
+      />
+      <GasReceiptSheet
+        visible={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        lockedVehicleId={locationId}
       />
     </>
   );
@@ -101,13 +115,13 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   rowTitle: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '600' },
   rowSub: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, marginTop: 2, lineHeight: 18 },
   cost: { fontSize: t.typography.fontSizes.body, fontWeight: '700', color: t.colors.textPrimary },
+  btnRow: { flexDirection: 'row', gap: t.spacing.sm, marginTop: t.spacing.sm },
   addBtn: {
     alignSelf: 'flex-start',
     borderRadius: t.radii.md,
     paddingHorizontal: t.spacing.md,
     paddingVertical: t.spacing.xs,
     backgroundColor: t.colors.primaryBg,
-    marginTop: t.spacing.sm,
   },
   addText: { fontSize: t.typography.fontSizes.xs, fontWeight: '700', color: t.colors.primaryText },
 });
