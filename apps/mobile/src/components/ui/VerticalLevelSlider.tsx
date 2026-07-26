@@ -74,7 +74,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   track: {
     width: 44,
     height: 140,
-    borderRadius: 10,
+    borderRadius: t.radii.md,
     borderWidth: 1,
     borderColor: t.colors.border,
     backgroundColor: t.colors.background,
