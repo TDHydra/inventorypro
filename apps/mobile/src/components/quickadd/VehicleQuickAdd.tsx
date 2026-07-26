@@ -54,6 +54,8 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
   // it's equipment spec, not day-to-day state, so it doesn't live on the panel.
   // Sticky like model/owner: fleets are usually added a spec at a time.
   const [truckMount, setTruckMount] = useState(false);
+  // #152: debris tracker — equipment spec like the truck mount, same stickiness.
+  const [debrisOption, setDebrisOption] = useState(false);
   const [nameError, setNameError] = useState('');
 
   const usersVersion = useTableVersion(['users']);
@@ -97,7 +99,7 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
       // synced_at is local-only — strip from the outbox payload (server has no such column).
       const { synced_at: _s, ...locRow } = loc;
       appendOutbox('INSERT', 'locations', { ...locRow, active: true });
-      ensureVehicleRow(id, { model: model.label, model_id: model.id, truck_mount: truckMount ? 1 : 0 });
+      ensureVehicleRow(id, { model: model.label, model_id: model.id, truck_mount: truckMount ? 1 : 0, debris_option: debrisOption ? 1 : 0 });
       appendLog({
         action: 'location_created',
         entity_type: 'location',
@@ -153,6 +155,14 @@ export default function VehicleQuickAdd({ onSaved }: Props) {
         <StatusPill
           label={truckMount ? 'Truck mount' : 'No truck mount'}
           tone={truckMount ? 'primary' : 'neutral'}
+        />
+        <Text style={s.toggleHint}>tap to toggle</Text>
+      </Pressable>
+
+      <Pressable onPress={() => setDebrisOption(v => !v)} style={s.truckRow}>
+        <StatusPill
+          label={debrisOption ? 'Debris tracker' : 'No debris tracker'}
+          tone={debrisOption ? 'primary' : 'neutral'}
         />
         <Text style={s.toggleHint}>tap to toggle</Text>
       </Pressable>

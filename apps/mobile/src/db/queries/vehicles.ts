@@ -173,23 +173,24 @@ export function upsertVehicleState(
  */
 export function ensureVehicleRow(
   locationId: string,
-  init?: { model?: string | null; model_id?: string | null; truck_mount?: 0 | 1 },
+  init?: { model?: string | null; model_id?: string | null; truck_mount?: 0 | 1; debris_option?: 0 | 1 },
 ): void {
   runInTransaction(() => {
     if (getVehicle(locationId)) return;
     const now = new Date().toISOString();
     const truckMount = init?.truck_mount ?? 0;
+    const debrisOption = init?.debris_option ?? 0;
     const db = getDb();
     db.executeSync(
-      `INSERT OR IGNORE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked)
-       VALUES (?, ?, NULL, ?, ?, NULL, ?, NULL, 'empty', 'clean', 0)`,
-      bindParams([locationId, truckMount, init?.model ?? null, init?.model_id ?? null, now]),
+      `INSERT OR IGNORE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, synced_at, water_tank, waste_tank, checkout_locked, debris_option)
+       VALUES (?, ?, NULL, ?, ?, NULL, ?, NULL, 'empty', 'clean', 0, ?)`,
+      bindParams([locationId, truckMount, init?.model ?? null, init?.model_id ?? null, now, debrisOption]),
     );
     appendOutbox('INSERT', 'vehicles', {
       location_id: locationId, truck_mount: truckMount,
       model: init?.model ?? null, model_id: init?.model_id ?? null,
       notes: null, updated_at: now, water_tank: 'empty', waste_tank: 'clean',
-      checkout_locked: 0,
+      checkout_locked: 0, debris_option: debrisOption,
     });
   });
 }
