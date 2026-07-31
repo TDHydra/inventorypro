@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useDataVersion } from './useDataVersion';
+import { useDataVersion, useTableVersion } from './useDataVersion';
 
 // Two rows lists are equivalent when their id + updated_at sequence matches.
 // Order-sensitive on purpose: a reorder IS a real change a list must reflect.
@@ -31,11 +31,21 @@ export function sameRows<T extends { id: string; updated_at?: string | null }>(
  * it over a hand-rolled `useState` + `useEffect(..., [dataVersion])` + `refresh`.
  *
  * `read` must be a stable reference (a module-level query fn, or memoized).
+ *
+ * `tables` (optional) scopes the re-read to just those tables' version counters
+ * (#64 granularity, same contract as useDbQuery: content must be call-site
+ * constant). Omitted = global data-version, exactly as before — the re-read
+ * runs on every bump but the reference-stability bail still absorbs no-ops.
  */
 export function useReactiveRows<T extends { id: string; updated_at?: string | null }>(
   read: () => T[],
+  tables?: string[],
 ): [T[], () => void] {
-  const dataVersion = useDataVersion();
+  // Both hooks are cheap subscriptions; calling the pair unconditionally keeps
+  // hook order static while `tables` picks which version drives the effect.
+  const globalVersion = useDataVersion();
+  const tablesVersion = useTableVersion(tables ?? []);
+  const dataVersion = tables ? tablesVersion : globalVersion;
   const [rows, setRows] = useState<T[]>(read);
 
   const reload = useCallback(() => {

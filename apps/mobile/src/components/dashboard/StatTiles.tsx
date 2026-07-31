@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useSession } from '../../hooks/useSession';
-import { useDataVersion } from '../../hooks/useDataVersion';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import { PermissionGate } from '../PermissionGate';
 import { EmptyState } from '../ui/EmptyState';
 import type { Permission } from '../../constants/roles';
@@ -23,7 +23,8 @@ import { getSharedPoolMediaCount } from '../../db/queries/media';
 // block's `config.stats` source list. Each source mirrors the permission of the
 // tile/screen it taps through to (PermissionGate per card — the block itself is
 // ungated so mixed-permission configs degrade per card, not all-or-nothing).
-// Counts re-read on every sync pull via the data-version subscription.
+// Each source declares the tables its count reads (`tables`), so a card only
+// re-queries when one of THOSE changes — not on every pull (#63/#64).
 
 interface StatDef {
   label: string;
@@ -31,6 +32,7 @@ interface StatDef {
   route: string;
   requiredPermission?: Permission;
   count: (userId: string) => number;
+  tables: string[];
 }
 
 // Existing local queries only (no new DB reads). Permissions in lockstep with
@@ -42,31 +44,39 @@ const STAT_DEFS: Record<StatSource, StatDef> = {
     requiredPermission: 'checkout_inventory',
     // Active stock checkouts + equipment units currently deployed by me.
     count: uid => getActiveCheckoutsForUser(uid).length + getDeployedUnitsForUser(uid).length,
+    tables: ['activity_log', 'inventory_items', 'jobs', 'locations', 'equipment_units'],
   },
   'open-repairs': {
     label: 'Open Repairs', icon: '🔧', route: '/(app)/(repairs)',
     requiredPermission: 'add_inventory',
     count: () => getRepairs({ done: false }).length,
+    tables: ['repairs'],
   },
   'units-due-service': {
     label: 'Due Service', icon: '⏰', route: '/(app)/(equipment)',
     requiredPermission: 'add_inventory',
     count: () => getUnitsDueForService(new Date().toISOString()).length,
+    tables: ['equipment_units'],
   },
   'low-stock': {
     label: 'Low Stock', icon: '⚠️', route: '/(app)/(inventory)/low-stock',
     requiredPermission: 'edit_inventory',
     count: () => getLowStockItems().length,
+    // taxonomy_types: resolveLabels maps category ids inside the read.
+    tables: ['inventory_items', 'stock_by_location', 'equipment_units', 'taxonomy_types'],
   },
   'open-jobs': {
     label: 'Open Jobs', icon: '🏗', route: '/(app)/(jobs)',
     requiredPermission: 'create_jobs',
     count: () => getOpenJobs().length,
+    // taxonomy_types: job type resolved from type_id inside the read (#74 P2).
+    tables: ['jobs', 'taxonomy_types'],
   },
   'team-members': {
     label: 'Team Members', icon: '👥', route: '/(app)/(admin)/users',
     requiredPermission: 'manage_users',
     count: () => getAllActiveUsers().length,
+    tables: ['users'],
   },
   // #177: vehicles free to check out right now. No requiredPermission — vehicle
   // state is crew-level (#157/#122 A2: vehicles have no per-object ACL). Per-row
@@ -76,6 +86,7 @@ const STAT_DEFS: Record<StatSource, StatDef> = {
     label: 'Vehicles Available', icon: '🚐', route: '/(app)/(vehicles)',
     count: uid => getUnitLocations('Vehicle')
       .filter(l => isVehicleAvailableForCheckout(l.id, uid || null)).length,
+    tables: ['locations', 'vehicles', 'vehicle_checkouts'],
   },
   // Pool photos other users shared to me. No requiredPermission — mirrors the
   // ungated `media` hub tile; the pull scope SQL already limits local pool
@@ -83,6 +94,7 @@ const STAT_DEFS: Record<StatSource, StatDef> = {
   'shared-media': {
     label: 'Shared Media', icon: '🖼️', route: '/(app)/(media)',
     count: uid => getSharedPoolMediaCount(uid),
+    tables: ['media'],
   },
 };
 
@@ -90,20 +102,19 @@ function isStatSource(s: unknown): s is StatSource {
   return typeof s === 'string' && Object.prototype.hasOwnProperty.call(STAT_DEFS, s);
 }
 
-// One count card. Reads its own count keyed on the data-version so it updates
-// live after a sync pull; a failed read (fresh DB mid-migration) renders 0
-// rather than crashing the dashboard.
+// One count card. Reads its own count scoped to the source's declared tables so
+// it updates live after a relevant pull; a failed read (fresh DB mid-migration)
+// renders 0 rather than crashing the dashboard. Cards are keyed by source, so
+// `def.tables` is constant for a mounted card — the useDbQuery contract holds.
 function StatTileCard({ source }: { source: StatSource }) {
   const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const { user } = useSession();
-  const dataVersion = useDataVersion();
   const def = STAT_DEFS[source];
   const userId = user?.id ?? '';
-  const count = useMemo(() => {
+  const count = useDbQuery(() => {
     try { return def.count(userId); } catch { return 0; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- def is static per source
-  }, [source, userId, dataVersion]);
+  }, [source, userId], def.tables);
 
   return (
     <TouchableOpacity style={s.card} onPress={() => router.push(def.route as never)}>

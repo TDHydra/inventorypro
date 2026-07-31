@@ -39,7 +39,8 @@ export function ActivityPreview({ config }: Props) {
   const router = useRouter();
   const limit = typeof config?.limit === 'number' && config.limit > 0 ? config.limit : DEFAULT_LIMIT;
   // Re-read when a pull (or local write) touches the log, like ActivityFeed.
-  const v = useTableVersion(['activity_log']);
+  // users: getRecentLog joins it for user_name, so a rename refreshes too.
+  const v = useTableVersion(['activity_log', 'users']);
   const entries = useMemo(() => {
     try { return getRecentLog(limit); } catch { return []; }
   }, [limit, v]);

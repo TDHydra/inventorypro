@@ -21,8 +21,9 @@ import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
 
 // WorkList (role dashboards §2): a compact card list — title, up to N rows, and
 // a "View all" tap-through — driven by the block's `config.source`. Rows come
-// from existing local queries via useReactiveRows so the card updates after a
-// sync pull without swapping the array reference on no-op bumps.
+// from existing local queries via useReactiveRows, scoped to each source's
+// declared `tables` (#63/#64) so the card re-queries only on relevant pulls and
+// never swaps the array reference on no-op bumps.
 
 const DEFAULT_LIMIT = 5;
 
@@ -49,6 +50,8 @@ interface WorkListDef {
   // When present, each row is tappable and navigates to rowRoute(row.id)
   // (e.g. my-jobs → the job detail screen). Absent = plain rows, as before.
   rowRoute?: (id: string) => string;
+  // Tables the read touches — scopes the re-query to relevant pulls (#63/#64).
+  tables: string[];
 }
 
 // Existing local queries only. Permission per source mirrors the tile/screen it
@@ -63,6 +66,7 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       secondary: u.job_name ? `On job: ${u.job_name}` : null,
       updated_at: u.updated_at ?? null,
     })),
+    tables: ['equipment_units', 'inventory_items', 'jobs'],
   },
   // Jobs assigned to me (#160): directly, or via a crew I belong to (resolved
   // at read time from team_members.subteam_id). No requiredPermission — a crew
@@ -78,6 +82,8 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       secondary: j.customer_name ?? j.type ?? null,
       updated_at: j.updated_at,
     })),
+    // taxonomy_types: job type resolved from type_id inside the read.
+    tables: ['jobs', 'job_assignments', 'team_members', 'taxonomy_types'],
   },
   'open-jobs': {
     title: 'Open Jobs', icon: '🏗', emptyTitle: 'No open jobs',
@@ -88,6 +94,7 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       secondary: j.customer_name ?? j.type ?? null,
       updated_at: j.updated_at,
     })),
+    tables: ['jobs', 'taxonomy_types'],
   },
   'open-repairs': {
     title: 'Open Repairs', icon: '🔧', emptyTitle: 'No open repairs',
@@ -98,6 +105,7 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       secondary: r.status,
       updated_at: r.updated_at,
     })),
+    tables: ['repairs'],
   },
   'units-due-service': {
     title: 'Due for Service', icon: '⏰', emptyTitle: 'Nothing due for service',
@@ -107,6 +115,7 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       primary: u.asset_tag,
       secondary: `Service due ${new Date(u.next_service_at).toLocaleDateString()}`,
     })),
+    tables: ['equipment_units'],
   },
   'low-stock': {
     title: 'Low Stock', icon: '⚠️', emptyTitle: 'No low-stock items',
@@ -117,6 +126,8 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       secondary: `${i.total_stock} ${i.unit} remaining`,
       updated_at: i.updated_at ?? null,
     })),
+    // taxonomy_types: resolveLabels maps category ids inside the read.
+    tables: ['inventory_items', 'stock_by_location', 'equipment_units', 'taxonomy_types'],
   },
   // #177: every vehicle with its live availability (same helper as the Vehicles
   // screen's "Available" segment). No requiredPermission — vehicle state is
@@ -131,6 +142,7 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       secondary: isVehicleAvailableForCheckout(l.id, uid || null) ? 'Available' : 'Checked out',
       updated_at: l.updated_at,
     })),
+    tables: ['locations', 'vehicles', 'vehicle_checkouts'],
   },
 };
 
@@ -160,7 +172,9 @@ function WorkListCard({ source, config }: { source: WorkListSource; config?: Wid
     } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- def is static per source
   }, [source, userId]);
-  const [rows] = useReactiveRows(read);
+  // Scoped to the source's tables — the card is keyed by source (see WorkList),
+  // so the list content is constant for a mounted card, as the contract requires.
+  const [rows] = useReactiveRows(read, def.tables);
 
   const limit = typeof config?.limit === 'number' && config.limit > 0 ? config.limit : DEFAULT_LIMIT;
   const shown = rows.slice(0, limit);
