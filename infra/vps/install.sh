@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# InventoryPro VPS installer — Ubuntu 26.04 (also works on 24.04+)
+# InventoryPro VPS installer — Ubuntu 24.04/26.04, Debian 12/13
 # ================================================================
 # Run as root on a FRESH VPS:
 #
@@ -185,13 +185,30 @@ phase_preflight() {
 
   . /etc/os-release
   info "Detected: $PRETTY_NAME"
-  if [[ ${ID:-} != ubuntu ]]; then
-    die "This script targets Ubuntu. Detected: ${PRETTY_NAME:-unknown}."
-  fi
-  case ${VERSION_ID:-} in
-    26.04|24.04) : ;;
-    *) warn "Untested Ubuntu version ($VERSION_ID) — built for 26.04/24.04."
-       confirm "Continue anyway?" n || exit 1 ;;
+  command -v apt-get >/dev/null 2>&1 || \
+    die "This script needs an apt-based distro (Ubuntu/Debian). Detected: ${PRETTY_NAME:-unknown}.
+  The stack itself is plain Docker — on Fedora/RHEL/etc. install Docker, nginx,
+  certbot (+ dns-cloudflare plugin), WireGuard and a firewall yourself, then
+  follow the phases of this script by hand (see the README's VPS section)."
+  case ${ID:-} in
+    ubuntu)
+      case ${VERSION_ID:-} in
+        26.04|24.04) : ;;
+        *) warn "Untested Ubuntu version ($VERSION_ID) — built for 26.04/24.04."
+           confirm "Continue anyway?" n || exit 1 ;;
+      esac ;;
+    debian)
+      case ${VERSION_ID:-} in
+        12|13) : ;;
+        *) warn "Untested Debian version (${VERSION_ID:-?}) — built for 12/13."
+           confirm "Continue anyway?" n || exit 1 ;;
+      esac ;;
+    *)
+      # Derivatives (Mint, Pop!_OS, …) usually work via their upstream base.
+      warn "Untested distro '$ID' — tested on Ubuntu 24.04/26.04 and Debian 12/13."
+      warn "apt is present so it will probably work; Docker packages come from"
+      warn "the upstream base (${ID_LIKE:-ubuntu})."
+      confirm "Continue anyway?" n || exit 1 ;;
   esac
 
   info "Installing base tools (curl, jq, git, openssl, dnsutils)…"
@@ -441,17 +458,24 @@ phase_packages() {
   else
     info "Installing Docker from download.docker.com…"
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
     . /etc/os-release
-    local codename=$VERSION_CODENAME
-    # Docker's repo can lag a brand-new Ubuntu release — fall back to the
-    # latest LTS pocket if this codename isn't published yet.
-    if ! curl -fsS -o /dev/null "https://download.docker.com/linux/ubuntu/dists/$codename/Release"; then
-      warn "Docker repo has no '$codename' pocket yet — using 'noble' (24.04 LTS) packages."
-      codename=noble
+    # Docker publishes separate repos per distro; derivatives use their base.
+    local docker_distro=$ID codename=${VERSION_CODENAME:-}
+    case $ID in
+      ubuntu|debian) : ;;
+      *) docker_distro=$( [[ ${ID_LIKE:-} == *debian* ]] && echo debian || echo ubuntu )
+         codename=${UBUNTU_CODENAME:-${DEBIAN_CODENAME:-$codename}} ;;
+    esac
+    curl -fsSL "https://download.docker.com/linux/$docker_distro/gpg" -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    # Docker's repo can lag a brand-new release — fall back to the latest
+    # stable pocket if this codename isn't published yet.
+    if ! curl -fsS -o /dev/null "https://download.docker.com/linux/$docker_distro/dists/$codename/Release"; then
+      local fallback=$( [[ $docker_distro == debian ]] && echo bookworm || echo noble )
+      warn "Docker repo has no '$codename' pocket yet — using '$fallback' packages."
+      codename=$fallback
     fi
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$docker_distro $codename stable" \
       >/etc/apt/sources.list.d/docker.list
     apt-get update -qq >>"$LOG_FILE" 2>&1
     apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >>"$LOG_FILE" 2>&1
@@ -1009,6 +1033,9 @@ phase_summary() {
      green within a couple of minutes. Kill a container to see an alert fire.
   7. Copy $CREDS_FILE somewhere safe (password manager), then optionally
      delete it from the server.
+  8. Set up automatic backups (nightly Postgres dump + media mirror, plus
+     Google Drive off-site): run infra/vps/setup-backups.sh — see
+     docs/BACKUPS.md in the repo.
 
   Day-2 operations:
       $BIN_DIR/status.sh            overview
