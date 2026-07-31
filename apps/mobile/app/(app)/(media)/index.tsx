@@ -20,7 +20,10 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useMultiSelect } from '../../../src/hooks/useMultiSelect';
 import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar';
 import { Alert } from '../../../src/lib/themedAlert';
-import { getMediaHubPage, getMediaById, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
+import {
+  getMediaHubPage, getMediaById, MediaHubRow, MediaHubFilter, deleteBulkMedia,
+  getUnseenSharedPoolMediaCount, markSharedPoolMediaSeen,
+} from '../../../src/db/queries/media';
 import { syncNow } from '../../../src/sync/engine';
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { openQuickPhoto } from '../../../src/components/quickphoto/QuickPhotoFlow';
@@ -50,7 +53,16 @@ export default function MediaHubScreen() {
   // #87: push/inbox deep-link — a shared photo's id, if we were routed here for one.
   const { id: linkedId } = useLocalSearchParams<{ id?: string }>();
 
-  const [filter, setFilter] = useState<MediaHubFilter>('open');
+  // Open on Shared when photos shared TO this user arrived since they last
+  // looked at the Shared tab (lazy init — the watermark check runs once per
+  // mount, so switching away sticks for the rest of the visit).
+  const [filter, setFilter] = useState<MediaHubFilter>(() => {
+    try {
+      return user && getUnseenSharedPoolMediaCount(user.id) > 0 ? 'shared' : 'open';
+    } catch {
+      return 'open';
+    }
+  });
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<MediaHubRow[]>([]);
   const [offset, setOffset] = useState(0);
@@ -73,7 +85,8 @@ export default function MediaHubScreen() {
   }, []);
 
   useEffect(() => {
-    runSearch('open', '', 0);
+    runSearch(filter, '', 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runSearch]);
 
   // If the permission is revoked while 'everything' is active, fall back.
@@ -135,6 +148,17 @@ export default function MediaHubScreen() {
     if (loaded) reloadWindowRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaTrigger]);
+
+  // Viewing the Shared tab consumes the "new shared photos" state: stamp the
+  // per-user watermark so the next visit defaults back to Open jobs (until
+  // another share lands). mediaTrigger keeps the stamp fresh while the tab
+  // stays open across a background pull.
+  useEffect(() => {
+    if (filter === 'shared' && user) {
+      try { markSharedPoolMediaSeen(user.id); } catch { /* best-effort */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, user?.id, mediaTrigger]);
 
   // #87: push/inbox deep-link → open the shared photo. The push can beat the
   // pull: if the row isn't local yet, trigger a sync; mediaTrigger changes on

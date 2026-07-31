@@ -113,6 +113,34 @@ export function getSharedPoolMediaCount(userId: string): number {
   return Number((result.rows[0] as { n: number } | undefined)?.n ?? 0);
 }
 
+// Seen-watermark for shared pool media (local app_settings, per-user key —
+// device-local, never synced). Drives the media hub's "open on Shared when
+// something new arrived" default. COALESCE(updated_at, created_at) so a photo
+// re-shared later (audience change bumps updated_at server-side) counts as new
+// even though it was created long ago.
+const sharedSeenKey = (userId: string) => `shared_media_seen_at:${userId}`;
+
+export function getUnseenSharedPoolMediaCount(userId: string): number {
+  const db = getDb();
+  const seen = db.executeSync(`SELECT value FROM app_settings WHERE key = ?`, [sharedSeenKey(userId)])
+    .rows as unknown as { value: string }[];
+  const since = seen.length ? seen[0].value : '';
+  const result = db.executeSync(
+    `SELECT COUNT(*) AS n FROM media
+     WHERE entity_type = 'pool' AND uploaded_by != ?
+       AND COALESCE(updated_at, created_at) > ?`,
+    [userId, since]
+  );
+  return Number((result.rows[0] as { n: number } | undefined)?.n ?? 0);
+}
+
+export function markSharedPoolMediaSeen(userId: string): void {
+  getDb().executeSync(
+    `INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`,
+    [sharedSeenKey(userId), new Date().toISOString()]
+  );
+}
+
 // #148: Room/Area suggestions for pool quick-photos — the uploader's own past
 // pool notes (job flow keeps the job-scoped variant above).
 export function getPoolLocationNoteSuggestions(userId: string): string[] {
