@@ -1,10 +1,23 @@
-import { ReactNode } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ReactNode, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native';
+// Web builds resolve FormSheet.web.tsx (plain ScrollView — keyboard-controller
+// is native-only); keep BOTH files' render trees in sync when editing.
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { ModalSheet } from './ModalSheet';
 import { FormActions } from './FormActions';
 import { confirmDestructive } from '../../lib/confirm';
 import type { Theme } from '../../themes/types';
+import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
+
+// Room to keep an open SearchablePicker dropdown tappable below its input:
+// the dropdown's maxHeight (240) + its marginTop (4) — see SearchablePicker's
+// `dropdown` style; keep the two in sync. Without this, a picker low in the
+// sheet opens its dropdown below the ScrollView fold where rows are clipped
+// behind the sticky FormActions footer and taps silently die (the vehicle-page
+// fuel-up "For" bug): the QuickAdd host only worked because its extra fields
+// happened to auto-scroll the input higher.
+const PICKER_DROPDOWN_CLEARANCE = 244;
 
 /**
  * The standard create/edit popup scaffold: title bar + close, scrollable
@@ -68,7 +81,12 @@ export function FormSheet({
   scroll = true,
   busy,
 }: Props) {
+  const t = useTheme();
   const s = useThemedStyles(makeStyles);
+  // Measured (not hard-coded) so themed FormActions of any height stay correct
+  // — mirrors FormScreen's footer fold-in.
+  const [footerHeight, setFooterHeight] = useState(0);
+  const onFooterLayout = (e: LayoutChangeEvent) => setFooterHeight(e.nativeEvent.layout.height);
   function requestClose() {
     if (busy) return;
     if (dirty) {
@@ -103,21 +121,31 @@ export function FormSheet({
         // container is height-capped (maxHeight) but not itself flex:1, so a
         // ScrollView child needs flexShrink:1 or it measures full content
         // height and never actually scrolls — see ModalSheet.tsx.
-        <ScrollView style={s.scrollBody} keyboardShouldPersistTaps="handled" contentContainerStyle={s.scrollContent}>
+        // KeyboardAwareScrollView (vs plain ScrollView) scrolls the FOCUSED
+        // field up past the footer with dropdown clearance — see
+        // PICKER_DROPDOWN_CLEARANCE above for why.
+        <KeyboardAwareScrollView
+          style={s.scrollBody}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={s.scrollContent}
+          bottomOffset={footerHeight + t.keyboard.focusExtraOffset + PICKER_DROPDOWN_CLEARANCE}
+        >
           {children}
-        </ScrollView>
+        </KeyboardAwareScrollView>
       ) : (
         <View style={s.body}>{children}</View>
       )}
       {/* FormActions' PrimaryButton already renders an inline ActivityIndicator
           when `busy` is passed through as its `loading` prop. */}
-      <FormActions
-        onCancel={requestClose}
-        onSave={handleSubmit}
-        saveLabel={submitLabel}
-        busy={busy}
-        disabled={submitDisabled}
-      />
+      <View onLayout={onFooterLayout}>
+        <FormActions
+          onCancel={requestClose}
+          onSave={handleSubmit}
+          saveLabel={submitLabel}
+          busy={busy}
+          disabled={submitDisabled}
+        />
+      </View>
     </ModalSheet>
   );
 }
