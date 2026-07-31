@@ -10,10 +10,12 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSession } from '../hooks/useSession';
 import { uploadMediaAsset, MAX_UPLOAD_BYTES } from '../media/upload';
-import { MediaRecord, getMediaForEntity, getLocationNoteSuggestions, deleteMedia } from '../db/queries/media';
+import { MediaRecord, getMediaForEntity, deleteMedia } from '../db/queries/media';
 import { ModalSheet } from './ui/ModalSheet';
-import { SuggestInput } from './SuggestInput';
+import { AppInput } from './ui/AppInput';
+import { SearchablePicker, type PickerOption } from './SearchablePicker';
 import { usePermission } from '../hooks/usePermission';
+import { getRooms, addRoom } from '../db/queries/rooms';
 
 interface Props {
   entityType: string;
@@ -57,9 +59,14 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<string | null>(null); // "Uploading 2 of 5…" for batches
   const [pickerOpen, setPickerOpen] = useState(false);
-  // Job uploads pause here for the batch-wide location note before the queue runs.
-  const [pendingBatch, setPendingBatch] = useState<{ items: PendingUpload[]; suggestions: string[] } | null>(null);
+  // #173: job uploads (both camera AND gallery) pause here for an autofocused
+  // note + a structured room (with quick-add) before the queue runs — every
+  // other entity type uploads immediately with neither.
+  const [pendingBatch, setPendingBatch] = useState<{ items: PendingUpload[] } | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [roomPick, setRoomPick] = useState<PickerOption | null>(null);
+  const [roomOptions, setRoomOptions] = useState<PickerOption[]>([]);
+  const canCreateRoom = canUpload; // mirrors the server carve-out: upload_media OR edit_inventory
 
   async function handlePickMedia() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -83,15 +90,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
       mediaType: asset.type === 'video' ? 'video' : 'image',
       ext: (asset.fileName?.split('.').pop() ?? asset.uri.split('.').pop() ?? 'jpg').toLowerCase(),
     }));
-
-    // Job media gets a batch-wide "where were these taken?" note before the
-    // queue starts; other entities upload immediately with no note.
-    if (entityType === 'job') {
-      setNoteText('');
-      setPendingBatch({ items, suggestions: getLocationNoteSuggestions(entityId) });
-    } else {
-      await runUploadQueue(items, null);
-    }
+    promptOrUpload(items);
   }
 
   async function handleCamera() {
@@ -109,20 +108,41 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
 
     if (result.canceled || result.assets.length === 0) return;
     const asset = result.assets[0];
-    await runUploadQueue([{ uri: asset.uri, mediaType: 'image', ext: 'jpg' }], null);
+    promptOrUpload([{ uri: asset.uri, mediaType: 'image', ext: 'jpg' }]);
+  }
+
+  // #173: job media (camera AND gallery, single shot or batch) pauses for the
+  // note+room sheet before the queue runs; every other entity type uploads
+  // immediately with neither, unchanged from before #173.
+  function promptOrUpload(items: PendingUpload[]) {
+    if (entityType === 'job') {
+      setNoteText('');
+      setRoomPick(null);
+      setRoomOptions(getRooms().map(r => ({ id: r.id, label: r.name })));
+      setPendingBatch({ items });
+    } else {
+      void runUploadQueue(items, null, null);
+    }
+  }
+
+  function createRoomInline(text: string) {
+    const id = addRoom(text);
+    const opt: PickerOption = { id, label: text.trim() };
+    setRoomOptions(prev => (prev.some(o => o.id === id) ? prev : [...prev, opt]));
+    setRoomPick(opt);
   }
 
   // The note sheet's Skip / Start Upload both land here; close first so the
   // grid's uploading state is visible behind the queue.
-  function startBatch(locationNote: string | null) {
+  function startBatch(caption: string | null, roomId: string | null) {
     const items = pendingBatch?.items;
     setPendingBatch(null);
-    if (items) void runUploadQueue(items, locationNote);
+    if (items) void runUploadQueue(items, caption, roomId);
   }
 
   // Sequential queue — presigned URLs are per-file, so one upload at a time.
   // Per-item failures don't stop the batch; they're summarized in one alert.
-  async function runUploadQueue(items: PendingUpload[], locationNote: string | null) {
+  async function runUploadQueue(items: PendingUpload[], caption: string | null, roomId: string | null) {
     if (!user) return;
     setUploading(true);
     let failed = 0;
@@ -146,7 +166,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
         }
 
         try {
-          await uploadOne(items[i], locationNote, size);
+          await uploadOne(items[i], caption, roomId, size);
         } catch (err) {
           failed++;
           lastError = (err as Error).message;
@@ -167,12 +187,12 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
 
   // Shared presign→PUT→local-row+outbox flow lives in src/media/upload.ts
   // (also used by the chat composer); this just binds it to this gallery.
-  async function uploadOne(item: PendingUpload, locationNote: string | null, size: number | undefined) {
+  async function uploadOne(item: PendingUpload, caption: string | null, roomId: string | null, size: number | undefined) {
     if (!user) return;
     await uploadMediaAsset({
       entityType, entityId,
       mediaType: item.mediaType, ext: item.ext, uri: item.uri, size,
-      userId: user.id, locationNote,
+      userId: user.id, caption, roomId,
     });
     setMedia(getMediaForEntity(entityType, entityId));
   }
@@ -204,19 +224,26 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   const noteSheetModal = (
     <ModalSheet visible={!!pendingBatch} onClose={() => setPendingBatch(null)}>
       <View style={s.noteBody}>
-        <Text style={s.noteTitle}>Where were these taken? (optional)</Text>
+        <Text style={s.noteTitle}>Add a note & room (optional)</Text>
         <Text style={s.noteSub}>Applies to every photo in this batch.</Text>
-        <SuggestInput
+        <AppInput
           value={noteText}
-          onChange={setNoteText}
-          placeholder="e.g. Master bedroom"
-          suggestions={pendingBatch?.suggestions ?? []}
+          onChangeText={setNoteText}
+          placeholder="Note — e.g. water stain on ceiling"
+          autoFocus
+        />
+        <SearchablePicker
+          placeholder="Room / area"
+          options={roomOptions}
+          value={roomPick}
+          onSelect={setRoomPick}
+          onCreate={canCreateRoom ? createRoomInline : undefined}
         />
         <View style={s.noteBtnRow}>
-          <TouchableOpacity style={s.noteSkipBtn} onPress={() => startBatch(null)}>
+          <TouchableOpacity style={s.noteSkipBtn} onPress={() => startBatch(null, null)}>
             <Text style={s.noteSkipText}>Skip</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.noteStartBtn} onPress={() => startBatch(noteText.trim() || null)}>
+          <TouchableOpacity style={s.noteStartBtn} onPress={() => startBatch(noteText.trim() || null, roomPick?.id ?? null)}>
             <Text style={s.noteStartText}>Start Upload</Text>
           </TouchableOpacity>
         </View>

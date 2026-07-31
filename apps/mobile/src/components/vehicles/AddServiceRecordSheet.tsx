@@ -11,7 +11,7 @@ import { confirmSheet } from '../ui/ConfirmSheet';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
 import { createServiceRecord, getActiveCheckoutForUser, type ServiceTarget } from '../../db/queries/vehicles';
 import { getUnitLocations, getLocationById } from '../../db/queries/locations';
-import { getOpenJobs } from '../../db/queries/jobs';
+import { getOpenJobs, upsertJob, type Job } from '../../db/queries/jobs';
 import { getAllTeams } from '../../db/queries/teams';
 import { getPayerTypes } from '../../db/queries/taxonomy';
 import { FUEL_UP_TYPE, buildFuelUpNotes, buildReceiptVehicleMismatchNote } from './vehicleSessionLogic';
@@ -20,6 +20,9 @@ import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useDbQuery } from '../../hooks/useDbQuery';
+import { appendLog } from '../../db/queries/log';
+import { appendOutbox } from '../../sync/outbox';
+import { generateUUID } from '../../utils/uuid';
 import {
   parseOptionalCount, parseOptionalDate, parseOptionalNonNegative, validateText,
 } from '../../lib/validation';
@@ -83,6 +86,9 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
   // #168: non-editors may only file fuel-ups/receipts (crew-level write);
   // arbitrary service records remain an editor action.
   const isEditor = usePermission('edit_inventory');
+  // #173: quick-add-job on the "For" picker, same gate as the checkout/
+  // DestinationPicker job pickers.
+  const canCreateJobs = usePermission('create_jobs');
 
   const [kind, setKind] = useState<'service' | 'fuel_up'>(initialKind);
   const [target, setTarget] = useState<ServiceTarget>('vehicle');
@@ -161,6 +167,32 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
 
   function reject(field: string, rule: string) {
     track('audit', 'validation_reject', { screen: 'vehicle_service', props: { field, rule } });
+  }
+
+  // #173: quick-add a job straight from the "For" picker (gas receipt), same
+  // pattern as apps/mobile/app/(app)/(checkout)/index.tsx's createJob and
+  // DestinationPicker's createJob — local write + outbox INSERT + a
+  // job_created log entry, then select it immediately.
+  function createJob(text: string) {
+    if (!user) return;
+    if (isWriteBlocked()) return;
+    const now = new Date().toISOString();
+    const newJob: Job = {
+      id: generateUUID(), name: text, status: 'open',
+      created_by: user.id, created_at: now, updated_at: now, synced_at: null,
+    };
+    upsertJob(newJob);
+    // Strip the device-local-only synced_at before queueing — the server jobs
+    // table has no such column and would reject the row.
+    const { synced_at: _sa, ...jobRow } = newJob;
+    appendOutbox('INSERT', 'jobs', jobRow);
+    appendLog({
+      action: 'job_created', entity_type: 'job', entity_id: newJob.id,
+      user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
+      metadata: null, device_id: null,
+    });
+    setForPick({ id: newJob.id, label: newJob.name, sublabel: 'Job' });
   }
 
   async function pickPhoto(fromCamera: boolean) {
@@ -378,6 +410,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
                 options={forOptions}
                 value={forPick}
                 onSelect={opt => setForPick(opt)}
+                onCreate={canCreateJobs ? createJob : undefined}
               />
             </View>
             <TextField

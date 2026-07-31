@@ -54,7 +54,7 @@ const ALLOWED_TABLES = new Set([
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
   'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
-  'job_assignments',
+  'job_assignments', 'rooms',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -299,6 +299,9 @@ const FULL_TABLES = [
   // needs its subteam's assignments locally and none of the columns are secret
   // (the job rows themselves stay team-scoped via teamScopeSql above).
   'job_assignments',
+  // #173: rooms is a small, unscoped catalog (like taxonomy_types) — every
+  // device needs the full list to populate the room picker offline.
+  'rooms',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
@@ -1095,6 +1098,22 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         // from planting costs; everything else passes unconditionally.
         if (entry.payload.cost != null && !can('view_financial_data') && !can('edit_inventory')) {
           conflicts.push({ id: entry.id, error: 'Forbidden: cost on a fuel_up requires edit_inventory or view_financial_data' });
+          continue;
+        }
+      } else if (
+        entry.table_name === 'rooms'
+        && (entry.operation === 'INSERT' || entry.operation === 'UPDATE')
+      ) {
+        // #173 rooms carve-out: OPERATION_PERM only maps a table+op to ONE
+        // required permission, but rooms is quick-addable by anyone who can
+        // either upload media (the job-photo flow that motivated it) OR edit
+        // inventory (existing catalog-table editors). HARD RULE: implemented
+        // HERE, not by adding a key to syncPolicy.ts's OPERATION_PERM object
+        // literal — mirrors the fuel_up carve-out above. DELETE deliberately
+        // NOT matched here: it falls through to the generic gate below, which
+        // denies it (rooms has no OPERATION_PERM DELETE entry).
+        if (!can('upload_media') && !can('edit_inventory')) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: rooms requires upload_media or edit_inventory' });
           continue;
         }
       } else {

@@ -15,6 +15,7 @@ export interface MediaRecord {
   uploaded_by: string | null;
   created_at: string;
   updated_at: string | null;
+  room_id: string | null;
 }
 
 export function getMediaForEntity(entityType: string, entityId: string): MediaRecord[] {

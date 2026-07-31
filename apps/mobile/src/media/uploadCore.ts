@@ -37,6 +37,7 @@ export interface UploadMediaInput {
   caption?: string | null; // #148: optional note
   audience?: 'team' | 'everyone' | 'users' | null; // #87: pool shares only
   audienceUserIds?: string[] | null; // #87: when audience === 'users'
+  roomId?: string | null; // #173: job photo → rooms.id (job entity only)
 }
 
 export interface UploadedMedia {
@@ -89,14 +90,16 @@ export function insertMediaRow(input: UploadMediaInput, publicUrl: string): Uplo
   const audience = isPool ? input.audience ?? null : null;
   const audienceUserIds = isPool && input.audience === 'users' && input.audienceUserIds?.length
     ? JSON.stringify(input.audienceUserIds) : null;
+  // #173: room tagging is job-entity-only, same shape as the pool-only audience guard above.
+  const roomId = input.entityType === 'job' ? input.roomId ?? null : null;
 
   const db = getDb();
   // updated_at is set locally for immediate ordering; the server stamps its
   // own authoritative NOW() on apply (so it's not in the outbox payload).
   db.executeSync(
-    `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, location_note, is_primary, uploaded_by, created_at, updated_at, audience, audience_user_ids)
-     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, input.entityType, input.entityId, input.mediaType, publicUrl, caption, locationNote, isPrimary ? 1 : 0, input.userId, now, now, audience, audienceUserIds]
+    `INSERT OR REPLACE INTO media (id, entity_type, entity_id, media_type, url, thumbnail_url, caption, location_note, is_primary, uploaded_by, created_at, updated_at, audience, audience_user_ids, room_id)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, input.entityType, input.entityId, input.mediaType, publicUrl, caption, locationNote, isPrimary ? 1 : 0, input.userId, now, now, audience, audienceUserIds, roomId]
   );
 
   appendOutbox('INSERT', 'media', {
@@ -112,6 +115,7 @@ export function insertMediaRow(input: UploadMediaInput, publicUrl: string): Uplo
     created_at: now,
     ...(audience ? { audience } : {}),
     ...(audienceUserIds ? { audience_user_ids: audienceUserIds } : {}),
+    ...(roomId ? { room_id: roomId } : {}),
   });
 
   return { id, url: publicUrl };

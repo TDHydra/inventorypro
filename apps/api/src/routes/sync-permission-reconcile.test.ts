@@ -24,6 +24,7 @@ const COLUMNS: Record<string, string[]> = {
     'odometer', 'created_by', 'created_at', 'updated_at', 'payer', 'job_id', 'cost',
   ],
   jobs: ['id', 'name', 'status', 'created_by', 'created_at', 'updated_at', 'team_id'],
+  rooms: ['id', 'name', 'active', 'created_at', 'updated_at'],
 };
 
 interface FakePgOpts {
@@ -303,5 +304,94 @@ test('push: no team grant ⇒ crew create_jobs INSERT still rejected (baseline u
   assert.deepEqual(body.ok, []);
   assert.equal(body.conflicts.length, 1);
   assert.match(body.conflicts[0].error, /requires create_jobs/);
+  await app.close();
+});
+
+// ── #173 rooms carve-out ──────────────────────────────────────────────────────
+// rooms is a synced catalog gated on upload_media OR edit_inventory — an OR of
+// two permissions doesn't fit OPERATION_PERM's one-permission-per-op shape, so
+// (like fuel_up above) it's a dedicated carve-out branch in sync.ts, not an
+// OPERATION_PERM entry.
+
+test('push: rooms INSERT is accepted for a caller with upload_media but not edit_inventory', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' }); // tier1: upload_media=true, edit_inventory=false
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'rooms',
+      payload: { id: 'room-1', name: 'Kitchen', active: true, created_at: NOW, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  await app.close();
+});
+
+test('push: rooms INSERT is accepted for a caller with edit_inventory but not upload_media', async () => {
+  // temporary_employee defaults BOTH false; grant edit_inventory only via override.
+  const pg = fakePg({ callerRole: 'temporary_employee', callerOverrides: { edit_inventory: true } });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'rooms',
+      payload: { id: 'room-2', name: 'Garage', active: true, created_at: NOW, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  await app.close();
+});
+
+test('push: rooms INSERT is rejected for a caller with neither upload_media nor edit_inventory', async () => {
+  const pg = fakePg({ callerRole: 'temporary_employee' }); // both default false
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'rooms',
+      payload: { id: 'room-3', name: 'Basement', active: true, created_at: NOW, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ id: string; error: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 1);
+  assert.match(body.conflicts[0].error, /requires upload_media or edit_inventory/);
+  await app.close();
+});
+
+test('push: rooms UPDATE follows the same OR-gate as INSERT', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' }); // upload_media=true only
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'rooms',
+      payload: { id: 'room-1', name: 'Kitchen (renamed)', updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  await app.close();
+});
+
+test('push: rooms DELETE is NOT covered by the carve-out — falls through to the generic DENY (no OPERATION_PERM entry)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' }); // holds both upload_media and edit_inventory
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'DELETE', table_name: 'rooms',
+      payload: { id: 'room-1' },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ id: string; error: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 1);
+  assert.match(body.conflicts[0].error, /not permitted via sync/);
   await app.close();
 });

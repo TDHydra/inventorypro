@@ -45,7 +45,7 @@ const db = testDb;
 before(async () => {
   await testDb.initTestDb(); // creates locations/taxonomy_types/inventory_items/stock_by_location/outbox
   // Media table matching migration 001 (base) + 036 (location_note, updated_at)
-  // + 052 (audience, audience_user_ids) — the REAL synced shape.
+  // + 052 (audience, audience_user_ids) + 058 (room_id) — the REAL synced shape.
   testDb.getDb().executeSync(`
     CREATE TABLE media (
       id            TEXT PRIMARY KEY,
@@ -62,7 +62,8 @@ before(async () => {
       location_note TEXT,
       updated_at    TEXT,
       audience      TEXT,
-      audience_user_ids TEXT
+      audience_user_ids TEXT,
+      room_id       TEXT
     );
   `);
   core = requireCjs('./uploadCore') as typeof import('./uploadCore');
@@ -100,4 +101,32 @@ test('insertMediaRow: job photo leaves audience columns null (unchanged path)', 
   assert.equal(row.audience, null);
   assert.equal(row.audience_user_ids, null);
   assert.equal(row.caption, null);
+});
+
+test('insertMediaRow: #173 job photo writes room_id + is outboxed', () => {
+  const out = core.insertMediaRow({
+    entityType: 'job', entityId: 'job-1', mediaType: 'image', ext: 'jpg',
+    userId: 'user-1', caption: 'water damage', roomId: 'room-kitchen',
+  }, 'https://x/job/b.jpg');
+  const row = db.rowsAs<{ room_id: string | null }>(
+    db.getDb().executeSync(`SELECT room_id FROM media WHERE id = ?`, [out.id]).rows
+  )[0];
+  assert.equal(row.room_id, 'room-kitchen');
+
+  const ob = db.rowsAs<{ payload: string }>(
+    db.getDb().executeSync(`SELECT payload FROM outbox ORDER BY created_at DESC LIMIT 1`).rows
+  )[0];
+  const payload = JSON.parse(ob.payload);
+  assert.equal(payload.room_id, 'room-kitchen');
+});
+
+test('insertMediaRow: #173 roomId is dropped for a non-job entity (pool photo)', () => {
+  const out = core.insertMediaRow({
+    entityType: 'pool', entityId: 'user-1', mediaType: 'image', ext: 'jpg',
+    userId: 'user-1', roomId: 'room-kitchen',
+  }, 'https://x/pool/b.jpg');
+  const row = db.rowsAs<{ room_id: string | null }>(
+    db.getDb().executeSync(`SELECT room_id FROM media WHERE id = ?`, [out.id]).rows
+  )[0];
+  assert.equal(row.room_id, null, 'room tagging is job-entity-only');
 });
