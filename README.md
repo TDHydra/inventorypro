@@ -46,7 +46,7 @@ substitute your package manager) with:
 - **pnpm 9** — `corepack enable` (bundled with Node) or `npm i -g pnpm@9`.
   This is a pnpm workspace; **npm/yarn will not work**.
 - **Docker + compose plugin** — for local Postgres/MinIO
-- For the Android app: **JDK 17**, **Android SDK** (Android Studio or
+- For the Android app: **JDK 17+** (we build on Temurin 21), **Android SDK** (Android Studio or
   command-line tools), `adb`, and a physical device with USB debugging.
   Gradle is pinned at 8.13 via the wrapper — don't upgrade it.
 
