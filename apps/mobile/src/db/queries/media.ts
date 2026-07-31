@@ -16,6 +16,10 @@ export interface MediaRecord {
   created_at: string;
   updated_at: string | null;
   room_id: string | null;
+  // #87 pool shares (null for non-pool media). audience_user_ids is a JSON
+  // array string of user UUIDs when audience = 'users'.
+  audience: 'everyone' | 'team' | 'users' | null;
+  audience_user_ids: string | null;
 }
 
 export function getMediaForEntity(entityType: string, entityId: string): MediaRecord[] {

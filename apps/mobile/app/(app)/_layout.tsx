@@ -7,6 +7,7 @@ import { NotificationBell } from '../../src/components/NotificationBell';
 import { ChatBell } from '../../src/components/ChatBell';
 import { QuickPhotoFlow, openQuickPhoto } from '../../src/components/quickphoto/QuickPhotoFlow';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
+import { usePermission } from '../../src/hooks/usePermission';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../../src/lib/alertBus';
@@ -47,6 +48,9 @@ export default function AppLayout() {
     });
   }
   const maint = useMaintenanceMode();
+  // #169: hide the header quick-photo button for users who can't upload —
+  // without the gate they walk the whole capture flow and fail at presign.
+  const canUploadMedia = usePermission('upload_media');
 
   // Guard — redirect to login if no session
   useEffect(() => {
@@ -90,9 +94,11 @@ export default function AppLayout() {
           headerTitleStyle: { fontWeight: t.typography.weights.bold, fontFamily: t.typography.fontFamily.bold },
           headerRight: () => (
             <View style={styles.headerRight}>
-              <TouchableOpacity style={styles.switchBtn} onPress={() => openQuickPhoto()} hitSlop={8}>
-                <Text style={styles.switchText}>📷</Text>
-              </TouchableOpacity>
+              {canUploadMedia && (
+                <TouchableOpacity style={styles.switchBtn} onPress={() => openQuickPhoto()} hitSlop={8}>
+                  <Text style={styles.switchText}>📷</Text>
+                </TouchableOpacity>
+              )}
               <ChatBell />
               <NotificationBell />
               <SyncIndicator />

@@ -397,6 +397,30 @@ test('media UPDATE: audience columns are immutable', () => {
   assert.match(validateMediaWrite('UPDATE', { audience_user_ids: '[]' }) ?? '', /audience/);
 });
 
+// #169: UUID_RE accepts uppercase but mediaScopeSql's LIKE match is
+// case-sensitive — validation normalizes the ids to lowercase in place.
+test('media INSERT: audience_user_ids are lowercased at validation', () => {
+  const payload: Record<string, unknown> = {
+    entity_type: 'pool', entity_id: 'user-1', url: mediaUrlFor('pool', 'user-1'),
+    audience: 'users', audience_user_ids: '["6F1E1C2A-9B3D-4E5F-8A7B-0C1D2E3F4A5B"]',
+  };
+  assert.equal(validateMediaWrite('INSERT', payload), null);
+  assert.equal(payload.audience_user_ids, '["6f1e1c2a-9b3d-4e5f-8a7b-0c1d2e3f4a5b"]');
+});
+
+// #169: a pool→job relink must not strand audience columns on non-pool media —
+// the validator clears both server-side alongside the move.
+test('media UPDATE: relinking to a job clears the audience columns', () => {
+  const payload: Record<string, unknown> = { entity_type: 'job', entity_id: 'job-1' };
+  assert.equal(validateMediaWrite('UPDATE', payload), null);
+  assert.equal(payload.audience, null);
+  assert.ok('audience' in payload && 'audience_user_ids' in payload, 'cleared keys are present so the UPDATE writes NULLs');
+  // A non-relink UPDATE (caption edit) must NOT inject audience keys.
+  const captionOnly: Record<string, unknown> = { id: 'm1', caption: 'hi' };
+  assert.equal(validateMediaWrite('UPDATE', captionOnly), null);
+  assert.ok(!('audience' in captionOnly));
+});
+
 test("MEDIA_ENTITY_TYPES includes 'pool'", () => {
   assert.ok(MEDIA_ENTITY_TYPES.has('pool'));
 });

@@ -305,6 +305,10 @@ export function validateMediaWrite(
           || !ids.every(v => typeof v === 'string' && UUID_RE.test(v))) {
           return 'media audience_user_ids must be a JSON array of user UUIDs';
         }
+        // #169: UUID_RE accepts uppercase but mediaScopeSql's LIKE match is
+        // case-sensitive (PG renders uuids lowercase) — normalize so a forged
+        // uppercase entry can't hide a recipient from the pull scope.
+        payload.audience_user_ids = JSON.stringify((ids as string[]).map(s => s.toLowerCase()));
       }
     } else if (audience != null || payload.audience_user_ids != null) {
       return 'media audience only applies to pool photos';
@@ -322,6 +326,12 @@ export function validateMediaWrite(
   if (String(payload.entity_type) !== 'job' || payload.entity_id == null) {
     return 'media can only be moved to a job';
   }
+  // #169: a pool row re-linked to a job must not strand its audience columns
+  // (audience only applies to pool photos). The guard above already rejected
+  // client-supplied audience fields on UPDATE, so these keys are server-set
+  // here and cleared together with the move.
+  payload.audience = null;
+  payload.audience_user_ids = null;
   return null;
 }
 
