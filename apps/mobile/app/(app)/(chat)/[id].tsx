@@ -30,7 +30,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
-import { useTableVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { useSession } from '../../../src/hooks/useSession';
 import { useRouter } from 'expo-router';
 import { composerBottomPadding } from '../../../src/chat/composerInsets';
@@ -64,25 +64,23 @@ export default function ChatThreadScreen() {
   const userId = user?.id ?? null;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  // Per-table pull granularity: only bump when a pull touches the chat tables
-  // (or users, for the add-participant picker) instead of on every pull.
-  const dataVersion = useTableVersion(['conversations', 'conversation_participants', 'messages', 'media', 'users']);
-  const [reloadKey, setReloadKey] = useState(0);
-  const reload = useCallback(() => {
-    setReloadKey(k => k + 1);
-    loadChatCache(userId);
-  }, [userId]);
+  // loadChatCache recomputes the SEPARATE unread-badge cache (src/chat/store.ts,
+  // its own useSyncExternalStore-backed store) — a side effect distinct from the
+  // local-DB reads below, so it still needs a manual call after each write.
+  const reload = useCallback(() => loadChatCache(userId), [userId]);
 
-  const conversation = useMemo(() => getConversation(conversationId), [conversationId, reloadKey, dataVersion]);
-  const participants = useMemo(() => getParticipants(conversationId), [conversationId, reloadKey, dataVersion]);
-  const myPart = useMemo(
+  // Re-runs whenever a local write OR a background sync pull touches one of
+  // these tables (#60/#63) — no manual reload key needed for local-DB reads.
+  const conversation = useDbQuery(() => getConversation(conversationId), [conversationId], ['conversations']);
+  const participants = useDbQuery(() => getParticipants(conversationId), [conversationId], ['conversation_participants', 'users']);
+  const myPart = useDbQuery(
     () => (userId ? getMyParticipant(conversationId, userId) : undefined),
-    [conversationId, userId, reloadKey, dataVersion],
+    [conversationId, userId],
+    ['conversation_participants'],
   );
-  const messages = useMemo(() => getMessages(conversationId), [conversationId, reloadKey, dataVersion]);
-  // Image attachments (#29-H), keyed by message id — synced media rows, so this
-  // refreshes on the same dataVersion bumps as the messages themselves.
-  const mediaByMsg = useMemo(() => getMessageMedia(conversationId), [conversationId, reloadKey, dataVersion]);
+  const messages = useDbQuery(() => getMessages(conversationId), [conversationId], ['messages', 'users']);
+  // Image attachments (#29-H), keyed by message id — synced media rows.
+  const mediaByMsg = useDbQuery(() => getMessageMedia(conversationId), [conversationId], ['media', 'messages']);
   // Inverted list renders data[0] at the bottom → newest first in the array.
   const inverted = useMemo(() => [...messages].reverse(), [messages]);
 
@@ -199,7 +197,7 @@ export default function ChatThreadScreen() {
   // ── read receipts (Step E) ──────────────────────────────────────────────────
   // Rendered under the caller's LATEST own (non-deleted) message only, from the
   // other participants' last_read_at (already synced rows — refreshes via the
-  // useDataVersion re-query above).
+  // useDbQuery reads above).
   const lastOwn = useMemo((): MessageRow | undefined => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -226,12 +224,12 @@ export default function ChatThreadScreen() {
   const [managing, setManaging] = useState(false);
   const isGroup = conversation?.kind === 'group';
 
-  const addable = useMemo((): PickerOption[] => {
+  const addable = useDbQuery((): PickerOption[] => {
     const present = new Set(participants.map(p => p.user_id));
     return getAllActiveUsers()
       .filter(u => !present.has(u.id))
       .map(u => ({ id: u.id, label: u.name, sublabel: u.role }));
-  }, [participants, dataVersion]);
+  }, [participants], ['users']);
 
   const changePref = useCallback((pref: NotifyPref) => {
     if (!userId) return;

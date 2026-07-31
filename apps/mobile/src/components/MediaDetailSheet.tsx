@@ -13,10 +13,9 @@ import { usePermission } from '../hooks/usePermission';
 import { useSession } from '../hooks/useSession';
 import {
   getMediaDetail, getLocationNoteSuggestions, updateMediaMeta, moveMediaToJob, deleteMedia,
-  MediaHubRow,
 } from '../db/queries/media';
 import { getAllJobs, Job } from '../db/queries/jobs';
-import { useDataVersion } from '../hooks/useDataVersion';
+import { useDbQuery } from '../hooks/useDbQuery';
 import { isMediaUploadPending } from '../sync/outbox';
 import { shareMediaExternally } from '../media/shareExternal';
 
@@ -35,7 +34,6 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
   const canEdit = usePermission('edit_media');
   const canDelete = usePermission('delete_media');
 
-  const [detail, setDetail] = useState<MediaHubRow | null>(null);
   const [editing, setEditing] = useState(false);
   const [caption, setCaption] = useState('');
   const [locationNote, setLocationNote] = useState('');
@@ -43,29 +41,26 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
   const [jobSearch, setJobSearch] = useState('');
   const [sharing, setSharing] = useState(false);
   const [shareSyncPending, setShareSyncPending] = useState(false);
-  const dataVersion = useDataVersion();
 
-  const reload = useCallback(() => {
-    setDetail(mediaId ? getMediaDetail(mediaId) : null);
-  }, [mediaId]);
+  // Re-runs whenever a local write (edit/move/delete, all via appendOutbox) OR
+  // a background sync pull touches media/jobs/users (#60/#63) — replaces the
+  // old useState+reload() pair. caption/locationNote are separate draft state
+  // (seeded once in beginEdit), so a reactive `detail` re-read while editing
+  // can no longer clobber the user's in-progress typing — the old !editing
+  // guard on the reload effect is no longer needed either.
+  const detail = useDbQuery(
+    () => (mediaId ? getMediaDetail(mediaId) : null),
+    [mediaId],
+    ['media', 'jobs', 'users'],
+  );
 
-  // Load on open; drop edit state so a re-open never shows a stale draft.
+  // Drop edit state on open so a re-open never shows a stale draft.
   useEffect(() => {
     if (!visible) return;
-    reload();
     setEditing(false);
     setMoveOpen(false);
     setJobSearch('');
-  }, [visible, reload]);
-
-  // Re-read while open when a sync pull applies (kept SEPARATE from the effect
-  // above so a bump doesn't reset editing/moveOpen/jobSearch and kick the user
-  // out of edit mode). Skipped mid-edit so the caption/locationNote buffers
-  // aren't reseeded under the user's typing.
-  useEffect(() => {
-    if (visible && !editing) reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataVersion]);
+  }, [visible]);
 
   // #180: "Share externally" mints its link from the server, so it's only safe
   // once this row has actually reached Postgres. Re-checked on a short poll
@@ -101,11 +96,13 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
   );
 
   // Open jobs first in the move picker; the current job is not a valid target.
-  const jobs = useMemo<Job[]>(() => {
+  // Lazy (only queries once the move sheet opens) AND reactive to the jobs
+  // table (#60/#63) — replaces the old dataVersion-keyed useMemo.
+  const jobs = useDbQuery<Job[]>(() => {
     if (!moveOpen) return [];
     const all = getAllJobs(false).filter(j => j.id !== detail?.entity_id);
     return [...all.filter(j => j.status === 'open'), ...all.filter(j => j.status !== 'open')];
-  }, [moveOpen, detail, dataVersion]);
+  }, [moveOpen, detail?.entity_id], ['jobs']);
   const filteredJobs = useMemo(() => {
     const q = jobSearch.trim().toLowerCase();
     if (!q) return jobs;
@@ -126,8 +123,9 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
       { caption: caption.trim() || null, location_note: locationNote.trim() || null },
       user?.id ?? null,
     );
+    // No explicit reload: updateMediaMeta's own outbox write bumps the media
+    // table, which drives the useDbQuery read above once it commits.
     setEditing(false);
-    reload();
     onChanged();
   };
 
@@ -140,7 +138,6 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
         onPress: () => {
           moveMediaToJob(detail.id, job.id, user?.id ?? null);
           setMoveOpen(false);
-          reload();
           onChanged();
         },
       },

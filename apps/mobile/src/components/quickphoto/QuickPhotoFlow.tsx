@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from '../../lib/themedAlert';
@@ -6,6 +6,7 @@ import type { Theme } from '../../themes/types';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useSession } from '../../hooks/useSession';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import { ModalSheet } from '../ui/ModalSheet';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { StatusPill } from '../ui/StatusPill';
@@ -181,22 +182,29 @@ export function QuickPhotoFlow() {
     setState(prev => assetsPicked(prev, assets));
   }
 
-  const jobOptions: PickerOption[] = useMemo(
+  // Re-runs whenever a local write OR a background sync pull touches jobs
+  // (#60/#63) — no manual reload key needed.
+  const jobOptions: PickerOption[] = useDbQuery(
     () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
     [state.phase],
+    ['jobs'],
   );
 
-  const otherUsers: User[] = useMemo(
+  // Same reactivity, for the "specific users" share picker.
+  const otherUsers: User[] = useDbQuery(
     () => getAllActiveUsers().filter(u => u.id !== user?.id),
     [state.phase, user?.id],
+    ['users'],
   );
 
-  const suggestions = useMemo(() => {
+  // Room/Area suggestions are pulled from prior media rows — a sync pull that
+  // lands new media (this device or another's) should refresh the list.
+  const suggestions = useDbQuery(() => {
     if (!state.dest || !user) return [];
     return state.dest.kind === 'job'
       ? getLocationNoteSuggestions(state.dest.jobId)
       : getPoolLocationNoteSuggestions(user.id);
-  }, [state.dest, user]);
+  }, [state.dest, user], ['media']);
 
   function toggleUser(id: string) {
     setSelectedUserIds(prev => {

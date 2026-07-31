@@ -35,6 +35,7 @@ import { TooltipHint } from '../../../src/components/TooltipHint';
 import { syncNow } from '../../../src/sync/engine';
 import { AdvancedFields } from '../../../src/components/ui/AdvancedFields';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 
 export default function LocationsScreen() {
   const s = useThemedStyles(makeStyles);
@@ -44,16 +45,13 @@ export default function LocationsScreen() {
   const { user } = useSession();
   const { locked } = useMaintenanceMode();
 
-  const [tree, setTree] = useState<LocationWithChildren[]>(() => getLocationTree());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showCreate, setShowCreate] = useState(false);
   const dataVersion = useDataVersion();
 
-  // Re-read the location tree whenever a background sync pull applies changes,
-  // so an already-open list refreshes without a manual pull-to-refresh.
-  useEffect(() => {
-    setTree(getLocationTree());
-  }, [dataVersion]);
+  // Re-runs whenever a local write OR a background sync pull touches one of
+  // these tables (#60/#63) — no manual reload needed.
+  const tree = useDbQuery(() => getLocationTree(), [], ['locations', 'taxonomy_types']);
 
   const { createUnder } = useLocalSearchParams<{ createUnder?: string }>();
   // Deep-link from a location detail's "+ Add Sub-area": open the create modal
@@ -101,8 +99,9 @@ export default function LocationsScreen() {
   const onRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
-    try { await syncNow(); } catch { /* offline — local reload still runs */ }
-    setTree(getLocationTree());
+    // No explicit local reload needed after this: the pull's own table bumps
+    // (src/sync/pull.ts) drive the useDbQuery(['locations','taxonomy_types']) read above (#60/#63).
+    try { await syncNow(); } catch { /* offline — nothing to sync */ }
     setRefreshing(false);
   }, [refreshing]);
 
@@ -231,9 +230,9 @@ export default function LocationsScreen() {
       Alert.alert('Create failed', `Couldn't create this location. Nothing was changed — please try again.\n\n${String((e as Error)?.message ?? e)}`);
       return;
     }
-    // Only refresh the tree, expand the parent, close the modal, and reset the
-    // form after the writes committed.
-    setTree(getLocationTree());
+    // Expand the parent, close the modal, and reset the form after the writes
+    // committed — no explicit tree reload: the transaction's own table bump
+    // (src/db/tx.ts) drives the useDbQuery(['locations','taxonomy_types']) read above.
     if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     setShowCreate(false);
     resetForm();

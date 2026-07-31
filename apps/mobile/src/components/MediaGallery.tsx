@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useDataVersion } from '../hooks/useDataVersion';
+import { useDbQuery } from '../hooks/useDbQuery';
 import { Alert } from '../lib/themedAlert';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
@@ -45,14 +45,14 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
   const insets = useSafeAreaInsets();
   const { user } = useSession();
   const canDelete = usePermission('delete_media');
-  const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
-  // Re-query when a background pull lands new rows (dataVersion bumps) so media
-  // from other devices appears without a remount. Safe mid-interaction: the
-  // lightbox holds its own MediaRecord, and upload state lives separately.
-  const dataVersion = useDataVersion();
-  useEffect(() => {
-    setMedia(getMediaForEntity(entityType, entityId));
-  }, [dataVersion, entityType, entityId]);
+  // Re-runs whenever a local write OR a background sync pull touches the media
+  // table (#60/#63) — no manual reload plumbing needed. Safe mid-interaction:
+  // the lightbox holds its own MediaRecord, and upload state lives separately.
+  const media = useDbQuery(
+    () => getMediaForEntity(entityType, entityId),
+    [entityType, entityId],
+    ['media'],
+  );
   // The hero falls back to the first photo when nothing is flagged; the star does
   // NOT (an unstarred gallery must stay unstarred). Both resolve to a SINGLE row —
   // getMediaForEntity orders is_primary DESC, created_at DESC — so a transient
@@ -199,7 +199,8 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
       mediaType: item.mediaType, ext: item.ext, uri: item.uri, size,
       userId: user.id, caption, roomId,
     });
-    setMedia(getMediaForEntity(entityType, entityId));
+    // No explicit reload: uploadMediaAsset's own outbox INSERT bumps the media
+    // table, which drives the useDbQuery read above once it commits.
   }
 
   function confirmDelete(item: MediaRecord) {
@@ -211,7 +212,6 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
         onPress: () => {
           deleteMedia(item.id, user?.id ?? null);
           setLightbox(null);
-          setMedia(getMediaForEntity(entityType, entityId));
         },
       },
     ]);

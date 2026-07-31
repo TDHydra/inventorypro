@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -24,6 +24,7 @@ import { Card } from '../../../src/components/ui/Card';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { TooltipHint } from '../../../src/components/TooltipHint';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 
 export default function TeamsScreen() {
   const s = useThemedStyles(makeStyles);
@@ -32,16 +33,13 @@ export default function TeamsScreen() {
   const { user } = useSession();
   const canManage = usePermission('manage_teams');
 
-  const [teams, setTeams] = useState<Team[]>(() => getAllTeams());
   const [showCreate, setShowCreate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const dataVersion = useDataVersion();
 
-  // Re-read teams whenever a background sync pull applies changes, so an
-  // already-open list refreshes without a manual pull-to-refresh.
-  useEffect(() => {
-    setTeams(getAllTeams());
-  }, [dataVersion]);
+  // Re-runs whenever a local write OR a background sync pull touches teams
+  // (#60/#63) — no manual reload needed.
+  const teams = useDbQuery(() => getAllTeams(), [], ['teams', 'taxonomy_types']);
 
   // Client mirror of the server's isOrgAuthority (effectiveTier(role) >= 3, tiers
   // office_manager/hr_manager/franchise_manager/full_admin). Deliberately keyed on
@@ -86,8 +84,9 @@ export default function TeamsScreen() {
   const onRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
-    try { await syncNow(); } catch { /* offline — local reload still runs */ }
-    setTeams(getAllTeams());
+    // No explicit local reload needed after this: the pull's own table bumps
+    // (src/sync/pull.ts) drive the useDbQuery(['teams','taxonomy_types']) read above (#60/#63).
+    try { await syncNow(); } catch { /* offline — nothing to sync */ }
     setRefreshing(false);
   }, [refreshing]);
 
@@ -141,8 +140,9 @@ export default function TeamsScreen() {
       return;
     }
 
-    // Success side-effects only after the write committed.
-    setTeams(getAllTeams());
+    // Success side-effects only after the write committed — no explicit reload:
+    // the transaction's own table bump (src/db/tx.ts) drives the
+    // useDbQuery(['teams','taxonomy_types']) read above.
     setShowCreate(false);
     resetForm(); // clear only after successful submit
   }

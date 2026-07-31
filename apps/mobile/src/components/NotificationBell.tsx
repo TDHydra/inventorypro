@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { countUnread } from '../db/queries/notifications';
-import { useDataVersion } from '../hooks/useDataVersion';
+import { useDbQuery } from '../hooks/useDbQuery';
 
 // The inbox route. It is created in this same change (the (notifications) group)
 // so expo-router's generated typed-routes may not list it until the dev server
@@ -10,27 +9,20 @@ import { useDataVersion } from '../hooks/useDataVersion';
 // against the route union without depending on stale generated types.
 const INBOX_ROUTE = '/(app)/(notifications)' as Href;
 
-// Header bell with an unread-count badge. Re-reads the count on every sync pull
-// (via useDataVersion) AND on a short interval, so a locally marked-read row
-// (which does not bump the data version) still clears the badge promptly.
+// Header bell with an unread-count badge. Re-runs whenever a local write
+// (markRead's outbox UPDATE) OR a background sync pull touches the
+// notifications table (#60/#63) — replaces the old useState+refresh() pair
+// and its 4s poll, which predated appendOutbox's per-table bump actually
+// covering markRead's write.
 export function NotificationBell() {
   const router = useRouter();
-  const dataVersion = useDataVersion();
-  const [count, setCount] = useState(0);
-
-  const refresh = useCallback(() => {
+  const count = useDbQuery(() => {
     try {
-      setCount(countUnread());
+      return countUnread();
     } catch {
-      /* db not ready / mid-migration — leave the last known count */
+      return 0; // db not ready / mid-migration
     }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 4000);
-    return () => clearInterval(interval);
-  }, [refresh, dataVersion]);
+  }, [], ['notifications']);
 
   const badge = count > 99 ? '99+' : String(count);
 
