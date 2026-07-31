@@ -9,7 +9,7 @@ const ALL_ROLES = Object.keys(ROLE_TIER) as UserRole[];
 
 const STAT_SOURCES: StatSource[] = [
   'my-checkouts', 'open-repairs', 'units-due-service', 'low-stock', 'open-jobs', 'team-members',
-  'vehicles-available',
+  'vehicles-available', 'shared-media',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
   'my-equipment', 'my-jobs', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
@@ -73,15 +73,16 @@ test('crew roles show the my-checkouts + vehicles-available stat set (#177)', ()
   for (const role of crew) {
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
     const stats = layout.find(b => b.widget === 'stat-tiles')?.config?.stats;
-    assert.deepEqual(stats, ['my-checkouts', 'vehicles-available'], `${role}: stat set`);
+    assert.deepEqual(stats, ['my-checkouts', 'vehicles-available', 'shared-media'], `${role}: stat set`);
   }
 });
 
-test('temporary_employee gets fast tiles + "My jobs" + "My equipment" ONLY', () => {
+test('temporary_employee gets fast tiles + shared-media pill + "My jobs" + "My equipment" ONLY', () => {
   const layout = ROLE_DEFAULT_LAYOUTS.temporary_employee!;
-  assert.deepEqual(layout.map(b => b.widget), ['fast-checkout', 'fast-checkin', 'work-list', 'work-list']);
-  assert.equal(layout[2].config?.source, 'my-jobs');
-  assert.equal(layout[3].config?.source, 'my-equipment');
+  assert.deepEqual(layout.map(b => b.widget), ['fast-checkout', 'fast-checkin', 'stat-tiles', 'work-list', 'work-list']);
+  assert.deepEqual(layout[2].config?.stats, ['shared-media']);
+  assert.equal(layout[3].config?.source, 'my-jobs');
+  assert.equal(layout[4].config?.source, 'my-equipment');
 });
 
 test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles + activity', () => {
@@ -89,7 +90,7 @@ test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles +
   for (const role of managers) {
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
     const stats = layout.find(b => b.widget === 'stat-tiles')?.config?.stats;
-    assert.deepEqual(stats, ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service'], `${role}: stat set`);
+    assert.deepEqual(stats, ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'], `${role}: stat set`);
     assert.equal(layout.find(b => b.widget === 'work-list')?.config?.source, 'open-jobs', `${role}: open jobs list`);
     assert.ok(!layout.some(b => b.config?.source === 'my-jobs'), `${role}: managers keep the org-wide list`);
     const widgets = layout.map(b => b.widget);
@@ -100,7 +101,7 @@ test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles +
 
 test('hr_manager is people-centric: team-members stat + users/teams/logs tiles', () => {
   const layout = ROLE_DEFAULT_LAYOUTS.hr_manager!;
-  assert.deepEqual(layout.find(b => b.widget === 'stat-tiles')?.config?.stats, ['team-members']);
+  assert.deepEqual(layout.find(b => b.widget === 'stat-tiles')?.config?.stats, ['team-members', 'shared-media']);
   const widgets = layout.map(b => b.widget);
   for (const w of ['users', 'teams', 'logs'] as const) assert.ok(widgets.includes(w), `hr: ${w} tile`);
 });

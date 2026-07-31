@@ -26,7 +26,7 @@ const CREW_LAYOUT: Layout = [
   // #177: "daily driver" reading order — my counts first, then the crew's
   // marching orders. vehicles-available replaces units-due-service (crews
   // check vehicle availability far more than service due-dates).
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'vehicles-available'] } },
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'vehicles-available', 'shared-media'] } },
   // #160: jobs assigned to me (directly or via my crew) lead the work lists —
   // this is the crew's marching orders for the day.
   { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
@@ -46,7 +46,7 @@ const CREW_LAYOUT: Layout = [
 const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service'] } },
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'] } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'low-stock', width: 'full' },
   { widget: 'activity-preview', width: 'full' },
@@ -65,7 +65,7 @@ const TIER2_MANAGER_LAYOUT: Layout = [
 // Admins keep the ENTIRE default button set (live review 2026-07-20: the first
 // widgets-only cut "got rid of all my buttons") — new data widgets layer on top.
 const ADMIN_LAYOUT: Layout = [
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'open-repairs', 'units-due-service'] } },
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'open-repairs', 'units-due-service', 'shared-media'] } },
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
@@ -116,6 +116,7 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
   temporary_employee: [
     { widget: 'fast-checkout', width: 'half' },
     { widget: 'fast-checkin', width: 'half' },
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['shared-media'] } },
     { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
   ],
@@ -128,7 +129,7 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
 
   // office_manager: jobs + stock counts, open jobs, activity, office nav tiles.
   office_manager: [
-    { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock'] } },
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'shared-media'] } },
     { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
     { widget: 'activity-preview', width: 'full' },
     { widget: 'jobs', width: 'full' },
@@ -139,7 +140,7 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
 
   // hr_manager: people-centric — headcount, activity, users/teams/logs.
   hr_manager: [
-    { widget: 'stat-tiles', width: 'full', config: { stats: ['team-members'] } },
+    { widget: 'stat-tiles', width: 'full', config: { stats: ['team-members', 'shared-media'] } },
     { widget: 'activity-preview', width: 'full' },
     { widget: 'users', width: 'full' },
     { widget: 'teams', width: 'full' },

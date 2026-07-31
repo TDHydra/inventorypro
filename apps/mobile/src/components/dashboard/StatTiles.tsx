@@ -17,6 +17,7 @@ import { getLowStockItems } from '../../db/queries/items';
 import { getAllActiveUsers } from '../../db/queries/users';
 import { getUnitLocations } from '../../db/queries/locations';
 import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
+import { getSharedPoolMediaCount } from '../../db/queries/media';
 
 // StatTiles (role dashboards §2): a row of tappable count cards, driven by the
 // block's `config.stats` source list. Each source mirrors the permission of the
@@ -75,6 +76,13 @@ const STAT_DEFS: Record<StatSource, StatDef> = {
     label: 'Vehicles Available', icon: '🚐', route: '/(app)/(vehicles)',
     count: uid => getUnitLocations('Vehicle')
       .filter(l => isVehicleAvailableForCheckout(l.id, uid || null)).length,
+  },
+  // Pool photos other users shared to me. No requiredPermission — mirrors the
+  // ungated `media` hub tile; the pull scope SQL already limits local pool
+  // rows to what this user may see.
+  'shared-media': {
+    label: 'Shared Media', icon: '🖼️', route: '/(app)/(media)',
+    count: uid => getSharedPoolMediaCount(uid),
   },
 };
 

@@ -91,6 +91,7 @@ const STAT_SOURCE_LABELS: Record<StatSource, string> = {
   'open-jobs': 'Open Jobs',
   'team-members': 'Team Members',
   'vehicles-available': 'Vehicles Available',
+  'shared-media': 'Shared Media',
 };
 const STAT_SOURCES = Object.keys(STAT_SOURCE_LABELS) as StatSource[];
 

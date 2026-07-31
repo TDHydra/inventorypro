@@ -38,7 +38,8 @@ export type StatSource =
   | 'low-stock'          // getLowStockItems
   | 'open-jobs'          // getOpenJobs
   | 'team-members'       // getAllActiveUsers
-  | 'vehicles-available';// #177: vehicle locations passing isVehicleAvailableForCheckout
+  | 'vehicles-available' // #177: vehicle locations passing isVehicleAvailableForCheckout
+  | 'shared-media';      // pool photos shared to me (getSharedPoolMediaCount)
 
 // Row sources a `work-list` block can show.
 export type WorkListSource =
@@ -165,6 +166,9 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
 // (No 'search' block: DashboardSearch is pinned above every resolved layout.)
 export const DEFAULT_LAYOUT: Layout = [
   { widget: 'quick-add', width: 'full' },
+  // Shared-media pill on every dashboard (role presets carry it too): photos
+  // other users shared to me, tapping through to the media hub.
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['shared-media'] } },
   // Contextual quick-actions (#144) sit above the tiles: they render nothing at
   // all unless their condition holds, so the default dashboard is unchanged for
   // anyone without an open vehicle session / past-due work / low stock.

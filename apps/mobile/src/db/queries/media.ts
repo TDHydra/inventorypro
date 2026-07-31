@@ -95,6 +95,19 @@ export function getLocationNoteSuggestions(jobId: string): string[] {
   return (result.rows as unknown as { location_note: string }[]).map(r => r.location_note);
 }
 
+// Shared-media dashboard pill: pool photos other users shared TO this user.
+// The server's pull scope SQL already restricts pool rows to the caller's
+// audience (everyone / team / users list), so every local pool row not
+// uploaded by the user IS media shared with them — no audience re-check here.
+export function getSharedPoolMediaCount(userId: string): number {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT COUNT(*) AS n FROM media WHERE entity_type = 'pool' AND uploaded_by != ?`,
+    [userId]
+  );
+  return Number((result.rows[0] as { n: number } | undefined)?.n ?? 0);
+}
+
 // #148: Room/Area suggestions for pool quick-photos — the uploader's own past
 // pool notes (job flow keeps the job-scoped variant above).
 export function getPoolLocationNoteSuggestions(userId: string): string[] {
