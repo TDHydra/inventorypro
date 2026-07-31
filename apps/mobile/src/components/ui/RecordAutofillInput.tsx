@@ -104,8 +104,8 @@ export function RecordAutofillInput<T>({
           onChangeText={onChangeText}
           placeholder={placeholder}
           onFocus={() => setFocused(true)}
-          // Delay so a row tap registers before the list hides.
-          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          // No close-on-blur: the blur timeout raced row taps in Modal-hosted
+          // sheets (see SearchablePicker) — `pick` closes the list instead.
         />
         {open && (
           <ScrollView style={s.dropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>

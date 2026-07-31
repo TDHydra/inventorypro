@@ -82,12 +82,17 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
 
   return (
     <View style={s.wrap}>
+      {/* No close-on-blur: the old 150ms blur timeout raced row taps in
+          Modal-hosted sheets — a tap that Android spent on dismissing the
+          keyboard also blurred the input, so the dropdown vanished before the
+          user could re-tap ("tap won't select", vehicle edit/fuel-up sheets).
+          The dropdown is inline (occupies layout, no overlay), so it simply
+          stays until a row/create tap closes it — those set focused=false. */}
       <AppInput
         placeholder={placeholder}
         value={query}
         onChangeText={setQuery}
         onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
         autoFocus={autoFocus}
       />
       {open && (

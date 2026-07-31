@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Ref } from 'react';
+import { useState, useMemo, Ref } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import type { TextInput, TextInputProps } from 'react-native';
 import { AppInput } from './ui/AppInput';
@@ -42,13 +42,6 @@ export function SuggestInput({
 }: Props) {
   const s = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
-  // Pending blur-delay timer (see onBlur below); cancelled on submit/unmount so
-  // it can't fire against stale state.
-  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => {
-    if (blurTimer.current != null) clearTimeout(blurTimer.current);
-  }, []);
 
   const matches = useMemo(() => {
     const q = value.trim().toLowerCase();
@@ -78,12 +71,9 @@ export function SuggestInput({
         autoFocus={autoFocus}
         returnKeyType={returnKeyType}
         onFocus={() => setFocused(true)}
-        // Delay so a row tap registers before the list hides.
-        onBlur={() => { blurTimer.current = setTimeout(() => setFocused(false), 150); }}
-        // Close the dropdown before handing submit to the caller, and drop any
-        // pending blur timer so it can't act on stale state afterwards.
+        // No close-on-blur: the blur timeout raced row taps in Modal-hosted
+        // sheets (see SearchablePicker) — `pick`/submit close the list instead.
         onSubmitEditing={(e) => {
-          if (blurTimer.current != null) { clearTimeout(blurTimer.current); blurTimer.current = null; }
           setFocused(false);
           onSubmitEditing?.(e);
         }}
