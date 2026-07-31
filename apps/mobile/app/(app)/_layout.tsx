@@ -90,7 +90,7 @@ export default function AppLayout() {
           headerTitleStyle: { fontWeight: t.typography.weights.bold, fontFamily: t.typography.fontFamily.bold },
           headerRight: () => (
             <View style={styles.headerRight}>
-              <TouchableOpacity style={styles.switchBtn} onPress={openQuickPhoto} hitSlop={8}>
+              <TouchableOpacity style={styles.switchBtn} onPress={() => openQuickPhoto()} hitSlop={8}>
                 <Text style={styles.switchText}>📷</Text>
               </TouchableOpacity>
               <ChatBell />

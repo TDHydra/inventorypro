@@ -19,22 +19,28 @@ import { getAllActiveUsers, type User } from '../../db/queries/users';
 import { getLocationNoteSuggestions, getPoolLocationNoteSuggestions } from '../../db/queries/media';
 import { uploadMediaAsset, MediaTooLargeError } from '../../media/upload';
 import {
-  initialState, open, chooseDest, photoTaken, cameraCancelled,
+  initialState, open, chooseDest, photoTaken, assetsPicked, cameraCancelled, galleryCancelled,
   saveDone, saveAndAddAnother, cancelDetails, buildUploadInput,
-  type QuickPhotoState,
+  type QuickPhotoState, type QuickPhotoSource, type QuickPhotoAsset,
 } from './quickPhotoLogic';
+
+export interface QuickPhotoOpenOptions {
+  /** Defaults to 'camera' (the header camera button's existing behavior). */
+  source?: QuickPhotoSource;
+}
 
 /**
  * Module-level trigger — same host pattern as `confirmSheet`/`ConfirmSheetHost`
  * (`src/components/ui/ConfirmSheet.tsx`), minus the queue (only one QuickPhoto
  * flow can run at a time, so a single registered callback is enough): the host
  * (`<QuickPhotoFlow />`, mounted once in `app/(app)/_layout.tsx`) registers
- * itself on mount; the header camera button calls `openQuickPhoto()`.
+ * itself on mount; the header camera button calls `openQuickPhoto()`, and the
+ * media hub's Fab calls `openQuickPhoto({ source: 'gallery' })` (#171).
  */
-let openFn: (() => void) | null = null;
+let openFn: ((options?: QuickPhotoOpenOptions) => void) | null = null;
 
-export function openQuickPhoto(): void {
-  openFn?.();
+export function openQuickPhoto(options?: QuickPhotoOpenOptions): void {
+  openFn?.(options);
 }
 
 /** Mount once, alongside the Stack, in `app/(app)/_layout.tsx`. */
@@ -55,9 +61,11 @@ export function QuickPhotoFlow() {
   // phase leaves 'camera' so the NEXT entry (fresh open, or Save & add another
   // looping back) fires again.
   const cameraLaunchedRef = useRef(false);
+  // Same guard, for the gallery picker (#171) — mirrors cameraLaunchedRef.
+  const galleryLaunchedRef = useRef(false);
 
   useEffect(() => {
-    openFn = () => setState(prev => open(prev));
+    openFn = (options) => setState(prev => open(prev, options?.source));
     return () => { openFn = null; };
   }, []);
 
@@ -123,6 +131,46 @@ export function QuickPhotoFlow() {
     setState(prev => photoTaken(prev, result.assets[0].uri));
   }
 
+  // Gallery step has no UI of its own either — mirrors the camera effect above.
+  useEffect(() => {
+    if (state.phase !== 'gallery') {
+      galleryLaunchedRef.current = false;
+      return;
+    }
+    if (galleryLaunchedRef.current) return;
+    galleryLaunchedRef.current = true;
+    void runGallery();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]);
+
+  async function runGallery() {
+    // SDK 56 Photo Picker: no permission prompt needed on modern Android/iOS —
+    // requestMediaLibraryPermissionsAsync is the legacy-picker-only guard
+    // MediaGallery still carries; launchImageLibraryAsync itself hands off to
+    // the OS picker, which never touches app-level media permissions.
+    // Deliberately no allowsEditing (ignored + warns once allowsMultipleSelection
+    // is set), and mediaTypes is the SDK 56 string-array form (the old
+    // MediaTypeOptions enum is gone).
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+      quality: 0.85,
+    });
+
+    // On cancel `assets` is null, not [] — branch on `canceled`, not length.
+    if (result.canceled) {
+      setState(prev => galleryCancelled(prev));
+      return;
+    }
+    const assets: QuickPhotoAsset[] = result.assets.map(a => ({
+      uri: a.uri,
+      mediaType: a.type === 'video' ? 'video' : 'image',
+      ext: (a.fileName?.split('.').pop() ?? a.uri.split('.').pop() ?? 'jpg').toLowerCase(),
+    }));
+    setState(prev => assetsPicked(prev, assets));
+  }
+
   const jobOptions: PickerOption[] = useMemo(
     () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
     [state.phase],
@@ -157,7 +205,7 @@ export function QuickPhotoFlow() {
     setSaving(true);
     try {
       const built = buildUploadInput(state.dest, user.id, roomArea, note);
-      await uploadMediaAsset({ ...built, mediaType: 'image', ext: 'jpg', uri: state.photoUri, userId: user.id });
+      await uploadMediaAsset({ ...built, mediaType: state.mediaType, ext: state.ext, uri: state.photoUri, userId: user.id });
     } catch (err) {
       // uploadMediaAsset requires connectivity for the presign — surface any
       // failure as a Toast rather than letting it crash the sheet.

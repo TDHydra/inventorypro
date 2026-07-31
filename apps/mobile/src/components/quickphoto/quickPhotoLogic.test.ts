@@ -6,11 +6,14 @@ import {
   open,
   chooseDest,
   photoTaken,
+  assetsPicked,
   cameraCancelled,
+  galleryCancelled,
   saveDone,
   saveAndAddAnother,
   cancelDetails,
   buildUploadInput,
+  type QuickPhotoAsset,
 } from './quickPhotoLogic';
 
 // Happy path: job destination
@@ -339,4 +342,153 @@ test('cameraCancelled from non-camera phase is no-op', () => {
   const before = s;
   s = cameraCancelled(s);
   assert.deepEqual(s, before);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// #171: gallery source — same destination/audience phase, then 'gallery'
+// instead of 'camera'; multi-pick queues extra assets for saveAndAddAnother.
+// ─────────────────────────────────────────────────────────────────────────
+
+test('initialState defaults to camera source and an empty queue', () => {
+  const s = initialState();
+  assert.equal(s.source, 'camera');
+  assert.deepEqual(s.queue, []);
+});
+
+test('open(s, "gallery") records the source; open(s) still defaults to camera', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  assert.equal(s.phase, 'destination');
+  assert.equal(s.source, 'gallery');
+
+  s = initialState();
+  s = open(s);
+  assert.equal(s.source, 'camera');
+});
+
+test('happy path gallery: open(gallery) → chooseDest → gallery phase (not camera)', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  const poolDest = { kind: 'pool' as const, audience: 'team' as const, userIds: [] };
+  s = chooseDest(s, poolDest);
+  assert.equal(s.phase, 'gallery');
+  assert.deepEqual(s.dest, poolDest);
+});
+
+test('chooseDest with camera source (default) still goes to the camera phase', () => {
+  let s = initialState();
+  s = open(s);
+  const jobDest = { kind: 'job' as const, jobId: 'j1', jobName: 'Build' };
+  s = chooseDest(s, jobDest);
+  assert.equal(s.phase, 'camera');
+});
+
+const TWO_ASSETS: QuickPhotoAsset[] = [
+  { uri: 'file://a.jpg', mediaType: 'image', ext: 'jpg' },
+  { uri: 'file://b.mp4', mediaType: 'video', ext: 'mp4' },
+];
+
+test('assetsPicked from gallery phase: first asset feeds details, the rest queue up', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  const poolDest = { kind: 'pool' as const, audience: 'everyone' as const, userIds: [] };
+  s = chooseDest(s, poolDest);
+  assert.equal(s.phase, 'gallery');
+
+  s = assetsPicked(s, TWO_ASSETS);
+  assert.equal(s.phase, 'details');
+  assert.equal(s.photoUri, 'file://a.jpg');
+  assert.equal(s.mediaType, 'image');
+  assert.equal(s.ext, 'jpg');
+  assert.deepEqual(s.queue, [{ uri: 'file://b.mp4', mediaType: 'video', ext: 'mp4' }]);
+});
+
+test('assetsPicked from non-gallery phase is a no-op', () => {
+  let s = initialState();
+  const before = s;
+  s = assetsPicked(s, TWO_ASSETS);
+  assert.deepEqual(s, before);
+});
+
+test('assetsPicked with an empty array is a no-op (cancel path uses galleryCancelled instead)', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  s = chooseDest(s, { kind: 'pool', audience: 'team', userIds: [] });
+  const before = s;
+  s = assetsPicked(s, []);
+  assert.deepEqual(s, before);
+});
+
+test('galleryCancelled from gallery phase resets fully to closed', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  s = chooseDest(s, { kind: 'pool', audience: 'team', userIds: [] });
+  s = galleryCancelled(s);
+  assert.equal(s.phase, 'closed');
+  assert.equal(s.dest, null);
+  assert.equal(s.photoUri, null);
+  assert.deepEqual(s.queue, []);
+});
+
+test('galleryCancelled from non-gallery phase is a no-op', () => {
+  let s = initialState();
+  const before = s;
+  s = galleryCancelled(s);
+  assert.deepEqual(s, before);
+});
+
+test('saveAndAddAnother (gallery, queue non-empty): pops the next asset into details without relaunching the picker', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  s = chooseDest(s, { kind: 'pool', audience: 'team', userIds: [] });
+  s = assetsPicked(s, TWO_ASSETS);
+  assert.equal(s.queue.length, 1);
+
+  s = saveAndAddAnother(s);
+  assert.equal(s.phase, 'details');
+  assert.equal(s.photoUri, 'file://b.mp4');
+  assert.equal(s.mediaType, 'video');
+  assert.equal(s.ext, 'mp4');
+  assert.deepEqual(s.queue, []);
+});
+
+test('saveAndAddAnother (gallery, queue empty): behaves like saveDone — nothing left to add', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  s = chooseDest(s, { kind: 'pool', audience: 'team', userIds: [] });
+  s = assetsPicked(s, [{ uri: 'file://only.jpg', mediaType: 'image', ext: 'jpg' }]);
+  assert.deepEqual(s.queue, []);
+
+  s = saveAndAddAnother(s);
+  assert.equal(s.phase, 'closed');
+  assert.equal(s.dest, null);
+  assert.equal(s.photoUri, null);
+});
+
+test('saveAndAddAnother (camera source, default): still relaunches the camera, unaffected by #171', () => {
+  let s = initialState();
+  s = open(s);
+  const poolDest = { kind: 'pool' as const, audience: 'team' as const, userIds: [] };
+  s = chooseDest(s, poolDest);
+  s = photoTaken(s, 'file://a.jpg');
+
+  s = saveAndAddAnother(s);
+  assert.equal(s.phase, 'camera');
+  assert.deepEqual(s.dest, poolDest);
+  assert.equal(s.photoUri, null);
+  assert.deepEqual(s.queue, []);
+});
+
+test('saveDone from gallery details closes even with unfinished queue items (Done means stop)', () => {
+  let s = initialState();
+  s = open(s, 'gallery');
+  s = chooseDest(s, { kind: 'pool', audience: 'team', userIds: [] });
+  s = assetsPicked(s, TWO_ASSETS);
+  assert.equal(s.queue.length, 1);
+
+  s = saveDone(s);
+  assert.equal(s.phase, 'closed');
+  assert.equal(s.dest, null);
+  assert.equal(s.photoUri, null);
+  assert.deepEqual(s.queue, []);
 });

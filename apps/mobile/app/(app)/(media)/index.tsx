@@ -10,6 +10,8 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { SearchInput } from '../../../src/components/ui/SearchInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
+import { Fab } from '../../../src/components/ui/Fab';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { MediaDetailSheet } from '../../../src/components/MediaDetailSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
@@ -20,7 +22,8 @@ import { BulkActionBar, BulkAction } from '../../../src/components/BulkActionBar
 import { Alert } from '../../../src/lib/themedAlert';
 import { getMediaHubPage, getMediaById, MediaHubRow, MediaHubFilter, deleteBulkMedia } from '../../../src/db/queries/media';
 import { syncNow } from '../../../src/sync/engine';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
+import { openQuickPhoto } from '../../../src/components/quickphoto/QuickPhotoFlow';
 
 const { width } = Dimensions.get('window');
 // 3-up grid: 12px outer padding both sides + 2×12px gutters = 48 (matches MediaGallery).
@@ -55,6 +58,10 @@ export default function MediaHubScreen() {
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // #171: Fab → "Take photo" / "Choose from gallery" — both hand off to the
+  // existing QuickPhotoFlow host (mounted once in app/(app)/_layout.tsx); the
+  // destination/audience phase is unchanged, only the source differs.
+  const [showAddSheet, setShowAddSheet] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback((f: MediaHubFilter, q: string, newOffset: number, append = false) => {
@@ -115,23 +122,29 @@ export default function MediaHubScreen() {
   // Re-query when a background pull lands new rows so media from other devices
   // appears without pull-to-refresh. Via a ref because reloadWindow's identity
   // changes on every reload (it depends on offset, which it mutates itself).
-  const dataVersion = useDataVersion();
+  // #171: table-scoped to 'media' (useDbQuery, #60) instead of the global
+  // useDataVersion() — a pull that never touches media is now a no-op here.
+  // The 1-row probe's return is a fresh array on every recompute (fn reruns
+  // exactly once per 'media' version bump), so it's a reliable effect trigger
+  // even when the change wouldn't alter row *count* (e.g. a caption edit) —
+  // same rationale as ChatBell's unreadVersion (src/components/ChatBell.tsx).
+  const mediaTrigger = useDbQuery(() => getMediaHubPage('everything', '', 1, 0), [], ['media']);
   const reloadWindowRef = useRef(reloadWindow);
   reloadWindowRef.current = reloadWindow;
   useEffect(() => {
     if (loaded) reloadWindowRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataVersion]);
+  }, [mediaTrigger]);
 
   // #87: push/inbox deep-link → open the shared photo. The push can beat the
-  // pull: if the row isn't local yet, trigger a sync; dataVersion bumps on
+  // pull: if the row isn't local yet, trigger a sync; mediaTrigger changes on
   // the next pull and re-runs this effect, opening the sheet once it lands.
   // Clears the `id` param the moment it's acted on (same idiom as
   // (locations)/index.tsx's createUnder) so a later UNRELATED background
   // sync doesn't re-fire this effect and hijack the sheet the user has since
   // closed or navigated away from. attemptedSyncRef caps our own syncNow()
   // nudge to once per linkedId — getMediaById is still rechecked on every
-  // dataVersion bump either way, so a row that lands via the engine's normal
+  // mediaTrigger change either way, so a row that lands via the engine's normal
   // periodic sync still opens the sheet; we just don't re-trigger our own
   // sync over and over for an id that never resolves.
   const attemptedSyncRef = useRef<string | null>(null);
@@ -146,7 +159,7 @@ export default function MediaHubScreen() {
     attemptedSyncRef.current = linkedId;
     void syncNow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedId, dataVersion]);
+  }, [linkedId, mediaTrigger]);
 
   const emptyTitle = query
     ? `No media matching "${query}"`
@@ -279,6 +292,14 @@ export default function MediaHubScreen() {
             disabled={locked}
           />
         )}
+
+        {!ms.active && !locked && (
+          <Fab
+            onPress={() => setShowAddSheet(true)}
+            label="Share media"
+            accessibilityLabel="Share media"
+          />
+        )}
       </View>
 
       <MediaDetailSheet
@@ -287,6 +308,24 @@ export default function MediaHubScreen() {
         onClose={() => setSelectedId(null)}
         onChanged={reloadWindow}
       />
+
+      <ModalSheet visible={showAddSheet} onClose={() => setShowAddSheet(false)}>
+        <Text style={s.addSheetTitle}>Share media</Text>
+        <TouchableOpacity
+          style={s.addSheetRow}
+          onPress={() => { setShowAddSheet(false); openQuickPhoto(); }}
+        >
+          <Text style={s.addSheetIcon}>📷</Text>
+          <Text style={s.addSheetLabel}>Take photo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={s.addSheetRow}
+          onPress={() => { setShowAddSheet(false); openQuickPhoto({ source: 'gallery' }); }}
+        >
+          <Text style={s.addSheetIcon}>🖼️</Text>
+          <Text style={s.addSheetLabel}>Choose from gallery</Text>
+        </TouchableOpacity>
+      </ModalSheet>
     </>
   );
 }
@@ -323,4 +362,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   checkOverlayOn: { backgroundColor: t.colors.primary, borderColor: t.colors.primary },
   checkMark: { color: t.colors.onPrimary, fontSize: 13, fontWeight: '700', lineHeight: 16 },
+
+  addSheetTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.base },
+  addSheetRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, paddingVertical: 14 },
+  addSheetIcon: { fontSize: 22, width: 28, textAlign: 'center' },
+  addSheetLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '600' },
 });
