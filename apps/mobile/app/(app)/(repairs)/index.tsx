@@ -8,8 +8,11 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { Card } from '../../../src/components/ui/Card';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { StatusBadge } from '../../../src/components/ui/StatusBadge';
+import { Fab } from '../../../src/components/ui/Fab';
 import { ListScreenShell, ShellFilter } from '../../../src/components/ui/ListScreenShell';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 
 type StatusFilter = 'open' | 'done' | 'all';
 
@@ -37,6 +40,9 @@ export default function RepairsScreen() {
   const s = useThemedStyles(makeStyles);
   const router = useRouter();
   const [filter, setFilter] = useState<StatusFilter>('open');
+  // Same gate as (repairs)/new.tsx — repair tickets are an editor write.
+  const canEdit = usePermission('edit_inventory');
+  const { locked } = useMaintenanceMode();
   const [reloadKey, setReloadKey] = useState(0);
   const reloadLocalData = useCallback(() => setReloadKey(k => k + 1), []);
   const dataVersion = useDataVersion();
@@ -94,6 +100,13 @@ export default function RepairsScreen() {
           />
         }
       />
+      {canEdit && !locked && (
+        <Fab
+          onPress={() => router.push('/(app)/(quickadd)/repair')}
+          label="New repair"
+          accessibilityLabel="New repair"
+        />
+      )}
     </>
   );
 }
