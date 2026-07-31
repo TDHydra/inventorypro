@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Alert } from '../../../src/lib/themedAlert';
 import { Stack } from 'expo-router';
 import { ROLE_TIER, ROLE_DISPLAY_NAMES, type UserRole } from '../../../src/constants/roles';
@@ -13,7 +14,8 @@ import {
 } from '../../../src/dashboard/widgets';
 import { parsePresetLayout } from '../../../src/dashboard/resolve';
 import { loadDashboardCache } from '../../../src/dashboard/store';
-import { useTableVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
 import { roleHasPermission } from '../../../src/auth/permissions';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -140,11 +142,15 @@ export default function DashboardsScreen() {
   // floor — the client gate now matches (was isTier4).
   const canManageDashboards = usePermission('system_settings');
 
-  // Re-read whenever a local write or sync pull touches the preset tables —
-  // replaces the old manual refreshPresets()/setRoleMap re-reads after writes.
-  const version = useTableVersion(['dashboard_presets', 'role_settings']);
-  const presets = useMemo<DashboardPreset[]>(() => getDashboardPresets(), [version]);
-  const roleMap = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
+  // Re-read whenever a local write or sync pull touches each read's own table
+  // (#63/#64) — replaces the old manual refreshPresets()/setRoleMap re-reads.
+  const presets = useDbQuery<DashboardPreset[]>(() => getDashboardPresets(), [], ['dashboard_presets']);
+  const roleMap = useDbQuery<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [], ['role_settings']);
+
+  // Android edge-to-edge: scroll content must clear the overlaying nav bar
+  // (32 floor for the frames where insets briefly report 0).
+  const insets = useSafeAreaInsets();
+  const navInset = Math.max(insets.bottom, Platform.OS === 'android' ? 32 : 0);
 
   // Editor state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -212,6 +218,10 @@ export default function DashboardsScreen() {
   }
 
   function submitName() {
+    // Maintenance lock (house rule: every write affordance checks): silent
+    // early-return like manage-types — the outbox would throw anyway, but the
+    // guard keeps local state from diverging first.
+    if (isWriteBlocked()) return;
     const name = nameInput.trim();
     if (!name) {
       Alert.alert('Required', 'Enter a name for the preset.');
@@ -232,6 +242,7 @@ export default function DashboardsScreen() {
   }
 
   function handleDuplicate(p: DashboardPreset) {
+    if (isWriteBlocked()) return;
     try {
       const id = createDashboardPreset({ name: `${p.name} (copy)` });
       const layout = parsePresetLayout(p.layout) ?? [];
@@ -242,6 +253,7 @@ export default function DashboardsScreen() {
   }
 
   function handleToggleArchive(p: DashboardPreset) {
+    if (isWriteBlocked()) return;
     const nextActive = p.active !== 1;
     const verb = nextActive ? 'Restore' : 'Archive';
     Alert.alert(
@@ -269,6 +281,10 @@ export default function DashboardsScreen() {
   // ── Layout editor mutations (persist immediately, like manage-types) ─────────
 
   function persist(next: KeyedBlock[]) {
+    // Guard BEFORE setBlocks: a blocked write must not leave editor state
+    // diverged from the persisted layout. Covers reorder/width/remove/add/
+    // config-save — every editor mutation funnels through here.
+    if (isWriteBlocked()) return;
     setBlocks(next);
     if (!editingId) return;
     try {
@@ -355,6 +371,7 @@ export default function DashboardsScreen() {
   // ── Role defaults ────────────────────────────────────────────────────────────
 
   function assignRole(role: UserRole, presetId: string | null) {
+    if (isWriteBlocked()) { setRolePick(null); return; }
     try {
       setRoleDashboardPreset(role, presetId);
       loadDashboardCache(); // notify subscribers → the assigner's own dashboard updates live
@@ -389,7 +406,7 @@ export default function DashboardsScreen() {
     return (
       <>
         <Stack.Screen options={{ title: 'Edit Layout', headerShown: true }} />
-        <ScrollView style={s.container} contentContainerStyle={s.content} scrollEnabled={!dragActive}>
+        <ScrollView style={s.container} contentContainerStyle={[s.content, { paddingBottom: 16 + navInset }]} scrollEnabled={!dragActive}>
           <TouchableOpacity style={s.backRow} onPress={() => setEditingId(null)}>
             <Text style={s.backText}>‹ All presets</Text>
           </TouchableOpacity>
@@ -502,9 +519,12 @@ export default function DashboardsScreen() {
           </View>
         </ScrollView>
 
-        {/* Add-widget picker */}
+        {/* Add-widget picker. ModalSheet scrolls by default (#187) with
+            keyboardShouldPersistTaps baked in — sheet bodies are plain Views,
+            never their own ScrollView (nested vertical scrollers negotiate
+            pan flakily on Android). Same for the three sheets below. */}
         <ModalSheet visible={addOpen} onClose={() => setAddOpen(false)}>
-          <ScrollView contentContainerStyle={s.modalContent} keyboardShouldPersistTaps="handled">
+          <View style={s.modalContent}>
             <Text style={s.modalTitle}>Add widget</Text>
             <Text style={s.fieldLabel}>Tiles</Text>
             <View style={s.pickGrid}>
@@ -535,12 +555,12 @@ export default function DashboardsScreen() {
             <TouchableOpacity style={s.cancelBtn} onPress={() => setAddOpen(false)}>
               <Text style={s.cancelText}>Cancel</Text>
             </TouchableOpacity>
-          </ScrollView>
+          </View>
         </ModalSheet>
 
         {/* Per-block config */}
         <ModalSheet visible={blockEdit !== null} onClose={() => setBlockEdit(null)}>
-          <ScrollView contentContainerStyle={s.modalContent} keyboardShouldPersistTaps="handled">
+          <View style={s.modalContent}>
             {blockBeingEdited && (
               <>
                 <Text style={s.modalTitle}>
@@ -621,7 +641,7 @@ export default function DashboardsScreen() {
                 </TouchableOpacity>
               </>
             )}
-          </ScrollView>
+          </View>
         </ModalSheet>
       </>
     );
@@ -632,7 +652,7 @@ export default function DashboardsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Dashboards', headerShown: true }} />
-      <ScrollView style={s.container} contentContainerStyle={s.content}>
+      <ScrollView style={s.container} contentContainerStyle={[s.content, { paddingBottom: 16 + navInset }]}>
         {/* Presets */}
         <View style={s.section}>
           <Text style={s.sectionTitle}>Presets</Text>
@@ -706,7 +726,7 @@ export default function DashboardsScreen() {
 
       {/* Name modal (create / rename) */}
       <ModalSheet visible={nameModal !== null} onClose={() => setNameModal(null)}>
-        <ScrollView contentContainerStyle={s.modalContent} keyboardShouldPersistTaps="handled">
+        <View style={s.modalContent}>
           <Text style={s.modalTitle}>{nameModal?.mode === 'rename' ? 'Rename Preset' : 'New Preset'}</Text>
           <AppInput
             placeholder="Preset name (e.g. Crew Home)"
@@ -721,12 +741,12 @@ export default function DashboardsScreen() {
           <TouchableOpacity style={s.cancelBtn} onPress={() => setNameModal(null)}>
             <Text style={s.cancelText}>Cancel</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </ModalSheet>
 
       {/* Role preset picker */}
       <ModalSheet visible={rolePick !== null} onClose={() => setRolePick(null)}>
-        <ScrollView contentContainerStyle={s.modalContent} keyboardShouldPersistTaps="handled">
+        <View style={s.modalContent}>
           <Text style={s.modalTitle}>
             {rolePick ? ROLE_DISPLAY_NAMES[rolePick] : ''} dashboard
           </Text>
@@ -750,7 +770,7 @@ export default function DashboardsScreen() {
           <TouchableOpacity style={s.cancelBtn} onPress={() => setRolePick(null)}>
             <Text style={s.cancelText}>Cancel</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </ModalSheet>
     </>
   );
@@ -760,7 +780,8 @@ export default function DashboardsScreen() {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.colors.background },
-  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
+  // Bottom padding applied inline (runtime nav-bar inset, not a theme token).
+  content: { padding: t.spacing.lg, gap: t.spacing.lg },
 
   unauthorizedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl },
   unauthorizedText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center' },
@@ -912,7 +933,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   pickIcon: { fontSize: 16 },
   pickLabel: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textSecondary, flexShrink: 1 },
-  pickNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8 },
+  pickNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 8 },
 
   // Role preset picker rows
   pickRow: {
