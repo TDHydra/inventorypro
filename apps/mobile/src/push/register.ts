@@ -12,7 +12,14 @@ import { generateUUID } from '../utils/uuid';
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 const PUSH_TOKEN_KEY = 'push_token';
+const PUSH_REGISTERED_AT_KEY = 'push_token_registered_at';
 const DEVICE_ID_KEY = 'push_device_id';
+
+// How long a successful registration is trusted before re-POSTing anyway.
+// The server can disable a token behind our back (Expo dead-token receipts),
+// and /push/register re-enables + refreshes last_seen — so an unchanged token
+// must still re-register periodically or a disable is permanent.
+export const REGISTRATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 function getSetting(key: string): string | null {
   try {
@@ -54,7 +61,7 @@ function pushDisabled(): boolean {
  * token with the server. Best-effort: any failure (permission denied, offline,
  * no session, kill-switch) is swallowed — this must never block login or the
  * caller's flow. No-op if the token hasn't changed since the last successful
- * registration.
+ * registration AND that registration is younger than REGISTRATION_TTL_MS.
  */
 export async function registerForPush(): Promise<void> {
   if (pushDisabled()) return;
@@ -75,15 +82,20 @@ export async function registerForPush(): Promise<void> {
     if (!token) return;
 
     const lastRegistered = getSetting(PUSH_TOKEN_KEY);
+    const registeredAt = Number(getSetting(PUSH_REGISTERED_AT_KEY) ?? 0);
     const deviceId = getOrCreateDeviceId();
-    if (token === lastRegistered) return; // already registered, avoid needless traffic
+    const fresh = Number.isFinite(registeredAt) && Date.now() - registeredAt < REGISTRATION_TTL_MS;
+    if (token === lastRegistered && fresh) return; // registered recently, avoid needless traffic
 
     const res = await fetch(`${API_BASE}/push/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({ expo_push_token: token, platform: Platform.OS, device_id: deviceId }),
     });
-    if (res.ok) setSetting(PUSH_TOKEN_KEY, token);
+    if (res.ok) {
+      setSetting(PUSH_TOKEN_KEY, token);
+      setSetting(PUSH_REGISTERED_AT_KEY, String(Date.now()));
+    }
   } catch {
     /* best-effort — never block the caller */
   }
@@ -106,6 +118,7 @@ export async function unregisterPush(): Promise<void> {
       });
     }
     clearSetting(PUSH_TOKEN_KEY);
+    clearSetting(PUSH_REGISTERED_AT_KEY);
   } catch {
     /* best-effort */
   }

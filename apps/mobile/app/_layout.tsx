@@ -29,7 +29,7 @@ import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-goo
 import { useScreenTracking } from '../src/telemetry/useScreenTracking';
 import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
 import { useNotificationObservers } from '../src/push/handlers';
-import { unregisterPush } from '../src/push/register';
+import { registerForPush, unregisterPush } from '../src/push/register';
 import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
 
 export default function RootLayout() {
@@ -82,6 +82,15 @@ export default function RootLayout() {
 
     return () => stopSyncEngine();
   }, []);
+
+  // Re-register the push token on every session start — full login AND PIN
+  // unlock (both flip `user`). finishLogin's call alone isn't enough: a device
+  // that stays enrolled for weeks never re-registers, so a server-side token
+  // disable (Expo dead-token receipt) would otherwise be permanent.
+  // registerForPush itself rate-limits via its 24h freshness window.
+  useEffect(() => {
+    if (user && !user.is_test) registerForPush().catch(() => {});
+  }, [user?.id]);
 
   const logout = async () => {
     const wasTestSession = !!user?.is_test;
