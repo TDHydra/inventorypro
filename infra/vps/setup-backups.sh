@@ -42,6 +42,9 @@ chmod 700 "$BACKUP_DIR"
 # --- rclone (for the Google Drive off-site leg) ----------------------------
 if ! command -v rclone >/dev/null 2>&1; then
   echo "Installing rclone…"
+  # NEEDRESTART_MODE=a: without it needrestart may bounce services (incl.
+  # sshd/docker) mid-install and kill the very session running this script.
+  export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
   apt-get install -y -qq rclone >/dev/null 2>&1 || curl -fsSL https://rclone.org/install.sh | bash
 fi
 echo "rclone: $(rclone version | head -1)"
