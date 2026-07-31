@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { searchEverything } from '../db/queries/search';
@@ -9,7 +9,7 @@ import { track } from '../telemetry';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
-import { useDataVersion } from '../hooks/useDataVersion';
+import { useDbQuery } from '../hooks/useDbQuery';
 
 /**
  * The top-of-dashboard search. A collapsible "flap": tap the bar to expand an
@@ -20,6 +20,15 @@ import { useDataVersion } from '../hooks/useDataVersion';
  */
 const hit = { top: 8, bottom: 8, left: 8, right: 8 };
 const PER_GROUP = 3;
+
+// Every table searchEverything's five group queries read (incl. taxonomy_types
+// for category/type label resolution). Scoping to these keeps typed-in results
+// fresh after a relevant pull without re-running the whole search when an
+// unrelated table (chat, media, activity_log) lands (#63/#64).
+const SEARCH_TABLES = [
+  'inventory_items', 'stock_by_location', 'equipment_units', 'taxonomy_types',
+  'locations', 'jobs', 'users',
+];
 
 export function DashboardSearch() {
   const s = useThemedStyles(makeStyles);
@@ -39,10 +48,9 @@ export function DashboardSearch() {
     setInfoOpen(true);
   }
 
-  // dataVersion: searchEverything spans many tables — re-run when data changes
-  // so results don't go stale while the query text sits unchanged.
-  const dataVersion = useDataVersion();
-  const results = useMemo(() => searchEverything(query), [query, dataVersion]);
+  // Re-run when the searched tables change so results don't go stale while the
+  // query text sits unchanged (empty query short-circuits inside the read).
+  const results = useDbQuery(() => searchEverything(query), [query], SEARCH_TABLES);
   const hasQuery = query.trim().length > 0;
 
   function expand() {
