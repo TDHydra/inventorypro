@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
 import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox } from '../sync/outbox';
@@ -13,6 +14,10 @@ type SyncStatus = 'synced' | 'pending' | 'failed' | 'offline';
 export function SyncIndicator() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  // Edge-to-edge: this is a hand-rolled bottom sheet (justifyContent:'flex-end'),
+  // so the transparent gesture/3-button nav bar overlays its Retry/Discard
+  // buttons without this inset (same class of bug as ScanReceipt, #163).
+  const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<SyncStatus>('synced');
   const [active, setActive] = useState(0);
   const [failed, setFailed] = useState(0);
@@ -102,7 +107,7 @@ export function SyncIndicator() {
 
       <Modal visible={showSheet} transparent animationType="slide">
         <Pressable style={s.overlay} onPress={() => setShowSheet(false)}>
-          <Pressable style={s.sheet}>
+          <Pressable style={[s.sheet, { paddingBottom: t.spacing.xxl + insets.bottom }]}>
             <View style={[s.sheetDot, { backgroundColor: color }]} />
             <Text style={s.sheetStatus}>{label}</Text>
             {lastSync && (

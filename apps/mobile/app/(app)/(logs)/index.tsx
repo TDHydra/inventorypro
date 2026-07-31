@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator,
   RefreshControl, Modal,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SearchHeader } from '../../../src/components/ui/SearchHeader';
 import { Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
@@ -107,6 +108,10 @@ function serverRowToLog(r: ServerLogRow): LogEntry {
 export default function LogsScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  // Edge-to-edge: the log-detail map modal below is docked to the bottom
+  // (justifyContent:'flex-end', fixed padding), so the transparent
+  // gesture/3-button nav bar overlays it without this inset (#163).
+  const insets = useSafeAreaInsets();
   const { user } = useSession();
   const canViewAll = usePermission('view_all_logs');
   const canViewTeam = usePermission('view_team_activity');
@@ -610,7 +615,7 @@ export default function LogsScreen() {
         onRequestClose={() => setMapLog(null)}
       >
         <View style={s.modalBackdrop}>
-          <View style={s.modalCard}>
+          <View style={[s.modalCard, { paddingBottom: 16 + insets.bottom }]}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>{mapLog ? actionLabel(mapLog.action) : ''}</Text>
               <TouchableOpacity onPress={() => setMapLog(null)} hitSlop={10}>

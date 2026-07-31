@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
@@ -23,17 +24,21 @@ interface Props {
 // OpenStreetMap tile layer is fetched online (manual + current modes cover offline).
 // The page posts the chosen {latitude,longitude} back via
 // window.ReactNativeWebView.postMessage; RN reads it in onMessage.
-function buildHtml(initial?: PickedCoords | null): string {
+function buildHtml(initial: PickedCoords | null | undefined, bottomInset: number): string {
   // Coords are numbers (validated upstream); default to a neutral world view.
   const lat = typeof initial?.latitude === 'number' ? initial.latitude : 39.5;
   const lng = typeof initial?.longitude === 'number' ? initial.longitude : -98.35;
   const zoom = initial ? 16 : 4;
+  // Edge-to-edge: this button is CSS position:absolute/bottom (fixed) inside the
+  // WebView's HTML, so the transparent gesture/3-button nav bar can overlay it
+  // unless the safe-area inset (passed in from RN) is folded into the offset
+  // (same class of bug as ScanReceipt's Add more / Done bar, #163).
   return `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <style>${LEAFLET_CSS}</style>
 <style>
   html,body,#map{height:100%;margin:0;padding:0}
-  #use{position:absolute;left:12px;right:12px;bottom:16px;z-index:1000;background:#2563EB;color:#fff;
+  #use{position:absolute;left:12px;right:12px;bottom:${16 + bottomInset}px;z-index:1000;background:#2563EB;color:#fff;
        border:none;border-radius:10px;padding:14px;font-size:16px;font-weight:600}
   #use:disabled{background:#94A3B8}
   #hint{position:absolute;left:12px;right:12px;top:12px;z-index:1000;background:rgba(0,0,0,0.6);color:#fff;
@@ -72,7 +77,11 @@ function buildHtml(initial?: PickedCoords | null): string {
 
 export function MapPickerModal({ visible, initial, onPick, onClose }: Props) {
   const s = useThemedStyles(makeStyles);
-  const html = useMemo(() => buildHtml(initial), [initial?.latitude, initial?.longitude]);
+  const insets = useSafeAreaInsets();
+  const html = useMemo(
+    () => buildHtml(initial, insets.bottom),
+    [initial?.latitude, initial?.longitude, insets.bottom],
+  );
 
   function handleMessage(e: WebViewMessageEvent) {
     try {

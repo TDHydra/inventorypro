@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Modal, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from '../../lib/themedAlert';
 import { FormSheet } from '../ui/FormSheet';
@@ -81,6 +82,11 @@ interface Props {
 export function AddServiceRecordSheet({ locationId, visible, onClose, initialKind = 'service', onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  // Edge-to-edge: the photo-source picker below is a hand-rolled bottom sheet
+  // (justifyContent:'flex-end', fixed paddingBottom) — MediaGallery's pattern
+  // verbatim — so the transparent gesture/3-button nav bar overlays it without
+  // this inset (#163).
+  const insets = useSafeAreaInsets();
   const { user } = useSession();
   const canViewFinancial = usePermission('view_financial_data');
   // #168: non-editors may only file fuel-ups/receipts (crew-level write);
@@ -451,7 +457,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
       {/* Photo source picker — MediaGallery's sheet pattern, trimmed to images. */}
       <Modal visible={sourceOpen} transparent animationType="slide" onRequestClose={() => setSourceOpen(false)}>
         <TouchableOpacity style={s.sheetOverlay} activeOpacity={1} onPress={() => setSourceOpen(false)}>
-          <View style={s.sourceSheet}>
+          <View style={[s.sourceSheet, { paddingBottom: 34 + insets.bottom }]}>
             <View style={s.sheetHandle} />
             <Text style={s.sheetTitle}>Add receipt photo</Text>
             <View style={s.sourceRow}>

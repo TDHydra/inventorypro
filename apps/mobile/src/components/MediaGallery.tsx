@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   View, Image, TouchableOpacity, StyleSheet, Text, Modal, Dimensions, ActivityIndicator } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDataVersion } from '../hooks/useDataVersion';
 import { Alert } from '../lib/themedAlert';
 import type { Theme } from '../themes/types';
@@ -38,6 +39,10 @@ interface PendingUpload {
 export function MediaGallery({ entityType, entityId, canUpload = true, variant = 'grid' }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  // Edge-to-edge: the source-picker below is a hand-rolled bottom sheet
+  // (justifyContent:'flex-end', fixed paddingBottom), so the transparent
+  // gesture/3-button nav bar overlays it without this inset (#163).
+  const insets = useSafeAreaInsets();
   const { user } = useSession();
   const canDelete = usePermission('delete_media');
   const [media, setMedia] = useState<MediaRecord[]>(() => getMediaForEntity(entityType, entityId));
@@ -294,7 +299,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
         {/* Source picker — shared with the grid variant */}
         <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
           <TouchableOpacity style={s.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
-            <View style={s.sheet}>
+            <View style={[s.sheet, { paddingBottom: 34 + insets.bottom }]}>
               <View style={s.sheetHandle} />
               <Text style={s.sheetTitle}>Add photo or video</Text>
               <View style={s.sourceRow}>
@@ -360,7 +365,7 @@ export function MediaGallery({ entityType, entityId, canUpload = true, variant =
       {/* Source picker — polished bottom sheet (replaces the bare Alert) */}
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
         <TouchableOpacity style={s.sheetOverlay} activeOpacity={1} onPress={() => setPickerOpen(false)}>
-          <View style={s.sheet}>
+          <View style={[s.sheet, { paddingBottom: 34 + insets.bottom }]}>
             <View style={s.sheetHandle} />
             <Text style={s.sheetTitle}>Add photo or video</Text>
             <View style={s.sourceRow}>

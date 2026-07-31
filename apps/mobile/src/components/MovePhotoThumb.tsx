@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   Text, Image, Modal, ScrollView, TouchableOpacity, StyleSheet, Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../themes/types';
 import { useTableVersion } from '../hooks/useDataVersion';
 import { useThemedStyles } from '../hooks/useThemedStyles';
@@ -19,6 +20,11 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
  */
 export function MovePhotoThumb({ logId }: { logId: string }) {
   const s = useThemedStyles(makeStyles);
+  // Edge-to-edge: the "Tap to close" caption below is position:absolute/
+  // bottom:40 (fixed) in a full-screen Modal with no SafeAreaView, so the
+  // transparent gesture/3-button nav bar can overlay it without this inset
+  // (#163).
+  const insets = useSafeAreaInsets();
   // Re-read when a sync pull touches media so a photo that arrives after the
   // log row rendered still shows up.
   const mediaVersion = useTableVersion(['media']);
@@ -57,7 +63,7 @@ export function MovePhotoThumb({ logId }: { logId: string }) {
               />
             ))}
           </ScrollView>
-          <Text style={s.lightboxClose}>✕ Tap to close</Text>
+          <Text style={[s.lightboxClose, { bottom: 40 + insets.bottom }]}>✕ Tap to close</Text>
         </TouchableOpacity>
       </Modal>
     </>
