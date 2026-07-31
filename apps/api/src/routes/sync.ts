@@ -22,6 +22,7 @@ import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, resolvePoo
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
 import { sendPush, messageRecipients } from '../lib/push';
+import { defaultShareEmailSender, type ShareEmailSender } from '../lib/shareEmail';
 
 interface OutboxEntry {
   id: string;
@@ -723,7 +724,16 @@ async function resolveCaller(
   return { ...row, team_overrides: (row.team_overrides ?? []).filter((t): t is Record<string, boolean> => t != null) };
 }
 
-const routes: FastifyPluginAsync = async (fastify) => {
+export interface SyncRoutesOpts {
+  // Test seam (the me.ts:51-56 injected-sendCode pattern): production omits
+  // this and gets the real SMTP-backed sender (dormant unless MEDIA_SHARE_EMAIL=1
+  // AND SMTP is configured); tests inject a stub to capture recipients/content
+  // without touching SMTP env.
+  shareEmailSender?: ShareEmailSender;
+}
+
+const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
+  const shareEmailSender = opts.shareEmailSender ?? defaultShareEmailSender;
   // Boot-time column introspection — the allowlist of real identifiers per table.
   const realColumns = await loadTableColumns(fastify.pg, [...ALLOWED_TABLES]);
 
@@ -1765,6 +1775,23 @@ const routes: FastifyPluginAsync = async (fastify) => {
                 createdBy: userId,
                 push,
               });
+              // #171 email leg: provider-agnostic stub, dormant unless
+              // MEDIA_SHARE_EMAIL=1 (default OFF). 'everyone' never emails —
+              // mirrors the quiet-push rule just above (push=false for that
+              // audience); a company-wide email blast is the same mistake #87
+              // avoided for push. Fire-and-forget per recipient: never blocks
+              // or fails the sync write.
+              if (process.env.MEDIA_SHARE_EMAIL === '1' && aud !== 'everyone') {
+                const { rows: emailRows } = await fastify.pg.query(
+                  `SELECT email FROM users WHERE id = ANY($1) AND email IS NOT NULL`,
+                  [recipients],
+                );
+                for (const row of emailRows as { email: string }[]) {
+                  void shareEmailSender
+                    .sendMediaShareEmail({ to: row.email, senderName, note, mediaId })
+                    .catch(() => { /* never disrupt sync */ });
+                }
+              }
             } catch { /* never disrupt sync */ }
           })();
         }
