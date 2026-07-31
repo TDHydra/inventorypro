@@ -96,8 +96,11 @@ export async function registerForPush(): Promise<void> {
       setSetting(PUSH_TOKEN_KEY, token);
       setSetting(PUSH_REGISTERED_AT_KEY, String(Date.now()));
     }
-  } catch {
-    /* best-effort — never block the caller */
+  } catch (e) {
+    // Best-effort — never block the caller — but say WHY it failed: a fully
+    // silent catch hid a missing-Firebase build misconfig for weeks (#182,
+    // "Default FirebaseApp is not initialized" on a pre-FCM dev client).
+    console.warn('[push] registration failed:', e);
   }
 }
 

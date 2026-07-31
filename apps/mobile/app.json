@@ -29,7 +29,8 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -60,7 +61,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Used only to suggest the nearest location while you're using the app — never tracked in the background."
+          "locationWhenInUsePermission": "Used only to suggest the nearest location while you're using the app \u2014 never tracked in the background."
         }
       ],
       "expo-splash-screen",
