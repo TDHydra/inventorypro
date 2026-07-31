@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import (BoardError, cli, fetch_items, gql, load_config, resolve_status,
-                    run_gh, select_item, set_status)
+from _board import (BoardError, cli, find_item, get_item, gql, load_config,
+                    patch_cached_status, resolve_status, run_gh, set_status)
 
 _UPDATE_DRAFT = """
 mutation($d:ID!,$b:String!){
@@ -22,7 +22,7 @@ def main(runner=None) -> int:
 
     cfg = load_config()
     canonical, option_id = resolve_status(cfg, "Rejected")
-    item = select_item(fetch_items(cfg, runner=runner), args.selector)
+    item = find_item(cfg, args.selector, runner=runner)
     content = item.get("content") or {}
     number = content.get("number")
     note = f"\n\n---\n**Rejected:** {args.reason}"
@@ -51,6 +51,12 @@ def main(runner=None) -> int:
                 f"{item.get('title') or '(untitled)'} ({item['id']}) has malformed "
                 f"draft content (missing id) - cannot record the rejection reason."
             )
+        # Re-read the live draft body first: the resolved item may be a cached
+        # copy, and rewriting a stale body would clobber edits made elsewhere.
+        live = get_item(cfg, item["id"], runner=runner)
+        live_content = (live or {}).get("content") or {}
+        if live_content.get("id") == draft_id and live_content.get("body") is not None:
+            content = live_content
         body = (content.get("body") or "") + note
         gql(_UPDATE_DRAFT, {"d": draft_id, "b": body}, runner=runner)
         ref = "draft body annotated"
@@ -75,6 +81,8 @@ def main(runner=None) -> int:
             f"moving the item to Rejected failed: {e}"
         ) from e
 
+    if runner is None:  # injected runner = test double; don't touch the real cache
+        patch_cached_status(cfg, item["id"], canonical)
     print(f"{item['title']}\n  → {canonical}  [{ref}]\n  reason: {args.reason}")
     return 0
 

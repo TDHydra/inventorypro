@@ -6,7 +6,8 @@ import argparse
 import json
 import sys
 
-from _board import BoardError, cli, gql, load_config, resolve_status, run_gh, set_status
+from _board import (BoardError, cli, gql, invalidate_cache, load_config,
+                    resolve_status, run_gh, set_status)
 
 _ADD_DRAFT = """
 mutation($p:ID!,$t:String!,$b:String!){
@@ -81,6 +82,8 @@ def main(runner=None) -> int:
             ) from e
         raise BoardError(f"created draft item but failed to set its status: {e}") from e
 
+    if runner is None:  # injected runner = test double; don't touch the real cache
+        invalidate_cache(cfg)
     print(f"{ref}  {args.title}\n  → {canonical}")
     return 0
 

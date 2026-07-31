@@ -2,7 +2,10 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
+import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -206,23 +209,54 @@ class TestSelectItem(unittest.TestCase):
 
 
 class TestFetchItems(unittest.TestCase):
-    def test_builds_expected_argv_and_parses_items(self):
+    FETCH_CFG = {**CFG, "project_id": "PVT_test"}
+
+    def test_paginates_with_cursor_and_normalizes(self):
+        pages = [
+            gql_items_page(
+                [raw_node("PVTI_a", "Item A", "Ready",
+                          {"__typename": "Issue", "number": 7, "title": "Item A",
+                           "body": "b", "url": "u",
+                           "repository": {"nameWithOwner": "TDHydra/inventorypro"}})],
+                has_next=True, cursor="CUR1"),
+            gql_items_page(
+                [raw_node("PVTI_b", "Item B", "Backlog",
+                          {"__typename": "DraftIssue", "id": "DI_b",
+                           "title": "Item B", "body": ""})]),
+        ]
+        calls = []
+
+        def runner(cmd, **kwargs):
+            calls.append(cmd)
+            return pages[len(calls) - 1]
+
+        items = _board.fetch_items(self.FETCH_CFG, runner=runner)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(any("cursor=" in part for part in calls[0]))
+        self.assertIn("cursor=CUR1", calls[1])
+        self.assertEqual([i["id"] for i in items], ["PVTI_a", "PVTI_b"])
+        issue, draft = items
+        self.assertEqual(issue["status"], "Ready")
+        self.assertEqual(issue["content"]["type"], "Issue")
+        self.assertEqual(issue["content"]["number"], 7)
+        self.assertEqual(issue["content"]["repository"], "TDHydra/inventorypro")
+        self.assertEqual(draft["title"], "Item B")
+        self.assertEqual(draft["content"]["type"], "DraftIssue")
+        self.assertEqual(draft["content"]["id"], "DI_b")
+
+    def test_query_avoids_the_expensive_fieldvalues_connection(self):
+        """The point of the lean query: GraphQL prices connections (first:N), not
+        scalars — fieldValues(first:N) is what made gh's item-list cost ~100
+        points a page. Only single-node fieldValueByName lookups are allowed."""
         seen = {}
 
         def runner(cmd, **kwargs):
-            seen["cmd"] = cmd
-            return FakeCompleted(stdout=json.dumps({"items": [{"id": "PVTI_x"}]}))
+            seen["cmd"] = " ".join(cmd)
+            return gql_items_page([])
 
-        result = _board.fetch_items(CFG, runner=runner)
-        cmd = seen["cmd"]
-        self.assertIn("--limit", cmd)
-        self.assertIn("500", cmd)
-        self.assertIn("--owner", cmd)
-        self.assertIn(CFG["owner"], cmd)
-        self.assertIn(str(CFG["project_number"]), cmd)
-        self.assertIn("--format", cmd)
-        self.assertIn("json", cmd)
-        self.assertEqual(result, [{"id": "PVTI_x"}])
+        _board.fetch_items(self.FETCH_CFG, runner=runner)
+        self.assertIn("fieldValueByName", seen["cmd"])
+        self.assertNotIn("fieldValues(", seen["cmd"])
 
 
 class TestSetStatus(unittest.TestCase):
@@ -390,10 +424,6 @@ class TestGhAddDraftPath(unittest.TestCase):
         self.assertFalse(any(_is_issue_create(c) for c in router.calls))
 
 
-def _is_item_list(cmd):
-    return cmd[1:3] == ["project", "item-list"]
-
-
 def _is_issue_close(cmd):
     return cmd[1:3] == ["issue", "close"]
 
@@ -403,24 +433,46 @@ def _is_issue_comment(cmd):
 
 
 _is_update_draft = _is_graphql_for("updateProjectV2DraftIssue")
+_is_items_query = _is_graphql_for("BoardItems")
+_is_issue_lookup = _is_graphql_for("IssueItem")
+_is_item_node = _is_graphql_for("ItemNode")
+_is_convert = _is_graphql_for("convertProjectV2DraftIssueItemToIssue")
+
+PROJECT_ID = _board.load_config()["project_id"]
 
 
-ISSUE_ITEM = {
-    "id": "PVTI_issue1",
-    "title": "SCRATCH issue item",
-    "status": "In progress",
-    "content": {"type": "Issue", "number": 42},
-}
+def gql_items_page(nodes, has_next=False, cursor=None):
+    """A one-page BoardItems response of RAW (un-normalized) item nodes."""
+    return FakeCompleted(stdout=json.dumps({"data": {"node": {"items": {
+        "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+        "nodes": nodes}}}}))
 
-DRAFT_ITEM = {
-    "id": "PVTI_draft1",
-    "title": "SCRATCH draft item",
-    "status": "In progress",
-    "content": {"type": "DraftIssue", "id": "DI_draft1", "body": "some body"},
-}
 
-ITEM_LIST_ISSUE = FakeCompleted(stdout=json.dumps({"items": [ISSUE_ITEM]}))
-ITEM_LIST_DRAFT = FakeCompleted(stdout=json.dumps({"items": [DRAFT_ITEM]}))
+def raw_node(item_id, title, status, content):
+    return {"id": item_id, "title": {"text": title}, "status": {"name": status},
+            "priority": None, "area": None, "content": content}
+
+
+ISSUE_NODE = raw_node("PVTI_issue1", "SCRATCH issue item", "In progress",
+                      {"__typename": "Issue", "number": 42,
+                       "title": "SCRATCH issue item", "body": "", "url": "u"})
+DRAFT_NODE = raw_node("PVTI_draft1", "SCRATCH draft item", "In progress",
+                      {"__typename": "DraftIssue", "id": "DI_draft1",
+                       "title": "SCRATCH draft item", "body": "some body"})
+
+ITEMS_PAGE_ISSUE = gql_items_page([ISSUE_NODE])
+ITEMS_PAGE_DRAFT = gql_items_page([DRAFT_NODE])
+
+# What the targeted #42 lookup returns (find_item numeric fast path).
+ISSUE_LOOKUP_OK = FakeCompleted(stdout=json.dumps({"data": {"repository": {"issue": {
+    "number": 42, "title": "SCRATCH issue item", "body": "", "url": "u",
+    "projectItems": {"nodes": [{
+        "id": "PVTI_issue1", "project": {"id": PROJECT_ID},
+        "title": {"text": "SCRATCH issue item"}, "status": {"name": "In progress"},
+        "priority": None, "area": None}]}}}}}))
+
+# What gh_reject's pre-annotation body re-read returns for the draft item.
+NODE_DRAFT_OK = FakeCompleted(stdout=json.dumps({"data": {"node": DRAFT_NODE}}))
 ISSUE_CLOSE_OK = FakeCompleted(stdout="")
 ISSUE_CLOSE_FAIL = FakeCompleted(returncode=1, stdout="", stderr="cannot close: already closed")
 ISSUE_COMMENT_OK = FakeCompleted(stdout="")
@@ -443,7 +495,7 @@ class TestGhDone(unittest.TestCase):
         """Ordering invariant: the issue must be closed BEFORE set_status runs, so a
         crash between the two never leaves an open issue sitting in Done."""
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_lookup, ISSUE_LOOKUP_OK)
         router.on(_is_issue_close, ISSUE_CLOSE_OK)
         router.on(_is_set_status, SET_STATUS_OK)
 
@@ -459,7 +511,7 @@ class TestGhDone(unittest.TestCase):
         """The core invariant: if `gh issue close` fails, set_status must never run -
         an open issue must never end up in Done."""
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_lookup, ISSUE_LOOKUP_OK)
         router.on(_is_issue_close, ISSUE_CLOSE_FAIL)
         # deliberately no handler for _is_set_status: if it's called anyway, the
         # router raises AssertionError for the unrouted call.
@@ -470,7 +522,7 @@ class TestGhDone(unittest.TestCase):
 
     def test_draft_item_never_calls_issue_close(self):
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_DRAFT)
+        router.on(_is_items_query, ITEMS_PAGE_DRAFT)
         router.on(_is_set_status, SET_STATUS_OK)
 
         with contextlib.redirect_stdout(io.StringIO()) as out:
@@ -484,7 +536,7 @@ class TestGhDone(unittest.TestCase):
         user the issue was already closed - otherwise they're left with a closed
         issue outside Done and no clue why."""
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_lookup, ISSUE_LOOKUP_OK)
         router.on(_is_issue_close, ISSUE_CLOSE_OK)
         router.on(_is_set_status, SET_STATUS_FAIL)
 
@@ -499,7 +551,7 @@ class TestGhDone(unittest.TestCase):
 class TestGhReject(unittest.TestCase):
     def test_issue_backed_comments_then_closes_not_planned(self):
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_lookup, ISSUE_LOOKUP_OK)
         router.on(_is_issue_comment, ISSUE_COMMENT_OK)
         router.on(_is_issue_close, ISSUE_CLOSE_OK)
         router.on(_is_set_status, SET_STATUS_OK)
@@ -516,7 +568,8 @@ class TestGhReject(unittest.TestCase):
 
     def test_draft_updates_body_via_mutation(self):
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_DRAFT)
+        router.on(_is_items_query, ITEMS_PAGE_DRAFT)
+        router.on(_is_item_node, NODE_DRAFT_OK)  # pre-annotation body re-read
         router.on(_is_update_draft, UPDATE_DRAFT_OK)
         router.on(_is_set_status, SET_STATUS_OK)
 
@@ -530,7 +583,7 @@ class TestGhReject(unittest.TestCase):
 
     def test_post_close_set_status_failure_says_issue_already_closed(self):
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_lookup, ISSUE_LOOKUP_OK)
         router.on(_is_issue_comment, ISSUE_COMMENT_OK)
         router.on(_is_issue_close, ISSUE_CLOSE_OK)
         router.on(_is_set_status, SET_STATUS_FAIL)
@@ -549,7 +602,7 @@ class TestGhReject(unittest.TestCase):
         otherwise the user is left guessing why a still-open issue has a rejection
         comment on it. set_status must never run in this case."""
         router = GhAddRouter()
-        router.on(_is_item_list, ITEM_LIST_ISSUE)
+        router.on(_is_issue_lookup, ISSUE_LOOKUP_OK)
         router.on(_is_issue_comment, ISSUE_COMMENT_OK)
         router.on(_is_issue_close, ISSUE_CLOSE_FAIL)
         # deliberately no handler for _is_set_status: if it's called anyway, the
@@ -566,19 +619,12 @@ class TestGhReject(unittest.TestCase):
         self.assertFalse(any(_is_set_status(c) for c in router.calls))
 
 
-BROKEN_DRAFT_CONTENT_NONE = {
-    "id": "PVTI_broken1",
-    "title": "broken draft item, content is None",
-    "status": "In progress",
-    "content": None,
-}
+BROKEN_DRAFT_CONTENT_NONE = raw_node(
+    "PVTI_broken1", "broken draft item, content is None", "In progress", None)
 
-BROKEN_DRAFT_CONTENT_NO_ID = {
-    "id": "PVTI_broken2",
-    "title": "broken draft item, content lacks id",
-    "status": "In progress",
-    "content": {"type": "DraftIssue", "body": "some body"},
-}
+BROKEN_DRAFT_CONTENT_NO_ID = raw_node(
+    "PVTI_broken2", "broken draft item, content lacks id", "In progress",
+    {"__typename": "DraftIssue", "body": "some body"})
 
 
 class TestGhRejectMalformedDraft(unittest.TestCase):
@@ -589,8 +635,7 @@ class TestGhRejectMalformedDraft(unittest.TestCase):
 
     def test_content_none_raises_boarderror_not_keyerror(self):
         router = GhAddRouter()
-        router.on(_is_item_list, FakeCompleted(
-            stdout=json.dumps({"items": [BROKEN_DRAFT_CONTENT_NONE]})))
+        router.on(_is_items_query, gql_items_page([BROKEN_DRAFT_CONTENT_NONE]))
 
         with self.assertRaises(_board.BoardError) as ctx:
             run_gh_reject(["broken draft item, content is None", "--reason", "x"], router)
@@ -602,8 +647,7 @@ class TestGhRejectMalformedDraft(unittest.TestCase):
 
     def test_content_missing_id_raises_boarderror_not_keyerror(self):
         router = GhAddRouter()
-        router.on(_is_item_list, FakeCompleted(
-            stdout=json.dumps({"items": [BROKEN_DRAFT_CONTENT_NO_ID]})))
+        router.on(_is_items_query, gql_items_page([BROKEN_DRAFT_CONTENT_NO_ID]))
 
         with self.assertRaises(_board.BoardError) as ctx:
             run_gh_reject(["broken draft item, content lacks id", "--reason", "x"], router)
@@ -617,17 +661,16 @@ class TestGhRejectMalformedDraft(unittest.TestCase):
 class TestGhPromote(unittest.TestCase):
     """gh_promote converts a draft into a permanent, undeletable GitHub issue."""
 
-    ITEMS = {"items": [
-        {"id": "PVTI_draft", "title": "a draft item", "status": "Backlog",
-         "content": {"type": "DraftIssue"}},
-        {"id": "PVTI_issue", "title": "an issue item", "status": "Backlog",
-         "content": {"type": "Issue", "number": 42}},
-    ]}
+    ITEMS_PAGE = gql_items_page([
+        raw_node("PVTI_draft", "a draft item", "Backlog",
+                 {"__typename": "DraftIssue", "id": "DI_d", "title": "a draft item"}),
+        raw_node("PVTI_issue", "an issue item", "Backlog",
+                 {"__typename": "Issue", "number": 42, "title": "an issue item"}),
+    ])
 
     def _router(self):
         r = GhAddRouter()
-        r.on(lambda c: c[1:3] == ["project", "item-list"],
-             FakeCompleted(stdout=json.dumps(self.ITEMS)))
+        r.on(_is_items_query, self.ITEMS_PAGE)
         return r
 
     def _run(self, argv, router):
@@ -641,7 +684,7 @@ class TestGhPromote(unittest.TestCase):
         rc, out = self._run(["a draft item"], router)
         self.assertEqual(rc, 1)
         self.assertIn("cannot be undone", out)
-        self.assertFalse(any("graphql" in c for c in router.calls),
+        self.assertFalse(any(_is_convert(c) for c in router.calls),
                          "dry run must not call the convert mutation")
 
     def test_refuses_an_item_that_is_already_an_issue(self):
@@ -649,17 +692,274 @@ class TestGhPromote(unittest.TestCase):
         with self.assertRaises(_board.BoardError) as ctx:
             self._run(["an issue item", "--yes"], router)
         self.assertIn("already issue #42", str(ctx.exception))
-        self.assertFalse(any("graphql" in c for c in router.calls))
+        self.assertFalse(any(_is_convert(c) for c in router.calls))
 
     def test_yes_converts_and_reports_the_new_issue(self):
         router = self._router()
-        router.on(lambda c: c[1:3] == ["api", "graphql"], FakeCompleted(stdout=json.dumps(
+        router.on(_is_convert, FakeCompleted(stdout=json.dumps(
             {"data": {"convertProjectV2DraftIssueItemToIssue": {"item": {
                 "id": "PVTI_draft",
                 "content": {"number": 77, "url": "https://github.com/o/r/issues/77"}}}}})))
         rc, out = self._run(["a draft item", "--yes"], router)
         self.assertEqual(rc, 0)
         self.assertIn("#77", out)
+
+
+CACHE_CFG = {**CFG, "project_id": "PVT_test"}
+
+
+class TestItemListCache(unittest.TestCase):
+    """fetch_items caching: real (runner=None) calls hit the on-disk cache;
+    injected runners never touch it."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        env = mock.patch.dict(os.environ, {"BOARD_CACHE_DIR": self.tmp})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _counting_run(self, nodes):
+        """Stands in for subprocess.run on the runner=None (real) path.
+        Serves the free quota check and counts only BoardItems fetches."""
+        def fake_run(cmd, **kwargs):
+            if "rate_limit" in cmd:
+                return FakeCompleted(stdout="5000\n")
+            fake_run.calls += 1
+            return gql_items_page(nodes)
+        fake_run.calls = 0
+        return fake_run
+
+    def _fetch(self, **kwargs):
+        with contextlib.redirect_stderr(io.StringIO()):
+            return _board.fetch_items(CACHE_CFG, **kwargs)
+
+    def test_fresh_cache_skips_live_fetch(self):
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_cached"}])
+        fake = self._counting_run([{"id": "PVTI_live"}])
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch()
+        self.assertEqual(items, [{"id": "PVTI_cached"}])
+        self.assertEqual(fake.calls, 0)
+
+    def test_expired_cache_fetches_live_and_rewrites(self):
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_old"}],
+                            fetched_at=time.time() - _board.CACHE_TTL_SECONDS - 1)
+        fake = self._counting_run([{"id": "PVTI_live"}])
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch()
+        self.assertEqual([i["id"] for i in items], ["PVTI_live"])
+        self.assertEqual(fake.calls, 1)
+        cached, age = _board._read_cache(CACHE_CFG)
+        self.assertEqual([i["id"] for i in cached], ["PVTI_live"])
+        self.assertLess(age, 60)
+
+    def test_refresh_bypasses_fresh_cache(self):
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_cached"}])
+        fake = self._counting_run([{"id": "PVTI_live"}])
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch(refresh=True)
+        self.assertEqual([i["id"] for i in items], ["PVTI_live"])
+        self.assertEqual(fake.calls, 1)
+
+    def test_live_failure_falls_back_to_stale_cache(self):
+        """The rate-limit case: any cached copy beats an error."""
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_stale"}],
+                            fetched_at=time.time() - 10 * 3600)
+        def fail_run(cmd, **kwargs):
+            return FakeCompleted(returncode=1, stderr="API rate limit exceeded")
+        with mock.patch.object(_board.subprocess, "run", fail_run):
+            items = self._fetch()
+        self.assertEqual(items, [{"id": "PVTI_stale"}])
+
+    def test_live_failure_without_cache_raises(self):
+        def fail_run(cmd, **kwargs):
+            return FakeCompleted(returncode=1, stderr="API rate limit exceeded")
+        with mock.patch.object(_board.subprocess, "run", fail_run):
+            with self.assertRaises(_board.BoardError):
+                self._fetch()
+
+    def test_injected_runner_never_touches_cache(self):
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_cached"}])
+        def runner(cmd, **kwargs):
+            return gql_items_page([{"id": "PVTI_live"}])
+        items = _board.fetch_items(CACHE_CFG, runner=runner)
+        self.assertEqual([i["id"] for i in items], ["PVTI_live"])
+        cached, _ = _board._read_cache(CACHE_CFG)
+        self.assertEqual(cached, [{"id": "PVTI_cached"}])
+
+    def test_patch_cached_status_updates_item_and_preserves_fetch_time(self):
+        old = time.time() - 1000
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_x", "status": "Backlog"},
+                                        {"id": "PVTI_y", "status": "Backlog"}],
+                            fetched_at=old)
+        _board.patch_cached_status(CACHE_CFG, "PVTI_x", "Ready")
+        with open(_board._cache_path(CACHE_CFG), encoding="utf-8") as f:
+            payload = json.load(f)
+        by_id = {i["id"]: i["status"] for i in payload["items"]}
+        self.assertEqual(by_id, {"PVTI_x": "Ready", "PVTI_y": "Backlog"})
+        self.assertEqual(payload["fetched_at"], old)
+
+    def test_invalidate_removes_cache(self):
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_x"}])
+        _board.invalidate_cache(CACHE_CFG)
+        self.assertEqual(_board._read_cache(CACHE_CFG), (None, 0.0))
+        _board.invalidate_cache(CACHE_CFG)  # idempotent on a missing file
+
+
+FIND_CFG = {**CFG, "project_id": "PVT_test", "repo": "TDHydra/inventorypro"}
+
+
+class TestFindItem(unittest.TestCase):
+    """find_item resolves at the lowest quota cost: cache, then targeted
+    one-point lookups, then the full fetch."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        env = mock.patch.dict(os.environ, {"BOARD_CACHE_DIR": self.tmp})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_fresh_cache_resolves_without_any_network_call(self):
+        _board._write_cache(FIND_CFG, [
+            {"id": "PVTI_x", "title": "Fix parser", "status": "Ready",
+             "content": {"type": "Issue", "number": 9}}])
+
+        def boom(cmd, **kwargs):
+            raise AssertionError(f"network call during cached resolution: {cmd}")
+
+        with mock.patch.object(_board.subprocess, "run", boom):
+            by_number = _board.find_item(FIND_CFG, "#9")
+            by_title = _board.find_item(FIND_CFG, "Fix par")
+        self.assertEqual(by_number["id"], "PVTI_x")
+        self.assertEqual(by_title["id"], "PVTI_x")
+
+    def test_numeric_miss_uses_targeted_issue_lookup_and_filters_project(self):
+        calls = []
+
+        def fake(cmd, **kwargs):
+            calls.append(" ".join(cmd))
+            return FakeCompleted(stdout=json.dumps({"data": {"repository": {"issue": {
+                "number": 9, "title": "T", "body": "bd", "url": "u",
+                "projectItems": {"nodes": [
+                    {"id": "PVTI_other", "project": {"id": "PVT_other"},
+                     "title": None, "status": None, "priority": None, "area": None},
+                    {"id": "PVTI_mine", "project": {"id": "PVT_test"},
+                     "title": {"text": "T"}, "status": {"name": "Ready"},
+                     "priority": None, "area": None},
+                ]}}}}}))
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            item = _board.find_item(FIND_CFG, "#9")
+        self.assertEqual(item["id"], "PVTI_mine")
+        self.assertEqual(item["status"], "Ready")
+        self.assertEqual(item["content"]["number"], 9)
+        self.assertEqual(item["content"]["body"], "bd")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("issue(number:9)", calls[0])  # int inlined, not a variable
+        self.assertNotIn("BoardItems", calls[0])
+
+    def test_numeric_not_on_this_project_raises(self):
+        def fake(cmd, **kwargs):
+            return FakeCompleted(stdout=json.dumps({"data": {"repository": {"issue": {
+                "number": 9, "title": "T", "body": "", "url": "u",
+                "projectItems": {"nodes": []}}}}}))
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            with self.assertRaises(_board.BoardError) as ctx:
+                _board.find_item(FIND_CFG, "9")
+        self.assertIn("#9", str(ctx.exception))
+
+    def test_item_id_miss_uses_node_lookup(self):
+        def fake(cmd, **kwargs):
+            return FakeCompleted(stdout=json.dumps({"data": {"node": raw_node(
+                "PVTI_z", "Z", "Backlog",
+                {"__typename": "DraftIssue", "id": "DI_z", "title": "Z", "body": ""})}}))
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            item = _board.find_item(FIND_CFG, "PVTI_z")
+        self.assertEqual(item["id"], "PVTI_z")
+        self.assertEqual(item["content"]["id"], "DI_z")
+
+    def test_substring_miss_falls_back_to_full_fetch_and_caches(self):
+        def fake(cmd, **kwargs):
+            if "rate_limit" in cmd:
+                return FakeCompleted(stdout="5000\n")
+            return gql_items_page([raw_node(
+                "PVTI_q", "Quantum widget", "Backlog",
+                {"__typename": "Issue", "number": 3, "title": "Quantum widget",
+                 "body": "", "url": "u"})])
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with mock.patch.object(_board.subprocess, "run", fake):
+                item = _board.find_item(FIND_CFG, "Quantum")
+        self.assertEqual(item["id"], "PVTI_q")
+        cached, _ = _board._read_cache(FIND_CFG)
+        self.assertEqual([i["id"] for i in cached], ["PVTI_q"])
+
+
+class TestQuotaGuard(unittest.TestCase):
+    """Below QUOTA_FLOOR remaining GraphQL points, a stale cache beats a live
+    full fetch; the check itself is free (REST) and fail-open."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        env = mock.patch.dict(os.environ, {"BOARD_CACHE_DIR": self.tmp})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _fetch(self, **kwargs):
+        with contextlib.redirect_stderr(io.StringIO()):
+            return _board.fetch_items(CACHE_CFG, **kwargs)
+
+    def test_low_quota_with_stale_cache_serves_stale(self):
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_stale"}],
+                            fetched_at=time.time() - 10 * 3600)
+
+        def fake(cmd, **kwargs):
+            if "rate_limit" in cmd:
+                return FakeCompleted(stdout="12\n")
+            raise AssertionError("full fetch must not run below the quota floor")
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch()
+        self.assertEqual(items, [{"id": "PVTI_stale"}])
+
+    def test_low_quota_without_cache_still_attempts_fetch(self):
+        def fake(cmd, **kwargs):
+            if "rate_limit" in cmd:
+                return FakeCompleted(stdout="12\n")
+            return gql_items_page([{"id": "PVTI_live"}])
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch()
+        self.assertEqual([i["id"] for i in items], ["PVTI_live"])
+
+    def test_quota_check_failure_is_fail_open(self):
+        def fake(cmd, **kwargs):
+            if "rate_limit" in cmd:
+                return FakeCompleted(returncode=1, stderr="rate_limit endpoint down")
+            return gql_items_page([{"id": "PVTI_live"}])
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch()
+        self.assertEqual([i["id"] for i in items], ["PVTI_live"])
+
+    def test_refresh_bypasses_the_quota_floor(self):
+        """--refresh is explicit user intent for a live fetch; honor it."""
+        _board._write_cache(CACHE_CFG, [{"id": "PVTI_stale"}],
+                            fetched_at=time.time() - 10 * 3600)
+
+        def fake(cmd, **kwargs):
+            if "rate_limit" in cmd:
+                return FakeCompleted(stdout="12\n")
+            return gql_items_page([{"id": "PVTI_live"}])
+
+        with mock.patch.object(_board.subprocess, "run", fake):
+            items = self._fetch(refresh=True)
+        self.assertEqual([i["id"] for i in items], ["PVTI_live"])
 
 
 if __name__ == "__main__":

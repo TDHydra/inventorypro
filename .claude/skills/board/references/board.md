@@ -62,3 +62,9 @@ The real invariant is narrower: **no OPEN issue may sit in `Done`.**
 1. `gh api graphql -F` coerces `"98236657"` to `Int` and fails `String!`. Use `-f`.
 2. `updateProjectV2Field` replaces the whole single-select option list. Pass every existing
    option **with its `id`** or every item's status is silently cleared.
+3. The inverse of trap 1: `-f` is string-typed, so an `$n:Int!` variable can never be
+   satisfied through `gql()`. Inline validated integers (e.g. `issue(number:42)`) into the
+   query text instead — `_board.py`'s `_ISSUE_QUERY` does this.
+4. GraphQL cost = connections (`first:N`) multiplied down the tree ÷ 100; scalar fields are
+   free. Never nest a `first:N` connection per item (that's why `gh project item-list` costs
+   ~100 points/page); use `fieldValueByName` single-node lookups.

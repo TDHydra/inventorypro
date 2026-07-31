@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import BoardError, cli, fetch_items, load_config, resolve_status, select_item, set_status
+from _board import (BoardError, cli, find_item, load_config, patch_cached_status,
+                    resolve_status, set_status)
 
 GUARDED = {"Done": "gh_done.py", "Rejected": "gh_reject.py"}
 
@@ -25,9 +26,10 @@ def main() -> int:
             f"{GUARDED[canonical]} so the linked issue stays consistent."
         )
 
-    item = select_item(fetch_items(cfg), args.selector)
+    item = find_item(cfg, args.selector)
     before = item.get("status") or "—"
     set_status(cfg, item["id"], option_id)
+    patch_cached_status(cfg, item["id"], canonical)
     print(f"{item['title']}\n  {before} → {canonical}")
     return 0
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from _board import BoardError, cli, fetch_items, load_config, resolve_status, run_gh, select_item, set_status
+from _board import (BoardError, cli, find_item, load_config, patch_cached_status,
+                    resolve_status, run_gh, set_status)
 
 
 def main(runner=None) -> int:
@@ -15,7 +16,7 @@ def main(runner=None) -> int:
 
     cfg = load_config()
     canonical, option_id = resolve_status(cfg, "Done")
-    item = select_item(fetch_items(cfg, runner=runner), args.selector)
+    item = find_item(cfg, args.selector, runner=runner)
     content = item.get("content") or {}
     number = content.get("number")
 
@@ -43,6 +44,8 @@ def main(runner=None) -> int:
             ) from e
         raise BoardError(f"failed to move draft item to Done: {e}") from e
 
+    if runner is None:  # injected runner = test double; don't touch the real cache
+        patch_cached_status(cfg, item["id"], canonical)
     print(f"{item['title']}\n  {item.get('status') or '—'} → {canonical}  [{ref}]")
     return 0
 

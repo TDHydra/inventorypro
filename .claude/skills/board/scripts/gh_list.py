@@ -14,10 +14,12 @@ def main() -> int:
     ap.add_argument("--status", help="filter by column, e.g. 'In progress'")
     ap.add_argument("--area", help="filter by Area field, e.g. 'Fixes'")
     ap.add_argument("--json", action="store_true", help="emit raw json")
+    ap.add_argument("--refresh", action="store_true",
+                    help="bypass the item-list cache and fetch live")
     args = ap.parse_args()
 
     cfg = load_config()
-    items = fetch_items(cfg)
+    items = fetch_items(cfg, refresh=args.refresh)
 
     if args.status:
         items = [i for i in items if (i.get("status") or "").lower() == args.status.lower()]

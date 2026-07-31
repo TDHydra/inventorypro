@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from _board import BoardError, cli, fetch_items, gql, load_config, select_item
+from _board import BoardError, cli, find_item, gql, invalidate_cache, load_config
 
 _CONVERT = """
 mutation($item:ID!,$repo:ID!){
@@ -21,7 +21,7 @@ def main(runner=None) -> int:
     args = ap.parse_args()
 
     cfg = load_config()
-    item = select_item(fetch_items(cfg, runner=runner), args.selector)
+    item = find_item(cfg, args.selector, runner=runner)
     content = item.get("content") or {}
 
     if content.get("type") != "DraftIssue":
@@ -45,6 +45,8 @@ def main(runner=None) -> int:
             f"create a second issue."
         )
 
+    if runner is None:  # injected runner = test double; don't touch the real cache
+        invalidate_cache(cfg)
     print(f"{item['title']}\n  → #{number}  {url}")
     return 0
 

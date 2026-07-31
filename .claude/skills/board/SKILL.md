@@ -60,11 +60,27 @@ Items are units of intent; commits are units of change.
 - Requires `gh` token scope `project`. If a script reports the scope is missing, the user must
   run `gh auth refresh -s project,read:project` themselves — it's interactive, so Claude cannot
   do it for them.
-- `gh project item-list` (used by every verb here to read the board) is **GraphQL** and counts
-  against a 5,000/hr GraphQL quota shared across all concurrent agents on this account;
-  `gh issue list` is REST and draws from a separate quota. Bulk board operations can exhaust the
-  GraphQL quota fast — read the item list once and reuse it for a batch of moves rather than
-  re-querying per item.
+- Board reads are **GraphQL** and count against a 5,000/hr quota shared across all concurrent
+  agents on this account (`gh issue *` is REST, a separate quota). GitHub prices GraphQL by
+  connections requested, so the scripts use a lean paginated query (single-node
+  `fieldValueByName` lookups, ~1–2 points/page) instead of `gh project item-list`
+  (~100 points/page). A full fetch of the whole board costs single-digit points.
+- The item list is also **cached on disk** (`~/.cache/board-skill/`, TTL 90 min, override
+  seconds via `BOARD_CACHE_TTL`). Every verb reads through the cache; a stderr `note:` says
+  when a cached list was used. `gh_list.py --refresh` forces a live fetch. Moves patch the
+  cached status in place; `gh_add.py`/`gh_promote.py` invalidate the cache. If the live fetch
+  fails (rate limit), the scripts fall back to the stale cache with a `warning:`. Caveat:
+  changes made outside these scripts (web UI, raw `gh`) won't appear until the TTL expires or
+  you pass `--refresh`.
+- Writers resolve selectors cheaply: fresh cache first (free), then a **targeted one-point
+  lookup** for issue-number (`42`/`#42`) and item-id (`PVTI_…`) selectors — only a
+  title-substring selector on a cache miss triggers the full fetch. Below
+  `BOARD_QUOTA_FLOOR` remaining GraphQL points (default 100), a live full fetch is skipped in
+  favor of the stale cache (checked via the free REST `rate_limit` endpoint; `--refresh`
+  overrides).
+- `gh_list.py --json` no longer carries `assignees`, `labels`, `linked pull requests`, or
+  `iteration` (they're connection-priced and nothing here uses them). It still carries
+  status/priority/area, and issue/draft `content` including `body`, which is scalar and free.
 - The Projects API is **read-after-write eventually consistent**: an item just created or moved
   can briefly be missing (or stale) in the next `item-list` read. If a just-created item seems
   absent, retry the read before concluding the write failed.
