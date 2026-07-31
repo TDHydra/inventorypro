@@ -1,10 +1,21 @@
 # InventoryPro — Full Status
 
-*Reconciled 2026-06-28 against verified ground truth: `main` first-parent history,
-the API migration set (`apps/api/src/db/migrations/001–015`), and **prod** (Unraid
-`192.168.1.239`, `inventorypro-postgres-1` — all 15 migrations applied, confirmed).*
+*Reconciled 2026-07-31: `main` @ `79c8a91`, prod = **VPS** `pmshydra@192.168.1.72`
+(migrated off Unraid `.239` on 2026-07-21 via `infra/vps/install.sh`), API schema
+**73**, mobile schema **55**. Release **1.3.6 (versionCode 4)** built with FCM
+baked in — push registration + delivery verified end-to-end on a release build.*
 
-`main` HEAD at reconciliation: `cc0f185` (perms-reactive fix).
+**Board sweep 2026-07-31 complete.** Every live item on GitHub Project 2 is Done or
+Rejected except: `#184` schedule board + `#178` repairs workflow (Backlog, deferred by
+design), `#185` README review + `#186` backup Drive-connect (await user actions), and
+`#23` (fix ships in 1.3.6; closes as field handsets install it). Highlights of the
+July wave: vehicles system (#122 epic), media sharing + push (#87/#171/#180/#183),
+role dashboards + admin preset editor, UI kit (#94–#121), keyboard-aware forms (#118),
+table-scoped reactivity (#63/#64) incl. the full dashboard kit audit, ModalSheet
+scroll/inset/responder fixes (#187), picker close-on-blur race fix, VPS backups.
+
+*(The sections below this line are the frozen 2026-06-28 reconciliation, kept as
+history — the board is the source of truth for anything open.)*
 
 > **Open work lives on [GitHub Project 2](https://github.com/users/TDHydra/projects/2)** — the single
 > source of truth for pending features, deferred enhancements, and decided-against items.
@@ -75,19 +86,12 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 
 ---
 
-## ⏭️ Remaining
+## ⏭️ Remaining *(superseded — see the 2026-07-31 header block; board = source of truth)*
 
-**All six roadmap programs (P1–P6) are code-complete and merged to `main`. The release APK is built and the API is deployed.**
-
-1. ✅ **Native rebuild** — `npx expo prebuild --clean` → re-pinned Gradle 8.13 → `assembleRelease` against prod URL.
-   Output: `~/inventorypro/inventorypro-preview.apk` (130MB, 2026-06-28; Hermes; prod URL + POST_NOTIFICATIONS verified baked in).
-2. ✅ **API deployed** — image rebuilt, shipped to Unraid, migration 016 (insurance_carrier) applied; `schema_migrations` max=16;
-   `https://api.invenpro.app/health` = ok; `jobs.insurance_carrier` confirmed in prod.
-3. ⏳ **On-device verification** (user) — install `inventorypro-preview.apk`, accept the notification permission, and confirm
-   P3 alerts fire once per episode (low-stock + temp-employee expiry) and re-fire after recovery.
-
-*Optional / deferred:* a **dev-client** APK rebuild is only needed for Metro-connected development — the preview APK above
-points at prod and is sufficient to field-test notifications directly.
+1. ✅ All six roadmap programs shipped; the 2026-07 board sweep closed everything live.
+2. ⏳ **Field rollout of 1.3.6** — `inventorypro-release-1.3.6.apk` (repo root) onto
+   the remaining handsets; each upgrade applies the #23 leaked-team-rows purge.
+3. ⏳ **User actions**: #185 README once-over, #186 `connect-gdrive.sh` on the VPS.
 
 **Optional future (explicitly deferred / out of scope):**
 - P3 v2 / server push — ~~dropped 2026-06-28~~ **reversed 2026-07-01 and SHIPPED (#87)**: Expo Push +
