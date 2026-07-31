@@ -17,6 +17,8 @@ import {
 } from '../db/queries/media';
 import { getAllJobs, Job } from '../db/queries/jobs';
 import { useDataVersion } from '../hooks/useDataVersion';
+import { isMediaUploadPending } from '../sync/outbox';
+import { shareMediaExternally } from '../media/shareExternal';
 
 interface Props {
   mediaId: string | null;
@@ -39,6 +41,8 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
   const [locationNote, setLocationNote] = useState('');
   const [moveOpen, setMoveOpen] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [shareSyncPending, setShareSyncPending] = useState(false);
   const dataVersion = useDataVersion();
 
   const reload = useCallback(() => {
@@ -62,6 +66,33 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
     if (visible && !editing) reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataVersion]);
+
+  // #180: "Share externally" mints its link from the server, so it's only safe
+  // once this row has actually reached Postgres. Re-checked on a short poll
+  // (same idiom as SyncIndicator) rather than once, so a photo opened right
+  // after capture enables itself as soon as the background sync catches up —
+  // without requiring the user to close and reopen the sheet.
+  useEffect(() => {
+    if (!visible || !detail) {
+      setShareSyncPending(false);
+      return;
+    }
+    const check = () => setShareSyncPending(isMediaUploadPending(detail.id));
+    check();
+    const interval = setInterval(check, 3000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, detail?.id]);
+
+  const handleShare = useCallback(async () => {
+    if (!detail) return;
+    setSharing(true);
+    try {
+      await shareMediaExternally(detail.id);
+    } finally {
+      setSharing(false);
+    }
+  }, [detail]);
 
   // Suggest location notes already used on the same job (fresh per edit session).
   const noteSuggestions = useMemo(
@@ -169,6 +200,26 @@ export function MediaDetailSheet({ mediaId, visible, onClose, onChanged }: Props
             <Field label="Type" value={detail.media_type === 'video' ? 'Video' : 'Image'} />
             <Field label="Primary" value={detail.is_primary === 1 ? 'Yes' : 'No'} />
 
+            {!editing && (
+              <>
+                {/* #180 v1 — shares a LONG-LIVED LINK via the OS share sheet
+                   (RN core Share). File attachment (expo-sharing) is v2, next
+                   native rebuild. Disabled + reasoned like PermissionGate's
+                   mode="disable" until this row has actually synced to the
+                   server — the link is minted server-side. */}
+                <PrimaryButton
+                  label="Share externally"
+                  onPress={handleShare}
+                  disabled={shareSyncPending}
+                  loading={sharing}
+                  style={s.actionBtn}
+                />
+                {shareSyncPending && (
+                  <Text style={s.shareReason}>Share available once this photo finishes syncing.</Text>
+                )}
+              </>
+            )}
+
             {canEdit && !editing && (
               <PrimaryButton label="Edit details" onPress={beginEdit} style={s.actionBtn} />
             )}
@@ -259,6 +310,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   fieldValue: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, flex: 1, textAlign: 'right' },
 
   actionBtn: { marginTop: t.spacing.md },
+  // Same reduced-emphasis convention as PermissionGate's mode="disable" reason.
+  shareReason: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
   editBox: { marginTop: t.spacing.md, gap: t.spacing.md },
   cancelText: { textAlign: 'center', color: t.colors.textSecondary, fontWeight: '600', paddingVertical: t.spacing.xs },
   moveBtn: {

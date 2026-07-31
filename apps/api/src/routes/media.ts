@@ -1,11 +1,23 @@
 import { FastifyPluginAsync } from 'fastify';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { requirePermission, userHasPermission } from '../lib/permissions';
 import { MEDIA_ENTITY_TYPES } from '../lib/syncPolicy';
 import { s3Public, BUCKET } from '../lib/s3';
-import { KEY_RE, cleanupMediaObjects } from '../lib/mediaCleanup';
+import { KEY_RE, cleanupMediaObjects, deriveKey } from '../lib/mediaCleanup';
+
+// #180 v1: external share (Android share sheet) hands the OS a LINK, not a
+// file — RN core Share.share({ message: url }) only takes text. File sharing
+// (expo-sharing, attaching the actual bytes) is deferred to the next native
+// rebuild since expo-sharing is a native module and would break hotload.
+//
+// Normal presigned GETs (see /upload-url below) expire in 5 minutes — too
+// short for a link dropped into Messages/WhatsApp/email and opened later.
+// SigV4 presigned URLs cap X-Amz-Expires at 7 days (604800s) when signed with
+// long-lived static credentials (ours, via s3Public) — MinIO enforces the same
+// AWS ceiling — so 7 days is both the practical and the protocol maximum.
+const SHARE_LINK_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
 
 // MEDIA_ENTITY_TYPES lives in lib/syncPolicy.ts now — media may only attach to
 // OPERATIONAL entities, never users / role_settings / app_config / teams (an
@@ -241,6 +253,49 @@ const routes: FastifyPluginAsync = async (fastify) => {
       return { media: rows };
     }
   );
+
+  // POST /media/:id/share-link — mint a longer-lived presigned GET URL for
+  // external sharing (#180 v1: mobile hands this straight to Share.share()).
+  // Gated the same way GET /media/:entityType/:entityId is: any authenticated
+  // caller may read ordinary entity media, but message attachments stay
+  // conversation-private and pool shares stay uploader-only via REST.
+  fastify.post<{ Params: { id: string } }>('/:id/share-link', {
+    ...auth,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string', minLength: 1, maxLength: 64 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const callerId = (request.user as { sub: string }).sub;
+
+    const { rows } = await fastify.pg.query(
+      `SELECT * FROM media WHERE id = $1`,
+      [request.params.id]
+    );
+    const media = rows[0] as { id: string; url: string; entity_type: string; entity_id: string } | undefined;
+    if (!media) return reply.status(404).send({ error: 'Not found' });
+
+    if (media.entity_type === 'message') {
+      if (!(await callerInMessageConversation(fastify.pg, media.entity_id, callerId))) {
+        return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
+      }
+    }
+    if (media.entity_type === 'pool' && media.entity_id !== callerId) {
+      return reply.status(403).send({ error: 'Forbidden: pool media is uploader-only via REST' });
+    }
+
+    const key = deriveKey(media.url);
+    if (!key) return reply.status(500).send({ error: 'Media object key could not be resolved' });
+
+    const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+    const shareUrl = await getSignedUrl(s3Public, command, { expiresIn: SHARE_LINK_EXPIRY_SECONDS });
+    return { shareUrl, expiresInSeconds: SHARE_LINK_EXPIRY_SECONDS };
+  });
 
   // DELETE /media/:id
   fastify.delete<{ Params: { id: string } }>('/:id', {

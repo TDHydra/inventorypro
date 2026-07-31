@@ -94,6 +94,24 @@ export function getPendingCount(): number {
   return ((result.rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
 }
 
+// Whether a single media row (identified by its client-generated id — see
+// insertMediaRow in media/uploadCore.ts) still has an undelivered outbox entry
+// (#180: the "Share externally" mint endpoint reads the row from Postgres, so
+// offering to share a row that hasn't reached the server yet would 404).
+// There's no dedicated entity-id column on outbox — payload is opaque JSON —
+// so this matches the `"id":"<uuid>"` shape appendOutbox always serializes as
+// the first key of every media payload (insertMediaRow always passes `id`
+// first). Scoped to table_name so a foreign table's row can't collide on the
+// same uuid.
+export function isMediaUploadPending(mediaId: string): boolean {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT 1 FROM outbox WHERE synced_at IS NULL AND table_name = 'media' AND payload LIKE ? LIMIT 1`,
+    [`%"id":"${mediaId}"%`]
+  );
+  return result.rows.length > 0;
+}
+
 // Counts split by deliverability: `active` are still being retried (attempts <
 // MAX), `failed` have exhausted retries and are NO LONGER sent — they're what
 // silently pinned the "pending" indicator forever. Surfacing them separately

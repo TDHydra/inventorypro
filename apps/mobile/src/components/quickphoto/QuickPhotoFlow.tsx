@@ -18,6 +18,9 @@ import { getOpenJobs } from '../../db/queries/jobs';
 import { getAllActiveUsers, type User } from '../../db/queries/users';
 import { getLocationNoteSuggestions, getPoolLocationNoteSuggestions } from '../../db/queries/media';
 import { uploadMediaAsset, MediaTooLargeError } from '../../media/upload';
+import { shareMediaExternally } from '../../media/shareExternal';
+import { isMediaUploadPending } from '../../sync/outbox';
+import { syncNow } from '../../sync/engine';
 import {
   initialState, open, chooseDest, photoTaken, assetsPicked, cameraCancelled, galleryCancelled,
   saveDone, saveAndAddAnother, cancelDetails, buildUploadInput,
@@ -55,6 +58,13 @@ export function QuickPhotoFlow() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // #180 v1: after a "Done" (not "another" — that loops straight into the next
+  // capture) upload, offer to share the just-uploaded photo externally. Kept
+  // OUTSIDE the quickPhotoLogic phase machine (which the destination/camera/
+  // details tests exercise) — this is a purely additive overlay, not a phase.
+  const [postCapture, setPostCapture] = useState<{ id: string } | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareSyncPending, setShareSyncPending] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guards the camera-launch effect so re-renders while the native camera is
   // open (e.g. permission alert dismiss) don't relaunch it; reset whenever the
@@ -203,9 +213,10 @@ export function QuickPhotoFlow() {
   async function handleSave(mode: 'done' | 'another') {
     if (!user || !state.dest || !state.photoUri) return;
     setSaving(true);
+    let uploaded: { id: string; url: string };
     try {
       const built = buildUploadInput(state.dest, user.id, roomArea, note);
-      await uploadMediaAsset({ ...built, mediaType: state.mediaType, ext: state.ext, uri: state.photoUri, userId: user.id });
+      uploaded = await uploadMediaAsset({ ...built, mediaType: state.mediaType, ext: state.ext, uri: state.photoUri, userId: user.id });
     } catch (err) {
       // uploadMediaAsset requires connectivity for the presign — surface any
       // failure as a Toast rather than letting it crash the sheet.
@@ -218,6 +229,37 @@ export function QuickPhotoFlow() {
     }
     setSaving(false);
     setState(prev => (mode === 'done' ? saveDone(prev) : saveAndAddAnother(prev)));
+    // Offer external share only when the flow is actually finishing — "Save &
+    // add another" loops straight back into the camera for the next shot.
+    if (mode === 'done') {
+      setPostCapture({ id: uploaded.id });
+      void syncNow(); // best-effort nudge so the share link is ready sooner
+    }
+  }
+
+  // #180: the share-link mint endpoint reads the media row from Postgres, so
+  // it's only safe once the row has actually reached the server — poll on the
+  // same short-interval idiom SyncIndicator uses, so a photo that syncs while
+  // this panel is open enables itself without the user reopening anything.
+  useEffect(() => {
+    if (!postCapture) {
+      setShareSyncPending(false);
+      return;
+    }
+    const check = () => setShareSyncPending(isMediaUploadPending(postCapture.id));
+    check();
+    const interval = setInterval(check, 3000);
+    return () => clearInterval(interval);
+  }, [postCapture]);
+
+  async function handleShare() {
+    if (!postCapture) return;
+    setSharing(true);
+    try {
+      await shareMediaExternally(postCapture.id);
+    } finally {
+      setSharing(false);
+    }
   }
 
   function handleCancelDetails() {
@@ -320,6 +362,28 @@ export function QuickPhotoFlow() {
           <Text style={s.cancelBtnText}>Cancel</Text>
         </TouchableOpacity>
       </ModalSheet>
+
+      {/* #180 v1 — post-capture share offer. A LINK via the OS share sheet
+         (RN core Share), not a file attachment — file sharing (expo-sharing)
+         is v2, deferred to the next native rebuild. Separate from the
+         destination/camera/details sheets above: this only ever follows a
+         completed "Done" upload, never blocks the capture flow itself. */}
+      <ModalSheet visible={postCapture !== null} onClose={() => setPostCapture(null)} scroll>
+        <Text style={s.title}>Photo saved</Text>
+        <PrimaryButton
+          label="Share externally"
+          onPress={handleShare}
+          disabled={shareSyncPending}
+          loading={sharing}
+          style={s.detailBtn}
+        />
+        {shareSyncPending && (
+          <Text style={s.shareReason}>Share available once this photo finishes syncing.</Text>
+        )}
+        <TouchableOpacity style={s.cancelBtn} onPress={() => setPostCapture(null)}>
+          <Text style={s.cancelBtnText}>Done</Text>
+        </TouchableOpacity>
+      </ModalSheet>
     </>
   );
 }
@@ -345,6 +409,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   noteInput: { minHeight: 80, textAlignVertical: 'top' },
   detailBtn: { marginTop: t.spacing.base },
+  // Same reduced-emphasis convention as PermissionGate's mode="disable" reason.
+  shareReason: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2, textAlign: 'center' },
   cancelBtn: { alignItems: 'center', paddingVertical: 12, marginTop: t.spacing.sm },
   cancelBtnText: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontWeight: '600' },
 });
