@@ -65,6 +65,8 @@ const COLUMNS: Record<string, string[]> = {
   // #162 team-scoped unit inventory
   stock_by_location: ['item_id', 'location_id', 'quantity', 'updated_at'],
   equipment_units: ['id', 'item_id', 'asset_tag', 'serial_number', 'status', 'current_location_id', 'current_job_id', 'notes', 'created_at', 'updated_at'],
+  // #178 v1: immutable troubleshooting-steps log.
+  repair_steps: ['id', 'repair_id', 'action', 'result', 'created_by', 'created_at', 'updated_at'],
 };
 
 interface FakePgOpts {
@@ -1267,4 +1269,47 @@ test('#162 equipment: an INSERT (upsert) that pulls a unit out of a foreign-team
   ]);
   assert.deepEqual(body.ok, []);
   assert.match(body.conflicts[0].error, PERMANENT);
+});
+
+// ── #178 v1: repair_steps is an immutable troubleshooting log ────────────────
+
+test('repair_steps: INSERT with edit_inventory applies and stamps created_by to the caller', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'repair_steps', payload: { id: 'step-1', repair_id: 'r-1', action: 'Checked the fuse', result: 'Blown — replaced it', created_by: 'forged-user', created_at: NOW, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.deepEqual(body.conflicts, []);
+  assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO repair_steps') && q.params.includes(CALLER)),
+    'created_by must be stamped to the caller, not the forged payload value');
+});
+
+test('repair_steps: INSERT is rejected without edit_inventory', async () => {
+  const pg = fakePg({ callerRole: 'temporary_employee' }); // tier 1, no edit_inventory
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'repair_steps', payload: { id: 'step-2', repair_id: 'r-1', action: 'Checked the fuse', created_at: NOW, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, /edit_inventory/);
+});
+
+test('repair_steps: a crafted UPDATE on an existing step is rejected as a permanent DENY, even for a full editor', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const body = await push(pg, [
+    { operation: 'UPDATE', table_name: 'repair_steps', payload: { id: 'step-1', action: 'rewritten after the fact', result: 'covering up a mistake' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.match(body.conflicts[0].error, /repair_steps\/UPDATE/);
+  assert.ok(!pg.queries.some(q => q.sql.startsWith('UPDATE repair_steps')), 'the step row must never be touched by SQL');
+});
+
+test('repair_steps: a crafted DELETE on an existing step is rejected as a permanent DENY', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const body = await push(pg, [
+    { operation: 'DELETE', table_name: 'repair_steps', payload: { id: 'step-1' } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.startsWith('DELETE FROM repair_steps')), 'the step row must never be deleted via sync');
 });

@@ -142,6 +142,7 @@ export function sanitizeTeamOverrides(
 // is intentionally NOT here — it's a deliberate assignment, not "who created it".
 export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   jobs: ['created_by'], repairs: ['created_by'], repair_parts: ['created_by'],
+  repair_steps: ['created_by'],
   media: ['uploaded_by'], team_members: ['added_by'],
   // requester_id is forced to the caller on INSERT (can't file a request as
   // someone else) and can't be reassigned on UPDATE.
@@ -331,6 +332,11 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   jobs:            { INSERT: 'create_jobs', UPDATE: 'create_jobs', DELETE: 'close_jobs' },
   repairs:         { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   repair_parts:    { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
+  // repair_steps (#178 v1): an immutable troubleshooting log — any entry once
+  // written stays forever, so only INSERT is mapped; UPDATE/DELETE are
+  // deliberately ABSENT (requiredOperationPerm fails an absent op closed to
+  // 'DENY' on an operational table, same idiom as vehicle_checkouts DELETE).
+  repair_steps:    { INSERT: 'edit_inventory' },
   maintenance_events: { INSERT: 'edit_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   taxonomy_types:  { INSERT: 'add_inventory', UPDATE: 'edit_inventory', DELETE: 'edit_inventory' },
   // media is a real family: uploading, editing details (caption/location-note/

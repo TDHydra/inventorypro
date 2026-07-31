@@ -132,6 +132,27 @@ test('repairs hides cost without view_financial_data, exposes it with', () => {
   assert.ok(/\bcost\b/.test(full));
 });
 
+// #178 v1: repair_steps is an immutable troubleshooting log — INSERT requires
+// edit_inventory (matches repairs/repair_parts), but UPDATE/DELETE are
+// deliberately absent from OPERATION_PERM so requiredOperationPerm fails them
+// closed to 'DENY' (a crafted edit/delete of an existing step must never
+// apply, even for a full editor).
+test('repair_steps: INSERT requires edit_inventory; UPDATE/DELETE are DENY (immutable log)', () => {
+  assert.equal(requiredOperationPerm('repair_steps', 'INSERT'), 'edit_inventory');
+  assert.equal(requiredOperationPerm('repair_steps', 'UPDATE'), 'DENY');
+  assert.equal(requiredOperationPerm('repair_steps', 'DELETE'), 'DENY');
+});
+
+test('repair_steps: created_by is forced to the caller on INSERT (attribution)', () => {
+  const realRepairSteps = new Map([['repair_steps', new Set(['id', 'repair_id', 'action', 'result', 'created_by'])]]);
+  const { row } = applyWritePolicy(
+    'repair_steps', 'INSERT',
+    { id: 's1', repair_id: 'r1', action: 'Checked the fuse', created_by: 'someone-else' },
+    'caller', realRepairSteps, () => true,
+  );
+  assert.equal(row.created_by, 'caller');
+});
+
 test('TEAM_OVERRIDABLE_PERMISSIONS excludes admin/system-wide keys', () => {
   for (const admin of ['manage_teams', 'manage_users', 'manage_roles_permissions', 'set_pins', 'system_settings']) {
     assert.equal(TEAM_OVERRIDABLE_PERMISSIONS.has(admin), false, `${admin} must not be team-overridable`);
