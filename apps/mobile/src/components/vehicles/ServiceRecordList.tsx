@@ -30,6 +30,10 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
   const { locked } = useMaintenanceMode();
   const version = useTableVersion(['vehicle_service_records', 'media']);
   const [addOpen, setAddOpen] = useState(false);
+  // Which kind the sheet opens on. The fuel-up button lands DIRECTLY on the
+  // receipt form (photo / For-payer / gallons) — identical to the QuickAdd gas
+  // receipt — instead of relying on the small Entry segment inside the sheet.
+  const [addKind, setAddKind] = useState<'service' | 'fuel_up'>('service');
 
   const records = useMemo(
     () => getServiceRecords(locationId, limit),
@@ -72,8 +76,13 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
             member may file one. Non-editors get the sheet locked to the
             Fuel-up kind; service records stay editor-only inside. */}
         <View style={s.btnRow}>
-          <TouchableOpacity style={s.addBtn} onPress={() => setAddOpen(true)} disabled={locked}>
-            <Text style={s.addText}>{canEdit ? '+ Log service' : '+ Fuel-up / receipt'}</Text>
+          {canEdit && (
+            <TouchableOpacity style={s.addBtn} onPress={() => { setAddKind('service'); setAddOpen(true); }} disabled={locked}>
+              <Text style={s.addText}>+ Log service</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={s.addBtn} onPress={() => { setAddKind('fuel_up'); setAddOpen(true); }} disabled={locked}>
+            <Text style={s.addText}>+ ⛽ Fuel-up / receipt</Text>
           </TouchableOpacity>
         </View>
       </Card>
@@ -81,6 +90,7 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
       <AddServiceRecordSheet
         locationId={locationId}
         visible={addOpen}
+        initialKind={addKind}
         onClose={() => setAddOpen(false)}
       />
     </>

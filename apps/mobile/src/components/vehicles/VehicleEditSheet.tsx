@@ -5,14 +5,17 @@ import { TextField } from '../ui/TextField';
 import { StatusPill } from '../ui/StatusPill';
 import { TaxonomyChips } from '../pickers';
 import { getLocationById, upsertLocation } from '../../db/queries/locations';
-import { getVehicle, upsertVehicleState, VEHICLE_MODEL_CATEGORY, type VehicleStatePatch } from '../../db/queries/vehicles';
+import {
+  getVehicle, upsertVehicleState, createServiceRecord, getOdometerTimeline,
+  VEHICLE_MODEL_CATEGORY, type VehicleStatePatch,
+} from '../../db/queries/vehicles';
 import { getUserById } from '../../db/queries/users';
 import { runInTransaction } from '../../db/tx';
 import { appendOutbox } from '../../sync/outbox';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
-import { validateName } from '../../lib/validation';
+import { validateName, parseOptionalCount } from '../../lib/validation';
 import { canManageVehicle, canLiftVehicleLockFor } from '../../db/queries/access';
 import { track } from '../../telemetry';
 import type { Theme } from '../../themes/types';
@@ -50,6 +53,12 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
   const [canLift, setCanLift] = useState(true);
   const [lockerName, setLockerName] = useState<string | null>(null);
   const [nameError, setNameError] = useState('');
+  // Current odometer, seeded from the newest odometer-bearing service record.
+  // Editing it writes a NEW 'Odometer update' service record (the odometer
+  // lives on the timeline, not a vehicles column), so the roll/history update.
+  const [odometer, setOdometer] = useState('');
+  const [odoSeed, setOdoSeed] = useState<number | null>(null);
+  const [odoError, setOdoError] = useState('');
 
   // Re-seed the form each time the sheet opens: it edits the CURRENT row, and a
   // sync pull while closed must not leave stale initial values behind. While
@@ -69,6 +78,10 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     setCanLift(canLiftVehicleLockFor(user, location ?? null, vehicle));
     setLockerName(vehicle?.locked_by ? getUserById(vehicle.locked_by)?.name ?? null : null);
     setNameError('');
+    const latestOdo = getOdometerTimeline(locationId, 1)[0]?.odometer ?? null;
+    setOdoSeed(latestOdo);
+    setOdometer(latestOdo != null ? String(latestOdo) : '');
+    setOdoError('');
   }, [visible, locationId, user]);
 
   // EntityEditSheet contract: throw to keep the sheet open; return to close.
@@ -88,6 +101,17 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
       newName = nameResult.value;
     }
     setNameError('');
+    let odoValue: number | null = null;
+    if (isEditor) {
+      const odoResult = parseOptionalCount(odometer, 'Odometer');
+      if (!odoResult.ok) {
+        track('audit', 'validation_reject', { screen: 'vehicle_edit', props: { field: 'vehicle.odometer', rule: odoResult.rule } });
+        setOdoError(odoResult.error);
+        throw new Error(`validation: ${odoResult.rule}`);
+      }
+      odoValue = odoResult.value;
+    }
+    setOdoError('');
     const now = new Date().toISOString();
 
     // Each holder patches only the fields their gate covers; everything else
@@ -136,6 +160,24 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
       Alert.alert('Save failed', err instanceof Error ? err.message : 'Unknown error');
       throw err;
     }
+
+    // Outside the transaction above — createServiceRecord opens its own.
+    // Only a CHANGED reading writes a record; re-saving the seeded value no-ops.
+    if (isEditor && odoValue != null && odoValue !== odoSeed) {
+      try {
+        createServiceRecord({
+          vehicleLocationId: locationId,
+          target: 'vehicle',
+          eventDate: now,
+          type: 'Odometer update',
+          odometer: odoValue,
+          userId: user?.id ?? null,
+        });
+      } catch (err) {
+        Alert.alert('Save failed', err instanceof Error ? err.message : 'Unknown error');
+        throw err;
+      }
+    }
   }
 
   return (
@@ -156,6 +198,14 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
             valueId={model.id}
             valueLabel={model.label}
             onChange={setModel}
+          />
+          <TextField
+            label="Odometer (mi)"
+            value={odometer}
+            onChangeText={v => { setOdometer(v); if (odoError) setOdoError(''); }}
+            placeholder="e.g. 84200"
+            keyboardType="numeric"
+            error={odoError || null}
           />
           <Pressable onPress={() => setTruckMount(v => !v)} style={s.truckRow}>
             <StatusPill

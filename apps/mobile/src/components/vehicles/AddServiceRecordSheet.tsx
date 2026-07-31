@@ -348,7 +348,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
               placeholder="Search vehicles..."
               options={vehicleOptions}
               value={vehicle}
-              onSelect={opt => setVehicle(opt)}
+              onSelect={opt => setVehicle(prev => (prev?.id === opt.id ? null : opt))}
             />
             {isFuelUp && activeCheckout && vehicle && activeCheckout.id !== vehicle.id && (
               <Text style={s.mismatch}>You have {activeCheckout.name} checked out — this will be noted.</Text>
@@ -415,7 +415,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
                 placeholder="Type a team, job, or Office..."
                 options={forOptions}
                 value={forPick}
-                onSelect={opt => setForPick(opt)}
+                onSelect={opt => setForPick(prev => (prev?.id === opt.id ? null : opt))}
                 onCreate={canCreateJobs ? createJob : undefined}
               />
             </View>
