@@ -1,4 +1,5 @@
-import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
@@ -14,7 +15,7 @@ import { isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { computeQuickActions, isOverdueRepair, type QuickAction } from '../../../src/dashboard/quickActions';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { roleColor } from '../../../src/db/queries/users';
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/roles';
 import { track } from '../../../src/telemetry';
 import type { Theme } from '../../../src/themes/types';
@@ -22,7 +23,7 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { useDashboardLayout } from '../../../src/dashboard/store';
 import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
-import { useDataVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { OnCallWidget } from '../../../src/components/oncall/OnCallWidget';
 import { StatTiles } from '../../../src/components/dashboard/StatTiles';
 import { WorkList } from '../../../src/components/dashboard/WorkList';
@@ -59,22 +60,30 @@ export default function DashboardScreen() {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const router = useRouter();
+  // Edge-to-edge Android: the system nav bar overlays the scroll content, so the
+  // last tile needs the real safe-area inset (the fixed 40 undershot 3-button
+  // nav, ~48dp — same #163/#187 class as the kit sheets; 32 floor per ModalSheet).
+  const insets = useSafeAreaInsets();
+  const navInset = Math.max(insets.bottom, Platform.OS === 'android' ? 32 : 0);
   const [reshow, setReshow] = useState<(() => void) | null>(null);
   // #168: the gas-receipt quick-action opens the Log Service sheet in place,
   // pre-filled with the checked-out vehicle (no navigation detour).
   const [gasVehicleId, setGasVehicleId] = useState<string | null>(null);
-  // Keyed on dataVersion so the low-stock widget updates live after a sync pull
-  // (the layout is already reactive via useDashboardLayout; the DATA wasn't) (#61).
-  const dataVersion = useDataVersion();
-  const all = useMemo(() => getLowStockItems(), [dataVersion]);
+  // Table-scoped reactivity (#61 → #63 finish): the low-stock scan re-runs only
+  // when inventory data changes, not on every pull (a chat message used to
+  // re-query it via the global dataVersion). taxonomy_types is in the list
+  // because resolveLabels maps category ids inside the read.
+  const all = useDbQuery(() => getLowStockItems(), [],
+    ['inventory_items', 'stock_by_location', 'equipment_units', 'taxonomy_types']);
   const shown = all.slice(0, 3);
 
-  // Contextual quick-actions (#144): recomputed per sync pull (dataVersion) so a
-  // check-in elsewhere or a stock recovery hides the card without a remount.
-  // Scoping mirrors localAlerts: past-due + low-stock only exist for
-  // edit_inventory holders; the vehicle check-in card is data-driven.
+  // Contextual quick-actions (#144): recomputed when their source tables change
+  // so a check-in elsewhere or a stock recovery hides the card without a
+  // remount. Scoping mirrors localAlerts: past-due + low-stock only exist for
+  // edit_inventory holders; the vehicle check-in card is data-driven. The
+  // low-stock count rides in via `all` (a dep), not its own read.
   const canEditInventory = usePermission('edit_inventory');
-  const quickActions: QuickAction[] = useMemo(() => {
+  const quickActions: QuickAction[] = useDbQuery(() => {
     if (!user) return [];
     return computeQuickActions({
       activeVehicleCheckout: getActiveCheckoutForUser(user.id),
@@ -85,7 +94,8 @@ export default function DashboardScreen() {
       canEditInventory,
       lowStockCount: all.length,
     });
-  }, [dataVersion, user?.id, canEditInventory, all]);
+  }, [user?.id, canEditInventory, all],
+    ['vehicle_checkouts', 'locations', 'repairs', 'equipment_units', 'taxonomy_types']);
 
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
   // which reproduces today's dashboard exactly (same tiles/order/gates below).
@@ -341,7 +351,7 @@ export default function DashboardScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'InventoryPro', headerShown: true }} />
-      <ScrollView style={s.container} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ScrollView style={s.container} contentContainerStyle={[s.content, { paddingBottom: 16 + navInset }]} keyboardShouldPersistTaps="handled">
         {elements}
       </ScrollView>
       {/* #168: gas-receipt quick-action target — Log Service sheet on the
@@ -360,7 +370,8 @@ export default function DashboardScreen() {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.colors.background },
-  content: { padding: 16, gap: 10, paddingBottom: 40 },
+  // Bottom padding is overridden inline with the runtime safe-area inset.
+  content: { padding: 16, gap: 10 },
   greeting: { marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   greetingText: { flex: 1 },
   hi: { fontSize: 24, fontWeight: '700', color: t.colors.brand },
@@ -398,11 +409,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     height: 22,
     borderRadius: 11,
     paddingHorizontal: 6,
-    backgroundColor: '#EF4444',
+    backgroundColor: t.colors.danger,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  tileBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  tileBadgeText: { color: t.colors.onPrimary, fontSize: 12, fontWeight: '700' },
   tileIcon: { fontSize: 22, marginBottom: 6 },
   tileLabel: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
   tileLabelPrimary: { fontSize: 18, fontWeight: '700', color: t.colors.onPrimary, marginBottom: 4 },
