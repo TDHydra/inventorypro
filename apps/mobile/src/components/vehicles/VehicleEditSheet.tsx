@@ -3,7 +3,12 @@ import { Alert, Pressable, Text, StyleSheet } from 'react-native';
 import { EntityEditSheet } from '../ui/EntityEditSheet';
 import { TextField } from '../ui/TextField';
 import { StatusPill } from '../ui/StatusPill';
+import { FieldLabel } from '../ui/FieldLabel';
 import { TaxonomyChips } from '../pickers';
+import { SearchablePicker, type PickerOption } from '../SearchablePicker';
+import { getAllActiveUsers } from '../../db/queries/users';
+import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
+import { useDbQuery } from '../../hooks/useDbQuery';
 import { getLocationById, upsertLocation } from '../../db/queries/locations';
 import {
   getVehicle, upsertVehicleState, createServiceRecord, getOdometerTimeline,
@@ -40,6 +45,12 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
   const { user } = useSession();
   const isEditor = usePermission('edit_inventory');
 
+  const ownerOptions = useDbQuery<PickerOption[]>(
+    () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
+    [],
+    ['users'],
+  );
+
   const [name, setName] = useState('');
   const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
   const [truckMount, setTruckMount] = useState(false);
@@ -53,6 +64,9 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
   const [canLift, setCanLift] = useState(true);
   const [lockerName, setLockerName] = useState<string | null>(null);
   const [nameError, setNameError] = useState('');
+  // Owner assignment (locations.owner_user_id — a deliberate assignment, the
+  // server's syncPolicy allows reassigning it, unlike attribution columns).
+  const [owner, setOwner] = useState<PickerOption | null>(null);
   // Current odometer, seeded from the newest odometer-bearing service record.
   // Editing it writes a NEW 'Odometer update' service record (the odometer
   // lives on the timeline, not a vehicles column), so the roll/history update.
@@ -74,6 +88,9 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     setCheckoutLocked(!!vehicle?.checkout_locked);
     setOpenCheckout(!!vehicle?.open_checkout);
     setHasOwner(location?.owner_user_id != null);
+    setOwner(location?.owner_user_id
+      ? { id: location.owner_user_id, label: getUserById(location.owner_user_id)?.name ?? 'Unknown user' }
+      : null);
     setCanLock(canManageVehicle(user, location ?? null));
     setCanLift(canLiftVehicleLockFor(user, location ?? null, vehicle));
     setLockerName(vehicle?.locked_by ? getUserById(vehicle.locked_by)?.name ?? null : null);
@@ -131,9 +148,11 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
     try {
       // Atomic: renamed location + its outbox entry + the vehicle spec write
       // (which appends its own outbox + vehicle_state_changed log) land together.
+      const newOwnerId = owner?.id ?? null;
+      const ownerChanged = newOwnerId !== (location.owner_user_id ?? null);
       runInTransaction(() => {
-        if (isEditor && newName !== location.name) {
-          const updated = { ...location, name: newName, updated_at: now, synced_at: null };
+        if (isEditor && (newName !== location.name || ownerChanged)) {
+          const updated = { ...location, name: newName, owner_user_id: newOwnerId, updated_at: now, synced_at: null };
           upsertLocation(updated);
           // synced_at is local-only — strip from the outbox payload (server has
           // no such column); active as boolean mirrors VehicleQuickAdd.
@@ -198,6 +217,13 @@ export function VehicleEditSheet({ locationId, visible, onClose }: Props) {
             valueId={model.id}
             valueLabel={model.label}
             onChange={setModel}
+          />
+          <FieldLabel>Owner (optional)</FieldLabel>
+          <SearchablePicker
+            placeholder="Search users..."
+            options={ownerOptions}
+            value={owner}
+            onSelect={opt => setOwner(prev => (prev?.id === opt.id ? null : opt))}
           />
           <TextField
             label="Odometer (mi)"
