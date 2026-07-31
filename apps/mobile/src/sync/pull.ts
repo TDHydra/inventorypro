@@ -19,7 +19,8 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, updated_at) VALUES (?, ?, ?)`,
   taxonomy_types: `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta) VALUES (?,?,?,?,?,?,?,?)`,
   repairs: `INSERT OR REPLACE INTO repairs (id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, cost, due_at, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  repair_parts: `INSERT OR REPLACE INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+  repair_parts: `INSERT OR REPLACE INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at, step_id) VALUES (?,?,?,?,?,?,?,?,?)`,
+  repair_steps: `INSERT OR REPLACE INTO repair_steps (id, repair_id, action, result, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
   notifications: `INSERT OR REPLACE INTO notifications (id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   approval_requests: `INSERT OR REPLACE INTO approval_requests (id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   maintenance_events: `INSERT OR REPLACE INTO maintenance_events (id, unit_id, event_date, type, notes, cost, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -55,7 +56,8 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'user_prefs': return [row.user_id, row.theme ?? null, row.updated_at];
     case 'taxonomy_types': return [row.id, row.category, row.label, row.icon ?? null, row.sort_order, row.active ? 1 : 0, row.updated_at, row.meta ?? null];
     case 'repairs': return [row.id, row.entity_type, row.entity_id, row.entity_label ?? null, row.notes ?? null, row.parts_needed ?? null, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.completed_at ?? null, row.assignee_id ?? null, row.cost ?? null, row.due_at ?? null, row.status_id ?? null];
-    case 'repair_parts': return [row.id, row.repair_id, row.item_id, row.qty, row.unit, row.created_by ?? null, row.created_at, row.updated_at];
+    case 'repair_parts': return [row.id, row.repair_id, row.item_id, row.qty, row.unit, row.created_by ?? null, row.created_at, row.updated_at, row.step_id ?? null];
+    case 'repair_steps': return [row.id, row.repair_id, row.action, row.result ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'notifications': return [row.id, row.user_id, row.type, row.title, row.body, row.data ?? null, row.read_at ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'approval_requests': return [row.id, row.requester_id, row.kind, row.title, row.detail ?? null, row.status, row.decided_by ?? null, row.decided_at ?? null, row.decision_note ?? null, row.entity_type ?? null, row.entity_id ?? null, row.metadata ?? null, row.created_at, row.updated_at];
     case 'maintenance_events': return [row.id, row.unit_id, row.event_date, row.type, row.notes ?? null, row.cost ?? null, row.created_by ?? null, row.created_at, row.updated_at];

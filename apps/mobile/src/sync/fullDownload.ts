@@ -14,6 +14,7 @@ const SYNC_TABLES = [
   // Operational tables that were previously only backfilled via incremental
   // /sync/pull — added so a fresh device has full state after enrollment.
   'equipment_units', 'app_config', 'taxonomy_types', 'repairs', 'repair_parts',
+  'repair_steps',
   'maintenance_events', 'label_templates', 'dashboard_presets',
   // user_prefs is SCOPED_TABLES server-side (only the caller's own row comes
   // back) — per-user theme choice follows the user onto a fresh device.
@@ -146,6 +147,7 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'taxonomy_types':
       case 'repairs':
       case 'repair_parts':
+      case 'repair_steps':
       case 'maintenance_events':
       case 'label_templates':
       case 'dashboard_presets':

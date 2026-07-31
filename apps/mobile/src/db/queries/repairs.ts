@@ -24,13 +24,31 @@ export interface Repair {
 }
 
 // A row of repair_parts: inventory consumed by a repair ticket. No FK on
-// repair_id/item_id (sync-order safety, matching repairs).
+// repair_id/item_id (sync-order safety, matching repairs). step_id (migration
+// 057, #178 Part 4) optionally links the part to the troubleshooting step it
+// was consumed under — null for parts used before any step is logged.
 export interface RepairPart {
   id: string;
   repair_id: string;
   item_id: string;
   qty: number;
   unit: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  step_id?: string | null;
+  synced_at?: string | null; // local-only
+}
+
+// A row of repair_steps (#178 v1): an immutable troubleshooting log entry —
+// "what did you try?" (action, required) and its outcome (result, optional).
+// No FK on repair_id (sync-order safety, matching repair_parts). Never
+// UPDATEd/DELETEd — the server rejects both (syncPolicy.ts OPERATION_PERM).
+export interface RepairStep {
+  id: string;
+  repair_id: string;
+  action: string;
+  result: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -166,26 +184,29 @@ export function updateRepairStatus(
 
 // Record inventory consumed by a repair ticket: insert locally + queue the
 // outbox INSERT (synced_at stripped — the server table has no such column).
-// No FK on repair_id/item_id (sync-order safety, matching repairs). Returns
-// the new repair_parts row id.
+// No FK on repair_id/item_id (sync-order safety, matching repairs). stepId
+// (#178 Part 4) optionally links the part to the current/latest troubleshooting
+// step; omit/null for parts used before any step is logged. Returns the new
+// repair_parts row id.
 export function addRepairPart(
   repairId: string,
   itemId: string,
   qty: number,
   unit: string,
   createdBy: string | null = null,
+  stepId: string | null = null,
 ): string {
   const db = getDb();
   const now = new Date().toISOString();
   const id = generateUUID();
   db.executeSync(
-    `INSERT INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    bindParams([id, repairId, itemId, qty, unit, createdBy, now, now]),
+    `INSERT INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at, step_id, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    bindParams([id, repairId, itemId, qty, unit, createdBy, now, now, stepId]),
   );
   appendOutbox('INSERT', 'repair_parts', {
     id, repair_id: repairId, item_id: itemId, qty, unit,
-    created_by: createdBy, created_at: now, updated_at: now,
+    created_by: createdBy, created_at: now, updated_at: now, step_id: stepId,
   });
   return id;
 }
@@ -198,4 +219,42 @@ export function getRepairParts(repairId: string): RepairPart[] {
     [repairId],
   );
   return rowsAs<RepairPart>(result.rows);
+}
+
+// Log a troubleshooting step against a repair ticket: insert locally + queue
+// the outbox INSERT (synced_at stripped — the server table has no such
+// column). No FK on repair_id (sync-order safety, matching repair_parts).
+// Immutable once written — there is no updateRepairStep (server rejects
+// UPDATE/DELETE via syncPolicy.ts OPERATION_PERM). Returns the new
+// repair_steps row id.
+export function addRepairStep(
+  repairId: string,
+  action: string,
+  result: string | null,
+  createdBy: string | null = null,
+): string {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const id = generateUUID();
+  db.executeSync(
+    `INSERT INTO repair_steps (id, repair_id, action, result, created_by, created_at, updated_at, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+    bindParams([id, repairId, action, result, createdBy, now, now]),
+  );
+  appendOutbox('INSERT', 'repair_steps', {
+    id, repair_id: repairId, action, result,
+    created_by: createdBy, created_at: now, updated_at: now,
+  });
+  return id;
+}
+
+// Troubleshooting steps for a repair ticket, chronological (oldest first) —
+// the log reads top-to-bottom as the sequence of things tried.
+export function getRepairSteps(repairId: string): RepairStep[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM repair_steps WHERE repair_id = ? ORDER BY created_at ASC`,
+    [repairId],
+  );
+  return rowsAs<RepairStep>(result.rows);
 }

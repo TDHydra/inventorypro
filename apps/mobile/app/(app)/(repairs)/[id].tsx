@@ -9,17 +9,20 @@ import { useSession } from '../../../src/hooks/useSession';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useTableVersion } from '../../../src/hooks/useDataVersion';
+import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { appendOutbox } from '../../../src/sync/outbox';
 import {
-  getRepairById, updateRepairFields, updateRepairStatus, addRepairPart, getRepairParts, Repair, RepairPart,
+  getRepairById, updateRepairFields, updateRepairStatus, addRepairPart, getRepairParts,
+  addRepairStep, getRepairSteps, getRepairsForEntity, Repair, RepairPart, RepairStep,
 } from '../../../src/db/queries/repairs';
 import { getRepairStatusesWithFallback, isTerminalStatus, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { setUnitStatus } from '../../../src/db/queries/equipmentUnits';
 import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { getAllActiveUsers, getUserById, roleColor, getRoleColorMap } from '../../../src/db/queries/users';
 import { searchItems, getItemById, adjustStock } from '../../../src/db/queries/items';
-import { appendLog } from '../../../src/db/queries/log';
+import { appendLog, getLogForEntity } from '../../../src/db/queries/log';
+import { buildStatusTrail } from '../../../src/components/repairs/statusTrailLogic';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { useTheme } from '../../../src/hooks/useTheme';
@@ -33,6 +36,11 @@ import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { QuantityStepper } from '../../../src/components/ui/QuantityStepper';
 import { DateField } from '../../../src/components/ui/DateField';
 import { toIsoDateString } from '../../../src/components/ui/dateFieldLogic';
+import { Card } from '../../../src/components/ui/Card';
+import { StatusPill } from '../../../src/components/ui/StatusPill';
+import { TextField } from '../../../src/components/ui/TextField';
+import { EntityEditSheet } from '../../../src/components/ui/EntityEditSheet';
+import { PermissionGate } from '../../../src/components/PermissionGate';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
@@ -58,6 +66,23 @@ function isoFromNowDays(days: number): string {
 function formatDate(iso: string | null): string {
   if (!iso) return 'No due date';
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Compact "Xm/Xh/yesterday/Xd ago" caption for the troubleshooting step list —
+// mirrors the file-local relativeDate helper in ActivityFeed.tsx (unexported
+// there too, so duplicated per that existing convention).
+function relativeDate(iso: string): string {
+  const then = new Date(iso).getTime();
+  const diffMs = Date.now() - then;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // Local-end-of-day convention: DateField's manual entry only yields a bare
@@ -103,6 +128,34 @@ export default function RepairDetailScreen() {
     [repair, reloadKey, version],
   );
 
+  // Troubleshooting steps (#178 Part 1) — chronological, oldest first. Reactive
+  // via useDbQuery/repair_steps so a local addRepairStep (appendOutbox bumps the
+  // table version) or a synced-in step from another device re-renders this list
+  // without a manual reload().
+  const steps = useDbQuery<RepairStep[]>(
+    () => (repair ? getRepairSteps(repair.id) : []),
+    [repair?.id],
+    ['repair_steps'],
+  );
+
+  // Status trail (#178 Part 2, no schema) — derives which statuses this repair
+  // has actually passed through from its own activity_log rows (logStatus/
+  // pickStatus below write `Status → <label>`, parsed by statusTrailLogic).
+  const statusLogRows = useDbQuery(
+    () => (repair ? getLogForEntity('repair', repair.id, 200) : []),
+    [repair?.id],
+    ['activity_log'],
+  );
+
+  // Prior-fault history (#178 Part 3, no schema) — other repairs against the
+  // same entity, excluding this open ticket, most-recently-updated first
+  // (getRepairsForEntity's own ordering).
+  const priorRepairs = useDbQuery<Repair[]>(
+    () => (repair ? getRepairsForEntity(repair.entity_type, repair.entity_id).filter(r => r.id !== repair.id) : []),
+    [repair?.id, repair?.entity_type, repair?.entity_id],
+    ['repairs'],
+  );
+
   // Editable field buffers (re-seeded whenever the repair reloads)
   const [notes, setNotes] = useState<string>(repair?.notes ?? '');
   const [parts, setParts] = useState<string>(repair?.parts_needed ?? '');
@@ -141,10 +194,23 @@ export default function RepairDetailScreen() {
     [assigneeOpt, optionsVersion],
   );
 
+  // Status trail (#178 Part 2, no schema) — one entry per status (taxonomy
+  // sort_order), toned by statusLogRows via statusTrailLogic (declared after
+  // `statuses` since it depends on that ordering).
+  const statusTrail = useMemo(
+    () => buildStatusTrail(statuses, statusLogRows, repair?.status_id ?? null),
+    [statuses, statusLogRows, repair?.status_id],
+  );
+
   // Return-location modal state (only used for equipment-unit completion)
   const [returnUnitId, setReturnUnitId] = useState<string | null>(null);
   const [returnLoc, setReturnLoc] = useState<PickerOption | null>(null);
   const [returnShelf, setReturnShelf] = useState<PickerOption | null>(null);
+
+  // "Log a step" sheet state (#178 Part 1)
+  const [showLogStep, setShowLogStep] = useState(false);
+  const [stepAction, setStepAction] = useState('');
+  const [stepResult, setStepResult] = useState('');
 
   // "Use parts" modal state (consume inventory against this repair)
   const [showUseParts, setShowUseParts] = useState(false);
@@ -153,10 +219,17 @@ export default function RepairDetailScreen() {
   const [partLocation, setPartLocation] = useState<PickerOption | null>(null);
   const [partShelf, setPartShelf] = useState<PickerOption | null>(null);
   const [partError, setPartError] = useState('');
+  // Optional link to the troubleshooting step a part was consumed under (#178
+  // Part 4) — defaults to the current/latest step in openUseParts below.
+  const [partStepId, setPartStepId] = useState<string | null>(null);
   const partItemSearch = useMemo(
     () => (q: string): PickerOption[] =>
       searchItems(q, 12).map(i => ({ id: i.id, label: i.name, sublabel: i.sku ?? i.unit })),
     [],
+  );
+  const stepOptions = useMemo<PickerOption[]>(
+    () => steps.map(st => ({ id: st.id, label: st.action })),
+    [steps],
   );
 
   if (!repair) {
@@ -242,6 +315,9 @@ export default function RepairDetailScreen() {
     setPartLocation(null);
     setPartShelf(null);
     setPartError('');
+    // Default to the most recent troubleshooting step (steps is oldest-first,
+    // so the last entry is the latest) — none logged yet leaves it unlinked.
+    setPartStepId(steps.length > 0 ? steps[steps.length - 1].id : null);
     setShowUseParts(true);
   }
 
@@ -305,7 +381,7 @@ export default function RepairDetailScreen() {
         appendOutbox('ADJUST', 'stock_by_location', {
           item_id: partItem.id, location_id: stockLocId, delta: -qty, updated_at: now,
         });
-        addRepairPart(repair.id, partItem.id, qty, unit, user?.id ?? null);
+        addRepairPart(repair.id, partItem.id, qty, unit, user?.id ?? null, partStepId);
         appendLog({
           user_id: user?.id ?? null, team_id: null, action: 'consumed',
           entity_type: 'item', entity_id: partItem.id,
@@ -323,6 +399,41 @@ export default function RepairDetailScreen() {
     }
     setShowUseParts(false);
     reload();
+  }
+
+  // "Log a step" (#178 Part 1) — EntityEditSheet contract: throw to keep the
+  // sheet open (validation/write failure), return normally to close it. Steps
+  // are immutable once written (no edit path), so this is the only write.
+  function openLogStep() {
+    setStepAction('');
+    setStepResult('');
+    setShowLogStep(true);
+  }
+
+  function saveStep() {
+    if (!repair) throw new Error('no repair loaded');
+    if (isWriteBlocked()) throw new Error('write blocked');
+    const actionResult = validateText(stepAction, { label: 'What did you try' });
+    if (!actionResult.ok) {
+      trackReject('repair_step.action', actionResult.rule);
+      Alert.alert('Check the step', actionResult.error);
+      throw new Error('validation: action invalid');
+    }
+    if (!actionResult.value) {
+      trackReject('repair_step.action', 'required');
+      Alert.alert('Check the step', 'Describe what you tried.');
+      throw new Error('validation: action required');
+    }
+    const resultResult = validateText(stepResult, { label: 'Result' });
+    if (!resultResult.ok) {
+      trackReject('repair_step.result', resultResult.rule);
+      Alert.alert('Check the result', resultResult.error);
+      throw new Error('validation: result invalid');
+    }
+    // addRepairStep queues its own outbox INSERT and bumps the repair_steps
+    // table version — the `steps` useDbQuery above re-reads on its own, no
+    // reload() needed here.
+    addRepairStep(repair.id, actionResult.value, resultResult.value || null, user?.id ?? null);
   }
 
   function logStatus(action: string, note: string) {
@@ -475,6 +586,13 @@ export default function RepairDetailScreen() {
           )}
         </View>
 
+        {/* Status trail (#178 Part 2) — visited/current/upcoming at a glance */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.trailRow}>
+          {statusTrail.map(entry => (
+            <StatusPill key={entry.id} label={entry.label} tone={entry.tone} />
+          ))}
+        </ScrollView>
+
         {/* Status picker */}
         <FieldLabel>Status</FieldLabel>
         <View style={s.statusRow}>
@@ -596,6 +714,62 @@ export default function RepairDetailScreen() {
           />
         )}
 
+        {/* Troubleshooting (#178 Part 1) */}
+        <View style={s.sectionHeadRow}>
+          <Text style={[s.sectionTitle, { marginTop: 0 }]}>Troubleshooting</Text>
+          <PermissionGate permission="edit_inventory" mode="disable">
+            <TouchableOpacity onPress={openLogStep} disabled={locked}>
+              <Text style={s.usePartsLink}>+ Log a step</Text>
+            </TouchableOpacity>
+          </PermissionGate>
+        </View>
+        <Card variant="detail" style={s.troubleshootingCard}>
+          {steps.length === 0 ? (
+            <Text style={s.readonlyNote}>No troubleshooting steps logged yet.</Text>
+          ) : (
+            steps.map((step, i) => {
+              const author = step.created_by ? getUserById(step.created_by) : null;
+              return (
+                <View key={step.id} style={[s.stepRow, i === steps.length - 1 && s.stepRowLast]}>
+                  <Text style={s.stepAction}>{step.action}</Text>
+                  {!!step.result && <Text style={s.stepResult}>{step.result}</Text>}
+                  <Text style={s.stepMeta}>
+                    {author?.name ?? 'Unknown'} · {relativeDate(step.created_at)}
+                  </Text>
+                </View>
+              );
+            })
+          )}
+        </Card>
+
+        {/* Prior repairs (#178 Part 3) — past tickets on the same entity */}
+        {priorRepairs.length > 0 && (
+          <>
+            <Text style={s.sectionTitle}>Prior Repairs</Text>
+            <Card variant="detail" style={s.troubleshootingCard}>
+              {priorRepairs.map(pr => (
+                <TouchableOpacity
+                  key={pr.id}
+                  style={s.priorRow}
+                  onPress={() => router.push({ pathname: '/(app)/(repairs)/[id]', params: { id: pr.id } })}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={s.priorHeadRow}>
+                      <StatusPill label={pr.status} tone={isTerminalStatus(pr.status) ? 'success' : 'neutral'} />
+                      <Text style={s.priorDate}>
+                        {new Date(pr.completed_at ?? pr.updated_at).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    {!!pr.notes && (
+                      <Text style={s.priorNote} numberOfLines={2}>{pr.notes}</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </Card>
+          </>
+        )}
+
         {/* Parts used */}
         <View style={s.sectionHeadRow}>
           <Text style={[s.sectionTitle, { marginTop: 0 }]}>Parts Used</Text>
@@ -610,9 +784,13 @@ export default function RepairDetailScreen() {
         ) : (
           repairParts.map(p => {
             const partInfo = getItemById(p.item_id);
+            const partStep = p.step_id ? steps.find(st => st.id === p.step_id) : null;
             return (
               <View key={p.id} style={s.partRow}>
-                <Text style={s.partName}>{partInfo?.name ?? p.item_id}</Text>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={s.partName}>{partInfo?.name ?? p.item_id}</Text>
+                  {!!partStep && <Text style={s.partStepNote}>Step: {partStep.action}</Text>}
+                </View>
                 <Text style={s.partQty}>{p.qty} {p.unit}</Text>
               </View>
             );
@@ -695,6 +873,18 @@ export default function RepairDetailScreen() {
           />
           {!!partError && <Text style={s.errorText}>{partError}</Text>}
 
+          {stepOptions.length > 0 && (
+            <>
+              <FieldLabel style={{ marginTop: 12 }}>Step (optional)</FieldLabel>
+              <SearchablePicker
+                placeholder="Link to a troubleshooting step…"
+                options={stepOptions}
+                value={stepOptions.find(o => o.id === partStepId) ?? null}
+                onSelect={(opt) => setPartStepId(prev => (prev === opt.id ? null : opt.id))}
+              />
+            </>
+          )}
+
           <PrimaryButton
             label="Use Parts"
             onPress={confirmUseParts}
@@ -703,6 +893,33 @@ export default function RepairDetailScreen() {
           />
         </ScrollView>
       </ModalSheet>
+
+      {/* Log a step (#178 Part 1) */}
+      <EntityEditSheet
+        visible={showLogStep}
+        onClose={() => setShowLogStep(false)}
+        title="Log a step"
+        onSave={saveStep}
+        saveLabel="Log step"
+      >
+        <View style={s.fields}>
+          <TextField
+            label="What did you try?"
+            value={stepAction}
+            onChangeText={setStepAction}
+            placeholder="e.g. Checked the fuse"
+            required
+            multiline
+          />
+          <TextField
+            label="Result"
+            value={stepResult}
+            onChangeText={setStepResult}
+            placeholder="What happened…"
+            multiline
+          />
+        </View>
+      </EntityEditSheet>
     </>
   );
 }
@@ -727,6 +944,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   overdueBadgeText: { fontSize: 11, fontWeight: '700', color: t.colors.danger },
   overdueText: { color: t.colors.danger, fontWeight: '700' },
+  trailRow: { flexDirection: 'row', gap: t.spacing.sm, paddingVertical: t.spacing.xs },
   statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   readonlyNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8 },
   readonlyValue: { fontSize: 15, color: t.colors.textPrimary, marginTop: 2 },
@@ -743,8 +961,23 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail,
   },
-  partName: { fontSize: 14, color: t.colors.textPrimary, flex: 1, marginRight: 8 },
+  partName: { fontSize: 14, color: t.colors.textPrimary },
+  partStepNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
   partQty: { fontSize: 13, color: t.colors.textSecondary, fontWeight: '600' },
+  troubleshootingCard: { marginBottom: 4 },
+  stepRow: { paddingBottom: t.spacing.md, marginBottom: t.spacing.md, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail },
+  stepRowLast: { marginBottom: 0, paddingBottom: 0, borderBottomWidth: 0 },
+  stepAction: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
+  stepResult: { fontSize: 13, color: t.colors.textSecondary, marginTop: 2 },
+  stepMeta: { fontSize: 11, color: t.colors.textMuted, marginTop: 4 },
+  priorRow: {
+    flexDirection: 'row', alignItems: 'flex-start', paddingVertical: t.spacing.sm,
+    borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail,
+  },
+  priorHeadRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  priorDate: { fontSize: 12, color: t.colors.textMuted },
+  priorNote: { fontSize: 13, color: t.colors.textSecondary, marginTop: 4 },
+  fields: { gap: t.spacing.md },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
   expiryCurrent: {
     flex: 1, backgroundColor: t.colors.background, borderRadius: 10, borderWidth: 1,
