@@ -16,7 +16,12 @@ const SHEET_TRAVEL = 600;
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function ModalSheet({ visible, onClose, children, scroll = false }: { visible: boolean; onClose: () => void; children: React.ReactNode; scroll?: boolean }) {
+// scroll defaults ON (#187 follow-up): a sheet with no scroll surface silently
+// clips overflow at maxHeight, stranding form tails and option rows off-screen.
+// Pass scroll={false} ONLY when the sheet owns its scroll surface (FormSheet's
+// keyboard-aware scroller, sheets with an inner ScrollView or virtualized list)
+// — nesting two vertical scrollers makes Android pan negotiation flaky.
+export function ModalSheet({ visible, onClose, children, scroll = true }: { visible: boolean; onClose: () => void; children: React.ReactNode; scroll?: boolean }) {
   const theme = useTheme();
   const s = useThemedStyles(makeStyles);
   const insets = useSafeAreaInsets();

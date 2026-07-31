@@ -295,7 +295,7 @@ export default function TeamQuickAdd({ onSaved }: Props) {
 
       {/* Per-pending-member permission override editor — draft-only until the team
           (and its members) are actually created by Save. */}
-      <ModalSheet visible={permEditIdx !== null} onClose={() => setPermEditIdx(null)}>
+      <ModalSheet visible={permEditIdx !== null} onClose={() => setPermEditIdx(null)} scroll={false}>
         <Text style={s.modalTitle}>
           {permEditIdx !== null ? `${pendingMembers[permEditIdx]?.user.label} · Team Permissions` : 'Team Permissions'}
         </Text>

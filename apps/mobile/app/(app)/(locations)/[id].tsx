@@ -640,7 +640,7 @@ export default function LocationDetailScreen() {
 
       {/* ── Edit Modal — onClose ONLY hides the sheet; edit inputs are preserved on
           outside-tap dismiss. Form is re-populated on openEdit(); no explicit Clear exists. ── */}
-      <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)}>
+      <ModalSheet visible={showEdit} onClose={() => setShowEdit(false)} scroll={false}>
           <Text style={s.modalTitle}>Edit Location</Text>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             <AppInput

@@ -429,7 +429,7 @@ export default function LocationsScreen() {
 
         {/* Create modal — onClose ONLY hides the sheet; inputs preserved on outside-tap dismiss.
             Reset happens in: Clear button (resetForm) and successful submit (doCreate calls resetForm). */}
-        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
+        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)} scroll={false}>
             <Text style={s.modalTitle}>
               {parentName ? `New sub-area in ${parentName}` : 'New location'}
             </Text>

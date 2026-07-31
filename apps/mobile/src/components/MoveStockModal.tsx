@@ -216,7 +216,7 @@ export default function MoveStockModal({
     : null;
 
   return (
-    <ModalSheet visible={visible} onClose={onClose}>
+    <ModalSheet visible={visible} onClose={onClose} scroll={false}>
       <Text style={s.title}>Move Stock</Text>
       <Text style={s.fromLabel}>From: {fromLocationName}</Text>
 

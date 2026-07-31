@@ -821,7 +821,7 @@ export default function EquipmentModelDetailScreen() {
 
       {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
       {/* onClose only hides — repairInLoc is preserved on outside-tap dismiss */}
-      <ModalSheet visible={repairInUnit !== null} onClose={() => setRepairInUnit(null)}>
+      <ModalSheet visible={repairInUnit !== null} onClose={() => setRepairInUnit(null)} scroll={false}>
         <ScrollView keyboardShouldPersistTaps="handled">
           <Text style={s.modalTitle}>Return from Repair — {repairInUnit?.asset_tag}</Text>
           <FieldLabel style={{ marginTop: 12 }}>Return to Location *</FieldLabel>
@@ -987,7 +987,7 @@ export default function EquipmentModelDetailScreen() {
       </ModalSheet>
 
       {/* ── Add Maintenance Event Modal ─────────────────────────────────── */}
-      <ModalSheet visible={maintUnit !== null} onClose={() => setMaintUnit(null)}>
+      <ModalSheet visible={maintUnit !== null} onClose={() => setMaintUnit(null)} scroll={false}>
         <ScrollView keyboardShouldPersistTaps="handled">
           <Text style={s.promptTitle}>Log Maintenance</Text>
           <Text style={s.promptSub}>{maintUnit?.asset_tag}</Text>
@@ -1080,7 +1080,7 @@ export default function EquipmentModelDetailScreen() {
 
       {/* ── Add Units Modal ────────────────────────────────────────────── */}
       {/* onClose only hides (= closeAddUnits); state is reset on next openAddUnits() */}
-      <ModalSheet visible={addUnitsOpen} onClose={closeAddUnits}>
+      <ModalSheet visible={addUnitsOpen} onClose={closeAddUnits} scroll={false}>
         {/* flexShrink so the pinned footer below always fits within the sheet's maxHeight */}
         <ScrollView keyboardShouldPersistTaps="handled" style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 10 }}>
           <Text style={s.modalTitle}>Add Units — {item.name}</Text>

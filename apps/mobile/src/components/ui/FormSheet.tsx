@@ -109,7 +109,7 @@ export function FormSheet({
   return (
     // scroll is handled internally (below) so the footer can stay sticky —
     // ModalSheet's own `scroll` prop would wrap the footer into the scroll area too.
-    <ModalSheet visible={visible} onClose={requestClose}>
+    <ModalSheet visible={visible} onClose={requestClose} scroll={false}>
       <View style={s.header}>
         <Text style={s.title} numberOfLines={1}>{title}</Text>
         <Pressable onPress={requestClose} disabled={busy} hitSlop={8} style={busy && s.closeDisabled}>

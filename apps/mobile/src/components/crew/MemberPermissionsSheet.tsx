@@ -215,7 +215,7 @@ export function MemberPermissionsSheet(props: {
   const permMemberLocked = !canActOnTarget((user?.role ?? '') as UserRole, (member?.user_role ?? '') as UserRole);
 
   return (
-    <ModalSheet visible={visible} onClose={onClose}>
+    <ModalSheet visible={visible} onClose={onClose} scroll={false}>
       <Text style={s.title}>
         {member ? `${member.user_name ?? member.user_id} · Permissions` : 'Permissions'}
       </Text>

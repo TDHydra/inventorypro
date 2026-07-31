@@ -94,7 +94,7 @@ export function RequestApprovalSheet({
   }
 
   return (
-    <ModalSheet visible={visible} onClose={handleClose}>
+    <ModalSheet visible={visible} onClose={handleClose} scroll={false}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
         <Text style={s.title}>Request Approval</Text>
         {entityLabel ? <Text style={s.sub}>For: {entityLabel}</Text> : null}
