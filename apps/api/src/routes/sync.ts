@@ -1074,7 +1074,17 @@ const routes: FastifyPluginAsync = async (fastify) => {
         // by adding a key to syncPolicy.ts's OPERATION_PERM object literal (a
         // parallel-batch task adds a `repair_steps` entry to that same
         // object — this avoids an add-add merge conflict).
-        // No permission required — the INSERT passes through unconditionally.
+        // One financial exception: the client only offers the cost field to
+        // view_financial_data holders (AddServiceRecordSheet gates on
+        // canViewFinancial, NOT edit_inventory — tier 3 has financial without
+        // editor). A non-null cost therefore requires view_financial_data, or
+        // edit_inventory (an editor could always write the full row via the
+        // generic gate this carve-out bypasses). Blocks a forged crew push
+        // from planting costs; everything else passes unconditionally.
+        if (entry.payload.cost != null && !can('view_financial_data') && !can('edit_inventory')) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: cost on a fuel_up requires edit_inventory or view_financial_data' });
+          continue;
+        }
       } else {
         const opPerm = requiredOperationPerm(entry.table_name, entry.operation as 'INSERT' | 'UPDATE' | 'DELETE');
         if (opPerm === 'DENY') {

@@ -167,6 +167,90 @@ test('push: fuel_up carve-out does NOT extend to UPDATE — still requires edit_
   await app.close();
 });
 
+test('push: crew fuel_up INSERT carrying a cost is rejected without edit_inventory (financial column stays gated)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' }); // tier1: edit_inventory=false
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'vehicle_service_records',
+      payload: {
+        id: 'svc-4', vehicle_location_id: 'veh-1', target: 'vehicle',
+        event_date: NOW, type: 'fuel_up', notes: '10 gal', odometer: null,
+        cost: 42.5, payer: 'Office', created_by: CALLER, updated_at: NOW,
+      },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ id: string; error: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts.length, 1);
+  assert.match(body.conflicts[0].error, /cost.*requires edit_inventory/);
+  await app.close();
+});
+
+test('push: crew fuel_up INSERT with payer/job_id but no cost is still accepted (only cost is gated)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew' }); // tier1: edit_inventory=false
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'vehicle_service_records',
+      payload: {
+        id: 'svc-5', vehicle_location_id: 'veh-1', target: 'vehicle',
+        event_date: NOW, type: 'fuel_up', notes: '10 gal', odometer: null,
+        payer: 'Office', job_id: 'job-9', created_by: CALLER, updated_at: NOW,
+      },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  await app.close();
+});
+
+test('push: an edit_inventory holder may set cost on a fuel_up INSERT', async () => {
+  const pg = fakePg({ callerRole: 'production_manager' }); // tier2: edit_inventory=true
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'vehicle_service_records',
+      payload: {
+        id: 'svc-6', vehicle_location_id: 'veh-1', target: 'vehicle',
+        event_date: NOW, type: 'fuel_up', notes: '10 gal', odometer: null,
+        cost: 42.5, payer: 'Office', created_by: CALLER, updated_at: NOW,
+      },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  await app.close();
+});
+
+test('push: a view_financial_data holder WITHOUT edit_inventory may set cost (office receipt)', async () => {
+  // The client offers the cost field on view_financial_data, not edit_inventory
+  // (AddServiceRecordSheet canViewFinancial). Tier 3 has exactly this split —
+  // an edit_inventory-keyed gate would reject every office receipt with a cost.
+  const pg = fakePg({ callerRole: 'office_manager' }); // tier3: view_financial=true, edit_inventory=false
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'INSERT', table_name: 'vehicle_service_records',
+      payload: {
+        id: 'svc-7', vehicle_location_id: 'veh-1', target: 'vehicle',
+        event_date: NOW, type: 'fuel_up', notes: '10 gal', odometer: null,
+        cost: 42.5, payer: 'Office', created_by: CALLER, updated_at: NOW,
+      },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  await app.close();
+});
+
 // ── team-override union, end to end through resolveCaller ────────────────────
 
 test('push: a team-override-granted create_jobs tech creates a job — accepted via union', async () => {
