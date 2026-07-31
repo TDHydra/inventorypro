@@ -987,7 +987,7 @@ export default function HubScreen() {
           </View>
         )}
 
-        <DestinationPicker onResolved={onDestResolved} />
+        <DestinationPicker onResolved={onDestResolved} coords={coords} />
       </ModalSheet>
     </>
   );

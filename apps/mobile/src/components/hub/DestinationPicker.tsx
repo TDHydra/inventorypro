@@ -5,7 +5,7 @@ import { LocationShelfPicker } from '../pickers/LocationShelfPicker';
 import { getOpenJobs, upsertJob, type Job } from '../../db/queries/jobs';
 import { getManagerTierUsers } from '../../db/queries/users';
 import {
-  getOfficeLocations, getLocationsByOwner, getLocationById,
+  getOfficeLocations, getLocationsByOwner, getLocationById, getNonShelfLocations,
   resolveLocationShelfSelection, type Location,
 } from '../../db/queries/locations';
 import { getUnitInventoryLock } from '../../db/queries/access';
@@ -15,6 +15,9 @@ import { generateUUID } from '../../utils/uuid';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { useTableVersion } from '../../hooks/useDataVersion';
+import type { Coords } from '../../hooks/useCurrentPosition';
+import { sortByProximity } from '../../location/proximity';
+import { LocationSuggestionBanner } from '../LocationSuggestionBanner';
 import { isWriteBlocked } from '../../db/maintenance';
 import { runInTransaction } from '../../db/tx';
 import { Alert } from '../../lib/themedAlert';
@@ -32,11 +35,16 @@ type DestType = 'location' | 'job' | 'manager' | 'office';
 
 interface Props {
   onResolved: (d: ResolvedDestination | null) => void;
+  // #179: GPS coords for the "You're at X" suggestion banner on the Location
+  // branch. Passed down from the caller's own useCurrentPosition (the hub
+  // screen already requests it) — this component never calls expo-location
+  // itself; null/undefined degrades silently to the picker's original order.
+  coords?: Coords | null;
 }
 
 // Pick where a scanned consumable/equipment goes: Location, Job, Manager (→ their
 // owned location), or Office. Mirrors checkout's split-button destination row.
-export function DestinationPicker({ onResolved }: Props) {
+export function DestinationPicker({ onResolved, coords }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
   const canCreateJobs = usePermission('create_jobs');
@@ -68,6 +76,22 @@ export function DestinationPicker({ onResolved }: Props) {
   const officeOptions: PickerOption[] = useMemo(
     () => officeLocations.map(l => ({ id: l.id, label: l.name })),
     [officeLocations],
+  );
+
+  // #179: nearest-location banner candidate for the Location branch. Same
+  // location set (getNonShelfLocations) and proximity math the picker's own
+  // proximitySort uses, so the banner and picker never disagree.
+  const nonShelfLocations = useMemo(() => getNonShelfLocations({}), [version]);
+  const sortedLocations = useMemo(
+    () => sortByProximity(
+      nonShelfLocations.map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+      coords ?? null,
+    ),
+    [nonShelfLocations, coords],
+  );
+  const nearestLoc = useMemo(
+    () => sortedLocations.find(l => l.distanceM != null) ?? null,
+    [sortedLocations],
   );
 
   function resetAll() {
@@ -251,6 +275,11 @@ export function DestinationPicker({ onResolved }: Props) {
 
       {destType === 'location' && (
         <View style={{ marginTop: 12 }}>
+          <LocationSuggestionBanner
+            name={nearestLoc?.name ?? null}
+            distanceM={nearestLoc?.distanceM ?? null}
+            onUse={() => nearestLoc && changeLocation({ id: nearestLoc.id, label: nearestLoc.name })}
+          />
           <LocationShelfPicker
             proximitySort
             locationValue={locationValue}

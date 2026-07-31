@@ -164,6 +164,24 @@ export default function CheckoutScreen() {
     () => sortedSourceStock.find(s => s.distanceM != null) ?? null,
     [sortedSourceStock],
   );
+
+  // Nearest destination candidate for the Location-destination banner (#179).
+  // Mirrors checkin's nearestLocation precedent, additionally excluding the
+  // selected source — same rule the destination LocationShelfPicker already
+  // applies via excludeIds, so the banner and picker never disagree.
+  const sortedDestLocations = useMemo(
+    () => sortByProximity(
+      allLocations
+        .filter(l => l.id !== selectedLocation?.location_id)
+        .map(l => ({ ...l, latitude: l.latitude ?? null, longitude: l.longitude ?? null })),
+      coords,
+    ),
+    [allLocations, selectedLocation, coords],
+  );
+  const nearestDest = useMemo(
+    () => sortedDestLocations.find(l => l.distanceM != null) ?? null,
+    [sortedDestLocations],
+  );
   const sourceValue: PickerOption | null = selectedLocation
     ? { id: selectedLocation.location_id, label: selectedLocation.location_name }
     : null;
@@ -768,12 +786,18 @@ export default function CheckoutScreen() {
             {destType === 'location' && (
               <>
                 <Text style={s.label}>To Location</Text>
+                <LocationSuggestionBanner
+                  name={nearestDest?.name ?? null}
+                  distanceM={nearestDest?.distanceM ?? null}
+                  onUse={() => nearestDest && setDestLoc({ id: nearestDest.id, label: nearestDest.name })}
+                />
                 <LocationShelfPicker
                   locationValue={destLoc}
                   shelfValue={destShelf}
                   onChangeLocation={setDestLoc}
                   onChangeShelf={setDestShelf}
                   excludeIds={[selectedLocation.location_id]}
+                  proximitySort
                 />
               </>
             )}
