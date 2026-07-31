@@ -62,8 +62,14 @@ RCLONE_REMOTE=gdrive
 RCLONE_DEST=InventoryPro-Backups
 DB_KEEP_DAYS=14
 
+# .env is compose-format, not valid bash (e.g. SMTP_FROM has unquoted spaces
+# and <angle brackets>) — never `source` it; pluck the keys we need instead.
+env_get() { grep -m1 "^$1=" "$INSTALL_DIR/.env" | cut -d= -f2-; }
+POSTGRES_USER=$(env_get POSTGRES_USER)
+POSTGRES_DB=$(env_get POSTGRES_DB)
+[ -n "$POSTGRES_USER" ] && [ -n "$POSTGRES_DB" ] || { echo "POSTGRES_USER/DB missing from .env" >&2; exit 1; }
+# healthchecks.env is written by install.sh as plain KEY=url lines — safe.
 # shellcheck disable=SC1091
-source "$INSTALL_DIR/.env"
 source "$INSTALL_DIR/healthchecks.env" 2>/dev/null || true
 
 logline() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"; }
