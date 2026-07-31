@@ -14,9 +14,9 @@ const ROLE_AT_TIER: Record<1 | 2 | 3 | 4, string> = {
 };
 const TIERS = [1, 2, 3, 4] as const;
 
-test('ROLE_TIER mirrors mobile: 13 roles across tiers 1..4', () => {
+test('ROLE_TIER mirrors mobile: 14 roles across tiers 1..4', () => {
   const roles = Object.keys(ROLE_TIER);
-  assert.equal(roles.length, 13);
+  assert.equal(roles.length, 14);
   for (const r of roles) assert.ok([1, 2, 3, 4].includes(ROLE_TIER[r]));
   // Spot-check the anchors from apps/mobile/src/constants/roles.ts.
   assert.equal(ROLE_TIER.temporary_employee, 1);
@@ -24,6 +24,8 @@ test('ROLE_TIER mirrors mobile: 13 roles across tiers 1..4', () => {
   assert.equal(ROLE_TIER.hr_manager, 3);
   assert.equal(ROLE_TIER.franchise_manager, 4);
   assert.equal(ROLE_TIER.full_admin, 4);
+  // #Eddie: duct_cleaning_technician — new tier-1 crew role.
+  assert.equal(ROLE_TIER.duct_cleaning_technician, 1);
 });
 
 test('canActOnTarget: every (callerTier, targetTier) pair — allowed iff caller >= target', () => {
@@ -159,6 +161,7 @@ const EXPECTED_QUICK_ADD: Record<string, boolean> = {
   contents_crew:            false,
   mitigation_technician:    false,
   carpet_cleaning_crew:     false,
+  duct_cleaning_technician: false,
   temporary_employee:       false,
 };
 

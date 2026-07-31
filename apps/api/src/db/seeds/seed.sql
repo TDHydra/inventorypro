@@ -15,10 +15,11 @@ INSERT INTO role_settings (role, min_pin_length) VALUES
   ('contents_crew',          4),
   ('mitigation_technician',  4),
   ('carpet_cleaning_crew',   4),
+  ('duct_cleaning_technician',4),
   ('temporary_employee',     4)
 ON CONFLICT DO NOTHING;
 
--- Users (13 roles)
+-- Users (14 roles)
 INSERT INTO users (name, role, pin_hash, pin_length_required, expires_at) VALUES
   ('Alex Admin',       'full_admin',             '$2b$10$eSg8ddXzSNdZ4tonPKqdMuRA6O9Pv9mgLszwt2rDnsG7yZQiuBkJq', 8, NULL),
   ('Frank Franchise',  'franchise_manager',      '$2b$10$OG8y.kqXIv4kf7sW02.6RuNWs4sKDydk36p20qjNJLoW3xx/KVlMq', 8, NULL),
@@ -32,6 +33,7 @@ INSERT INTO users (name, role, pin_hash, pin_length_required, expires_at) VALUES
   ('Wendy Worker',     'contents_crew',          '$2b$10$EoWOo3nsofk66AtZ6DE2ZOayQp1v9oA/oBm8.yAFsdwqcbQVXp6cK', 4, NULL),
   ('Mike Mito',        'mitigation_technician',  '$2b$10$wmAhJ1YA/hBzbOV/1BakbuYfbRsEJqo8eCYE0tWDZ4eN4DnHtLhtu', 4, NULL),
   ('Gary Carpet',      'carpet_cleaning_crew',   '$2b$10$BU1wMDsCP6A9jkUHmoxkuOiD68nK7e.4tIEIf2oQ9oWJKrpmm2rtG', 4, NULL),
+  ('Eddie Ducts',      'duct_cleaning_technician','$2b$10$Mg6myFJHOvt3VsW3HRPkkOou/eopZDecks/6G2GyxKqzUnje2Ut2K', 4, NULL),
   ('Temp Tim',         'temporary_employee',     '$2b$10$MA1QiPI.UucklwV/w9lTBOZUDhn3PgnhDY1WacLJigdFanUxaSQze', 4, '2027-01-01')
 ON CONFLICT DO NOTHING;
 

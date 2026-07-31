@@ -15,10 +15,10 @@ const WORK_LIST_SOURCES: WorkListSource[] = [
   'my-equipment', 'my-jobs', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
 ];
 
-// --- §3: every one of the 13 roles ships a starter layout --------------------
+// --- §3: every one of the 14 roles ships a starter layout --------------------
 
 test('every UserRole resolves to a non-empty role default layout', () => {
-  assert.equal(ALL_ROLES.length, 13, '13 roles');
+  assert.equal(ALL_ROLES.length, 14, '14 roles');
   for (const role of ALL_ROLES) {
     const layout = ROLE_DEFAULT_LAYOUTS[role];
     assert.ok(Array.isArray(layout) && layout.length > 0, `${role}: non-empty layout`);
@@ -54,7 +54,7 @@ test('configured data widgets carry valid sources', () => {
 // --- Spot checks on the §3 role groups ---------------------------------------
 
 test('crew roles lead with the fast checkout/check-in pair and list "My jobs" + "My equipment"', () => {
-  const crew: UserRole[] = ['mitigation_technician', 'contents_crew', 'construction_crew', 'carpet_cleaning_crew'];
+  const crew: UserRole[] = ['mitigation_technician', 'contents_crew', 'construction_crew', 'carpet_cleaning_crew', 'duct_cleaning_technician'];
   for (const role of crew) {
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
     assert.equal(layout[0].widget, 'fast-checkout', `${role}: fast-checkout first`);

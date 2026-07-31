@@ -110,6 +110,7 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
   contents_crew: CREW_LAYOUT,
   construction_crew: CREW_LAYOUT,
   carpet_cleaning_crew: CREW_LAYOUT,
+  duct_cleaning_technician: CREW_LAYOUT,
 
   // temporary_employee: fast tiles + "My jobs" (#160) + "My equipment" only.
   temporary_employee: [

@@ -11,6 +11,7 @@ export type UserRole =
   | 'contents_crew'
   | 'mitigation_technician'
   | 'carpet_cleaning_crew'
+  | 'duct_cleaning_technician'
   | 'temporary_employee';
 
 export type Permission =
@@ -92,6 +93,7 @@ export const ROLE_TIER: Record<UserRole, 1 | 2 | 3 | 4> = {
   hr_manager:               3,
   franchise_manager:        4,
   full_admin:               4,
+  duct_cleaning_technician: 1,
 };
 
 // ── Hierarchy guards (client-side UX mirror of the server's authoritative rule) ──
@@ -135,6 +137,7 @@ export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
   contents_crew:            'Contents Crew',
   mitigation_technician:    'Mitigation Technician',
   carpet_cleaning_crew:     'Carpet Cleaning Crew',
+  duct_cleaning_technician: 'Duct Cleaning Tech',
   temporary_employee:       'Temporary Employee',
 };
 
@@ -164,6 +167,7 @@ export const ROLE_COLORS: Record<UserRole, string> = {
   contents_crew:            '#00838F',
   mitigation_technician:    '#4527A0',
   carpet_cleaning_crew:     '#558B2F',
+  duct_cleaning_technician: '#2E7D32',
   temporary_employee:       '#455A64',
 };
 
@@ -314,5 +318,6 @@ export const ROLE_DEFAULTS: Record<UserRole, PermissionMap> = {
   contents_crew:            tier1,
   mitigation_technician:    tier1,
   carpet_cleaning_crew:     tier1,
+  duct_cleaning_technician: tier1,
   temporary_employee:       tempEmployee,
 };

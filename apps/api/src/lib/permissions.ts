@@ -31,6 +31,7 @@ export const ROLE_TIER: Record<string, 1 | 2 | 3 | 4> = {
   hr_manager:               3,
   franchise_manager:        4,
   full_admin:               4,
+  duct_cleaning_technician: 1,
 };
 
 // Effective authority tier used for ALL comparisons. full_admin is a true APEX
@@ -287,6 +288,7 @@ export const ROLE_DEFAULTS: Record<string, PermissionMap> = {
   contents_crew:            tier1,
   mitigation_technician:    tier1,
   carpet_cleaning_crew:     tier1,
+  duct_cleaning_technician: tier1,
   temporary_employee:       tempEmployee,
 };
 

@@ -104,9 +104,9 @@ test('genLocations returns exactly count with base preserved', () => {
   assert.equal(new Set(locs.map((l) => l.name)).size, 8);
 });
 
-test('genExtraUsers only generates users beyond the base 13, all valid PIN length', () => {
-  assert.equal(genExtraUsers(13).length, 0);
-  const extra = genExtraUsers(20);
+test('genExtraUsers only generates users beyond the base 14, all valid PIN length', () => {
+  assert.equal(genExtraUsers(14).length, 0);
+  const extra = genExtraUsers(21);
   assert.equal(extra.length, 7);
   assert.ok(extra.every((u) => u.pin.length >= 4));
   assert.equal(new Set(extra.map((u) => u.name)).size, extra.length);

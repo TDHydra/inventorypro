@@ -1,8 +1,8 @@
 /**
- * Development seed — populates all 13 roles, sample users, locations,
+ * Development seed — populates all 14 roles, sample users, locations,
  * inventory items, teams, and jobs.
  *
- * By default it seeds the curated baseline (13 users, 3 locations, 15 items,
+ * By default it seeds the curated baseline (14 users, 3 locations, 15 items,
  * 3 jobs, 2 teams). It can also generate BULK sample data for load/UX testing
  * via env vars or CLI flags:
  *
@@ -33,7 +33,7 @@ export interface SeedConfig {
 
 /** Curated baseline counts — counts never fall below these. */
 export const SEED_BASE: SeedConfig = {
-  users: 13,
+  users: 14,
   locations: 3,
   items: 15,
   jobs: 3,
@@ -221,6 +221,7 @@ const BASE_USERS: UserSpec[] = [
   { name: 'Wendy Worker', role: 'contents_crew', pin: '2345' },
   { name: 'Mike Mito', role: 'mitigation_technician', pin: '3456' },
   { name: 'Gary Carpet', role: 'carpet_cleaning_crew', pin: '4567' },
+  { name: 'Eddie Ducts', role: 'duct_cleaning_technician', pin: '6789' },
   { name: 'Temp Tim', role: 'temporary_employee', pin: '5678', expires_at: '2027-01-01' },
 ];
 
@@ -283,6 +284,7 @@ export async function seed(client: Client, cfg: SeedConfig): Promise<void> {
       ('contents_crew',          4),
       ('mitigation_technician',  4),
       ('carpet_cleaning_crew',   4),
+      ('duct_cleaning_technician',4),
       ('temporary_employee',     4)
     ON CONFLICT DO NOTHING
   `);
