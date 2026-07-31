@@ -8,16 +8,18 @@ import { Animated, Modal, Platform, Pressable, ScrollView, View, StyleSheet } fr
 // resolve ModalSheet.web.tsx (unchanged RN KAV — keyboard-controller is
 // native-only); keep BOTH files' render trees in sync when editing.
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../../themes/types';
 import { sheetAnimations } from '../../themes/motionPresets';
 import { useTheme } from '../../hooks/useTheme';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 
-// The app renders edge-to-edge on Android, so the transparent gesture-nav bar
-// overlays the bottom of every sheet; without this inset the last row sits
-// underneath it and can't be tapped (no safe-area-context module in the dev
-// client, so a fixed inset instead of useSafeAreaInsets).
-const NAV_BAR_INSET = Platform.OS === 'android' ? 32 : 0;
+// The app renders edge-to-edge on Android, so the system nav bar overlays the
+// bottom of every sheet. #187: a fixed 32 undershoots 3-button navigation
+// (~48dp), leaving the last rows under the bar — use the real safe-area inset
+// (FormScreen/Fab already do) and keep 32 only as an Android floor for the
+// frames where insets briefly report 0 inside a fresh Modal window.
+const NAV_BAR_INSET_FLOOR = Platform.OS === 'android' ? 32 : 0;
 // Off-screen start for the driver-based presentations — taller than any sheet
 // (maxHeight caps well under a full viewport) so enter always starts fully hidden.
 const SHEET_TRAVEL = 600;
@@ -27,6 +29,10 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function ModalSheet({ visible, onClose, children, scroll = false }: { visible: boolean; onClose: () => void; children: React.ReactNode; scroll?: boolean }) {
   const theme = useTheme();
   const s = useThemedStyles(makeStyles);
+  const insets = useSafeAreaInsets();
+  // #187: nav-bar clearance for the sheet's bottom edge. Applied inline (not in
+  // makeStyles) because insets are per-device runtime values, not theme tokens.
+  const navInset = Math.max(insets.bottom, NAV_BAR_INSET_FLOOR);
   const { presentation, showHandle } = theme.components.sheet;
   const centered = presentation === 'center-dialog';
   // Driver-based presentations use animationType="none" and animate the sheet themselves.
@@ -85,7 +91,13 @@ export function ModalSheet({ visible, onClose, children, scroll = false }: { vis
             ScrollView's contentContainerStyle) so the pill stays pinned and the
             scrollbar isn't clipped. */}
         <AnimatedPressable
-          style={[sheetStyle, animated && { transform: [{ translateY }] }]}
+          style={[
+            sheetStyle,
+            // Bottom sheets rest on the screen edge, so their own bottom padding
+            // (or, in scroll mode, the content's) must clear the nav bar.
+            !centered && !scroll && { paddingBottom: theme.spacing.xl + navInset },
+            animated && { transform: [{ translateY }] },
+          ]}
           onPress={() => {}}
         >
           {/* Drag-handle pill — standard bottom-sheet affordance; never shown on centered dialogs */}
@@ -96,7 +108,11 @@ export function ModalSheet({ visible, onClose, children, scroll = false }: { vis
             <ScrollView
               style={s.scrollView}
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={centered ? s.scrollContentDialog : s.scrollContent}
+              contentContainerStyle={
+                centered
+                  ? s.scrollContentDialog
+                  : [s.scrollContent, { paddingBottom: theme.spacing.xl + navInset }]
+              }
             >
               {children}
             </ScrollView>
@@ -118,7 +134,8 @@ const makeStyles = (t: Theme) => {
     kavCenter: { flex: 1, justifyContent: 'center' },
     sheet: {
       backgroundColor: t.colors.surface, borderTopLeftRadius: topRadius, borderTopRightRadius: topRadius,
-      padding: t.spacing.xl, paddingBottom: t.spacing.xl + NAV_BAR_INSET, maxHeight,
+      // Bottom padding is overridden inline with the runtime safe-area inset (#187).
+      padding: t.spacing.xl, maxHeight,
     },
     // Scroll variant: same as `sheet` but padding is delegated to scrollContent so the
     // pill and scrollbar aren't double-padded / clipped. paddingTop keeps the pill inset.
@@ -140,8 +157,9 @@ const makeStyles = (t: Theme) => {
       paddingTop: t.spacing.xl, maxHeight,
     },
     scrollView: { flexShrink: 1 },
-    // Padding lives here (NOT flex:1 — that clamps content to the viewport so it never overflows/scrolls).
-    scrollContent: { paddingHorizontal: t.spacing.xl, paddingBottom: t.spacing.xl + NAV_BAR_INSET },
+    // Padding lives here (NOT flex:1 — that clamps content to the viewport so it never
+    // overflows/scrolls). Bottom padding is overridden inline with the runtime inset (#187).
+    scrollContent: { paddingHorizontal: t.spacing.xl },
     scrollContentDialog: { paddingHorizontal: t.spacing.xl, paddingBottom: t.spacing.xl },
     handle: {
       width: 40, height: 4, borderRadius: 2,
