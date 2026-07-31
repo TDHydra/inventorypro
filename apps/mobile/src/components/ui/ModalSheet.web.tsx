@@ -80,11 +80,16 @@ export function ModalSheet({ visible, onClose, children, scroll = true }: { visi
         behavior="padding"
         pointerEvents="box-none"
       >
-        {/* Pressing the sheet itself does NOT close (this Pressable swallows the press).
+        {/* Plain View, NOT a Pressable (#187): a pressable sheet claims the JS
+            responder for touches on non-touchable children (Text/Image), and RN
+            then blocks the inner ScrollView's native drag interception — swipes
+            over text or images couldn't scroll. Taps on the sheet body still
+            can't reach the backdrop: it's a sibling, not an ancestor, and RN
+            targets touches to the topmost subtree (no DOM-style fall-through).
             When scroll is set, the sheet drops its own padding (it moves to the
             ScrollView's contentContainerStyle) so the pill stays pinned and the
             scrollbar isn't clipped. */}
-        <AnimatedPressable
+        <Animated.View
           style={[
             sheetStyle,
             // Bottom sheets rest on the screen edge, so their own bottom padding
@@ -92,7 +97,6 @@ export function ModalSheet({ visible, onClose, children, scroll = true }: { visi
             !centered && !scroll && { paddingBottom: theme.spacing.xl + navInset },
             animated && { transform: [{ translateY }] },
           ]}
-          onPress={() => {}}
         >
           {/* Drag-handle pill — standard bottom-sheet affordance; never shown on centered dialogs */}
           {!centered && showHandle ? <View style={s.handle} /> : null}
@@ -113,7 +117,7 @@ export function ModalSheet({ visible, onClose, children, scroll = true }: { visi
           ) : (
             children
           )}
-        </AnimatedPressable>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );

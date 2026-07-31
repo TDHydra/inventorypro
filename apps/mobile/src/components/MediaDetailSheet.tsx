@@ -288,7 +288,11 @@ function Field({ label, value }: { label: string; value: string }) {
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
-      <Text style={s.fieldValue} selectable>{value}</Text>
+      {/* NOT selectable: on Android a selectable TextView consumes vertical
+          drags (claims them for text selection), so swipes starting on these
+          rows couldn't scroll the sheet (#187). Same reason KeyValueRow
+          defaults selectable off. */}
+      <Text style={s.fieldValue}>{value}</Text>
     </View>
   );
 }
