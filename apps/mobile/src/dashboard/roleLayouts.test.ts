@@ -9,9 +9,10 @@ const ALL_ROLES = Object.keys(ROLE_TIER) as UserRole[];
 
 const STAT_SOURCES: StatSource[] = [
   'my-checkouts', 'open-repairs', 'units-due-service', 'low-stock', 'open-jobs', 'team-members',
+  'vehicles-available',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
-  'my-equipment', 'my-jobs', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock',
+  'my-equipment', 'my-jobs', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
 ];
 
 // --- §3: every one of the 13 roles ships a starter layout --------------------
@@ -63,6 +64,16 @@ test('crew roles lead with the fast checkout/check-in pair and list "My jobs" + 
     const sources = layout.filter(b => b.widget === 'work-list').map(b => b.config?.source);
     // #160: my-jobs (assigned via my crew or directly) leads, my-equipment follows.
     assert.deepEqual(sources, ['my-jobs', 'my-equipment'], `${role}: my-jobs + my-equipment work lists`);
+  }
+});
+
+// #177: "daily driver" crew stat set — my counts, then vehicle availability.
+test('crew roles show the my-checkouts + vehicles-available stat set (#177)', () => {
+  const crew: UserRole[] = ['mitigation_technician', 'contents_crew', 'construction_crew', 'carpet_cleaning_crew'];
+  for (const role of crew) {
+    const layout = ROLE_DEFAULT_LAYOUTS[role]!;
+    const stats = layout.find(b => b.widget === 'stat-tiles')?.config?.stats;
+    assert.deepEqual(stats, ['my-checkouts', 'vehicles-available'], `${role}: stat set`);
   }
 });
 

@@ -23,7 +23,10 @@ import type { Layout } from './widgets';
 const CREW_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'units-due-service'] } },
+  // #177: "daily driver" reading order — my counts first, then the crew's
+  // marching orders. vehicles-available replaces units-due-service (crews
+  // check vehicle availability far more than service due-dates).
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'vehicles-available'] } },
   // #160: jobs assigned to me (directly or via my crew) lead the work lists —
   // this is the crew's marching orders for the day.
   { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },

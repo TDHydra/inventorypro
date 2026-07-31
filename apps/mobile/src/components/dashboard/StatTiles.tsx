@@ -15,6 +15,8 @@ import { getRepairs } from '../../db/queries/repairs';
 import { getUnitsDueForService } from '../../db/queries/maintenance';
 import { getLowStockItems } from '../../db/queries/items';
 import { getAllActiveUsers } from '../../db/queries/users';
+import { getUnitLocations } from '../../db/queries/locations';
+import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
 
 // StatTiles (role dashboards §2): a row of tappable count cards, driven by the
 // block's `config.stats` source list. Each source mirrors the permission of the
@@ -64,6 +66,15 @@ const STAT_DEFS: Record<StatSource, StatDef> = {
     label: 'Team Members', icon: '👥', route: '/(app)/(admin)/users',
     requiredPermission: 'manage_users',
     count: () => getAllActiveUsers().length,
+  },
+  // #177: vehicles free to check out right now. No requiredPermission — vehicle
+  // state is crew-level (#157/#122 A2: vehicles have no per-object ACL). Per-row
+  // isVehicleAvailableForCheckout call is sanctioned for small vehicle lists
+  // (wave1 plan Task 8), matching the Vehicles screen's "Available" segment.
+  'vehicles-available': {
+    label: 'Vehicles Available', icon: '🚐', route: '/(app)/(vehicles)',
+    count: uid => getUnitLocations('Vehicle')
+      .filter(l => isVehicleAvailableForCheckout(l.id, uid || null)).length,
   },
 };
 

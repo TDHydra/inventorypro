@@ -37,7 +37,8 @@ export type StatSource =
   | 'units-due-service'  // getUnitsDueForService
   | 'low-stock'          // getLowStockItems
   | 'open-jobs'          // getOpenJobs
-  | 'team-members';      // getAllActiveUsers
+  | 'team-members'       // getAllActiveUsers
+  | 'vehicles-available';// #177: vehicle locations passing isVehicleAvailableForCheckout
 
 // Row sources a `work-list` block can show.
 export type WorkListSource =
@@ -46,7 +47,8 @@ export type WorkListSource =
   | 'open-jobs'
   | 'open-repairs'
   | 'units-due-service'
-  | 'low-stock';
+  | 'low-stock'
+  | 'vehicles';          // #177: vehicle locations with availability
 
 export type WidgetConfig = {
   // Tile/section overrides (pre-existing).

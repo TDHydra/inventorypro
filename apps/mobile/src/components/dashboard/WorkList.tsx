@@ -16,6 +16,8 @@ import { getDeployedUnitsForUser } from '../../db/queries/equipmentUnits';
 import { getRepairs } from '../../db/queries/repairs';
 import { getUnitsDueForService } from '../../db/queries/maintenance';
 import { getLowStockItems } from '../../db/queries/items';
+import { getUnitLocations } from '../../db/queries/locations';
+import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
 
 // WorkList (role dashboards §2): a compact card list — title, up to N rows, and
 // a "View all" tap-through — driven by the block's `config.source`. Rows come
@@ -114,6 +116,20 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       primary: i.name,
       secondary: `${i.total_stock} ${i.unit} remaining`,
       updated_at: i.updated_at ?? null,
+    })),
+  },
+  // #177: every vehicle with its live availability (same helper as the Vehicles
+  // screen's "Available" segment). No requiredPermission — vehicle state is
+  // crew-level, like the vehicles tile itself.
+  vehicles: {
+    title: 'Vehicles', icon: '🚐', emptyTitle: 'No vehicles yet',
+    viewAllRoute: '/(app)/(vehicles)',
+    rowRoute: id => `/(app)/(vehicles)/${id}`,
+    read: uid => getUnitLocations('Vehicle').map(l => ({
+      id: l.id,
+      primary: l.name,
+      secondary: isVehicleAvailableForCheckout(l.id, uid || null) ? 'Available' : 'Checked out',
+      updated_at: l.updated_at,
     })),
   },
 };
