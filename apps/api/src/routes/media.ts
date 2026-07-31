@@ -256,9 +256,11 @@ const routes: FastifyPluginAsync = async (fastify) => {
 
   // POST /media/:id/share-link — mint a longer-lived presigned GET URL for
   // external sharing (#180 v1: mobile hands this straight to Share.share()).
-  // Gated the same way GET /media/:entityType/:entityId is: any authenticated
-  // caller may read ordinary entity media, but message attachments stay
-  // conversation-private and pool shares stay uploader-only via REST.
+  // Message attachments stay conversation-private. Pool shares mirror the sync
+  // pull's audience scope (uploader / everyone / team / users list) — anyone
+  // who can see the photo in their media hub may share it externally; the
+  // uploader-only rule stays on the LIST route above, which takes a
+  // discoverable user id rather than an unguessable media id.
   fastify.post<{ Params: { id: string } }>('/:id/share-link', {
     ...auth,
     schema: {
@@ -277,7 +279,10 @@ const routes: FastifyPluginAsync = async (fastify) => {
       `SELECT * FROM media WHERE id = $1`,
       [request.params.id]
     );
-    const media = rows[0] as { id: string; url: string; entity_type: string; entity_id: string } | undefined;
+    const media = rows[0] as {
+      id: string; url: string; entity_type: string; entity_id: string;
+      uploaded_by: string | null; audience: string | null; audience_user_ids: string | null;
+    } | undefined;
     if (!media) return reply.status(404).send({ error: 'Not found' });
 
     if (media.entity_type === 'message') {
@@ -285,8 +290,22 @@ const routes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
       }
     }
-    if (media.entity_type === 'pool' && media.entity_id !== callerId) {
-      return reply.status(403).send({ error: 'Forbidden: pool media is uploader-only via REST' });
+    if (media.entity_type === 'pool') {
+      const visible =
+        media.uploaded_by === callerId ||
+        media.audience === 'everyone' ||
+        (media.audience === 'users'
+          && (media.audience_user_ids ?? '').toLowerCase().includes(callerId.toLowerCase())) ||
+        (media.audience === 'team'
+          && (await fastify.pg.query(
+            `SELECT 1 FROM team_members
+             WHERE user_id = $1
+               AND team_id IN (SELECT team_id FROM team_members WHERE user_id = $2)`,
+            [media.uploaded_by, callerId],
+          )).rows.length > 0);
+      if (!visible) {
+        return reply.status(403).send({ error: "Forbidden: not in this pool share's audience" });
+      }
     }
 
     const key = deriveKey(media.url);
