@@ -90,7 +90,9 @@ JS-only (no migration/native/perm/sync-table change). tsc clean; adversarial rev
 points at prod and is sufficient to field-test notifications directly.
 
 **Optional future (explicitly deferred / out of scope):**
-- P3 v2 / server push — **dropped (no Firebase, user's call 2026-06-28).**
+- P3 v2 / server push — ~~dropped 2026-06-28~~ **reversed 2026-07-01 and SHIPPED (#87)**: Expo Push +
+  FCM V1 (Firebase project `invenpro-e6aaf`), server relay in `apps/api/src/lib/push.ts`. Setup runbook:
+  `docs/push-setup.md`.
 - P4 multi-parent locations — decided out of scope (deep single-parent nesting suffices).
 
 ## 🐞 Known bugs / backlog
