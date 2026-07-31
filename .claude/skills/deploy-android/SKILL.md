@@ -67,12 +67,15 @@ The shell in the Claude Code agent harness is sandboxed and reaps background pro
 - Once the dev client has fetched+built the first bundle and rendered (`ReactNativeJS: …` / `Running "main"` in logcat), the JS runs in-memory; if Metro later dies you only lose HMR, so a screenshot-based on-device verification still succeeds. First `--clear` build takes ~1 min — keep Metro alive that long before launching the deep link.
 - On this device the keyboard-controller edge-to-edge log line `com.reactnativekeyboardcontroller.modules.statusbar.StatusBarManagerCompatModuleImpl: Ignored status bar change, current activity is edge-to-edge` is normal (the native module loaded), not an error.
 
-## C. Play Store (EAS cloud build) — when Google API/signing is set up
-EAS project: `@tdhydra/inventorypro` (id d4244438-0520-46c3-9ad1-fd5da43f7f86). `eas.json` `preview`/`production` profiles set `EXPO_PUBLIC_API_URL=https://api.invenpro.app`.
+## C. Play Store (EAS cloud build)
+EAS project: `@tdhydra/inventorypro` (id d4244438-0520-46c3-9ad1-fd5da43f7f86). `eas.json` `preview`/`production` profiles set `EXPO_PUBLIC_API_URL=https://api.invenpro.app`. Credential state + rotation recipes: `docs/push-setup.md` (FCM V1 key on EAS since 2026-07; keystore "InvApp (Default)" is the same jks as local release signing, so Play builds install over sideloads).
+
+Versioning is REMOTE (`appVersionSource: remote`, production `autoIncrement: true`): versionCode lives on EAS servers and bumps automatically per production build — never add `android.versionCode` to app.json. `version` in app.json stays the human-readable one.
 ```bash
-cd ~/inventorypro/apps/mobile
-eas build --platform android --profile production   # AAB for the Play Store
-# eas submit --platform android   # once the Play Console + service account are configured
+cd ~/projects/InventoryPro/apps/mobile
+npx eas-cli build -p android --profile production   # AAB, auto-increments versionCode
+npx eas-cli submit -p android --latest              # uses eas.json submit.production (service-account JSON, gitignored)
 ```
+Store listing assets/text + data-safety answers: `docs/store/`. Privacy policy must stay live at https://invenpro.app/privacy.
 
 After any deploy, remind: the device must sync once (or has wiped data after an uninstall → re-login → first-launch full download).
