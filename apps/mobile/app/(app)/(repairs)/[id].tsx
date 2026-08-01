@@ -14,7 +14,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { appendOutbox } from '../../../src/sync/outbox';
 import {
   getRepairById, updateRepairFields, updateRepairStatus, addRepairPart, getRepairParts,
-  addRepairStep, getRepairSteps, getRepairsForEntity, Repair, RepairPart, RepairStep,
+  addRepairStep, getRepairSteps, Repair, RepairPart, RepairStep,
 } from '../../../src/db/queries/repairs';
 import { getRepairStatusesWithFallback, isTerminalStatus, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import { setUnitStatus } from '../../../src/db/queries/equipmentUnits';
@@ -23,6 +23,7 @@ import { getAllActiveUsers, getUserById, roleColor, getRoleColorMap } from '../.
 import { searchItems, getItemById, adjustStock } from '../../../src/db/queries/items';
 import { appendLog, getLogForEntity } from '../../../src/db/queries/log';
 import { buildStatusTrail } from '../../../src/components/repairs/statusTrailLogic';
+import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { useTheme } from '../../../src/hooks/useTheme';
@@ -145,15 +146,6 @@ export default function RepairDetailScreen() {
     () => (repair ? getLogForEntity('repair', repair.id, 200) : []),
     [repair?.id],
     ['activity_log'],
-  );
-
-  // Prior-fault history (#178 Part 3, no schema) — other repairs against the
-  // same entity, excluding this open ticket, most-recently-updated first
-  // (getRepairsForEntity's own ordering).
-  const priorRepairs = useDbQuery<Repair[]>(
-    () => (repair ? getRepairsForEntity(repair.entity_type, repair.entity_id).filter(r => r.id !== repair.id) : []),
-    [repair?.id, repair?.entity_type, repair?.entity_id],
-    ['repairs'],
   );
 
   // Editable field buffers (re-seeded whenever the repair reloads)
@@ -742,33 +734,14 @@ export default function RepairDetailScreen() {
           )}
         </Card>
 
-        {/* Prior repairs (#178 Part 3) — past tickets on the same entity */}
-        {priorRepairs.length > 0 && (
-          <>
-            <Text style={s.sectionTitle}>Prior Repairs</Text>
-            <Card variant="detail" style={s.troubleshootingCard}>
-              {priorRepairs.map(pr => (
-                <TouchableOpacity
-                  key={pr.id}
-                  style={s.priorRow}
-                  onPress={() => router.push({ pathname: '/(app)/(repairs)/[id]', params: { id: pr.id } })}
-                >
-                  <View style={{ flex: 1 }}>
-                    <View style={s.priorHeadRow}>
-                      <StatusPill label={pr.status} tone={isTerminalStatus(pr.status) ? 'success' : 'neutral'} />
-                      <Text style={s.priorDate}>
-                        {new Date(pr.completed_at ?? pr.updated_at).toLocaleDateString()}
-                      </Text>
-                    </View>
-                    {!!pr.notes && (
-                      <Text style={s.priorNote} numberOfLines={2}>{pr.notes}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </Card>
-          </>
-        )}
+        {/* Prior repairs (#178 Part 3) — past tickets on the same entity, extracted
+            into PriorRepairsCard (#178 close-out) so equipment/inventory detail
+            pages can show the same history without a parallel implementation. */}
+        <PriorRepairsCard
+          entityType={repair.entity_type}
+          entityId={repair.entity_id}
+          excludeRepairId={repair.id}
+        />
 
         {/* Parts used */}
         <View style={s.sectionHeadRow}>
@@ -970,13 +943,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   stepAction: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
   stepResult: { fontSize: 13, color: t.colors.textSecondary, marginTop: 2 },
   stepMeta: { fontSize: 11, color: t.colors.textMuted, marginTop: 4 },
-  priorRow: {
-    flexDirection: 'row', alignItems: 'flex-start', paddingVertical: t.spacing.sm,
-    borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail,
-  },
-  priorHeadRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
-  priorDate: { fontSize: 12, color: t.colors.textMuted },
-  priorNote: { fontSize: 13, color: t.colors.textSecondary, marginTop: 4 },
   fields: { gap: t.spacing.md },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
   expiryCurrent: {
