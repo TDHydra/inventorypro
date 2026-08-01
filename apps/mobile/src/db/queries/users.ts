@@ -271,6 +271,14 @@ export function getUsersByRole(role: string): User[] {
   return rowsAs<User>(result.rows);
 }
 
+// Active user count for a role — the "this affects N users" line in the role
+// editor's impact-preview confirm (#201), shown before a role-level permission
+// write commits. Built on getUsersByRole (not a separate COUNT query) so the
+// "active" definition can never drift between the list and the count.
+export function getActiveUserCountByRole(role: string): number {
+  return getUsersByRole(role).length;
+}
+
 // Active users at manager tier (ROLE_TIER >= 2) — the checkout "Manager"
 // destination. Managers are grouped in practice (heads of construction/contents,
 // office/franchise managers all act as destinations), so the picker must offer
