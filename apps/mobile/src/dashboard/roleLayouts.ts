@@ -35,6 +35,7 @@ const CREW_LAYOUT: Layout = [
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
   { widget: 'on-call', width: 'full' },
+  { widget: 'schedule', width: 'full' },
   { widget: 'jobs', width: 'full' },
   { widget: 'vehicles', width: 'half' },
   { widget: 'lockers', width: 'half' },
@@ -121,6 +122,7 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
     { widget: 'stat-tiles', width: 'full', config: { stats: ['shared-media'] } },
     { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
+    { widget: 'schedule', width: 'full' },
   ],
 
   // Tier-2 managers.

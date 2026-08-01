@@ -77,9 +77,9 @@ test('crew roles show the my-checkouts + vehicles-available stat set (#177)', ()
   }
 });
 
-test('temporary_employee gets fast tiles + shared-media pill + "My jobs" + "My equipment" ONLY', () => {
+test('temporary_employee gets fast tiles + shared-media pill + "My jobs" + "My equipment" + schedule ONLY', () => {
   const layout = ROLE_DEFAULT_LAYOUTS.temporary_employee!;
-  assert.deepEqual(layout.map(b => b.widget), ['fast-checkout', 'fast-checkin', 'stat-tiles', 'work-list', 'work-list']);
+  assert.deepEqual(layout.map(b => b.widget), ['fast-checkout', 'fast-checkin', 'stat-tiles', 'work-list', 'work-list', 'schedule']);
   assert.deepEqual(layout[2].config?.stats, ['shared-media']);
   assert.equal(layout[3].config?.source, 'my-jobs');
   assert.equal(layout[4].config?.source, 'my-equipment');

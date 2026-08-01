@@ -35,8 +35,11 @@ export function SlotCell({ state, width, onPress }: Props) {
 const makeStyles = (t: Theme) => StyleSheet.create({
   cell: {
     height: '100%',
+    // t.colors.border, not borderDetail — these are the hour gridlines the
+    // whole board is read against (live review 2026-08-01: borderDetail
+    // washed out and the slots "all blend together").
     borderRightWidth: 1,
-    borderRightColor: t.colors.borderDetail,
+    borderRightColor: t.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },

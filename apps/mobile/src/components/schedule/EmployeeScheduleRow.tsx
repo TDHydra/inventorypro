@@ -1,10 +1,10 @@
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { StatusPill } from '../ui/StatusPill';
 import type { ScheduleAssignmentView } from '../../db/queries/schedule';
 import { SlotCell } from './SlotCell';
-import { SLOT_ROW_LAYOUT, DAY_START_MIN, chipSpan } from './dayMath';
+import { SLOT_ROW_LAYOUT, chipSpan } from './dayMath';
 
 interface EmployeeLite { id: string; name: string }
 
@@ -14,86 +14,86 @@ interface Props {
   assignments: ScheduleAssignmentView[];
   /** Read-only for everyone; write affordances (empty-cell tap) only render when true. */
   canEdit: boolean;
+  /** Visible viewport (minutes since midnight) — DAY_* or EXPANDED_* window. */
+  windowStartMin: number;
+  windowEndMin: number;
   onCellPress: (employeeId: string, employeeName: string, startMinute: number, endMinute: number) => void;
   onChipPress: (assignment: ScheduleAssignmentView) => void;
 }
 
-// Fixed-width employee name OUTSIDE this row's own horizontal ScrollView (the
-// name never scrolls away) + a track of hour cells with assignment chips
-// absolutely positioned on top, spanning their [start_minute, end_minute)
-// range via `chipSpan`. Assignments partly/fully outside the 8-17 viewport
-// render clamped to the window edge with a small ◂/▸ off-window marker — the
-// schema is minute-general, the 8-17 window is only a viewport (per the UI
-// design's timeline-grid section).
-export function EmployeeScheduleRow({ employee, assignments, canEdit, onCellPress, onChipPress }: Props) {
+// ONE employee's hour-cell track: SLOT_ROW_LAYOUT.hourCount SlotCells with the
+// spanning assignment chips absolutely positioned on top. This component owns
+// NO ScrollView and no name column — DayBoardScreen renders the pinned name
+// column separately and hosts every row inside a SINGLE shared horizontal
+// ScrollView, so all rows and the hour header scroll in unison (live review
+// 2026-08-01: per-row scrollers desynced from the header and each other,
+// making cell times unreadable). Assignments partly/fully outside the 8-17
+// viewport render clamped to the window edge with a small ◂/▸ off-window
+// marker — the schema is minute-general, the 8-17 window is only a viewport.
+export function EmployeeScheduleRow({ employee, assignments, canEdit, windowStartMin, windowEndMin, onCellPress, onChipPress }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { colWidth, hourCount, rowHeight, chipHeight, nameColWidth } = SLOT_ROW_LAYOUT;
+  const { colWidth, rowHeight, chipHeight } = SLOT_ROW_LAYOUT;
+  const hourCount = (windowEndMin - windowStartMin) / 60;
   const trackWidth = colWidth * hourCount;
 
   function hourCovered(hourIndex: number): boolean {
-    const hStart = DAY_START_MIN + hourIndex * 60;
+    const hStart = windowStartMin + hourIndex * 60;
     const hEnd = hStart + 60;
     return assignments.some(a => a.start_minute < hEnd && a.end_minute > hStart);
   }
 
   return (
-    <View style={[s.row, { height: rowHeight }]}>
-      <View style={[s.nameCol, { width: nameColWidth, height: rowHeight }]}>
-        <Text style={s.nameText} numberOfLines={1}>{employee.name}</Text>
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.scroll}>
-        <View style={[s.track, { width: trackWidth, height: rowHeight }]}>
-          {Array.from({ length: hourCount }, (_, i) => {
-            const hStart = DAY_START_MIN + i * 60;
-            const covered = hourCovered(i);
-            return (
-              <SlotCell
-                key={i}
-                width={colWidth}
-                state={covered ? 'covered' : canEdit ? 'editable' : 'inert'}
-                onPress={canEdit ? () => onCellPress(employee.id, employee.name, hStart, hStart + 60) : undefined}
-              />
-            );
-          })}
-          {assignments.map(a => {
-            const span = chipSpan(a.start_minute, a.end_minute, colWidth);
-            const isJob = a.assignment_kind === 'job';
-            const label = isJob
-              ? (a.job_name ?? 'Job')
-              : `PM · ${(a.manager_name ?? 'Manager').split(' ')[0]}`;
-            return (
-              <TouchableOpacity
-                key={a.id}
-                style={[
-                  s.chipWrap,
-                  {
-                    left: span.left,
-                    width: Math.max(span.width, 4),
-                    height: chipHeight,
-                    top: (rowHeight - chipHeight) / 2,
-                  },
-                ]}
-                onPress={() => onChipPress(a)}
-                activeOpacity={0.75}
-              >
-                {span.clampedLeft && <Text style={s.offMarker}>◂</Text>}
-                <StatusPill label={label} tone={isJob ? 'primary' : 'accent'} style={s.chipPill} />
-                {span.clampedRight && <Text style={s.offMarker}>▸</Text>}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </ScrollView>
+    <View style={[s.track, { width: trackWidth, height: rowHeight }]}>
+      {Array.from({ length: hourCount }, (_, i) => {
+        const hStart = windowStartMin + i * 60;
+        const covered = hourCovered(i);
+        return (
+          <SlotCell
+            key={i}
+            width={colWidth}
+            state={covered ? 'covered' : canEdit ? 'editable' : 'inert'}
+            onPress={canEdit ? () => onCellPress(employee.id, employee.name, hStart, hStart + 60) : undefined}
+          />
+        );
+      })}
+      {assignments.map(a => {
+        const span = chipSpan(a.start_minute, a.end_minute, colWidth, windowStartMin, windowEndMin);
+        const isJob = a.assignment_kind === 'job';
+        const label = isJob
+          ? (a.job_name ?? 'Job')
+          : `PM · ${(a.manager_name ?? 'Manager').split(' ')[0]}`;
+        return (
+          <TouchableOpacity
+            key={a.id}
+            style={[
+              s.chipWrap,
+              {
+                left: span.left,
+                width: Math.max(span.width, 4),
+                height: chipHeight,
+                top: (rowHeight - chipHeight) / 2,
+              },
+            ]}
+            onPress={() => onChipPress(a)}
+            activeOpacity={0.75}
+          >
+            {span.clampedLeft && <Text style={s.offMarker}>◂</Text>}
+            <StatusPill label={label} tone={isJob ? 'primary' : 'accent'} style={s.chipPill} />
+            {span.clampedRight && <Text style={s.offMarker}>▸</Text>}
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail },
-  nameCol: { justifyContent: 'center', paddingHorizontal: t.spacing.sm, backgroundColor: t.colors.surface },
-  nameText: { fontSize: t.typography.fontSizes.body2, color: t.colors.textPrimary, fontWeight: '600' },
-  scroll: { flexGrow: 0 },
-  track: { flexDirection: 'row', position: 'relative' },
+  track: {
+    flexDirection: 'row',
+    position: 'relative',
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.borderDetail,
+  },
   chipWrap: {
     position: 'absolute',
     flexDirection: 'row',

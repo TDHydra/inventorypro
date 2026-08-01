@@ -115,11 +115,10 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // Manage My Team (#124): no requiredPermission — ownership is data (my crews /
   // lockers / vehicles); the screen shows an EmptyState when the user owns nothing.
   'manage-my-team': { label: 'Manage My Team',       icon: '👥', route: '/(app)/(myteam)', kind: 'tile' },
-  // Employee day schedule board (#184): dispatch-authority tile, same
-  // population as create_jobs — hidden entirely from non-editors (the board
-  // deep-link itself still renders read-only per the UI design's binding
-  // decision, but the dashboard tile is gated like every other tile here).
-  schedule:      { label: 'Schedule',                icon: '🗓', route: '/(app)/(schedule)', requiredPermission: 'manage_schedule', kind: 'tile' },
+  // Employee day schedule board (#184): open to every authenticated user —
+  // crews need to SEE their day (live review 2026-08-01); the board screen
+  // itself gates editing on manage_schedule and renders read-only otherwise.
+  schedule:      { label: 'Schedule',                icon: '🗓', route: '/(app)/(schedule)', kind: 'tile' },
   logs:          { label: 'Activity Logs',           icon: '📊', route: '/(app)/(logs)',  requiredPermission: 'view_all_logs', kind: 'tile' },
   // Chat is available to every authenticated user — no requiredPermission gate.
   chat:          { label: 'Messages',                icon: '💬', route: '/(app)/(chat)', kind: 'tile' },

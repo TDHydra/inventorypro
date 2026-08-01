@@ -18,6 +18,12 @@ export const DAY_START_MIN = 480;
 /** 5:00 PM — the board's visible workday window end (minutes since midnight). */
 export const DAY_END_MIN = 1020;
 
+// Expanded window (the "expand calendar" toggle) — 5:00 AM..9:00 PM, matching
+// the assignable range the TimeWheelPicker offers (minMinute 300 / maxMinute
+// 1260), so anything that CAN be scheduled fits on the expanded board.
+export const EXPANDED_START_MIN = 300;
+export const EXPANDED_END_MIN = 1260;
+
 // Shared layout metrics for the timeline grid — one source of truth so the
 // hour-label header (rendered once, in DayBoardScreen's `aboveList`) and each
 // EmployeeScheduleRow's own hour cells can never drift out of column
@@ -61,23 +67,26 @@ export function formatMinute(min: number): string {
 
 /**
  * Pixel geometry for a chip spanning [startMin, endMin) within the visible
- * DAY_START_MIN..DAY_END_MIN window, given the per-hour column width. Ranges
- * that fall partly or fully outside the window are clamped to the nearest
- * edge (never negative left/width) — the UI renders a small off-window
- * marker when `clampedLeft`/`clampedRight` is true. The schema is
- * minute-general; the 8–5 window is only a viewport.
+ * window (default DAY_START_MIN..DAY_END_MIN; the expand toggle passes the
+ * EXPANDED_* window), given the per-hour column width. Ranges that fall
+ * partly or fully outside the window are clamped to the nearest edge (never
+ * negative left/width) — the UI renders a small off-window marker when
+ * `clampedLeft`/`clampedRight` is true. The schema is minute-general; the
+ * window is only a viewport.
  */
 export function chipSpan(
   startMin: number,
   endMin: number,
   colWidth: number,
+  windowStartMin: number = DAY_START_MIN,
+  windowEndMin: number = DAY_END_MIN,
 ): { left: number; width: number; clampedLeft: boolean; clampedRight: boolean } {
   const pxPerMin = colWidth / 60;
-  const clampedLeft = startMin < DAY_START_MIN;
-  const clampedRight = endMin > DAY_END_MIN;
-  const clStart = Math.max(startMin, DAY_START_MIN);
-  const clEnd = Math.min(endMin, DAY_END_MIN);
-  const left = (clStart - DAY_START_MIN) * pxPerMin;
+  const clampedLeft = startMin < windowStartMin;
+  const clampedRight = endMin > windowEndMin;
+  const clStart = Math.max(startMin, windowStartMin);
+  const clEnd = Math.min(endMin, windowEndMin);
+  const left = (clStart - windowStartMin) * pxPerMin;
   const width = Math.max(0, (clEnd - clStart) * pxPerMin);
   return { left, width, clampedLeft, clampedRight };
 }
