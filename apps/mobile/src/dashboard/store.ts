@@ -1,14 +1,15 @@
 import { useSyncExternalStore } from 'react';
 import type { UserSession } from '../auth/permissions';
-import { DEFAULT_LAYOUT, type Layout } from './widgets';
+import { DEFAULT_LAYOUT, isWidgetType, type Layout, type WidgetType } from './widgets';
 import { ROLE_DEFAULT_LAYOUTS } from './roleLayouts';
-import { resolveLayout } from './resolve';
+import { resolveLayout, parsePresetLayout } from './resolve';
 import {
   getDashboardPresets,
   getRoleDashboardPresetIds,
   getUserDashboardPresetId,
   type DashboardPreset,
 } from '../db/queries/dashboards';
+import { getDashboardPrefs } from '../db/userPrefs';
 
 // Re-export the pure resolver/parse helpers (defined DB-free in ./resolve so they
 // stay unit-testable) for callers that import them from the store.
@@ -51,14 +52,30 @@ export function loadDashboardCache(): void {
   listeners.forEach(l => l());
 }
 
-// Resolve the effective layout for a user: users.dashboard_preset_id →
+// Resolve the effective layout for a user (role dashboards §1, extended by
+// #193): personal layout (dashboard_prefs.layout) → users.dashboard_preset_id →
 // role_settings[role].dashboard_preset_id → ROLE_DEFAULT_LAYOUTS[role] →
-// DEFAULT_LAYOUT (role dashboards §1). Reads the caller's own preset id from the
-// DB (cheap single-row) and the role assignment from cache; any failure resolves
-// to the role's code default (then DEFAULT_LAYOUT) so the hub always renders.
+// DEFAULT_LAYOUT. The personal layout is the NEW top precedence tier — an
+// explicit per-user customization (EditMyDashboardSheet) always wins over the
+// admin-curated user/role presets, but a missing/invalid/empty one falls
+// through to the existing preset chain exactly as before (never skips past
+// it). Deliberately validated here in the store, NOT in ./resolve.ts — resolve
+// stays a pure, DB-free reproduction of the preset chain only; personal-layout
+// reads are a DB access (like getUserDashboardPresetId below) that belongs in
+// this reactive layer. Reused parsePresetLayout (not a new resolve.ts export)
+// since dashboard_prefs.layout is a JS array once JSON.parsed — round-tripping
+// it through the same validator a preset's raw layout column uses keeps the
+// two personalization surfaces (presets vs. personal) sharing one code path.
+// Reads the caller's own rows from the DB (cheap single-row lookups, same as
+// getUserDashboardPresetId) and the role assignment from cache; any failure
+// resolves to the role's code default (then DEFAULT_LAYOUT) so the hub always
+// renders.
 export function resolveLayoutFor(user: UserSession): Layout {
   const roleDefault = ROLE_DEFAULT_LAYOUTS[user.role] ?? null;
   try {
+    const personalRaw = getDashboardPrefs(user.id)?.layout;
+    const personal = personalRaw ? parsePresetLayout(JSON.stringify(personalRaw)) : null;
+    if (personal) return personal;
     const userPresetId = getUserDashboardPresetId(user.id);
     const rolePresetId = rolePresetIds[user.role] ?? null;
     return resolveLayout(userPresetId, rolePresetId, presetsById, roleDefault);
@@ -67,10 +84,32 @@ export function resolveLayoutFor(user: UserSession): Layout {
   }
 }
 
-// Hook: re-renders when the dashboard cache changes (preset edit / sync / assignment)
-// via useSyncExternalStore, then resolves the caller's layout. Mirrors usePermission.
+// Hook: re-renders when the dashboard cache changes (preset edit / sync / assignment /
+// personal layout edit) via useSyncExternalStore, then resolves the caller's layout.
+// Mirrors usePermission.
 export function useDashboardLayout(user: UserSession | null): Layout {
   useSyncExternalStore(subscribeDashboard, getDashboardVersion, getDashboardVersion);
   if (!user) return DEFAULT_LAYOUT;
   return resolveLayoutFor(user);
+}
+
+// The user's starred widgets (#196), filtered against isWidgetType so a stale
+// entry from a removed/renamed widget type is dropped rather than rendered
+// broken. Any failure (DB not ready / bad JSON, already handled inside
+// getDashboardPrefs) resolves to no stars — the strip just doesn't render.
+export function getStarredWidgets(userId: string): WidgetType[] {
+  try {
+    return (getDashboardPrefs(userId)?.starred ?? []).filter(isWidgetType);
+  } catch {
+    return [];
+  }
+}
+
+// Hook: re-renders on the SAME cache signal as useDashboardLayout (loadDashboardCache
+// is called after a sync pull AND after the personal editor's star/layout writes — see
+// db/userPrefs.ts), so the favorites strip updates without a remount either way.
+export function useStarredWidgets(user: UserSession | null): WidgetType[] {
+  useSyncExternalStore(subscribeDashboard, getDashboardVersion, getDashboardVersion);
+  if (!user) return [];
+  return getStarredWidgets(user.id);
 }

@@ -148,6 +148,11 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       // Plain TEXT/REAL tables with no bespoke upsert logic — the generic arm
       // names columns from the row keys, so it tolerates the server omitting
       // local-only (synced_at) or financial (cost/purchase_price) columns.
+      // user_prefs (#193/#196 audit): was fetched in SYNC_TABLES above but had
+      // NO case here, so a fresh device's theme/dashboard_prefs row was silently
+      // dropped on full download (only the incremental /sync/pull path applied
+      // it). Added as part of migration 060's fullDownload.ts parity pass.
+      case 'user_prefs':
       case 'app_config':
       case 'taxonomy_types':
       case 'repairs':

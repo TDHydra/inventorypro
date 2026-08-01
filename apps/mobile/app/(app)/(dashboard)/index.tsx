@@ -2,6 +2,7 @@ import { ScrollView, View, Text, TouchableOpacity, StyleSheet, Platform } from '
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
 import { useSession } from '../../../src/hooks/useSession';
+import { hasPermission } from '../../../src/auth/permissions';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { QuickAddBanner } from '../../../src/components/QuickAddBanner';
 import { DashboardSearch } from '../../../src/components/DashboardSearch';
@@ -20,7 +21,7 @@ import { ROLE_DISPLAY_NAMES, type Permission } from '../../../src/constants/role
 import { track } from '../../../src/telemetry';
 import type { Theme } from '../../../src/themes/types';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
-import { useDashboardLayout } from '../../../src/dashboard/store';
+import { useDashboardLayout, useStarredWidgets } from '../../../src/dashboard/store';
 import { useTotalUnread } from '../../../src/chat/store';
 import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src/dashboard/widgets';
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
@@ -28,6 +29,7 @@ import { OnCallWidget } from '../../../src/components/oncall/OnCallWidget';
 import { StatTiles } from '../../../src/components/dashboard/StatTiles';
 import { WorkList } from '../../../src/components/dashboard/WorkList';
 import { ActivityPreview } from '../../../src/components/dashboard/ActivityPreview';
+import { EditMyDashboardSheet } from '../../../src/components/dashboard/EditMyDashboardSheet';
 
 function timeGreeting(): string {
   const hour = new Date().getHours();
@@ -69,6 +71,8 @@ export default function DashboardScreen() {
   // #168: the gas-receipt quick-action opens the Log Service sheet in place,
   // pre-filled with the checked-out vehicle (no navigation detour).
   const [gasVehicleId, setGasVehicleId] = useState<string | null>(null);
+  // #193: long-press the greeting header to personalize (reorder/hide/star).
+  const [editOpen, setEditOpen] = useState(false);
   // Table-scoped reactivity (#61 → #63 finish): the low-stock scan re-runs only
   // when inventory data changes, not on every pull (a chat message used to
   // re-query it via the global dataVersion). taxonomy_types is in the list
@@ -100,6 +104,10 @@ export default function DashboardScreen() {
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
   // which reproduces today's dashboard exactly (same tiles/order/gates below).
   const layout = useDashboardLayout(user);
+  // Starred favorites (#196) — reactive over the same dashboard cache version
+  // as the layout, so a star toggled in EditMyDashboardSheet repaints the strip
+  // immediately (loadDashboardCache() is called right after the write).
+  const starred = useStarredWidgets(user);
   // Unread badge on the Messages tile — reactive via the chat store (loadChatCache
   // runs at boot, post-pull, and from the chat screens' own writes).
   const chatUnread = useTotalUnread();
@@ -114,10 +122,19 @@ export default function DashboardScreen() {
   const greeting = (
     <View key="__greeting">
       <View style={s.greeting}>
-        <View style={s.greetingText}>
+        {/* #193: long-press the greeting (name/role text only, so it doesn't
+            fight the settings-gear/`?` buttons' own tap targets) opens the
+            personal dashboard editor. */}
+        <TouchableOpacity
+          style={s.greetingText}
+          onLongPress={() => setEditOpen(true)}
+          delayLongPress={400}
+          accessibilityLabel="Personalize dashboard"
+          accessibilityHint="Long press to reorder, hide, or star widgets"
+        >
           <Text style={[s.hi, { color: roleColor(user.role) }]}>{timeGreeting()}, {user.name.split(' ')[0]}</Text>
           <Text style={s.role}>{ROLE_DISPLAY_NAMES[user.role]}</Text>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity
           onPress={() => router.push('/(app)/(admin)/settings' as never)}
           style={s.questionBtn}
@@ -132,6 +149,46 @@ export default function DashboardScreen() {
       <TooltipHint screenKey="dashboard" onReady={fn => setReshow(() => fn)} />
     </View>
   );
+
+  // Starred favorites strip (#196): a compact horizontal row of the user's
+  // starred TILE widgets (star-toggling a non-tile block isn't offered by the
+  // editor, so this filter is a defensive no-op today). Each chip re-checks
+  // the live permission — a role change revoking access must hide the chip
+  // even though the star itself lingers in prefs until the user removes it.
+  // Placement: directly under the pinned search bar, above the greeting — the
+  // strip is a quick-launch surface the user asked for explicitly (starring is
+  // opt-in), so it earns the very top slot below only the non-negotiable search.
+  const starredTiles = starred.filter(w => {
+    const def = WIDGET_REGISTRY[w];
+    return def?.kind === 'tile' && (!def.requiredPermission || hasPermission(user, def.requiredPermission));
+  });
+  const starredStrip = starredTiles.length > 0 ? (
+    <ScrollView
+      key="__starred"
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={s.starredStrip}
+      contentContainerStyle={s.starredStripContent}
+    >
+      {starredTiles.map(w => {
+        const def = WIDGET_REGISTRY[w];
+        return (
+          <TouchableOpacity
+            key={w}
+            style={s.starredChip}
+            onPress={() => {
+              const trackKey = HUB_TRACK[w];
+              if (trackKey) track('action', trackKey, { screen: 'hub_starred' });
+              if (def.route) router.push(def.route as never);
+            }}
+          >
+            <Text style={s.starredIcon}>{def.icon ?? '•'}</Text>
+            <Text style={s.starredLabel} numberOfLines={1}>{def.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  ) : null;
 
   // A single tile block → the same TouchableOpacity styling/onPress as today, wrapped
   // in its PermissionGate so a preset can NEVER surface an unauthorized tile.
@@ -325,7 +382,9 @@ export default function DashboardScreen() {
   // search bar is PINNED chrome (role dashboards §1): always rendered first,
   // outside the resolved layout, with the greeting right after it — presets can
   // no longer add or remove it (old presets' 'search' blocks parse away).
-  const elements: ReactNode[] = [<DashboardSearch key="__search" />, greeting];
+  const elements: ReactNode[] = [<DashboardSearch key="__search" />];
+  if (starredStrip) elements.push(starredStrip);
+  elements.push(greeting);
 
   for (let i = 0; i < layout.length; i++) {
     const block = layout[i];
@@ -364,6 +423,16 @@ export default function DashboardScreen() {
           onClose={() => setGasVehicleId(null)}
         />
       )}
+      {/* #193/#196: personal layout editor, opened via long-press on the
+          greeting. `layout`/`starred` are the live-resolved values so the
+          sheet always opens showing exactly what's on screen. */}
+      <EditMyDashboardSheet
+        visible={editOpen}
+        onClose={() => setEditOpen(false)}
+        user={user}
+        currentLayout={layout}
+        starred={starred}
+      />
     </>
   );
 }
@@ -374,6 +443,24 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   content: { padding: 16, gap: 10 },
   greeting: { marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   greetingText: { flex: 1 },
+  // Starred favorites strip (#196) — sits between the pinned search bar and
+  // the greeting; negative margin keeps its own gap tight since `content`'s
+  // `gap: 10` already spaces it from its neighbours.
+  starredStrip: { marginBottom: -2 },
+  starredStripContent: { gap: 8, paddingRight: 4 },
+  starredChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: t.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+  },
+  starredIcon: { fontSize: 15 },
+  starredLabel: { fontSize: 13, fontWeight: '600', color: t.colors.textPrimary, maxWidth: 140 },
   hi: { fontSize: 24, fontWeight: '700', color: t.colors.brand },
   role: { fontSize: 13, color: t.colors.textSecondary, textTransform: 'capitalize' },
   questionBtn: {

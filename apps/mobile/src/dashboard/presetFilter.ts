@@ -18,3 +18,20 @@ export function filterTilesForRoles(
     return targetRoles.every(r => roleHasPerm(r, perm));
   });
 }
+
+// Personal dashboard editor variant (#193): filters the "add widget" picker to
+// tiles the CURRENT USER's own permissions allow, rather than every assigned
+// role (filterTilesForRoles is the admin preset-editor version, which checks
+// role permissions since a preset targets roles, not one person). A tile with
+// no requiredPermission is always offered — same data-driven-access idiom as
+// fast-checkout/manage-my-team. PermissionGate on the dashboard screen stays
+// the runtime backstop either way.
+export function filterTilesForUser(
+  tiles: WidgetType[],
+  hasPerm: (perm: Permission) => boolean,
+): WidgetType[] {
+  return tiles.filter(w => {
+    const perm = WIDGET_REGISTRY[w].requiredPermission;
+    return !perm || hasPerm(perm);
+  });
+}
