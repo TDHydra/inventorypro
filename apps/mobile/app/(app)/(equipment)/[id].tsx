@@ -26,6 +26,7 @@ import {
 } from '../../../src/db/queries/maintenance';
 import { computeBookValue, formatMoney } from '../../../src/equipment/depreciation';
 import { getRepairsForEntity, updateRepairStatus } from '../../../src/db/queries/repairs';
+import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import { getRepairStatuses, isTerminalStatus } from '../../../src/db/queries/taxonomy';
 import { useSession } from '../../../src/hooks/useSession';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -982,7 +983,12 @@ export default function EquipmentModelDetailScreen() {
       <ModalSheet visible={historyUnit !== null} onClose={() => setHistoryUnit(null)} scroll>
         <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
         {historyUnit && (
-          <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
+          <>
+            {/* Repair history (#178 Part 3 close-out) — past faults + resolutions
+                against this specific unit; omits itself entirely when there are none. */}
+            <PriorRepairsCard entityType="equipment_unit" entityId={historyUnit.id} />
+            <ActivityFeed entityType="equipment_unit" entityId={historyUnit.id} />
+          </>
         )}
       </ModalSheet>
 

@@ -33,6 +33,7 @@ import type { PickerOption } from '../../../src/components/SearchablePicker';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { FormScreen } from '../../../src/components/ui/FormScreen';
+import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -460,6 +461,10 @@ export default function ItemDetailScreen() {
 
               <Text style={s.sectionLabel}>Photos</Text>
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
+
+              {/* Repair history (#178 Part 3 close-out) — past faults + resolutions
+                  logged against this item; omits itself entirely when there are none. */}
+              <PriorRepairsCard entityType="item" entityId={id} />
 
               <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setApprovalOpen(true)}>
                 <Text style={s.attrKey}>✅ Request Approval</Text>
