@@ -5,7 +5,6 @@ import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { Card } from '../ui/Card';
-import { EmptyState } from '../ui/EmptyState';
 import { ACTION_ICONS, actionLabel } from '../ActivityFeed';
 import { getRecentLog } from '../../db/queries/log';
 import type { WidgetConfig } from '../../dashboard/widgets';
@@ -47,25 +46,25 @@ export function ActivityPreview({ config }: Props) {
 
   const title = config?.title?.trim() || 'Recent Activity';
 
+  // #195 (generalizes #144): no activity is a valid, correctly-configured
+  // state — collapse the whole card instead of showing "No activity yet".
+  if (entries.length === 0) return null;
+
   return (
     <Card>
       <Text style={s.title}>📊 {title}</Text>
-      {entries.length === 0 ? (
-        <EmptyState icon="📊" title="No activity yet" />
-      ) : (
-        <View style={s.rows}>
-          {entries.map(r => (
-            <View key={r.id} style={s.row}>
-              <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
-              <View style={s.middle}>
-                <Text style={s.action} numberOfLines={1}>{actionLabel(r.action)}</Text>
-                {r.user_name ? <Text style={s.user} numberOfLines={1}>{r.user_name}</Text> : null}
-              </View>
-              <Text style={s.date}>{relativeDate(r.created_at)}</Text>
+      <View style={s.rows}>
+        {entries.map(r => (
+          <View key={r.id} style={s.row}>
+            <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
+            <View style={s.middle}>
+              <Text style={s.action} numberOfLines={1}>{actionLabel(r.action)}</Text>
+              {r.user_name ? <Text style={s.user} numberOfLines={1}>{r.user_name}</Text> : null}
             </View>
-          ))}
-        </View>
-      )}
+            <Text style={s.date}>{relativeDate(r.created_at)}</Text>
+          </View>
+        ))}
+      </View>
       <TouchableOpacity style={s.viewAll} onPress={() => router.push('/(app)/(logs)' as never)}>
         <Text style={s.viewAllText}>View all ›</Text>
       </TouchableOpacity>
