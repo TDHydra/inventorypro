@@ -89,6 +89,59 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   view_audit_log: 'View the API audit log',
 };
 
+// Group membership for the role editor's collapsible sections (#200: Inventory /
+// Jobs / Scheduling / Financial / Admin). Co-located with PERMISSION_LABELS —
+// NOT in roles.tsx — for the same circular-import reason documented above
+// (PermissionGate needs permission metadata without importing the admin screen).
+// Every Permission key must land in EXACTLY ONE group. TS can't enforce "each
+// union member used exactly once across these arrays" at the type level, so
+// the guardrail is the runtime exhaustiveness test in roles.test.ts (mirrors
+// the PERMISSION_LABELS coverage test just above) — add new Permission keys to
+// a group here or that test fails.
+export type PermissionGroupName = 'Inventory' | 'Jobs' | 'Scheduling' | 'Financial' | 'Admin';
+
+export const PERMISSION_GROUPS: Record<PermissionGroupName, Permission[]> = {
+  Inventory: [
+    'checkout_inventory',
+    'checkin_inventory',
+    'add_inventory',
+    'quick_add',
+    'edit_inventory',
+    'delete_inventory',
+    'transfer_between_locations',
+    'manage_other_team_inventory',
+    'manage_locations',
+    'checkout_for_team',
+    'upload_media',
+    'edit_media',
+    'delete_media',
+  ],
+  Jobs: [
+    'create_jobs',
+    'close_jobs',
+  ],
+  Scheduling: [
+    'manage_schedule',
+  ],
+  Financial: [
+    'view_financial_data',
+  ],
+  Admin: [
+    'view_all_logs',
+    'view_own_logs',
+    'view_team_activity',
+    'manage_teams',
+    'manage_users',
+    'set_pins',
+    'manage_roles_permissions',
+    'system_settings',
+    'view_audit_log',
+    'send_notifications',
+  ],
+};
+
+export const PERMISSION_GROUP_NAMES = Object.keys(PERMISSION_GROUPS) as PermissionGroupName[];
+
 export const ROLE_TIER: Record<UserRole, 1 | 2 | 3 | 4> = {
   temporary_employee:       1,
   carpet_cleaning_crew:     1,

@@ -4,12 +4,12 @@ import { Stack } from 'expo-router';
 import {
   ROLE_DISPLAY_NAMES, ROLE_TIER, ROLE_DEFAULTS, PIN_LENGTH_BY_TIER,
   UserRole, Permission, ROLE_COLOR_PALETTE, resolveRoleColor, canActOnTarget,
-  PERMISSION_LABELS,
+  PERMISSION_LABELS, PERMISSION_GROUPS, PERMISSION_GROUP_NAMES, PermissionGroupName,
 } from '../../../src/constants/roles';
 import {
   getRoleSettings, setRoleMinPin,
   getRolePermissionOverrides, setRolePermission,
-  getRoleColorMap, setRoleColor,
+  getRoleColorMap, setRoleColor, getActiveUserCountByRole,
 } from '../../../src/db/queries/users';
 import { loadRolePermissionCache, canEditRolePermission } from '../../../src/auth/permissions';
 import {
@@ -18,6 +18,7 @@ import {
 import { loadDashboardCache } from '../../../src/dashboard/store';
 import { dashboardPresetOptions } from '../../../src/dashboard/presetOptions';
 import { SelectField } from '../../../src/components/ui/SelectField';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { runInTransaction } from '../../../src/db/tx';
 import { Alert } from '../../../src/lib/themedAlert';
@@ -65,6 +66,17 @@ export default function RolesScreen() {
     [version],
   );
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Per-role, per-group collapse state for the grouped permission matrix
+  // (#200), keyed "<role>:<group>" so groups collapse independently across
+  // roles. Groups default collapsed, same as the role cards themselves.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  function toggleGroupExpanded(key: string) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
   const roleColors = useMemo<Record<string, string>>(() => getRoleColorMap(), [version]);
   const rolePresets = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
   const presets = useMemo(() => getDashboardPresets(), [version]);
@@ -92,7 +104,44 @@ export default function RolesScreen() {
     return out;
   }, [overrides]);
 
-  function togglePerm(role: UserRole, perm: Permission) {
+  // The actual override write for ONE role→permission cell — unchanged from
+  // before #201, just extracted so both the single-cell toggle and the
+  // group-level toggle-all (one combined confirm, N writes) share the exact
+  // same write path instead of drifting into two copies of this logic.
+  // Caller wraps this in runInTransaction (single perm: one write; group
+  // toggle-all: N writes, one transaction) so a mid-flow failure can't leave
+  // an override saved without its log entry.
+  function commitPermWrite(role: UserRole, perm: Permission, next: boolean, def: boolean) {
+    // Toggling back to the default removes the override key (clean reset).
+    // setRolePermission already mirrors the permission_overrides UPDATE to the
+    // sync outbox internally (see queries/users.ts), so the change syncs — we do
+    // NOT append another outbox row here or it would double-sync the same row.
+    setRolePermission(role, perm, next === def ? null : next);
+    appendLog({
+      action: 'role_permission_changed',
+      entity_type: 'role_settings',
+      // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
+      // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
+      // input syntax for type uuid"). Keep entity_id null; carry the role in the
+      // note + metadata. The permission change itself syncs via role_settings UPDATE.
+      entity_id: null,
+      user_id: sessionUser?.id ?? null,
+      note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
+      team_id: null, from_location_id: null, to_location_id: null,
+      quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+    });
+  }
+
+  // #201 impact-preview copy shared by the single-cell toggle and the
+  // group-level toggle-all confirm.
+  function impactMessage(role: UserRole, changedLabel: string): string {
+    const count = getActiveUserCountByRole(role);
+    const users = count === 1 ? '1 user' : `${count} users`;
+    return `This changes ${changedLabel} for ${users} with the ${ROLE_DISPLAY_NAMES[role]} role. ` +
+      `User- or team-level overrides may still apply for some of them.`;
+  }
+
+  async function togglePerm(role: UserRole, perm: Permission) {
     if (!canManage) return;
     if (isLockedPerm(role, perm)) return; // self-lockout guard
     // Only a full_admin may grant/revoke the destructive delete permissions
@@ -102,29 +151,21 @@ export default function RolesScreen() {
     const def = ROLE_DEFAULTS[role][perm];
     const { value: cur } = effectivePerm(role, perm);
     const next = !cur;
+
+    // #201: preview the blast radius before the write commits. Cancel aborts
+    // with no write; confirm proceeds exactly as before.
+    const ok = await confirmSheet({
+      title: 'Change this permission?',
+      message: impactMessage(role, PERMISSION_LABELS[perm]),
+      confirmLabel: 'Change',
+    });
+    if (!ok) return;
+    // Re-check after the await — maintenance mode or the role toggling closed
+    // could have changed state while the sheet was showing.
+    if (isWriteBlocked()) return;
+
     try {
-      // The override write + its activity log land together so a mid-flow failure
-      // can't leave the override saved without a log entry (or vice-versa).
-      runInTransaction(() => {
-        // Toggling back to the default removes the override key (clean reset).
-        // setRolePermission already mirrors the permission_overrides UPDATE to the
-        // sync outbox internally (see queries/users.ts), so the change syncs — we do
-        // NOT append another outbox row here or it would double-sync the same row.
-        setRolePermission(role, perm, next === def ? null : next);
-        appendLog({
-          action: 'role_permission_changed',
-          entity_type: 'role_settings',
-          // A role is identified by a string key (e.g. "hr_manager"), not a UUID, so it
-          // cannot go in the UUID `entity_id` column — the server rejects it ("invalid
-          // input syntax for type uuid"). Keep entity_id null; carry the role in the
-          // note + metadata. The permission change itself syncs via role_settings UPDATE.
-          entity_id: null,
-          user_id: sessionUser?.id ?? null,
-          note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
-          team_id: null, from_location_id: null, to_location_id: null,
-          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
-        });
-      });
+      runInTransaction(() => commitPermWrite(role, perm, next, def));
     } catch (e) {
       Alert.alert(
         'Could not update permission',
@@ -134,6 +175,56 @@ export default function RolesScreen() {
     }
     // Commit succeeded — refresh the permission cache so gates elsewhere see the
     // change; the overrides memo re-reads via the role_settings table version.
+    loadRolePermissionCache();
+  }
+
+  // Group-level toggle-all (#200 + #201): flips every EDITABLE, non-locked
+  // permission in the group to the opposite of its current "all on" state,
+  // skipping non-editable/locked cells silently (they just don't appear in
+  // `changed`). Shows exactly ONE combined confirm listing every key that will
+  // actually change, then commits all of them in a single transaction — never
+  // N sequential confirm sheets.
+  async function toggleGroupAll(role: UserRole, group: PermissionGroupName) {
+    if (!canManage) return;
+    if (isWriteBlocked()) return;
+    const callerRole = (sessionUser?.role ?? '') as UserRole;
+    if (!canActOnTarget(callerRole, role)) return;
+
+    const perms = PERMISSION_GROUPS[group];
+    // canEditRolePermission already covers the tier guard, the full_admin
+    // self-lockout floor, AND the full_admin-only destructive-grant rule — so
+    // filtering on `.editable` alone correctly skips every non-editable and
+    // locked cell without a separate isLockedPerm check.
+    const editablePerms = perms.filter(p => canEditRolePermission(callerRole, role, p).editable);
+    if (editablePerms.length === 0) return;
+
+    const allOn = editablePerms.every(p => effectivePerm(role, p).value);
+    const target = !allOn;
+    const changed = editablePerms
+      .map(p => ({ perm: p, def: ROLE_DEFAULTS[role][p] }))
+      .filter(c => effectivePerm(role, c.perm).value !== target);
+    if (changed.length === 0) return; // nothing would actually change
+
+    const changedLabels = changed.map(c => PERMISSION_LABELS[c.perm]).join(', ');
+    const ok = await confirmSheet({
+      title: `${target ? 'Enable' : 'Disable'} all ${group} permissions?`,
+      message: impactMessage(role, changedLabels),
+      confirmLabel: target ? 'Enable all' : 'Disable all',
+    });
+    if (!ok) return;
+    if (isWriteBlocked()) return;
+
+    try {
+      runInTransaction(() => {
+        for (const c of changed) commitPermWrite(role, c.perm, target, c.def);
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not update permissions',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
     loadRolePermissionCache();
   }
 
@@ -347,42 +438,83 @@ export default function RolesScreen() {
                 </View>
               )}
 
-              {/* Editable permission matrix */}
+              {/* Editable permission matrix — grouped into collapsible sections (#200):
+                  Inventory / Jobs / Scheduling / Financial / Admin, each with its own
+                  group-level toggle-all (#201 impact-preview confirm gates every write,
+                  single or batched). */}
               {isOpen && (
                 <View style={s.matrix}>
-                  {PERMISSION_ORDER.map(perm => {
-                    const lockedPerm = isLockedPerm(role, perm);
-                    // Single source of truth for whether this cell may be toggled —
-                    // the shared canEditRolePermission mirrors the server's role_settings
-                    // rules (tier guard + full_admin floor + full_admin-only delete grant)
-                    // so the editor can't drift from what the server accepts (#82).
-                    const editability = canEditRolePermission(callerRole, role, perm);
-                    const { value, modified } = effectivePerm(role, perm);
-                    const shown = lockedPerm ? true : value;
-                    const disabled = !canManage || locked || !editability.editable;
-                    // The tier-guard reason is shown once at the role level above; here
-                    // surface only the per-permission reasons (floor / delete-grant) when
-                    // the caller can otherwise act on this role.
-                    const permReason = canActThisRole && !editability.editable ? editability.reason : null;
+                  {PERMISSION_GROUP_NAMES.map(group => {
+                    const groupKey = `${role}:${group}`;
+                    const groupOpen = expandedGroups.has(groupKey);
+                    const perms = PERMISSION_GROUPS[group];
+                    const grantedInGroup = perms.filter(p => (
+                      isLockedPerm(role, p) ? true : effectivePerm(role, p).value
+                    )).length;
+                    const editablePerms = perms.filter(p => canEditRolePermission(callerRole, role, p).editable);
+                    const allOn = editablePerms.length > 0 && editablePerms.every(p => effectivePerm(role, p).value);
+                    const toggleAllDisabled = !canManage || locked || !canActThisRole || editablePerms.length === 0;
                     return (
-                      <View key={perm} style={s.permRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[s.permLabel, !shown && s.permLabelOff]}>
-                            {PERMISSION_LABELS[perm]}
-                          </Text>
-                          {modified && !lockedPerm && (
-                            <Text style={s.modifiedBadge}>modified</Text>
-                          )}
-                          {permReason && (
-                            <Text style={s.lockedBadge}>{permReason}</Text>
-                          )}
+                      <View key={group} style={s.group}>
+                        <View style={s.groupHead}>
+                          <TouchableOpacity
+                            style={s.groupHeadPress}
+                            onPress={() => toggleGroupExpanded(groupKey)}
+                          >
+                            <Text style={s.chevron}>{groupOpen ? '▾' : '▸'}</Text>
+                            <View style={{ flex: 1 }}>
+                              <Text style={s.groupName}>{group}</Text>
+                              <Text style={s.groupMeta}>{grantedInGroup} of {perms.length}</Text>
+                            </View>
+                          </TouchableOpacity>
+                          <Switch
+                            value={allOn}
+                            disabled={toggleAllDisabled}
+                            onValueChange={() => toggleGroupAll(role, group)}
+                            trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                          />
                         </View>
-                        <Switch
-                          value={shown}
-                          disabled={disabled}
-                          onValueChange={() => togglePerm(role, perm)}
-                          trackColor={{ true: t.colors.primary, false: t.colors.border }}
-                        />
+
+                        {groupOpen && (
+                          <View style={s.groupBody}>
+                            {perms.map(perm => {
+                              const lockedPerm = isLockedPerm(role, perm);
+                              // Single source of truth for whether this cell may be toggled —
+                              // the shared canEditRolePermission mirrors the server's role_settings
+                              // rules (tier guard + full_admin floor + full_admin-only delete grant)
+                              // so the editor can't drift from what the server accepts (#82).
+                              const editability = canEditRolePermission(callerRole, role, perm);
+                              const { value, modified } = effectivePerm(role, perm);
+                              const shown = lockedPerm ? true : value;
+                              const disabled = !canManage || locked || !editability.editable;
+                              // The tier-guard reason is shown once at the role level above; here
+                              // surface only the per-permission reasons (floor / delete-grant) when
+                              // the caller can otherwise act on this role.
+                              const permReason = canActThisRole && !editability.editable ? editability.reason : null;
+                              return (
+                                <View key={perm} style={s.permRow}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={[s.permLabel, !shown && s.permLabelOff]}>
+                                      {PERMISSION_LABELS[perm]}
+                                    </Text>
+                                    {modified && !lockedPerm && (
+                                      <Text style={s.modifiedBadge}>modified</Text>
+                                    )}
+                                    {permReason && (
+                                      <Text style={s.lockedBadge}>{permReason}</Text>
+                                    )}
+                                  </View>
+                                  <Switch
+                                    value={shown}
+                                    disabled={disabled}
+                                    onValueChange={() => togglePerm(role, perm)}
+                                    trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                                  />
+                                </View>
+                              );
+                            })}
+                          </View>
+                        )}
                       </View>
                     );
                   })}
@@ -424,6 +556,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   pinValue: { fontSize: t.typography.fontSizes.base, fontWeight: '700', color: t.colors.textPrimary, minWidth: 24, textAlign: 'center' },
 
   matrix: { borderTopWidth: 1, borderTopColor: t.colors.surfaceAlt, paddingHorizontal: t.spacing.base, paddingVertical: 8 },
+
+  group: { borderTopWidth: 1, borderTopColor: t.colors.surfaceAlt, paddingVertical: 4 },
+  groupHead: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
+  groupHeadPress: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  groupName: { fontSize: t.typography.fontSizes.body2, fontWeight: '700', color: t.colors.textPrimary },
+  groupMeta: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 1 },
+  groupBody: { paddingLeft: 18, paddingBottom: 4 },
+
   permRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, gap: 10 },
   permCheck: { width: 18, textAlign: 'center', fontSize: t.typography.fontSizes.body, fontWeight: '700' },
   permYes: { color: t.colors.success },
