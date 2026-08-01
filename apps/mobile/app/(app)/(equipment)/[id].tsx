@@ -686,58 +686,6 @@ export default function EquipmentModelDetailScreen() {
                 )}
               </View>
 
-              {/* ── Maintenance & Lifecycle ───────────────────────────── */}
-              {/* Per-unit service history + (financial-only) book value. Cost
-                  columns and the depreciation line are gated on view_financial_data,
-                  mirroring how the repair screen hides cost. */}
-              <Text style={s.sectionLabel}>Maintenance & Lifecycle</Text>
-              <View style={s.card}>
-                {units.length === 0 ? (
-                  <Text style={s.muted}>No units registered yet.</Text>
-                ) : (
-                  units.map((u, i) => {
-                    const events = maintByUnit.get(u.id) ?? [];
-                    const bookValue = canViewFinancial ? computeBookValue(u, nowIso) : null;
-                    return (
-                      <View key={u.id} style={i < units.length - 1 ? [s.maintBlock, s.divider] : s.maintBlock}>
-                        <View style={s.maintHeaderRow}>
-                          <Text style={s.maintUnitTag}>{u.asset_tag}</Text>
-                          {canViewFinancial && bookValue != null && (
-                            <Text style={s.maintBookValue}>Book value {formatMoney(bookValue)}</Text>
-                          )}
-                        </View>
-                        {events.length === 0 ? (
-                          <Text style={s.maintEmpty}>No maintenance logged.</Text>
-                        ) : (
-                          events.map(ev => (
-                            <View key={ev.id} style={s.maintRow}>
-                              <View style={s.maintRowMain}>
-                                <Text style={s.maintDate}>
-                                  {new Date(ev.event_date).toLocaleDateString()} · {ev.type}
-                                </Text>
-                                {!!ev.notes && <Text style={s.maintNotes}>{ev.notes}</Text>}
-                              </View>
-                              {canViewFinancial && ev.cost != null && (
-                                <Text style={s.maintCost}>{formatMoney(ev.cost)}</Text>
-                              )}
-                            </View>
-                          ))
-                        )}
-                        {canEdit && (
-                          <TouchableOpacity
-                            style={s.maintAddBtn}
-                            onPress={() => openAddMaint(u)}
-                            disabled={locked}
-                          >
-                            <Text style={s.maintAddText}>+ Add maintenance event</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-
               {/* ── Registered Units ──────────────────────────────────── */}
               <Text style={s.sectionLabel}>Registered Units</Text>
               <View style={s.card}>
@@ -984,6 +932,52 @@ export default function EquipmentModelDetailScreen() {
         <Text style={s.modalTitle}>History — {historyUnit?.asset_tag}</Text>
         {historyUnit && (
           <>
+            {/* Maintenance & lifecycle — lives HERE, not on the page body
+                (live review 2026-08-01: a "No maintenance logged." block per
+                unit stacked up on models with many units). Cost columns and
+                the book-value line stay gated on view_financial_data. */}
+            {(() => {
+              const events = maintByUnit.get(historyUnit.id) ?? [];
+              const bookValue = canViewFinancial ? computeBookValue(historyUnit, nowIso) : null;
+              return (
+                <View style={s.maintBlock}>
+                  <View style={s.maintHeaderRow}>
+                    <Text style={s.maintUnitTag}>Maintenance</Text>
+                    {canViewFinancial && bookValue != null && (
+                      <Text style={s.maintBookValue}>Book value {formatMoney(bookValue)}</Text>
+                    )}
+                  </View>
+                  {events.length === 0 ? (
+                    <Text style={s.maintEmpty}>No maintenance logged.</Text>
+                  ) : (
+                    events.map(ev => (
+                      <View key={ev.id} style={s.maintRow}>
+                        <View style={s.maintRowMain}>
+                          <Text style={s.maintDate}>
+                            {new Date(ev.event_date).toLocaleDateString()} · {ev.type}
+                          </Text>
+                          {!!ev.notes && <Text style={s.maintNotes}>{ev.notes}</Text>}
+                        </View>
+                        {canViewFinancial && ev.cost != null && (
+                          <Text style={s.maintCost}>{formatMoney(ev.cost)}</Text>
+                        )}
+                      </View>
+                    ))
+                  )}
+                  {canEdit && (
+                    <TouchableOpacity
+                      style={s.maintAddBtn}
+                      // Close this sheet BEFORE opening the log-maintenance one —
+                      // two visible Modals is the nested-Modal trap.
+                      onPress={() => { const u = historyUnit; setHistoryUnit(null); openAddMaint(u); }}
+                      disabled={locked}
+                    >
+                      <Text style={s.maintAddText}>+ Add maintenance event</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })()}
             {/* Repair history (#178 Part 3 close-out) — past faults + resolutions
                 against this specific unit; omits itself entirely when there are none. */}
             <PriorRepairsCard entityType="equipment_unit" entityId={historyUnit.id} />
