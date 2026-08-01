@@ -39,7 +39,7 @@ export default function EquipmentScreen() {
   const router = useRouter();
   const canAdd = usePermission('add_inventory');
   const canEdit = usePermission('edit_inventory');
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<EquipmentModel>();
   const refreshKey = useFocusOrDataRefresh();
@@ -76,7 +76,7 @@ export default function EquipmentScreen() {
   const logItem = useCallback((id: string, note: string) => {
     appendLog({
       action: 'item_updated', entity_type: 'item', entity_id: id,
-      user_id: user?.id ?? null, note,
+      user_id: realUser?.id ?? null, note,
       team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
     });

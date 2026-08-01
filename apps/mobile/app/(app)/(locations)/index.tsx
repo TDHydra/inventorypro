@@ -42,7 +42,7 @@ export default function LocationsScreen() {
   const t = useTheme();
   const canManage = usePermission('manage_locations');
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -214,7 +214,7 @@ export default function LocationsScreen() {
           action: 'location_created',
           entity_type: 'location',
           entity_id: id,
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: null,
           job_id: null,
           note: trimmed,

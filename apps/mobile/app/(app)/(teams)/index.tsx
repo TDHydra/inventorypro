@@ -30,7 +30,7 @@ export default function TeamsScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const canManage = usePermission('manage_teams');
 
   const [showCreate, setShowCreate] = useState(false);
@@ -120,7 +120,7 @@ export default function TeamsScreen() {
           updated_at: now,
         });
         appendLog({
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: id,
           action: 'team_created',
           entity_type: 'team',

@@ -80,7 +80,7 @@ export default function EquipmentModelDetailScreen() {
   const canUpload = usePermission('upload_media');
   const canAddUnits = usePermission('add_inventory');
   const canViewFinancial = usePermission('view_financial_data');
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const dataVersion = useDataVersion();
 
@@ -397,7 +397,7 @@ export default function EquipmentModelDetailScreen() {
     }
 
     appendLog({
-      user_id: user.id,
+      user_id: realUser!.id,
       team_id: null,
       action: 'add_units',
       entity_type: 'item',
@@ -430,7 +430,7 @@ export default function EquipmentModelDetailScreen() {
       // synced_at intentionally omitted
     });
     appendLog({
-      user_id: user.id, team_id: null, action: 'repair_in',
+      user_id: realUser!.id, team_id: null, action: 'repair_in',
       entity_type: 'item', entity_id: item.id,
       from_location_id: null, to_location_id: locationId, quantity: null, unit: null, job_id: null,
       note: 'unit ' + unit.asset_tag,
@@ -510,7 +510,7 @@ export default function EquipmentModelDetailScreen() {
     upsertUnit({ ...editUnit, ...changes, updated_at: now });
     appendOutbox('UPDATE', 'equipment_units', { id: editUnit.id, ...changes, updated_at: now });
     appendLog({
-      user_id: user.id, team_id: null, action: 'unit_edited',
+      user_id: realUser!.id, team_id: null, action: 'unit_edited',
       entity_type: 'equipment_unit', entity_id: editUnit.id,
       from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
       note: 'edited ' + editUnit.asset_tag,
@@ -533,7 +533,7 @@ export default function EquipmentModelDetailScreen() {
             const updated = setUnitStatus(unit.id, { status: 'retired' });
             appendOutbox('UPDATE', 'equipment_units', { id: unit.id, status: 'retired', updated_at: updated.updated_at });
             appendLog({
-              user_id: user.id, team_id: null, action: 'unit_retired',
+              user_id: realUser!.id, team_id: null, action: 'unit_retired',
               entity_type: 'equipment_unit', entity_id: unit.id,
               from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
               note: 'retired ' + unit.asset_tag,

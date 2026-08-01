@@ -49,7 +49,7 @@ export default function JobsScreen() {
   // transparent gesture/3-button nav bar can overlay it without this inset
   // (same class of bug as BulkActionBar / ScanReceipt, #163).
   const insets = useSafeAreaInsets();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
@@ -100,7 +100,7 @@ export default function JobsScreen() {
   const logJob = useCallback((id: string, action: string, note: string) => {
     appendLog({
       action, entity_type: 'job', entity_id: id, job_id: id,
-      user_id: user?.id ?? null, note,
+      user_id: realUser?.id ?? null, note,
       team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, metadata: null, device_id: null,
     });

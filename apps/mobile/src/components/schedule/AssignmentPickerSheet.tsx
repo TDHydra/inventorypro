@@ -56,7 +56,7 @@ export function AssignmentPickerSheet({
   visible, onClose, employeeId, employeeName, day, initialStartMinute, initialEndMinute, onCreateJob,
 }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const canCreateJobs = usePermission('create_jobs');
 
   const [step, setStep] = useState<Step>('menu');
@@ -152,7 +152,7 @@ export function AssignmentPickerSheet({
         appendOutbox('INSERT', 'jobs', jobRow);
         appendLog({
           action: 'job_created', entity_type: 'job', entity_id: newJob.id,
-          user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
+          user_id: realUser!.id, team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
           metadata: null, device_id: null,
         });

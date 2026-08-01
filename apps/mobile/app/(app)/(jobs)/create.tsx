@@ -34,7 +34,7 @@ import { useTableVersion } from '../../../src/hooks/useDataVersion';
 
 export default function CreateJobScreen() {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const router = useRouter();
   const canCreate = usePermission('create_jobs');
   const { locked } = useMaintenanceMode();
@@ -149,7 +149,7 @@ export default function CreateJobScreen() {
           action: 'job_created',
           entity_type: 'job',
           entity_id: id,
-          user_id: user.id,
+          user_id: realUser!.id,
           note: trimmedName,
           team_id: null,
           from_location_id: null,

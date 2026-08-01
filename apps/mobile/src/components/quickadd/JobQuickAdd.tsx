@@ -39,7 +39,7 @@ function trackReject(field: string, rule: string) {
 
 export default function JobQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   const [name, setName] = useState('');
@@ -170,7 +170,7 @@ export default function JobQuickAdd({ onSaved }: Props) {
       action: 'job_created',
       entity_type: 'job',
       entity_id: id,
-      user_id: user.id,
+      user_id: realUser!.id,
       note: trimmedName,
       team_id: null,
       from_location_id: null,

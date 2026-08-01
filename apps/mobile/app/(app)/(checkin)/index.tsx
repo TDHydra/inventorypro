@@ -50,7 +50,7 @@ interface Checkout {
 
 export default function CheckinScreen() {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const router = useRouter();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
@@ -190,7 +190,7 @@ export default function CheckinScreen() {
           });
 
           appendLog({
-            user_id: user.id,
+            user_id: realUser!.id,
             team_id: null,
             action: 'checkin',
             entity_type: 'item',
@@ -318,7 +318,7 @@ export default function CheckinScreen() {
           });
           // appendLog self-enqueues activity_log — never separately outbox it
           appendLog({
-            user_id: user.id,
+            user_id: realUser!.id,
             team_id: null,
             action: 'checkin',
             entity_type: 'item',

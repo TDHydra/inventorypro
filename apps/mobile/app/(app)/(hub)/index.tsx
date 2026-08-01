@@ -58,7 +58,7 @@ export default function HubScreen() {
   // bug as BulkActionBar / ScanReceipt, #163).
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { coords, request } = useCurrentPosition();
 
   // ── Permission gate (Task 13 Step 3) ────────────────────────────────────────
@@ -575,7 +575,7 @@ export default function HubScreen() {
       return;
     }
     const baseLog = {
-      user_id: user?.id ?? null,
+      user_id: realUser?.id ?? null,
       team_id: null as string | null,
       entity_type: 'item',
       unit: null as string | null,
@@ -658,7 +658,7 @@ export default function HubScreen() {
       return;
     }
     const baseLog = {
-      user_id: user?.id ?? null,
+      user_id: realUser?.id ?? null,
       team_id: null as string | null,
       entity_type: 'item',
       unit: null as string | null,

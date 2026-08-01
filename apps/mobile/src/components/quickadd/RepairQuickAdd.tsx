@@ -44,7 +44,7 @@ function trackReject(field: string, rule: string) {
 
 export default function RepairQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const canManageLocations = usePermission('manage_locations');
   // Re-read pickers when a pull (or a local write, e.g. inline vehicle create)
@@ -155,7 +155,7 @@ export default function RepairQuickAdd({ onSaved }: Props) {
     }
 
     appendLog({
-      user_id: user?.id ?? null, team_id: null, action: 'repair_opened',
+      user_id: realUser?.id ?? null, team_id: null, action: 'repair_opened',
       entity_type: 'repair', entity_id: repair.id,
       from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
       note: target.label, metadata: null, device_id: null,

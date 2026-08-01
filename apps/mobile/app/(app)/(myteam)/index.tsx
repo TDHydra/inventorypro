@@ -43,7 +43,7 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 
 export default function ManageMyTeamScreen() {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   // Re-query on any change (sync pull OR our own local writes — both tick the
@@ -178,7 +178,7 @@ export default function ManageMyTeamScreen() {
   function handleGrant(opt: PickerOption) {
     if (!accessLocker || isWriteBlocked()) throw new Error('write blocked');
     const grantee = getAllActiveUsers().find(u => u.id === opt.id);
-    grantUnitAccessWithDefaults(accessLocker.id, opt.id, grantee?.role ?? '', user?.id ?? null);
+    grantUnitAccessWithDefaults(accessLocker.id, opt.id, grantee?.role ?? '', realUser?.id ?? null);
   }
   function handleRevoke(entry: AccessEntry) {
     if (!accessLocker || isWriteBlocked()) throw new Error('write blocked');

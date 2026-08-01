@@ -53,7 +53,7 @@ export default function LocationDetailScreen() {
   const canManage = usePermission('manage_locations');
   const canUpload = usePermission('upload_media');
   const canAddStock = usePermission('edit_inventory');
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -275,7 +275,7 @@ export default function LocationDetailScreen() {
           action: 'location_updated',
           entity_type: 'location',
           entity_id: id,
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: null,
           job_id: null,
           note: changes.name,
@@ -330,7 +330,7 @@ export default function LocationDetailScreen() {
                   action: 'location_restored',
                   entity_type: 'location',
                   entity_id: id,
-                  user_id: user?.id ?? null,
+                  user_id: realUser?.id ?? null,
                   team_id: null,
                   job_id: null,
                   note: location.name,
@@ -385,7 +385,7 @@ export default function LocationDetailScreen() {
           action: 'location_archived',
           entity_type: 'location',
           entity_id: id,
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: null,
           job_id: null,
           note: location.name,

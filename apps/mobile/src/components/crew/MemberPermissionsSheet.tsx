@@ -56,7 +56,7 @@ export function MemberPermissionsSheet(props: {
   const { visible, onClose, teamId, teamName, member, onChanged } = props;
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   // ── Team permission overrides (moved from (teams)/[id].tsx) ────────────────
@@ -105,7 +105,7 @@ export function MemberPermissionsSheet(props: {
     // Activity log is best-effort (and never blocks the change already committed above).
     try {
       appendLog({
-        user_id: user?.id ?? null,
+        user_id: realUser?.id ?? null,
         team_id: teamId,
         action: 'user_permission_changed',
         entity_type: 'user',
@@ -172,7 +172,7 @@ export function MemberPermissionsSheet(props: {
 
   function handleGrantUnit() {
     if (!member || !selectedUnit || isWriteBlocked()) return;
-    grantUnitAccessWithDefaults(selectedUnit.id, member.user_id, member.user_role ?? '', user?.id ?? null);
+    grantUnitAccessWithDefaults(selectedUnit.id, member.user_id, member.user_role ?? '', realUser?.id ?? null);
     setSelectedUnit(null); setAddUnitOpen(false);
     onChanged();
   }
@@ -194,7 +194,7 @@ export function MemberPermissionsSheet(props: {
       if (!res.ok) { Alert.alert('Could not turn off locker', res.reason); return; }
     } else {
       const res = enablePersonalLocker(
-        member.user_id, member.user_name ?? '', member.user_role ?? '', user?.id ?? null,
+        member.user_id, member.user_name ?? '', member.user_role ?? '', realUser?.id ?? null,
       );
       if (!res.ok) { Alert.alert('Could not create locker', res.reason); return; }
     }

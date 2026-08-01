@@ -53,7 +53,7 @@ function newRow(assetTag = ''): UnitRow {
 
 export default function EquipmentQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   const [selectedItem, setSelectedItem] = useState<PickerOption | null>(null); // sticky
@@ -220,7 +220,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
             action: 'add_units',
             entity_type: 'equipment_unit',
             entity_id: id,
-            user_id: user?.id ?? null,
+            user_id: realUser?.id ?? null,
             team_id: null,
             note: row.tag,
             from_location_id: null,

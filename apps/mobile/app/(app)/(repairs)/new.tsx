@@ -40,7 +40,7 @@ export default function NewRepairScreen() {
 
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   // Status chips: only NON-terminal statuses can be chosen at creation — a new
@@ -113,7 +113,7 @@ export default function NewRepairScreen() {
         }
 
         appendLog({
-          user_id: user?.id ?? null, team_id: null, action: 'repair_opened',
+          user_id: realUser?.id ?? null, team_id: null, action: 'repair_opened',
           entity_type: 'repair', entity_id: created.id,
           from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
           note: entityLabel, metadata: null, device_id: null,

@@ -63,7 +63,7 @@ interface PmSelection {
 export default function CheckoutScreen() {
   const s = useThemedStyles(makeStyles);
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
   const params = useLocalSearchParams<{ itemId?: string; loc?: string }>();
@@ -322,7 +322,7 @@ export default function CheckoutScreen() {
     appendOutbox('INSERT', 'jobs', jobRow);
     appendLog({
       action: 'job_created', entity_type: 'job', entity_id: newJob.id,
-      user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
+      user_id: realUser!.id, team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
       metadata: null, device_id: null,
     });
@@ -413,7 +413,7 @@ export default function CheckoutScreen() {
     const source = selectedLocation.location_id;
     const onHand = isUnitTracked ? 0 : getStockQuantity(itemId, source);
     const baseLog = {
-      user_id: user.id,
+      user_id: realUser!.id,
       team_id: null as string | null,
       entity_type: 'item',
       entity_id: itemId,

@@ -177,7 +177,7 @@ export default function AdminUsersScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const STATUS_META = statusMeta(t);
-  const { user: sessionUser } = useSession();
+  const { user: sessionUser, realUser } = useSession();
   const router = useRouter();
   const canManageUsers = usePermission('manage_users');
   // Personal-locker provisioning is a locations write — gate the toggle on the
@@ -245,7 +245,7 @@ export default function AdminUsersScreen() {
       const res = disablePersonalLocker(editUser.id);
       if (!res.ok) Alert.alert('Could not turn off locker', res.reason);
     } else {
-      const res = enablePersonalLocker(editUser.id, editUser.name, editUser.role, sessionUser?.id ?? null);
+      const res = enablePersonalLocker(editUser.id, editUser.name, editUser.role, realUser?.id ?? null);
       if (!res.ok) Alert.alert('Could not create locker', res.reason);
     }
   }
@@ -331,7 +331,7 @@ export default function AdminUsersScreen() {
 
     if (Object.keys(otherFields).length === 0 && !pinLengthChanged) { setEditUser(null); return; }
 
-    const adminId = sessionUser?.id ?? null;
+    const adminId = realUser?.id ?? null;
 
     if (pinLengthChanged) {
       setBusy(true);
@@ -453,7 +453,7 @@ export default function AdminUsersScreen() {
           action: 'user_updated',
           entity_type: 'user',
           entity_id: editUser.id,
-          user_id: sessionUser?.id ?? null,
+          user_id: realUser?.id ?? null,
           note: `${editUser.name}: ${next ? 'reactivated' : 'deactivated'}`,
           team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
@@ -552,7 +552,7 @@ export default function AdminUsersScreen() {
       destructive: !active,
     });
     if (!ok) return;
-    const adminId = sessionUser?.id ?? null;
+    const adminId = realUser?.id ?? null;
     // Whole batch in ONE transaction — if any user fails, the entire set rolls
     // back so we never half-apply a bulk action. The failing user is named.
     try {
@@ -588,7 +588,7 @@ export default function AdminUsersScreen() {
     if (isWriteBlocked()) return;
     const ids = [...sel.selected];
     if (ids.length === 0) return;
-    const adminId = sessionUser?.id ?? null;
+    const adminId = realUser?.id ?? null;
     // Move pin_length_required to the new role's minimum too — same as the
     // single-row edit (saveEdits), so a promotion can't keep a shorter PIN.
     const pinLen = roleMinPins[role] ?? PIN_LENGTH_BY_TIER[ROLE_TIER[role]];
@@ -702,7 +702,7 @@ export default function AdminUsersScreen() {
     if (isWriteBlocked()) return;
     const ids = [...sel.selected];
     if (ids.length === 0) return;
-    const adminId = sessionUser?.id ?? null;
+    const adminId = realUser?.id ?? null;
     let added = 0;
     // Whole batch in one transaction — every member insert (+ its outbox/log)
     // commits together or none do, so a failure can't half-add the group.
@@ -839,7 +839,7 @@ export default function AdminUsersScreen() {
         action: 'user_created',
         entity_type: 'user',
         entity_id: createdId,
-        user_id: sessionUser?.id ?? null,
+        user_id: realUser?.id ?? null,
         note: `${newName.trim()} (${newRole})`,
         team_id: null, from_location_id: null, to_location_id: null,
         quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
@@ -891,7 +891,7 @@ export default function AdminUsersScreen() {
           action: 'user_permission_changed',
           entity_type: 'user',
           entity_id: userId,
-          user_id: sessionUser?.id ?? null,
+          user_id: realUser?.id ?? null,
           note: `${permission}: ${nextVal}`,
           team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: null, metadata: null, device_id: null,

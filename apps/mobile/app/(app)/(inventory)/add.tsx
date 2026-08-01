@@ -44,7 +44,7 @@ import { TextField } from '../../../src/components/ui/TextField';
 export default function AddStockScreen() {
   const s = useThemedStyles(makeStyles);
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const { barcode: initialBarcode, locationId: initialLocationId } =
     useLocalSearchParams<{ barcode?: string; locationId?: string }>();
@@ -404,7 +404,7 @@ export default function AddStockScreen() {
           item_id: itemId, location_id: locationId, quantity: newQty, updated_at: now,
         });
         appendLog({
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: null,
           action: 'add_stock',
           entity_type: 'item',

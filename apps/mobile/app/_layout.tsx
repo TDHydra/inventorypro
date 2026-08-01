@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initDb, resetLocalDb } from '../src/db/schema';
-import { SessionContext, SessionContextValue } from '../src/hooks/useSession';
+import { SessionContext, SessionContextValue, deriveEffectiveUser } from '../src/hooks/useSession';
 import { UserSession } from '../src/auth/permissions';
+import { UserRole } from '../src/constants/roles';
+import { setPreviewWriteBlock } from '../src/db/maintenance';
 import { clearSession, getSavedUserId } from '../src/auth/session';
 import { loadChatCache } from '../src/chat/store';
 import { TEST_SESSION_FLAG } from '../src/auth/finishLogin';
@@ -36,7 +38,33 @@ import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
   const [user, setUser] = useState<UserSession | null>(null);
+  // #199 core: session preview-as-role. `user` is the real signed-in identity;
+  // `previewRole` (set by the later admin-facing picker track) swaps what
+  // usePermission/hasPermission/PermissionGate resolve without touching the
+  // real identity. `effectiveUser` is derived via plain React state + memo —
+  // no separate reactive cache — so gated UI re-renders through the normal
+  // React path when previewRole changes.
+  const [previewRole, setPreviewRole] = useState<UserRole | null>(null);
+  const effectiveUser = useMemo(() => deriveEffectiveUser(user, previewRole), [user, previewRole]);
   const theme = useTheme();
+
+  // A preview is a real-identity impersonation of another role's VIEW only —
+  // writes must never be allowed to ride along "as" the pretend role. Central,
+  // same enforcement point maintenance mode already uses (isWriteBlocked /
+  // assertWritable in src/db/maintenance.ts), so every write path fails the
+  // same way (MaintenanceLockedError) with a distinct message instead of
+  // crashing. Reset to false on unmount as a safety net.
+  useEffect(() => {
+    setPreviewWriteBlock(previewRole != null);
+    return () => setPreviewWriteBlock(false);
+  }, [previewRole]);
+
+  // Previewing must never survive a real identity change (logout, or
+  // switching to a different account without logging out first) — otherwise
+  // the NEXT signed-in user could inherit the previous user's pretend role.
+  useEffect(() => {
+    setPreviewRole(null);
+  }, [user?.id]);
 
   // Theme faces (Fluid/Futuristic). Non-blocking: render proceeds before they
   // resolve — themes whose fontFamily is undefined never reference them, and
@@ -126,7 +154,14 @@ export default function RootLayout() {
     return () => setWebIdleLogoutHandler(null);
   }, [logout]);
 
-  const sessionValue: SessionContextValue = { user, setUser, logout };
+  const sessionValue: SessionContextValue = {
+    user: effectiveUser,
+    realUser: user,
+    setUser,
+    previewRole,
+    setPreviewRole,
+    logout,
+  };
 
   if (!dbReady) return null;
 
