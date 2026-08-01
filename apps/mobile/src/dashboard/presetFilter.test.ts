@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTilesForRoles } from './presetFilter';
-import type { WidgetType } from './widgets';
+import { filterTilesForRoles, blockVisibleForRole } from './presetFilter';
+import type { WidgetType, LayoutBlock } from './widgets';
 
 // checkout requires checkout_inventory; users requires manage_users;
 // fast-checkout and manage-my-team have NO requiredPermission (data-driven).
@@ -30,4 +30,31 @@ test('a gated tile needs EVERY assigned role to pass', () => {
     filterTilesForRoles(TILES, ['construction_crew'], roleHasPerm),
     ['fast-checkout', 'checkout', 'manage-my-team'],
   );
+});
+
+// ── blockVisibleForRole (#192 view-as-role preview) ──────────────────────────
+
+test('a block with no requiredPermission is always visible', () => {
+  const block: LayoutBlock = { widget: 'fast-checkout', width: 'half' };
+  assert.equal(blockVisibleForRole(block, 'construction_crew', () => false), true);
+});
+
+test('a section header (no requiredPermission) is always visible', () => {
+  const block: LayoutBlock = { widget: 'section', width: 'full', config: { sectionTitle: 'Ops' } };
+  assert.equal(blockVisibleForRole(block, 'temporary_employee', () => false), true);
+});
+
+test('a gated tile is visible only when the role passes its requiredPermission', () => {
+  const block: LayoutBlock = { widget: 'checkout', width: 'full' }; // requiredPermission: checkout_inventory
+  const roleHasPerm = (role: string, perm: string) =>
+    role === 'construction_crew' && perm === 'checkout_inventory';
+  assert.equal(blockVisibleForRole(block, 'construction_crew', roleHasPerm), true);
+  assert.equal(blockVisibleForRole(block, 'temporary_employee', roleHasPerm), false);
+});
+
+test('a gated non-tile block (activity-preview) is checked the same way as a tile', () => {
+  const block: LayoutBlock = { widget: 'activity-preview', width: 'full' }; // requiredPermission: view_all_logs
+  const roleHasPerm = (role: string, perm: string) => role === 'hr_manager' && perm === 'view_all_logs';
+  assert.equal(blockVisibleForRole(block, 'hr_manager', roleHasPerm), true);
+  assert.equal(blockVisibleForRole(block, 'office_manager', roleHasPerm), false);
 });

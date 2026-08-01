@@ -12,11 +12,12 @@ import {
   type StatSource,
   type WorkListSource,
 } from '../../../src/dashboard/widgets';
-import { parsePresetLayout } from '../../../src/dashboard/resolve';
+import { parsePresetLayout, resolveLayout } from '../../../src/dashboard/resolve';
 import { loadDashboardCache } from '../../../src/dashboard/store';
+import { ROLE_DEFAULT_LAYOUTS } from '../../../src/dashboard/roleLayouts';
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { isWriteBlocked } from '../../../src/db/maintenance';
-import { filterTilesForRoles } from '../../../src/dashboard/presetFilter';
+import { filterTilesForRoles, blockVisibleForRole } from '../../../src/dashboard/presetFilter';
 import { roleHasPermission } from '../../../src/auth/permissions';
 import { usePermission } from '../../../src/hooks/usePermission';
 import {
@@ -177,8 +178,19 @@ export default function DashboardsScreen() {
   const [cfgTitle, setCfgTitle] = useState('');
   const [cfgLimit, setCfgLimit] = useState('');
 
-  // Role-picker modal
+  // Role-picker modal (list view: assign a preset to a role's default)
   const [rolePick, setRolePick] = useState<UserRole | null>(null);
+
+  // #194: "Start from role…" picker (list view) — seeds a brand-new preset
+  // from a role's RESOLVED layout, mirroring handleDuplicate's create+set-layout
+  // shape but sourcing from a role instead of an existing preset.
+  const [startFromRoleOpen, setStartFromRoleOpen] = useState(false);
+
+  // #192: view-as-role preview (editor view) — a separate sheet from `rolePick`
+  // above since it drives local preview state only (never a DB write), reusing
+  // its ModalSheet/pickRow styling rather than its assign-a-preset behavior.
+  const [previewRoleOpen, setPreviewRoleOpen] = useState(false);
+  const [previewRole, setPreviewRole] = useState<UserRole | null>(null);
 
   const editingPreset = editingId ? presets.find((p) => p.id === editingId) ?? null : null;
 
@@ -246,6 +258,23 @@ export default function DashboardsScreen() {
     try {
       const id = createDashboardPreset({ name: `${p.name} (copy)` });
       const layout = parsePresetLayout(p.layout) ?? [];
+      setDashboardPresetLayout(id, layout);
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message);
+    }
+  }
+
+  // #194: seed a brand-new preset from a role's RESOLVED layout (its own preset
+  // if the role already has one assigned, else the role's code-default) — same
+  // create+set-layout shape as handleDuplicate, just sourced from a role instead
+  // of an existing preset.
+  function handleStartFromRole(role: UserRole) {
+    setStartFromRoleOpen(false);
+    if (isWriteBlocked()) return;
+    try {
+      const rolePresetId = roleMap[role] ?? null;
+      const layout = resolveLayout(null, rolePresetId, presetsById, ROLE_DEFAULT_LAYOUTS[role] ?? null);
+      const id = createDashboardPreset({ name: `${ROLE_DISPLAY_NAMES[role]} (from role)` });
       setDashboardPresetLayout(id, layout);
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
@@ -386,6 +415,13 @@ export default function DashboardsScreen() {
     [presets],
   );
 
+  // #194: id → preset lookup for resolveLayout's `byId` param (structurally a
+  // Record<string, { layout: string | null }>, which DashboardPreset satisfies).
+  const presetsById = useMemo(
+    () => Object.fromEntries(presets.map((p) => [p.id, p])),
+    [presets],
+  );
+
   // ── Render guards ────────────────────────────────────────────────────────────
 
   if (!canManageDashboards) {
@@ -415,14 +451,27 @@ export default function DashboardsScreen() {
             {blocks.length} block{blocks.length === 1 ? '' : 's'} · changes save automatically
           </Text>
 
-          {/* Live preview (labels in a full/half grid) */}
+          {/* Live preview (labels in a full/half grid). #192: an optional
+              view-as-role filter greys out blocks that role's permissions
+              would hide, so an admin can sanity-check a layout per role
+              without leaving the editor. */}
           {blocks.length > 0 && (
             <View style={s.section}>
-              <Text style={s.sectionTitle}>Preview</Text>
+              <View style={s.previewHeaderRow}>
+                <Text style={s.sectionTitle}>Preview</Text>
+                <TouchableOpacity onPress={() => setPreviewRoleOpen(true)} style={s.previewRoleBtn}>
+                  <Text style={s.previewRoleBtnText} numberOfLines={1}>
+                    {previewRole ? `Viewing as ${ROLE_DISPLAY_NAMES[previewRole]}` : 'View as role…'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <View style={s.previewGrid}>
                 {blocks.map((b) => {
                   const d = widgetDisplay(b.block);
                   const isSection = b.block.widget === 'section';
+                  const hiddenForRole = previewRole
+                    ? !blockVisibleForRole(b.block, previewRole, (role, perm) => roleHasPermission(role as UserRole, perm))
+                    : false;
                   return (
                     <View
                       key={b.key}
@@ -430,11 +479,17 @@ export default function DashboardsScreen() {
                         s.previewCell,
                         b.block.width === 'half' ? s.previewHalf : s.previewFull,
                         isSection && s.previewSection,
+                        hiddenForRole && s.previewCellHidden,
                       ]}
                     >
-                      <Text style={s.previewText} numberOfLines={1}>
+                      <Text style={[s.previewText, hiddenForRole && s.previewTextHidden]} numberOfLines={1}>
                         {d.icon} {d.label}
                       </Text>
+                      {hiddenForRole && (
+                        <Text style={s.previewHiddenBadge} numberOfLines={1}>
+                          hidden for {ROLE_DISPLAY_NAMES[previewRole!]}
+                        </Text>
+                      )}
                     </View>
                   );
                 })}
@@ -643,6 +698,34 @@ export default function DashboardsScreen() {
             )}
           </View>
         </ModalSheet>
+
+        {/* #192: view-as-role preview filter. Local state only — never writes
+            role/user data, just re-renders the grid above. */}
+        <ModalSheet visible={previewRoleOpen} onClose={() => setPreviewRoleOpen(false)}>
+          <View style={s.modalContent}>
+            <Text style={s.modalTitle}>Preview as role</Text>
+            <TouchableOpacity
+              style={s.pickRow}
+              onPress={() => { setPreviewRole(null); setPreviewRoleOpen(false); }}
+            >
+              <Text style={s.pickRowText}>All roles (no filter)</Text>
+              {!previewRole && <Text style={s.pickCheck}>✓</Text>}
+            </TouchableOpacity>
+            {ROLES_ORDERED.map((role) => (
+              <TouchableOpacity
+                key={role}
+                style={s.pickRow}
+                onPress={() => { setPreviewRole(role); setPreviewRoleOpen(false); }}
+              >
+                <Text style={s.pickRowText} numberOfLines={1}>{ROLE_DISPLAY_NAMES[role]}</Text>
+                {previewRole === role && <Text style={s.pickCheck}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={s.cancelBtn} onPress={() => setPreviewRoleOpen(false)}>
+              <Text style={s.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </ModalSheet>
       </>
     );
   }
@@ -691,9 +774,16 @@ export default function DashboardsScreen() {
               ))
             )}
           </View>
-          <TouchableOpacity style={s.addRow} onPress={openCreate}>
-            <Text style={s.addRowText}>+ Create Preset</Text>
-          </TouchableOpacity>
+          <View style={s.addRowGroup}>
+            <TouchableOpacity style={s.addRow} onPress={openCreate}>
+              <Text style={s.addRowText}>+ Create Preset</Text>
+            </TouchableOpacity>
+            {/* #194: seed a new preset from a role's resolved layout instead of
+                a blank slate. */}
+            <TouchableOpacity style={s.addRow} onPress={() => setStartFromRoleOpen(true)}>
+              <Text style={s.addRowTextSecondary}>Start from role…</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Role defaults */}
@@ -768,6 +858,27 @@ export default function DashboardsScreen() {
             </TouchableOpacity>
           ))}
           <TouchableOpacity style={s.cancelBtn} onPress={() => setRolePick(null)}>
+            <Text style={s.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </ModalSheet>
+
+      {/* #194: "Start from role…" picker — creates a new preset seeded from
+          the chosen role's resolved layout, reusing the pickRow styling of
+          the role-preset picker above. */}
+      <ModalSheet visible={startFromRoleOpen} onClose={() => setStartFromRoleOpen(false)}>
+        <View style={s.modalContent}>
+          <Text style={s.modalTitle}>Start from role</Text>
+          <Text style={s.rowSub}>
+            Creates a new preset from what this role sees today (its own preset if it has
+            one, else its built-in default) — a starting point to tweak, not a live link.
+          </Text>
+          {ROLES_ORDERED.map((role) => (
+            <TouchableOpacity key={role} style={s.pickRow} onPress={() => handleStartFromRole(role)}>
+              <Text style={s.pickRowText} numberOfLines={1}>{ROLE_DISPLAY_NAMES[role]}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={s.cancelBtn} onPress={() => setStartFromRoleOpen(false)}>
             <Text style={s.cancelText}>Cancel</Text>
           </TouchableOpacity>
         </View>
@@ -875,8 +986,21 @@ const makeStyles = (t: Theme) => StyleSheet.create({
 
   addRow: { alignItems: 'center', paddingVertical: t.spacing.md },
   addRowText: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.primary },
+  // #194: "+ Create Preset" / "Start from role…" sit side by side.
+  addRowGroup: { flexDirection: 'row', justifyContent: 'center', gap: t.spacing.lg },
+  addRowTextSecondary: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textSecondary },
 
   // Preview grid
+  previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  // #192: view-as-role trigger chip, next to the "Preview" section title.
+  previewRoleBtn: {
+    backgroundColor: t.colors.surfaceAlt,
+    borderRadius: t.radii.sm,
+    paddingHorizontal: t.spacing.sm,
+    paddingVertical: 4,
+    maxWidth: '55%',
+  },
+  previewRoleBtnText: { fontSize: t.typography.fontSizes.caption, fontWeight: '600', color: t.colors.textSecondary },
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   previewCell: {
     backgroundColor: t.colors.surface,
@@ -891,6 +1015,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   previewHalf: { width: '48.5%' },
   previewSection: { backgroundColor: t.colors.primaryBg, borderColor: t.colors.primaryBgStrong },
   previewText: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', color: t.colors.textPrimary },
+  // #192: a block the previewed role can't see — greyed out (not omitted) so
+  // the grid keeps its layout/positions stable and the admin can still see
+  // WHERE the missing block would have sat.
+  previewCellHidden: { opacity: 0.4, borderStyle: 'dashed' },
+  previewTextHidden: { color: t.colors.textMuted },
+  previewHiddenBadge: { fontSize: t.typography.fontSizes.xs, fontWeight: '600', color: t.colors.textMuted, marginTop: 2 },
 
   // Generic rows
   row: {
