@@ -180,26 +180,28 @@ function WorkListCard({ source, config }: { source: WorkListSource; config?: Wid
   const shown = rows.slice(0, limit);
   const title = config?.title?.trim() || def.title;
 
+  // #195 (generalizes #144): a correctly-configured source with zero rows
+  // collapses the whole card rather than showing def.emptyTitle — matching the
+  // quick-action blocks. This is distinct from the "misconfigured" branch in
+  // WorkList below (isWorkListSource false), which still renders its EmptyState.
+  if (shown.length === 0) return null;
+
   return (
     <Card>
       <Text style={s.title}>{def.icon} {title}</Text>
-      {shown.length === 0 ? (
-        <EmptyState icon={def.icon} title={def.emptyTitle} />
-      ) : (
-        <View style={s.rows}>
-          {shown.map(r => def.rowRoute ? (
-            <TouchableOpacity key={r.id} style={s.row} onPress={() => router.push(def.rowRoute!(r.id) as never)}>
-              <Text style={s.primary} numberOfLines={1}>{r.primary}</Text>
-              {r.secondary ? <Text style={s.secondary} numberOfLines={1}>{r.secondary}</Text> : null}
-            </TouchableOpacity>
-          ) : (
-            <View key={r.id} style={s.row}>
-              <Text style={s.primary} numberOfLines={1}>{r.primary}</Text>
-              {r.secondary ? <Text style={s.secondary} numberOfLines={1}>{r.secondary}</Text> : null}
-            </View>
-          ))}
-        </View>
-      )}
+      <View style={s.rows}>
+        {shown.map(r => def.rowRoute ? (
+          <TouchableOpacity key={r.id} style={s.row} onPress={() => router.push(def.rowRoute!(r.id) as never)}>
+            <Text style={s.primary} numberOfLines={1}>{r.primary}</Text>
+            {r.secondary ? <Text style={s.secondary} numberOfLines={1}>{r.secondary}</Text> : null}
+          </TouchableOpacity>
+        ) : (
+          <View key={r.id} style={s.row}>
+            <Text style={s.primary} numberOfLines={1}>{r.primary}</Text>
+            {r.secondary ? <Text style={s.secondary} numberOfLines={1}>{r.secondary}</Text> : null}
+          </View>
+        ))}
+      </View>
       <TouchableOpacity style={s.viewAll} onPress={() => router.push(def.viewAllRoute as never)}>
         <Text style={s.viewAllText}>
           {rows.length > shown.length ? `View all (${rows.length}) ›` : 'View all ›'}
