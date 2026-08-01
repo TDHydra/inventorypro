@@ -4,10 +4,13 @@ import { appendOutbox } from '../sync/outbox';
 
 const MAINTENANCE_KEY = 'maintenance_mode';
 
-/** Thrown by the write-layer guard when a non-exempt user writes during maintenance. */
+/** Thrown by the write-layer guard when a non-exempt user writes during
+ * maintenance, OR when a session preview (#199) is active. `message` lets
+ * callers tell the two lockouts apart without a second error type — every
+ * existing call site that catches this by class/name keeps working unchanged. */
 export class MaintenanceLockedError extends Error {
-  constructor() {
-    super('System is under maintenance (read-only).');
+  constructor(message = 'System is under maintenance (read-only).') {
+    super(message);
     this.name = 'MaintenanceLockedError';
   }
 }
@@ -26,13 +29,36 @@ export function isMaintenanceActive(): boolean {
   return getAppConfig(MAINTENANCE_KEY) === '1';
 }
 
-/** Should the current user's writes be blocked right now? */
+// #199: session preview-as-role. While previewing, ALL writes are blocked —
+// unconditionally, regardless of the real user's role/maintenance-exemption —
+// because a preview must never let the real identity mutate data "as" a
+// pretend role. Wired by the session provider (app/_layout.tsx) whenever
+// previewRole changes; false by default so nothing outside a preview is
+// affected. Kept as its own flag (not folded into exemptRole/maintenance
+// state) so the two lockouts stay independently reasoned-about and can carry
+// distinct messages.
+let previewWriteBlockActive = false;
+
+/** Session preview (#199): mark whether writes should be centrally blocked
+ * because a role preview is active. */
+export function setPreviewWriteBlock(active: boolean): void {
+  previewWriteBlockActive = active;
+}
+
+/** Is a session preview currently forcing read-only, independent of maintenance? */
+export function isPreviewWriteBlocked(): boolean {
+  return previewWriteBlockActive;
+}
+
+/** Should the current user's writes be blocked right now? Central point every
+ * write path (and every screen's own pre-flight check) reads. */
 export function isWriteBlocked(): boolean {
-  return isMaintenanceActive() && !exemptRole;
+  return previewWriteBlockActive || (isMaintenanceActive() && !exemptRole);
 }
 
 /** Hard guard — throws when writes are blocked. Called from appendOutbox. */
 export function assertWritable(): void {
+  if (previewWriteBlockActive) throw new MaintenanceLockedError('Preview mode is read-only.');
   if (isWriteBlocked()) throw new MaintenanceLockedError();
 }
 

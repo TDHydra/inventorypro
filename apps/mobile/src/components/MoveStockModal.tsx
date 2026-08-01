@@ -60,7 +60,7 @@ export default function MoveStockModal({
   onDone,
 }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
 
   // Re-read source stock when a sync pull (or local write) touches it, so the
   // item list stays fresh while the modal is mounted/open.
@@ -187,7 +187,7 @@ export default function MoveStockModal({
               to_location_id: dest.id,
               quantity: qty,
               unit,
-              user_id: user?.id ?? null,
+              user_id: realUser?.id ?? null,
               team_id: null,
               job_id: null,
               note: null,

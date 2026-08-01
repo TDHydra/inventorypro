@@ -36,7 +36,7 @@ function trackReject(field: string, rule: string) {
 
 export default function StockQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   // Set/recount does an INSERT the server gates on `checkin_inventory`. The
   // screen itself is only client-gated by `quick_add`, so a tier3 role
@@ -160,7 +160,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
         to_location_id: locationId,
         quantity: parsedQty,
         unit: itemUnit,
-        user_id: user?.id ?? null,
+        user_id: realUser?.id ?? null,
         team_id: null,
         from_location_id: null,
         job_id: null,
@@ -184,7 +184,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
         to_location_id: locationId,
         quantity: parsedQty,
         unit: itemUnit,
-        user_id: user?.id ?? null,
+        user_id: realUser?.id ?? null,
         team_id: null,
         from_location_id: null,
         job_id: null,

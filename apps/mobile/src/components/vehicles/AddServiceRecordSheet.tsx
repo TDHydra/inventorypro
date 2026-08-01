@@ -90,7 +90,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
   // verbatim — so the transparent gesture/3-button nav bar overlays it without
   // this inset (#163).
   const insets = useSafeAreaInsets();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const canViewFinancial = usePermission('view_financial_data');
   // #168: non-editors may only file fuel-ups/receipts (crew-level write);
   // arbitrary service records remain an editor action.
@@ -197,7 +197,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     appendOutbox('INSERT', 'jobs', jobRow);
     appendLog({
       action: 'job_created', entity_type: 'job', entity_id: newJob.id,
-      user_id: user.id, team_id: null, from_location_id: null, to_location_id: null,
+      user_id: realUser!.id, team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: newJob.id, note: newJob.name,
       metadata: null, device_id: null,
     });

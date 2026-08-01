@@ -51,7 +51,7 @@ function trackReject(field: string, rule: string) {
 export default function TeamDetailScreen() {
   const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const router = useRouter();
 
@@ -181,7 +181,7 @@ export default function TeamDetailScreen() {
           updated_at: now,
         });
         appendLog({
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: team.id,
           action: 'team_updated',
           entity_type: 'team',
@@ -222,11 +222,11 @@ export default function TeamDetailScreen() {
           team_id: team.id,
           user_id: newMemberOption.id,
           team_permission_overrides: '{}',
-          added_by: user?.id ?? null,
+          added_by: realUser?.id ?? null,
           joined_at,
         });
         appendLog({
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: team.id,
           action: 'team_member_added',
           entity_type: 'team',
@@ -280,7 +280,7 @@ export default function TeamDetailScreen() {
           user_id: member.user_id,
         });
         appendLog({
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: team.id,
           action: 'team_member_removed',
           entity_type: 'team',
@@ -317,7 +317,7 @@ export default function TeamDetailScreen() {
       // Activity log is best-effort (and never blocks the change).
       try {
         appendLog({
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: team.id,
           action: willBeManager ? 'team_manager_added' : 'team_manager_removed',
           entity_type: 'team',

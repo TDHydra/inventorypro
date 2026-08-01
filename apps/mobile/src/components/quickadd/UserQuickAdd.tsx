@@ -30,7 +30,7 @@ interface Props {
 export default function UserQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { user: sessionUser } = useSession();
+  const { user: sessionUser, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
@@ -70,7 +70,7 @@ export default function UserQuickAdd({ onSaved }: Props) {
         action: 'user_created',
         entity_type: 'user',
         entity_id: id,
-        user_id: sessionUser?.id ?? null,
+        user_id: realUser?.id ?? null,
         team_id: null,
         job_id: null,
         note: `${trimmedName} (${role})`,

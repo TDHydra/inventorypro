@@ -29,7 +29,7 @@ interface Props {
 
 export default function LocationQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const nameRef = useRef<TextInput>(null);
 
@@ -82,7 +82,7 @@ export default function LocationQuickAdd({ onSaved }: Props) {
       action: 'location_created',
       entity_type: 'location',
       entity_id: id,
-      user_id: user?.id ?? null,
+      user_id: realUser?.id ?? null,
       team_id: null,
       job_id: null,
       note: trimmedName,

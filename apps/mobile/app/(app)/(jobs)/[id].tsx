@@ -52,7 +52,7 @@ export default function JobDetailScreen() {
   const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const canEdit = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
   const canUpload = usePermission('upload_media');
@@ -211,7 +211,7 @@ export default function JobDetailScreen() {
           action: 'job_updated',
           entity_type: 'job',
           entity_id: id,
-          user_id: user.id,
+          user_id: realUser!.id,
           note: trimmed,
           team_id: null,
           from_location_id: null,
@@ -254,7 +254,7 @@ export default function JobDetailScreen() {
             action: 'job_updated',
             entity_type: 'job',
             entity_id: id,
-            user_id: user.id,
+            user_id: realUser!.id,
             note: newTeamId ? `Team: ${teamPick!.label}` : 'Team: org-wide',
             team_id: newTeamId,
             from_location_id: null,
@@ -349,7 +349,7 @@ export default function JobDetailScreen() {
                   action: 'job_archived',
                   entity_type: 'job',
                   entity_id: id,
-                  user_id: user.id,
+                  user_id: realUser!.id,
                   note: job!.name,
                   team_id: null,
                   from_location_id: null,

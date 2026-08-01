@@ -129,7 +129,7 @@ interface ParsedRow {
 export default function CsvImport({ onImported }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const [rawText, setRawText] = useState('');
   const [headerError, setHeaderError] = useState<string | null>(null);
@@ -330,7 +330,7 @@ export default function CsvImport({ onImported }: Props) {
             action: 'item_created',
             entity_type: 'item',
             entity_id: id,
-            user_id: user?.id ?? null,
+            user_id: realUser?.id ?? null,
             team_id: null,
             from_location_id: null,
             to_location_id: null,

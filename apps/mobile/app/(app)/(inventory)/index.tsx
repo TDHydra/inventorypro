@@ -62,7 +62,7 @@ export default function InventoryScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const canEdit = usePermission('edit_inventory');
   const canDelete = usePermission('delete_inventory');
   const { locked } = useMaintenanceMode();
@@ -173,7 +173,7 @@ export default function InventoryScreen() {
   const logItem = useCallback((id: string, note: string) => {
     appendLog({
       action: 'item_updated', entity_type: 'item', entity_id: id,
-      user_id: user?.id ?? null, note,
+      user_id: realUser?.id ?? null, note,
       team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
     });

@@ -40,7 +40,7 @@ export default function AddEquipmentScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   // Generate the model UUID up front so MediaGallery can upload photos to this
@@ -198,7 +198,7 @@ export default function AddEquipmentScreen() {
             action: 'add_units',
             entity_type: 'equipment_unit',
             entity_id: pu.id,
-            user_id: user?.id ?? null,
+            user_id: realUser?.id ?? null,
             team_id: null,
             note: pu.assetTag,
             from_location_id: null,

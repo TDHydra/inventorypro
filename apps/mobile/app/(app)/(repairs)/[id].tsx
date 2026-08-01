@@ -104,7 +104,7 @@ export default function RepairDetailScreen() {
   const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const canEdit = usePermission('edit_inventory');
   const canViewFinancial = usePermission('view_financial_data');
   // "Use parts" emits an ADJUST to stock_by_location, which the server authorizes
@@ -283,7 +283,7 @@ export default function RepairDetailScreen() {
           due_at: dueAt ?? null,
         });
         appendLog({
-          user_id: user?.id ?? null, team_id: null, action: 'repair_updated',
+          user_id: realUser?.id ?? null, team_id: null, action: 'repair_updated',
           entity_type: 'repair', entity_id: repair.id,
           from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
           note: null, metadata: null, device_id: null,
@@ -375,7 +375,7 @@ export default function RepairDetailScreen() {
         });
         addRepairPart(repair.id, partItem.id, qty, unit, user?.id ?? null, partStepId);
         appendLog({
-          user_id: user?.id ?? null, team_id: null, action: 'consumed',
+          user_id: realUser?.id ?? null, team_id: null, action: 'consumed',
           entity_type: 'item', entity_id: partItem.id,
           from_location_id: stockLocId, to_location_id: null, quantity: qty, unit, job_id: null,
           note: `Used on repair${repair.entity_label ? ' — ' + repair.entity_label : ''}`,
@@ -431,7 +431,7 @@ export default function RepairDetailScreen() {
   function logStatus(action: string, note: string) {
     if (!repair) return;
     appendLog({
-      user_id: user?.id ?? null, team_id: null, action,
+      user_id: realUser?.id ?? null, team_id: null, action,
       entity_type: 'repair', entity_id: repair.id,
       from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
       note, metadata: null, device_id: null,
@@ -509,7 +509,7 @@ export default function RepairDetailScreen() {
         });
         outboxUnit(updated);
         appendLog({
-          user_id: user?.id ?? null, team_id: null, action: 'repair_in',
+          user_id: realUser?.id ?? null, team_id: null, action: 'repair_in',
           entity_type: 'item', entity_id: updated.item_id,
           from_location_id: null, to_location_id: returnLocId, quantity: null, unit: null, job_id: null,
           note: 'unit ' + updated.asset_tag + ' returned from repair',

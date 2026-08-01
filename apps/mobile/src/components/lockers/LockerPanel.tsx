@@ -40,7 +40,7 @@ interface Props {
 
 export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props) {
   const s = useThemedStyles(makeStyles);
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   // Re-read on focus / sync pull — local writes (including our own grant/
@@ -95,7 +95,7 @@ export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props)
   // per-action edits live in the Teams-tab Member Permissions sheet.
   function handleGrant(opt: PickerOption) {
     if (isWriteBlocked()) throw new Error('write blocked');
-    grantUnitAccessWithDefaults(locationId, opt.id, getUserById(opt.id)?.role ?? '', user?.id ?? null);
+    grantUnitAccessWithDefaults(locationId, opt.id, getUserById(opt.id)?.role ?? '', realUser?.id ?? null);
   }
   function handleRevoke(entry: AccessEntry) {
     if (isWriteBlocked()) throw new Error('write blocked');

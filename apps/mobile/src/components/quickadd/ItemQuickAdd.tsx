@@ -55,7 +55,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const router = useRouter();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   // Starting stock emits a stock_by_location INSERT that references the new
   // item. The server requires `add_inventory` for the parent inventory_items
@@ -317,7 +317,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
           action: 'item_created',
           entity_type: 'item',
           entity_id: id,
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: null,
           from_location_id: null,
           to_location_id: null,
@@ -340,7 +340,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
             action: 'add_stock',
             entity_type: 'item',
             entity_id: id,
-            user_id: user?.id ?? null,
+            user_id: realUser?.id ?? null,
             team_id: null,
             from_location_id: null,
             to_location_id: homeLocationId,

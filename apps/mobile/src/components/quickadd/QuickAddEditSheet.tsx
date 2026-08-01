@@ -58,7 +58,7 @@ interface Props {
 export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems, canAdjustStock, onClose, onSaved, onDeleted }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   // A "set" (recount) edit re-emits a stock_by_location INSERT, which the server
   // gates on `checkin_inventory` specifically — NOT the broader canAdjustStock
   // (checkin OR checkout). A checkout-only role would pass canAdjustStock but
@@ -124,7 +124,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
         appendOutbox('UPDATE', 'inventory_items', synced);
         appendLog({
           action: 'item_updated', entity_type: 'item', entity_id: ref.id,
-          user_id: user?.id ?? null, team_id: null, from_location_id: null, to_location_id: null,
+          user_id: realUser?.id ?? null, team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: null, note: `quick edit: ${trimmed}`, metadata: null, device_id: null,
         });
       });
@@ -149,7 +149,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
             appendOutbox('UPDATE', 'inventory_items', { id: ref.id, active: false, updated_at: now });
             appendLog({
               action: 'delete_inventory', entity_type: 'item', entity_id: ref.id,
-              user_id: user?.id ?? null, team_id: null, from_location_id: null, to_location_id: null,
+              user_id: realUser?.id ?? null, team_id: null, from_location_id: null, to_location_id: null,
               quantity: null, unit: null, job_id: null, note: name || null, metadata: null, device_id: null,
             });
           });
@@ -182,7 +182,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
         upsertUnit({ ...cur, ...changes, updated_at: now });
         appendOutbox('UPDATE', 'equipment_units', { id: ref.id, ...changes, updated_at: now });
         appendLog({
-          user_id: user?.id ?? null, team_id: null, action: 'unit_edited',
+          user_id: realUser?.id ?? null, team_id: null, action: 'unit_edited',
           entity_type: 'equipment_unit', entity_id: ref.id,
           from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
           note: 'edited ' + trimmedTag, metadata: null, device_id: null,
@@ -207,7 +207,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
             const updated = setUnitStatus(ref.id, { status: 'retired' });
             appendOutbox('UPDATE', 'equipment_units', { id: ref.id, status: 'retired', updated_at: updated.updated_at });
             appendLog({
-              user_id: user?.id ?? null, team_id: null, action: 'unit_retired',
+              user_id: realUser?.id ?? null, team_id: null, action: 'unit_retired',
               entity_type: 'equipment_unit', entity_id: ref.id,
               from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
               note: 'retired ' + (tag || ref.id), metadata: null, device_id: null,
@@ -250,7 +250,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
           });
           appendLog({
             action: 'recount', entity_type: 'item', entity_id: ref.itemId, to_location_id: ref.locationId,
-            quantity: parsed, unit: ref.unit, user_id: user?.id ?? null, team_id: null, from_location_id: null,
+            quantity: parsed, unit: ref.unit, user_id: realUser?.id ?? null, team_id: null, from_location_id: null,
             job_id: null, note: 'quick edit', metadata: null, device_id: null,
           });
         } else {
@@ -262,7 +262,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
             });
             appendLog({
               action: 'adjust_stock', entity_type: 'item', entity_id: ref.itemId, to_location_id: ref.locationId,
-              quantity: delta, unit: ref.unit, user_id: user?.id ?? null, team_id: null, from_location_id: null,
+              quantity: delta, unit: ref.unit, user_id: realUser?.id ?? null, team_id: null, from_location_id: null,
               job_id: null, note: 'quick edit correction', metadata: null, device_id: null,
             });
           }
@@ -291,7 +291,7 @@ export function QuickAddEditSheet({ visible, entityRef, canEdit, canDeleteItems,
             });
             appendLog({
               action: 'adjust_stock', entity_type: 'item', entity_id: ref.itemId, to_location_id: ref.locationId,
-              quantity: -ref.qty, unit: ref.unit, user_id: user?.id ?? null, team_id: null, from_location_id: null,
+              quantity: -ref.qty, unit: ref.unit, user_id: realUser?.id ?? null, team_id: null, from_location_id: null,
               job_id: null, note: 'undo quick add', metadata: null, device_id: null,
             });
           });

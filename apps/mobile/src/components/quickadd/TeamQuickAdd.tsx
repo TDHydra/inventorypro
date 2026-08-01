@@ -49,7 +49,7 @@ interface PendingMember {
 export default function TeamQuickAdd({ onSaved }: Props) {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { user } = useSession();
+  const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
   // Re-read pickers/bases when a sync (or local write) touches their tables,
@@ -176,7 +176,7 @@ export default function TeamQuickAdd({ onSaved }: Props) {
           action: 'team_created',
           entity_type: 'team',
           entity_id: id,
-          user_id: user?.id ?? null,
+          user_id: realUser?.id ?? null,
           team_id: id,
           job_id: null,
           note: trimmedName,
@@ -198,11 +198,11 @@ export default function TeamQuickAdd({ onSaved }: Props) {
             team_id: id,
             user_id: pm.user.id,
             team_permission_overrides: JSON.stringify(pm.overrides),
-            added_by: user?.id ?? null,
+            added_by: realUser?.id ?? null,
             joined_at: added.joined_at,
           });
           appendLog({
-            user_id: user?.id ?? null,
+            user_id: realUser?.id ?? null,
             team_id: id,
             action: 'team_member_added',
             entity_type: 'team',
