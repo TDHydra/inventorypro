@@ -21,6 +21,7 @@ import { getAppSetting } from '../src/db/appSettings';
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 import { AlertHost } from '../src/lib/themedAlert';
 import { ConfirmSheetHost } from '../src/components/ui/ConfirmSheet';
+import { ToastHost } from '../src/components/ToastHost';
 import { loadThemeFromSettings } from '../src/themes/store';
 import { useTheme } from '../src/hooks/useTheme';
 import { useFonts } from 'expo-font';
@@ -144,6 +145,7 @@ export default function RootLayout() {
             <Stack key={theme.id} screenOptions={{ headerShown: false }} />
             <AlertHost />
             <ConfirmSheetHost />
+            <ToastHost />
           </TelemetryErrorBoundary>
         </SessionContext.Provider>
       </KeyboardProvider>

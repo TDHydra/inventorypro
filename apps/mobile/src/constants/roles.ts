@@ -39,6 +39,13 @@ export type Permission =
   | 'view_own_logs'
   | 'view_team_activity'
   | 'manage_teams'
+  // #198: split from the coarse gates the Teams/Locations dashboard tiles used
+  // to borrow (create_jobs / add_inventory respectively) — reading team
+  // rosters or the locations list is not the same authority as creating jobs
+  // or adding catalog stock. Broadly granted (everyone sees); write actions on
+  // those screens still gate on manage_teams / manage_locations / add_inventory.
+  | 'view_teams'
+  | 'view_locations'
   | 'checkout_for_team'
   | 'manage_users'
   | 'set_pins'
@@ -73,6 +80,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   view_own_logs: 'View own activity logs',
   view_team_activity: "View team's activity",
   manage_teams: 'Manage teams',
+  view_teams: 'View teams',
+  view_locations: 'View locations',
   checkout_for_team: 'Check out for a team',
   manage_users: 'Manage users',
   set_pins: 'Set / reset PINs',
@@ -204,6 +213,8 @@ const tier4: PermissionMap = {
   view_own_logs:             true,
   view_team_activity:        true,
   manage_teams:              true,
+  view_teams:                true,
+  view_locations:            true,
   checkout_for_team:         true,
   manage_users:              true,
   set_pins:                  true,
@@ -234,6 +245,8 @@ const tier3: PermissionMap = {
   view_own_logs:             true,
   view_team_activity:        true,
   manage_teams:              false,
+  view_teams:                true,
+  view_locations:            true,
   checkout_for_team:         false,
   manage_users:              true,
   set_pins:                  true,
@@ -264,6 +277,8 @@ const tier2: PermissionMap = {
   view_own_logs:              true,
   view_team_activity:         true,
   manage_teams:               true,
+  view_teams:                 true,
+  view_locations:             true,
   checkout_for_team:          true,
   manage_users:               false,
   set_pins:                   false,
@@ -294,6 +309,8 @@ const tier1: PermissionMap = {
   view_own_logs:              true,
   view_team_activity:         false,
   manage_teams:               false,
+  view_teams:                 true,
+  view_locations:             true,
   checkout_for_team:          true,
   manage_users:               false,
   set_pins:                   false,

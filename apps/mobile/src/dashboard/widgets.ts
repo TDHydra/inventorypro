@@ -102,7 +102,11 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'add-stock':   { label: 'Add Stock to Location',   icon: '+',   route: '/(app)/(inventory)/add', requiredPermission: 'add_inventory',  kind: 'tile' },
   equipment:     { label: 'Manage Equipment Catalog',icon: '🛠️', route: '/(app)/(equipment)',     requiredPermission: 'add_inventory',  kind: 'tile' },
   repairs:       { label: 'Repairs',                 icon: '🔧',  route: '/(app)/(repairs)',       requiredPermission: 'add_inventory',  kind: 'tile' },
-  locations:     { label: 'Manage Locations',        icon: '⇄',   route: '/(app)/(locations)',     requiredPermission: 'add_inventory',  kind: 'tile' },
+  // #198: viewing the locations list is not the same authority as adding
+  // catalog stock — split from add_inventory into its own broadly-granted
+  // view_locations permission (KEEP IN SYNC with constants/roles.ts). The
+  // screen itself still gates location create/edit affordances internally.
+  locations:     { label: 'Manage Locations',        icon: '⇄',   route: '/(app)/(locations)',     requiredPermission: 'view_locations', kind: 'tile' },
   // Vehicles/lockers as their own system (#122 A2): no requiredPermission —
   // visibility is data-driven (getVisibleUnits); the screens render an EmptyState.
   vehicles:      { label: 'Vehicles',                icon: '🚐',  route: '/(app)/(vehicles)',      kind: 'tile' },
@@ -111,7 +115,10 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
 
   // Operations
   jobs:          { label: 'Jobs',                    icon: '🏗', route: '/(app)/(jobs)',  requiredPermission: 'create_jobs',   kind: 'tile' },
-  teams:         { label: 'Teams',                   icon: '👥', route: '/(app)/(teams)', requiredPermission: 'create_jobs',   kind: 'tile' },
+  // #198: viewing team rosters is not the same authority as creating jobs —
+  // split from create_jobs into its own broadly-granted view_teams permission
+  // (KEEP IN SYNC with constants/roles.ts). manage_teams still gates edits.
+  teams:         { label: 'Teams',                   icon: '👥', route: '/(app)/(teams)', requiredPermission: 'view_teams',    kind: 'tile' },
   // Manage My Team (#124): no requiredPermission — ownership is data (my crews /
   // lockers / vehicles); the screen shows an EmptyState when the user owns nothing.
   'manage-my-team': { label: 'Manage My Team',       icon: '👥', route: '/(app)/(myteam)', kind: 'tile' },

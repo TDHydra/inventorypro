@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { usePermission } from '../hooks/usePermission';
 import { Permission, PERMISSION_LABELS } from '../constants/roles';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { appToastBus } from '../lib/toastBus';
 
 interface Props {
   permission: Permission;
@@ -13,32 +14,61 @@ interface Props {
   /**
    * 'hide' (default, backward compatible): render `fallback` (default null)
    * when denied — the control disappears entirely.
-   * 'disable': render `children` anyway, dimmed and inert (`pointerEvents:
-   * 'none'`), with a one-line "Requires <label>" reason underneath — so users
-   * learn why instead of hitting a silent no-op or a sync conflict (#76).
-   * Generalizes the {editable, reason} shape roles.tsx already renders for
-   * per-permission role-editor cells.
+   * 'disable' (#197 "show-but-locked"): render `children` anyway, dimmed and
+   * inert (`pointerEvents: 'none'`), with a 🔒 glyph overlay on top. The
+   * dimmed region itself is tappable — a tap fires `toastBus.push` with
+   * "Requires <label>" (a themed snackbar, never a second Modal) instead of a
+   * silent no-op or a sync conflict (#76). Generalizes the {editable, reason}
+   * shape roles.tsx already renders for per-permission role-editor cells.
    */
   mode?: 'hide' | 'disable';
+  /**
+   * 'disable' only: dense-grid variant for dashboard tile grids etc. Swaps
+   * the full centered 🔒 overlay for a small corner lock badge that doesn't
+   * obscure the tile's own icon/label. The reason is still delivered by a
+   * tap-toast either way.
+   */
+  compact?: boolean;
 }
 
 /**
  * Renders children only if the current user has the given permission.
  * Pass fallback to show something instead (default: null = nothing shown).
  */
-export function PermissionGate({ permission, teamId, children, fallback = null, mode = 'hide' }: Props) {
+export function PermissionGate({ permission, teamId, children, fallback = null, mode = 'hide', compact = false }: Props) {
   const allowed = usePermission(permission, teamId);
   const s = useThemedStyles(makeStyles);
 
   if (allowed) return <>{children}</>;
   if (mode === 'hide') return <>{fallback}</>;
 
+  const reason = `Requires ${PERMISSION_LABELS[permission]}`;
+  const explain = () => appToastBus.push({ message: reason });
+
   return (
     <View>
       <View style={s.disabledContent} pointerEvents="none">
         {children}
       </View>
-      <Text style={s.reason}>Requires {PERMISSION_LABELS[permission]}</Text>
+      {/* Overlays the whole dimmed region so a tap ANYWHERE on it explains why,
+          rather than requiring a precise tap on the tiny lock glyph. */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={explain}
+        accessibilityRole="button"
+        accessibilityLabel={reason}
+      >
+        {!compact && (
+          <View style={s.lockCenter} pointerEvents="none">
+            <Text style={s.lockGlyph}>🔒</Text>
+          </View>
+        )}
+      </Pressable>
+      {compact && (
+        <View style={s.lockBadge} pointerEvents="none">
+          <Text style={s.lockBadgeGlyph}>🔒</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -49,5 +79,20 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   // literal textDisabled recolor — the same 0.5 dim already used for disabled
   // buttons/rows across the app (PrimaryButton, BulkActionBar, pickers).
   disabledContent: { opacity: 0.5 },
-  reason: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 2 },
+  lockCenter: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  lockGlyph: { fontSize: 20 },
+  lockBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: t.colors.surface,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockBadgeGlyph: { fontSize: 10, lineHeight: 12 },
 });

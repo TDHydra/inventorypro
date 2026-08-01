@@ -52,6 +52,12 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   view_own_logs: 'View own activity logs',
   view_team_activity: "View team's activity",
   manage_teams: 'Manage teams',
+  // #198: present for the Record<Permission,…> exhaustiveness check only —
+  // deliberately absent from TEAM_OVERRIDABLE_PERMISSIONS above (broadly
+  // granted by role default already; not a per-team deviation a manager
+  // needs to hand out).
+  view_teams: 'View teams',
+  view_locations: 'View locations',
   checkout_for_team: 'Check out for a team',
   manage_users: 'Manage users',
   set_pins: 'Set / reset PINs',
