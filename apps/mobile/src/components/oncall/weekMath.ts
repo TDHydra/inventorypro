@@ -137,3 +137,25 @@ export function formatWeekRange(weekStartIso: string): string {
   }
   return `${startLabel} – ${MONTHS_SHORT[end.getUTCMonth()]} ${end.getUTCDate()}`;
 }
+
+// #184: moved here from OnCallCalendar.tsx so the schedule board's dayMath.ts
+// can re-export it without pulling react-native into a pure/node-test-safe
+// module's import graph (OnCallCalendar.tsx imports react-native; this file
+// deliberately never does — see the file header). Unlike the rest of this
+// file, these two read the device's LOCAL wall clock on purpose (day
+// boundaries and "now" are wall-clock concepts, not UTC-normalized business
+// keys) — deliberately not `toISOString().slice(0,10)`, which is UTC and
+// flips to tomorrow in the evening for US timezones.
+
+/** The device's LOCAL calendar date as YYYY-MM-DD. */
+export function localTodayIso(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** The device's LOCAL wall-clock hour (0–23). */
+export function localNowHour(now: Date = new Date()): number {
+  return now.getHours();
+}

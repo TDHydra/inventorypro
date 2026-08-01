@@ -178,6 +178,42 @@ test('quick_add: every ROLE_DEFAULTS role carries a quick_add key matching mobil
   }
 });
 
+// ── #184: manage_schedule parity — MUST mirror apps/mobile/src/constants/roles.ts
+// ROLE_DEFAULTS exactly (tier4/tier3/tier2 = true, tier1/tempEmployee = false).
+// This is a Record<string, boolean> file (not a closed union like mobile's
+// Permission type), so the compiler won't catch a skipped tier map — omitting
+// one here would resolve manage_schedule falsy for that role's every write.
+
+const EXPECTED_MANAGE_SCHEDULE: Record<string, boolean> = {
+  full_admin:               true,
+  franchise_manager:        true,
+  hr_manager:               true,
+  office_manager:           true,
+  head_of_construction:     true,
+  head_of_contents:         true,
+  production_manager:       true,
+  carpet_cleaning_manager:  true,
+  construction_crew:        false,
+  contents_crew:            false,
+  mitigation_technician:    false,
+  carpet_cleaning_crew:     false,
+  duct_cleaning_technician: false,
+  temporary_employee:       false,
+};
+
+test('manage_schedule: every ROLE_DEFAULTS role carries a manage_schedule key matching mobile roles.ts', () => {
+  const roles = Object.keys(ROLE_DEFAULTS);
+  assert.equal(roles.length, Object.keys(EXPECTED_MANAGE_SCHEDULE).length);
+  for (const role of roles) {
+    assert.ok('manage_schedule' in ROLE_DEFAULTS[role], `${role} is missing a manage_schedule key`);
+    assert.equal(
+      userHasPermission(role, null, 'manage_schedule', null),
+      EXPECTED_MANAGE_SCHEDULE[role],
+      `manage_schedule for ${role} should be ${EXPECTED_MANAGE_SCHEDULE[role]}`,
+    );
+  }
+});
+
 // ── #76: tempEmployee byte-parity with mobile roles.ts (:261-268) — edit_media
 // and delete_media are explicit false (mobile lists them explicitly even
 // though tier1 already defaults both to false; this locks that in). ──────────

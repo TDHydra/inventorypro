@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Alert } from '../../../src/lib/themedAlert';
-import * as Location from 'expo-location';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, Job,
@@ -10,13 +9,14 @@ import {
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
-import { getAllTeams, getTeamById } from '../../../src/db/queries/teams';
+import { getAllTeams } from '../../../src/db/queries/teams';
 import {
   getAssignmentsForJob, getAssignableCrews, assignJobToCrew, assignJobToUser, unassign,
   JobAssignmentView,
 } from '../../../src/db/queries/jobAssignments';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
-import { getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
+import { getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
+import { JobSummaryCard } from '../../../src/components/jobs/JobSummaryCard';
 import { ROLE_TIER } from '../../../src/constants/roles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
@@ -24,7 +24,6 @@ import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh'
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker, TaxonomyChips } from '../../../src/components/pickers';
 import { MediaGallery } from '../../../src/components/MediaGallery';
-import { MapDisplay } from '../../../src/components/MapDisplay';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -61,8 +60,6 @@ export default function JobDetailScreen() {
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
   const [editing, setEditing] = useState(false);
-  const [siteCoords, setSiteCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [geocodeFailed, setGeocodeFailed] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
 
   // Re-read the job row on refocus or when a sync pull applies changes — the row
@@ -72,30 +69,6 @@ export default function JobDetailScreen() {
   useEffect(() => {
     setJob(getJobById(id));
   }, [id, refreshKey]);
-
-  // Geocode the free-text site address (online, no API key) so we can show a
-  // view-only map. Failures/empties are swallowed — the map just doesn't appear.
-  const siteAddress = job?.site_address ?? null;
-  useEffect(() => {
-    let cancelled = false;
-    setSiteCoords(null);
-    setGeocodeFailed(false);
-    if (!siteAddress) return;
-    (async () => {
-      try {
-        const r = await Location.geocodeAsync(siteAddress);
-        if (cancelled) return;
-        if (r[0] && typeof r[0].latitude === 'number' && typeof r[0].longitude === 'number') {
-          setSiteCoords({ latitude: r[0].latitude, longitude: r[0].longitude });
-        } else {
-          setGeocodeFailed(true);
-        }
-      } catch {
-        if (!cancelled) setGeocodeFailed(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [siteAddress]);
 
   // Edit form state
   const [editName, setEditName] = useState('');
@@ -123,10 +96,6 @@ export default function JobDetailScreen() {
   const isOrgAuthority = !!user && (ROLE_TIER[user.role] ?? 0) >= 3;
   const teamOptions = useMemo((): PickerOption[] =>
     getAllTeams().map(t => ({ id: t.id, label: t.name })), [refreshKey]);
-  const teamName = useMemo(() => {
-    if (!job?.team_id) return null;
-    return getTeamById(job.team_id)?.name ?? 'Assigned team';
-  }, [job?.team_id, refreshKey]);
 
   // Team-change flow (org authority only), kept out of the generic edit form so a
   // tier-2 create_jobs editor can't reassign teams.
@@ -403,14 +372,6 @@ export default function JobDetailScreen() {
     );
   }
 
-  const badgeBg = job.status === 'open' ? t.colors.primaryBgStrong
-    : job.status === 'closed' ? t.colors.surfaceAlt
-    : t.colors.accentBg;
-  const badgeFg = job.status === 'open' ? t.colors.primaryText
-    : job.status === 'closed' ? '#475569'
-    : t.colors.warning;
-
-  const jobNumberLabel = job.job_number ? `# ${job.job_number}` : 'Pending #';
 
   return (
     <>
@@ -522,77 +483,9 @@ export default function JobDetailScreen() {
             </>
           ) : (
             <>
-              {/* Header card */}
-              <Card variant="detail">
-                <View style={s.jobNumberRow}>
-                  <Text style={s.jobNumber}>{jobNumberLabel}</Text>
-                  {!job.job_number && (
-                    <Text style={s.pendingHint}>assigned after sync</Text>
-                  )}
-                </View>
-                <Text style={s.name}>{job.name}</Text>
-                <View style={s.headerRow}>
-                  <View style={[s.statusBadge, { backgroundColor: badgeBg }]}>
-                    <Text style={[s.statusBadgeText, { color: badgeFg }]}>
-                      {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                    </Text>
-                  </View>
-                  <Text style={s.dateText}>
-                    Created {new Date(job.created_at).toLocaleDateString()}
-                  </Text>
-                </View>
-
-                {!!job.reference_number && (
-                  <View style={s.metaRow}>
-                    <FieldLabel style={{ minWidth: 60 }}>Ref #</FieldLabel>
-                    <Text style={s.metaValue}>{job.reference_number}</Text>
-                  </View>
-                )}
-                {!!job.insurance_carrier && (
-                  <View style={s.metaRow}>
-                    <FieldLabel style={{ minWidth: 60 }}>Insurer</FieldLabel>
-                    <Text style={s.metaValue}>{job.insurance_carrier}</Text>
-                  </View>
-                )}
-                {!!job.customer_name && (
-                  <View style={s.metaRow}>
-                    <FieldLabel style={{ minWidth: 60 }}>Customer</FieldLabel>
-                    <Text style={s.metaValue}>{job.customer_name}</Text>
-                  </View>
-                )}
-                {!!job.site_address && (
-                  <View style={s.metaRow}>
-                    <FieldLabel style={{ minWidth: 60 }}>Site</FieldLabel>
-                    <Text style={s.metaValue}>{job.site_address}</Text>
-                  </View>
-                )}
-                {!!job.site_address && siteCoords && (
-                  <View style={s.mapWrap}>
-                    <MapDisplay latitude={siteCoords.latitude} longitude={siteCoords.longitude} />
-                  </View>
-                )}
-                {!!job.site_address && !siteCoords && geocodeFailed && (
-                  <Text style={s.mapNote}>Couldn't locate this address on the map.</Text>
-                )}
-                {!!job.description && (
-                  <View style={[s.metaRow, { alignItems: 'flex-start' }]}>
-                    <FieldLabel style={{ minWidth: 60 }}>Notes</FieldLabel>
-                    <Text style={[s.metaValue, { flex: 1 }]}>{job.description}</Text>
-                  </View>
-                )}
-                {!!job.type && (
-                  <View style={s.metaRow}>
-                    <FieldLabel style={{ minWidth: 60 }}>Type</FieldLabel>
-                    <Text style={s.metaValue}>
-                      {(() => { const icon = getTypeIcon('job', job.type!); return icon ? `${icon} ${job.type}` : job.type; })()}
-                    </Text>
-                  </View>
-                )}
-                <View style={s.metaRow}>
-                  <FieldLabel style={{ minWidth: 60 }}>Team</FieldLabel>
-                  <Text style={s.metaValue}>{teamName ?? 'Org-wide (everyone)'}</Text>
-                </View>
-              </Card>
+              {/* Header card (#184: extracted to JobSummaryCard — reused by the
+                  schedule board's JobDetailPopup) */}
+              <JobSummaryCard job={job} />
 
               {/* Team reassignment — org authority (tier >= 3) only */}
               {teamEditing && (
@@ -799,23 +692,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   muted: { fontSize: 14, color: t.colors.textMuted },
-
-  jobNumberRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  jobNumber: { fontSize: 13, fontWeight: '700', color: t.colors.primaryText },
-  pendingHint: { fontSize: 11, color: t.colors.textMuted },
-  name: { fontSize: 22, fontWeight: '700', color: t.colors.brand },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
-  statusBadgeText: { fontSize: 13, fontWeight: '700' },
-  dateText: { fontSize: 13, color: t.colors.textMuted },
-
-  metaRow: {
-    flexDirection: 'row', alignItems: 'center',
-    marginTop: 10, gap: 8,
-  },
-  metaValue: { fontSize: 14, color: t.colors.textPrimary, flexShrink: 1 },
-  mapWrap: { marginTop: 10 },
-  mapNote: { fontSize: 12, color: t.colors.textMuted, marginTop: 8, fontStyle: 'italic' },
 
   divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
 

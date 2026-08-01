@@ -634,3 +634,42 @@ test('service-record pull carries payer/job_id ungated; cost stays financial-gat
   assert.ok(!base.includes('cost'), 'cost must stay financial-gated, not in BASE');
   assert.ok(selectColumnsFor('vehicle_service_records', true).includes('cost'));
 });
+
+// #184: employee day schedule board. INSERT/UPDATE require manage_schedule;
+// DELETE is deliberately absent from OPERATION_PERM so it fails closed to
+// 'DENY' (assignment rows are history, never torn down via sync — mirrors
+// repair_steps' immutable-log DENY pattern above).
+test('schedule_assignments: INSERT/UPDATE require manage_schedule; DELETE is DENY', () => {
+  assert.equal(requiredOperationPerm('schedule_assignments', 'INSERT'), 'manage_schedule');
+  assert.equal(requiredOperationPerm('schedule_assignments', 'UPDATE'), 'manage_schedule');
+  assert.equal(requiredOperationPerm('schedule_assignments', 'DELETE'), 'DENY');
+});
+
+test('schedule_assignments column projection is the full explicit synced set', () => {
+  assert.equal(
+    selectColumnsFor('schedule_assignments', false),
+    'id, employee_id, day, start_minute, end_minute, assignment_kind, job_id, manager_id, note, created_by, active, created_at, updated_at',
+  );
+  // No financial gate — canViewFinancial must not change the projection.
+  assert.equal(selectColumnsFor('schedule_assignments', false), selectColumnsFor('schedule_assignments', true));
+});
+
+test('schedule_assignments forces created_by to the caller on INSERT (attribution)', () => {
+  const realSchedule = new Map([['schedule_assignments', new Set(['id', 'employee_id', 'created_by'])]]);
+  const { row } = applyWritePolicy(
+    'schedule_assignments', 'INSERT',
+    { id: 's1', employee_id: 'emp-1', created_by: 'someone-else' },
+    'caller', realSchedule, () => true,
+  );
+  assert.equal(row.created_by, 'caller');
+});
+
+test('schedule_assignments strips created_by reassignment on UPDATE', () => {
+  const realSchedule = new Map([['schedule_assignments', new Set(['id', 'active', 'created_by'])]]);
+  const { row } = applyWritePolicy(
+    'schedule_assignments', 'UPDATE',
+    { id: 's1', active: false, created_by: 'someone-else' },
+    'caller', realSchedule, () => true,
+  );
+  assert.ok(!('created_by' in row), 'created_by must never be reassignable on UPDATE');
+});

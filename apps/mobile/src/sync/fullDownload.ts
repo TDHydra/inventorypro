@@ -38,6 +38,9 @@ const SYNC_TABLES = [
   'job_assignments',
   // #173: rooms catalog — unscoped, small, needed offline for the room picker.
   'rooms',
+  // Schedule board (#184): org-visible like job_assignments — a fresh device
+  // needs the full day-schedule history to render the board offline.
+  'schedule_assignments',
 ] as const;
 
 export const FULL_DOWNLOAD_TABLE_COUNT = SYNC_TABLES.length;
@@ -167,7 +170,8 @@ async function applyRows(table: string, rows: unknown[]): Promise<void> {
       case 'on_call_shifts':
       case 'on_call_coverage':
       case 'job_assignments':
-      case 'rooms': {
+      case 'rooms':
+      case 'schedule_assignments': {
         // Generic upsert — name columns explicitly from the row keys so we
         // tolerate column-count/order differences (e.g. server omits synced_at)
         // and sanitize values (JSONB objects / booleans) for op-sqlite.
