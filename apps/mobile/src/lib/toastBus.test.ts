@@ -47,3 +47,19 @@ test('an optional durationMs rides along on the request', () => {
   bus.push({ message: 'quick', durationMs: 1500 });
   assert.equal(delivered[0]?.durationMs, 1500);
 });
+
+test('an optional action (label + onPress) rides along on the request (#203)', () => {
+  const { bus, delivered } = harness();
+  const onPress = () => {};
+  bus.push({ message: 'Requires Manage Teams', action: { label: 'Request access', onPress } });
+  assert.equal(delivered[0]?.action?.label, 'Request access');
+  assert.equal(delivered[0]?.action?.onPress, onPress);
+});
+
+test('a push with no action leaves it undefined, not a stale value from a prior toast', () => {
+  const { bus, delivered } = harness();
+  bus.push({ message: 'first', action: { label: 'Undo', onPress: () => {} } });
+  bus.notifyDismissed();
+  bus.push({ message: 'second' });
+  assert.equal(delivered[1]?.action, undefined);
+});

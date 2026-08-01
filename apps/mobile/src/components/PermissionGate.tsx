@@ -1,10 +1,14 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
 import { usePermission } from '../hooks/usePermission';
+import { useSession } from '../hooks/useSession';
 import { Permission, PERMISSION_LABELS } from '../constants/roles';
 import type { Theme } from '../themes/types';
 import { useThemedStyles } from '../hooks/useThemedStyles';
 import { appToastBus } from '../lib/toastBus';
+import { pickAccessGrantor } from '../auth/pickAccessGrantor';
+import { createDmConversation } from '../db/queries/chat';
 
 interface Props {
   permission: Permission;
@@ -38,12 +42,42 @@ interface Props {
 export function PermissionGate({ permission, teamId, children, fallback = null, mode = 'hide', compact = false }: Props) {
   const allowed = usePermission(permission, teamId);
   const s = useThemedStyles(makeStyles);
+  const { user } = useSession();
+  const router = useRouter();
 
   if (allowed) return <>{children}</>;
   if (mode === 'hide') return <>{fallback}</>;
 
   const reason = `Requires ${PERMISSION_LABELS[permission]}`;
-  const explain = () => appToastBus.push({ message: reason });
+
+  // #203: find someone who could grant this, lazily (only on tap — never on
+  // every render) and only when we have a real signed-in user to exclude/
+  // anchor tier-distance against. Tapping the toast's action opens (or
+  // reuses) a DM with them, prefilled with a draft asking for it — the user
+  // still has to actually send it, this only removes the "who do I even ask"
+  // friction.
+  const explain = () => {
+    const grantor = user ? pickAccessGrantor(permission, user) : null;
+    appToastBus.push({
+      message: reason,
+      action: grantor
+        ? {
+            label: 'Request access',
+            onPress: () => {
+              if (!user) return;
+              const conversationId = createDmConversation(user.id, grantor.id);
+              router.push({
+                pathname: '/(app)/(chat)/[id]',
+                params: {
+                  id: conversationId,
+                  draft: `Hi ${grantor.name} — could I get access to "${PERMISSION_LABELS[permission]}"? I need it for `,
+                },
+              });
+            },
+          }
+        : undefined,
+    });
+  };
 
   return (
     <View>

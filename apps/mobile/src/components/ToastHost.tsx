@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Text, StyleSheet } from 'react-native';
+import { Animated, Text, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
@@ -22,9 +22,19 @@ import { appToastBus, type ToastRequest } from '../lib/toastBus';
  *
  * Mount `<ToastHost />` once at the app root, alongside `<AlertHost />` /
  * `<ConfirmSheetHost />`.
+ *
+ * #203: a toast may carry a trailing `action` (e.g. "Request access") — a
+ * plain `Pressable` at the trailing edge, NOT its own touchable surface that
+ * dismisses on any tap (the toast otherwise stays a look-don't-touch status
+ * strip). Tapping it runs `onPress` then dismisses. Auto-dismiss is extended
+ * to ACTION_DURATION_MS while an action is present — a bare status message
+ * ("Requires X") only needs to be read, but a button needs time to be
+ * noticed AND tapped, so the 3s default would too often disappear on someone
+ * mid-read/mid-reach. An explicit `durationMs` on the request always wins.
  */
 
 const DEFAULT_DURATION_MS = 3000;
+const ACTION_DURATION_MS = 6000;
 
 export function ToastHost() {
   const t = useTheme();
@@ -48,7 +58,7 @@ export function ToastHost() {
       duration: t.motion.enabled ? t.motion.duration.fast : 0,
       useNativeDriver: true,
     }).start();
-    timerRef.current = setTimeout(dismiss, req.durationMs ?? DEFAULT_DURATION_MS);
+    timerRef.current = setTimeout(dismiss, req.durationMs ?? (req.action ? ACTION_DURATION_MS : DEFAULT_DURATION_MS));
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req]);
@@ -67,11 +77,22 @@ export function ToastHost() {
 
   if (!req) return null;
 
+  const action = req.action;
+  function runAction() {
+    action?.onPress();
+    dismiss();
+  }
+
   // Bottom-anchored, above the safe area (so it clears a gesture nav bar/tab
   // bar the same way the dashboard's own bottom padding does).
+  // pointerEvents: with no action, the whole strip stays a non-interactive
+  // status readout (unchanged from pre-#203 behavior — nothing to tap, so
+  // nothing intercepts touches meant for whatever's underneath). With an
+  // action, the CONTAINER still lets touches pass through (`box-none`) — only
+  // the action button itself (default pointerEvents) is tappable.
   return (
     <Animated.View
-      pointerEvents="none"
+      pointerEvents={req.action ? 'box-none' : 'none'}
       style={[
         s.wrap,
         {
@@ -81,7 +102,18 @@ export function ToastHost() {
         },
       ]}
     >
-      <Text style={s.text} numberOfLines={2}>{req.message}</Text>
+      <Text style={[s.text, req.action && s.textWithAction]} numberOfLines={2}>{req.message}</Text>
+      {req.action && (
+        <Pressable
+          onPress={runAction}
+          hitSlop={8}
+          style={s.actionBtn}
+          accessibilityRole="button"
+          accessibilityLabel={req.action.label}
+        >
+          <Text style={s.actionText}>{req.action.label}</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
 }
@@ -91,11 +123,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     position: 'absolute',
     left: t.spacing.xl,
     right: t.spacing.xl,
+    flexDirection: 'row',
     backgroundColor: t.colors.textPrimary,
     borderRadius: t.radii.lg,
     paddingVertical: t.spacing.md,
     paddingHorizontal: t.spacing.lg,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: t.spacing.md,
     ...t.shadows.card,
   },
   text: {
@@ -103,5 +138,22 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     fontSize: t.typography.fontSizes.body,
     fontWeight: t.typography.weights.semibold,
     textAlign: 'center',
+  },
+  // With an action present the message no longer centers alone — it takes the
+  // remaining space to the left of the button and left-aligns (a centered
+  // short message reads oddly once a button anchors the trailing edge).
+  textWithAction: {
+    flex: 1,
+    textAlign: 'left',
+  },
+  actionBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  actionText: {
+    color: t.colors.accent,
+    fontSize: t.typography.fontSizes.body,
+    fontWeight: t.typography.weights.bold,
+    textTransform: 'uppercase',
   },
 });

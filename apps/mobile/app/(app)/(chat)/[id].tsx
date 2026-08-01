@@ -58,7 +58,11 @@ function timeLabel(iso: string): string {
 export default function ChatThreadScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `draft` (#203): an optional prefill from the "Request access" funnel
+  // (PermissionGate / SyncIndicator) — a DM opened FOR the user to ask for a
+  // permission, with a starter message already typed in. Named separately
+  // from the `draft` composer state below so the param can't shadow it.
+  const { id, draft: draftParam } = useLocalSearchParams<{ id: string; draft?: string }>();
   const conversationId = String(id);
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -100,6 +104,15 @@ export default function ChatThreadScreen() {
 
   const [draft, setDraft] = useState('');
   const [urgency, setUrgency] = useState<MessageUrgency>('urgent');
+
+  // Prefill the composer from `draftParam` ONCE, and only if the composer is
+  // still empty (never stomps something the user already started typing —
+  // e.g. re-navigating to the same conversation with a stale draft param
+  // shouldn't clobber a reply in progress). Does not auto-send.
+  useEffect(() => {
+    if (draftParam && draft === '') setDraft(draftParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftParam]);
 
   // ── edit / delete own messages ──────────────────────────────────────────────
   const [actionMsg, setActionMsg] = useState<MessageRow | null>(null); // long-press menu target

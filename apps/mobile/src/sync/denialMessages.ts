@@ -47,8 +47,10 @@ const ENTITY_LABELS: Record<string, string> = {
 
 // Fallback for a table_name with no entry above: humanize the raw identifier
 // ('gas_receipts' -> 'gas receipts') rather than showing nothing or the SQL
-// name verbatim.
-function entityLabel(tableName: string): string {
+// name verbatim. Exported (#203) so the "Request access" funnel's generic
+// draft message can name the same entity denialMessage() already shows,
+// instead of re-deriving it a second way and risking the wording drifting.
+export function entityLabel(tableName: string): string {
   return ENTITY_LABELS[tableName] ?? tableName.replace(/_/g, ' ');
 }
 

@@ -9,16 +9,33 @@
 // Modal, so it can surface while a sheet/modal is open without stacking a
 // second visible overlay (#197: "Requires <permission>" fires from a tap on a
 // disabled tile, which may itself sit under an open sheet).
+//
+// #203: a toast may also carry a single trailing `action` (e.g. "Request
+// access") — still framework-free here, `onPress` is just a plain callback.
+// The host is responsible for rendering it and for extending auto-dismiss
+// while it's present (a user needs time to notice and tap a button, not just
+// read a sentence).
+
+// #203: an optional trailing action a toast can carry (e.g. "Request access"
+// from a locked PermissionGate tap or a denied sync entry) — a single tappable
+// button rendered at the toast's trailing edge. Tapping runs `onPress` AND
+// dismisses the toast (the host never leaves a stale action toast hanging
+// around after it's been acted on).
+export interface ToastAction {
+  label: string;
+  onPress: () => void;
+}
 
 export interface ToastRequest {
   id: number;
   message: string;
-  /** Auto-dismiss delay in ms. Defaults to 3000 in the host. */
+  /** Auto-dismiss delay in ms. Defaults to 3000 in the host (6000 when `action` is set — see ToastHost). */
   durationMs?: number;
+  action?: ToastAction;
 }
 
 export interface ToastBus {
-  push(req: { message: string; durationMs?: number }): void;
+  push(req: { message: string; durationMs?: number; action?: ToastAction }): void;
   /** The host registers here on mount (null on unmount); queued requests drain immediately. */
   setListener(fn: ((req: ToastRequest | null) => void) | null): void;
   /** The host calls this once its auto-dismiss timer (or a tap) closes the toast. */
@@ -38,8 +55,8 @@ export function createToastBus(): ToastBus {
   }
 
   return {
-    push({ message, durationMs }): void {
-      queue.push({ id: nextId++, message, durationMs });
+    push({ message, durationMs, action }): void {
+      queue.push({ id: nextId++, message, durationMs, action });
       pump();
     },
     setListener(fn): void {
