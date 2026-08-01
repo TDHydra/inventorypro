@@ -15,6 +15,12 @@ export interface QuickPhotoAsset {
   uri: string;
   mediaType: 'image' | 'video';
   ext: string;
+  // #188: web only. expo-image-picker's web shim returns a blob: object URL
+  // AND the original File on every asset; backgrounding the tab (launching
+  // the camera/gallery) can invalidate the blob: URL before upload, so
+  // upload.web.ts must be able to stream this File directly instead of
+  // re-fetching the (possibly dead) uri. Always undefined on native.
+  file?: File;
 }
 
 export interface QuickPhotoState {
@@ -22,6 +28,8 @@ export interface QuickPhotoState {
   source: QuickPhotoSource;
   dest: QuickPhotoDest | null;
   photoUri: string | null;
+  // #188: web-only sibling of photoUri — see QuickPhotoAsset.file.
+  photoFile: File | undefined;
   mediaType: 'image' | 'video';
   ext: string;
   // Gallery-only: assets picked but not yet run through the details phase.
@@ -46,6 +54,7 @@ export function initialState(): QuickPhotoState {
     source: 'camera',
     dest: null,
     photoUri: null,
+    photoFile: undefined,
     mediaType: 'image',
     ext: 'jpg',
     queue: [],
@@ -75,7 +84,7 @@ export function chooseDest(s: QuickPhotoState, dest: QuickPhotoDest): QuickPhoto
   };
 }
 
-export function photoTaken(s: QuickPhotoState, uri: string): QuickPhotoState {
+export function photoTaken(s: QuickPhotoState, uri: string, file?: File): QuickPhotoState {
   if (s.phase !== 'camera') {
     return s;
   }
@@ -83,6 +92,7 @@ export function photoTaken(s: QuickPhotoState, uri: string): QuickPhotoState {
     ...s,
     phase: 'details',
     photoUri: uri,
+    photoFile: file,
     mediaType: 'image',
     ext: 'jpg',
   };
@@ -99,6 +109,7 @@ export function assetsPicked(s: QuickPhotoState, assets: QuickPhotoAsset[]): Qui
     ...s,
     phase: 'details',
     photoUri: first.uri,
+    photoFile: first.file,
     mediaType: first.mediaType,
     ext: first.ext,
     queue: rest,
@@ -143,6 +154,7 @@ export function saveAndAddAnother(s: QuickPhotoState): QuickPhotoState {
       ...s,
       phase: 'details',
       photoUri: next.uri,
+      photoFile: next.file,
       mediaType: next.mediaType,
       ext: next.ext,
       queue: rest,
@@ -152,6 +164,7 @@ export function saveAndAddAnother(s: QuickPhotoState): QuickPhotoState {
     ...s,
     phase: 'camera',
     photoUri: null,
+    photoFile: undefined,
   };
 }
 

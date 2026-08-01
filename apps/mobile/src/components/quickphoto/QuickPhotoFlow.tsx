@@ -139,7 +139,11 @@ export function QuickPhotoFlow() {
       setState(prev => cameraCancelled(prev));
       return;
     }
-    setState(prev => photoTaken(prev, result.assets[0].uri));
+    // #188: web-only — expo-image-picker's web shim hands back both a blob:
+    // uri AND the original File; carry the File through so upload.web.ts can
+    // stream it directly instead of re-fetching a uri that a backgrounded
+    // tab may have invalidated.
+    setState(prev => photoTaken(prev, result.assets[0].uri, result.assets[0].file));
   }
 
   // Gallery step has no UI of its own either — mirrors the camera effect above.
@@ -178,6 +182,7 @@ export function QuickPhotoFlow() {
       uri: a.uri,
       mediaType: a.type === 'video' ? 'video' : 'image',
       ext: (a.fileName?.split('.').pop() ?? a.uri.split('.').pop() ?? 'jpg').toLowerCase(),
+      file: a.file, // #188: web-only, see QuickPhotoAsset.file
     }));
     setState(prev => assetsPicked(prev, assets));
   }
@@ -224,7 +229,10 @@ export function QuickPhotoFlow() {
     let uploaded: { id: string; url: string };
     try {
       const built = buildUploadInput(state.dest, user.id, roomArea, note);
-      uploaded = await uploadMediaAsset({ ...built, mediaType: state.mediaType, ext: state.ext, uri: state.photoUri, userId: user.id });
+      uploaded = await uploadMediaAsset({
+        ...built, mediaType: state.mediaType, ext: state.ext,
+        uri: state.photoUri, file: state.photoFile, userId: user.id,
+      });
     } catch (err) {
       // uploadMediaAsset requires connectivity for the presign — surface any
       // failure as a Toast rather than letting it crash the sheet.

@@ -2,6 +2,7 @@ import {
   MAX_UPLOAD_BYTES, MediaTooLargeError, requestUploadUrl, insertMediaRow,
   type UploadMediaInput, type UploadedMedia,
 } from './uploadCore';
+import { resolveUploadBody } from './resolveUploadBody';
 
 export { MAX_UPLOAD_BYTES, MediaTooLargeError } from './uploadCore';
 export type { UploadMediaInput, UploadedMedia } from './uploadCore';
@@ -11,10 +12,7 @@ export type { UploadMediaInput, UploadedMedia } from './uploadCore';
 // to the presigned URL via fetch PUT, the same /media/upload-url + DB + outbox
 // path the native helper uses, so the DB/sync contract is identical.
 export async function uploadMediaAsset(input: UploadMediaInput): Promise<UploadedMedia> {
-  let body: Blob | undefined = input.file;
-  if (!body && input.uri) body = await (await fetch(input.uri)).blob();
-  if (!body) throw new Error('Upload failed (no file).');
-
+  const body = await resolveUploadBody(input);
   const size = input.size ?? body.size;
   if (size > MAX_UPLOAD_BYTES) throw new MediaTooLargeError();
 
