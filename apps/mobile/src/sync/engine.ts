@@ -1,6 +1,7 @@
 import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
-import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, dropOutboxEntry, retryFailedOutbox, getPendingLogCount, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
+import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, markOutboxDenied, dropOutboxEntry, retryFailedOutbox, getPendingLogCount, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
+import { denialMessage } from './denialMessages';
 import { pullChanges } from './pull';
 import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
@@ -103,23 +104,33 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
   markOutboxSynced(result.ok);
 
   // The server returns entries it could NOT apply in `conflicts`. Two kinds:
-  //  - PERMANENT (an authorization denial): retrying can never help. Drop the
-  //    entry now instead of dead-lettering it — a dead-lettered authz reject
-  //    stays pending and pins the sync indicator on a write that will never be
-  //    accepted (the known "stuck on N pending" symptom).
+  //  - PERMANENT (an authorization denial): retrying can never help. Mark the
+  //    entry denied (#202) instead of dropping OR dead-lettering it — a
+  //    dead-lettered authz reject used to stay pending and pin the sync
+  //    indicator on a write that would never be accepted (the known "stuck on
+  //    N pending" symptom); an outright drop made the rejection invisible.
+  //    Denied entries are excluded from every active/failed count (see
+  //    outbox.ts) and surfaced separately with a human-readable message.
   //  - TRANSIENT (a bad column, an FK to a not-yet-synced row, a maintenance
   //    freeze): count the attempt and record the error so it's bounded by
   //    MAX_ATTEMPTS and visible. This preserves the prior behavior for these.
   // "reason" is the server's own short rejection message (already non-PII —
   // e.g. "Table not allowed", "Forbidden: teams requires manage_teams") — never
-  // the synced row's field content.
+  // the synced row's field content. It is tracked for telemetry but NEVER
+  // shown to the user — denialMessage() produces the user-facing text instead.
   const entryById = new Map(entries.map(e => [e.id, e]));
   for (const c of result.conflicts ?? []) {
     const e = entryById.get(c.id);
     if (isPermanentRejection(c.error)) {
-      dropOutboxEntry(c.id);
       if (e) {
+        markOutboxDenied(c.id, denialMessage({ table_name: e.table_name, operation: e.operation }));
         track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server', permanent: true } });
+      } else {
+        // Shouldn't happen — c.id came from the batch we just posted — but
+        // without the entry's table/operation there's nothing to build a
+        // denial message from. Fall back to the old outright-drop behavior
+        // rather than leave an untraceable row stuck pending forever.
+        dropOutboxEntry(c.id);
       }
       continue;
     }

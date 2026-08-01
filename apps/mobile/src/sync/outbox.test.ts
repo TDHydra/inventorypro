@@ -63,3 +63,75 @@ test('isMediaUploadPending: scoped to table_name — a matching id under another
   outbox.appendOutbox('INSERT', 'repairs', { id: 'media-1', entity_type: 'job', entity_id: 'job-1' });
   assert.equal(outbox.isMediaUploadPending('media-1'), false);
 });
+
+// markOutboxDenied / getDeniedOutbox / discardDeniedEntry / getDeniedCount (#202):
+// a permanently-denied entry (an authorization rejection) is kept — not
+// deleted like the old dropOutboxEntry path — but must disappear from every
+// "still active" query (getPendingOutbox, getPendingCount, getOutboxCounts,
+// getFailedOutbox, isMediaUploadPending) since it will never be delivered.
+
+test('markOutboxDenied: row moves out of getPendingOutbox and into getDeniedOutbox', () => {
+  outbox.appendOutbox('INSERT', 'schedule_assignments', { id: 'sa-1' });
+  const row = db.rowsAs<{ id: string }>(
+    db.getDb().executeSync(`SELECT id FROM outbox WHERE table_name = 'schedule_assignments'`).rows
+  )[0];
+
+  outbox.markOutboxDenied(row.id, "Your account can't edit schedules — this change wasn't saved.");
+
+  assert.deepEqual(outbox.getPendingOutbox(), []);
+  assert.equal(outbox.getPendingCount(), 0);
+
+  const [denied] = outbox.getDeniedOutbox();
+  assert.equal(denied.id, row.id);
+  assert.equal(denied.last_error, "Your account can't edit schedules — this change wasn't saved.");
+  assert.equal(outbox.getDeniedCount(), 1);
+});
+
+test('markOutboxDenied: excluded from getOutboxCounts (neither active nor failed)', () => {
+  outbox.appendOutbox('INSERT', 'jobs', { id: 'job-1' });
+  const row = db.rowsAs<{ id: string }>(
+    db.getDb().executeSync(`SELECT id FROM outbox WHERE table_name = 'jobs'`).rows
+  )[0];
+
+  outbox.markOutboxDenied(row.id, 'denied');
+
+  assert.deepEqual(outbox.getOutboxCounts(), { active: 0, failed: 0 });
+  assert.deepEqual(outbox.getFailedOutbox(), []);
+});
+
+test('markOutboxDenied: excluded from isMediaUploadPending — a denied media write will never land', () => {
+  outbox.appendOutbox('INSERT', 'media', { id: 'media-1', entity_type: 'job', entity_id: 'job-1' });
+  const row = db.rowsAs<{ id: string }>(
+    db.getDb().executeSync(`SELECT id FROM outbox WHERE table_name = 'media'`).rows
+  )[0];
+
+  outbox.markOutboxDenied(row.id, 'denied');
+
+  assert.equal(outbox.isMediaUploadPending('media-1'), false);
+});
+
+test('discardDeniedEntry: removes the row entirely', () => {
+  outbox.appendOutbox('INSERT', 'jobs', { id: 'job-2' });
+  const row = db.rowsAs<{ id: string }>(
+    db.getDb().executeSync(`SELECT id FROM outbox WHERE table_name = 'jobs'`).rows
+  )[0];
+  outbox.markOutboxDenied(row.id, 'denied');
+
+  outbox.discardDeniedEntry(row.id);
+
+  assert.equal(outbox.getDeniedCount(), 0);
+  const remaining = db.getDb().executeSync(`SELECT * FROM outbox WHERE id = ?`, [row.id]).rows;
+  assert.equal(remaining.length, 0);
+});
+
+test('discardDeniedEntry: cannot be used to drop a non-denied (still-active) entry', () => {
+  outbox.appendOutbox('INSERT', 'jobs', { id: 'job-3' });
+  const row = db.rowsAs<{ id: string }>(
+    db.getDb().executeSync(`SELECT id FROM outbox WHERE table_name = 'jobs'`).rows
+  )[0];
+
+  outbox.discardDeniedEntry(row.id); // not denied — should be a no-op
+
+  const remaining = db.getDb().executeSync(`SELECT * FROM outbox WHERE id = ?`, [row.id]).rows;
+  assert.equal(remaining.length, 1);
+});

@@ -39,7 +39,8 @@ export const OUTBOX_DDL = `
   CREATE TABLE outbox (
     id TEXT PRIMARY KEY, operation TEXT NOT NULL, table_name TEXT NOT NULL,
     payload TEXT NOT NULL, created_at TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, synced_at TEXT
+    attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, synced_at TEXT,
+    denied INTEGER NOT NULL DEFAULT 0
   );
 `;
 
