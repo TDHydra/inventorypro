@@ -127,6 +127,7 @@ export function DayBoardScreen() {
         emptyState={
           <EmptyState icon="🗓" title="No field crew to schedule" subtitle="Active crew members will appear here." />
         }
+        // useTableVersion already re-renders on sync; pull-to-refresh has nothing extra to do
         onReload={() => {}}
       />
       {picker && (

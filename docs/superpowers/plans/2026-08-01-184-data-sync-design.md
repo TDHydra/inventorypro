@@ -487,3 +487,11 @@ Mobile: roles.test.ts (existing, just run); new `src/db/queries/schedule.test.ts
 4. queries/schedule.ts + schedule.test.ts.
 5. Extend syncPolicy.test.ts + permissions.test.ts.
 6. Full `pnpm --filter api test` + `pnpm --filter mobile test`.
+
+## Implementation addendum (post-review, 2026-08-01)
+
+`getScheduleableEmployees()` in `queries/schedule.ts` was added during implementation
+(not specified above): the board's row roster is `getAllActiveUsers()` filtered to
+`ROLE_TIER === 1` — tier-1 roles are the scheduling subjects, mirroring the
+`manage_schedule` tier rationale. Note temp employees are tier 1 and therefore appear
+as rows; pending product confirmation at device verification.
