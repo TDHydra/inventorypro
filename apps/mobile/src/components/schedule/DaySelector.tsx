@@ -4,7 +4,8 @@ import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { ModalSheet } from '../ui/ModalSheet';
 import { DateField } from '../ui/DateField';
-import { addDaysIso, formatDayLabel } from './dayMath';
+import { CalendarGrid } from '../ui/CalendarGrid';
+import { addDaysIso, formatDayLabel, localTodayIso } from './dayMath';
 
 interface Props {
   day: string; // 'YYYY-MM-DD'
@@ -12,14 +13,18 @@ interface Props {
 }
 
 // ‹ [Tue, Aug 4] 📅 › — addDaysIso steps one day at a time; tapping the date
-// label opens a ModalSheet hosting a DateField for jumping straight to an
-// arbitrary date. DateField renders with `calendar={false}` so its OWN
-// internal calendar-grid ModalSheet never mounts — keeping exactly one Modal
-// visible at a time (the nested-Modal trap this feature's design explicitly
-// calls out, live elsewhere in (teams)/[id].tsx).
+// label opens the jump sheet: an inline CalendarGrid (the kit's own — no
+// nested Modal, unlike DateField's calendar mode which mounts its OWN
+// ModalSheet) with a Today shortcut and a manual YYYY-MM-DD entry field
+// (DateField calendar={false} quickPicks={false}) underneath.
 export function DaySelector({ day, onChange }: Props) {
   const s = useThemedStyles(makeStyles);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  function jumpTo(iso: string) {
+    onChange(iso);
+    setPickerOpen(false);
+  }
 
   return (
     <View style={s.row}>
@@ -34,15 +39,22 @@ export function DaySelector({ day, onChange }: Props) {
         <Text style={s.stepBtnText}>›</Text>
       </TouchableOpacity>
       <ModalSheet visible={pickerOpen} onClose={() => setPickerOpen(false)} scroll>
+        <View style={s.sheetHeaderRow}>
+          <Text style={s.sheetTitle}>Jump to date</Text>
+          <TouchableOpacity style={s.todayChip} onPress={() => jumpTo(localTodayIso())}>
+            <Text style={s.todayChipText}>Today</Text>
+          </TouchableOpacity>
+        </View>
+        <CalendarGrid selected={day} onSelectDay={jumpTo} initialMonth={day} />
         <DateField
-          label="Jump to date"
+          label="Or type a date"
           value={day}
           onChange={iso => {
-            if (!iso) return; // the board always needs a day — ignore the Clear chip
-            onChange(iso);
-            setPickerOpen(false);
+            if (!iso) return; // the board always needs a day — ignore empty
+            jumpTo(iso);
           }}
           calendar={false}
+          quickPicks={false}
         />
       </ModalSheet>
     </View>
@@ -60,4 +72,14 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   label: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
   calendarGlyph: { fontSize: t.typography.fontSizes.body },
+  sheetHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: t.spacing.md,
+  },
+  sheetTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary },
+  todayChip: {
+    backgroundColor: t.colors.primaryBg, borderRadius: t.radii.pill,
+    paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.xs,
+  },
+  todayChipText: { fontSize: t.typography.fontSizes.body2, color: t.colors.primaryText, fontWeight: '600' },
 });

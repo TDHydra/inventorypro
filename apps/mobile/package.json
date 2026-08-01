@@ -8,6 +8,7 @@
     "@expo-google-fonts/nunito": "^0.4.2",
     "@expo-google-fonts/rajdhani": "^0.4.1",
     "@op-engineering/op-sqlite": "^17.0.0",
+    "@quidone/react-native-wheel-picker": "^1.7.1",
     "@react-native-community/netinfo": "12.0.1",
     "@zxing/browser": "^0.2.0",
     "expo": "~56.0.12",

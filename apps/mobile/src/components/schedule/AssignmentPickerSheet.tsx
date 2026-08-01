@@ -22,6 +22,7 @@ import {
   ScheduleConflictError,
   type ScheduleAssignmentView,
 } from '../../db/queries/schedule';
+import { TimeWheelPicker } from '../ui/TimeWheelPicker';
 import { DAY_START_MIN, DAY_END_MIN, formatMinute, snapRange } from './dayMath';
 
 type Step = 'menu' | 'job-search' | 'pm-list';
@@ -83,12 +84,12 @@ export function AssignmentPickerSheet({
   );
   const managers = useDbQuery(() => getAssignableManagers(), [], ['users']);
 
-  function adjustStart(delta: number) {
-    const [s2, e2] = snapRange(startMinute + delta, endMinute);
+  function pickStart(minute: number) {
+    const [s2, e2] = snapRange(minute, endMinute);
     setStartMinute(s2); setEndMinute(e2);
   }
-  function adjustEnd(delta: number) {
-    const [s2, e2] = snapRange(startMinute, endMinute + delta);
+  function pickEnd(minute: number) {
+    const [s2, e2] = snapRange(startMinute, minute);
     setStartMinute(s2); setEndMinute(e2);
   }
   function extendBy(minutes: number) {
@@ -188,13 +189,9 @@ export function AssignmentPickerSheet({
     return (
       <>
         <View style={s.rangeRow}>
-          <TouchableOpacity style={s.stepBtn} onPress={() => adjustStart(-30)}><Text style={s.stepBtnText}>−</Text></TouchableOpacity>
-          <Text style={s.rangeLabel}>{formatMinute(startMinute)}</Text>
-          <TouchableOpacity style={s.stepBtn} onPress={() => adjustStart(30)}><Text style={s.stepBtnText}>+</Text></TouchableOpacity>
+          <TimeWheelPicker label="Start" valueMinute={startMinute} onChange={pickStart} />
           <Text style={s.rangeDash}>–</Text>
-          <TouchableOpacity style={s.stepBtn} onPress={() => adjustEnd(-30)}><Text style={s.stepBtnText}>−</Text></TouchableOpacity>
-          <Text style={s.rangeLabel}>{formatMinute(endMinute)}</Text>
-          <TouchableOpacity style={s.stepBtn} onPress={() => adjustEnd(30)}><Text style={s.stepBtnText}>+</Text></TouchableOpacity>
+          <TimeWheelPicker label="End" valueMinute={endMinute} onChange={pickEnd} />
         </View>
         <View style={s.quickRow}>
           <TouchableOpacity style={s.quickChip} onPress={() => extendBy(60)}><Text style={s.quickChipText}>+1h</Text></TouchableOpacity>
@@ -275,14 +272,8 @@ export function AssignmentPickerSheet({
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   title: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.md },
-  rangeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: t.spacing.sm, marginBottom: t.spacing.sm },
-  rangeLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, minWidth: 76, textAlign: 'center' },
+  rangeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: t.spacing.md, marginBottom: t.spacing.sm },
   rangeDash: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted },
-  stepBtn: {
-    width: 32, height: 32, borderRadius: t.radii.md, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: t.colors.surfaceAlt, borderWidth: 1, borderColor: t.colors.border,
-  },
-  stepBtnText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '700' },
   quickRow: { flexDirection: 'row', justifyContent: 'center', gap: t.spacing.sm, marginBottom: t.spacing.lg },
   quickChip: {
     paddingHorizontal: t.spacing.md, paddingVertical: t.spacing.xs, borderRadius: t.radii.pill,

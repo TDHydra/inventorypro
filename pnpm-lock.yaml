@@ -92,6 +92,9 @@ importers:
       '@op-engineering/op-sqlite':
         specifier: ^17.0.0
         version: 17.0.0(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
+      '@quidone/react-native-wheel-picker':
+        specifier: ^1.7.1
+        version: 1.7.1(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       '@react-native-community/netinfo':
         specifier: 12.0.1
         version: 12.0.1(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
@@ -1263,6 +1266,13 @@ packages:
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
 
+  '@quidone/react-native-wheel-picker@1.7.1':
+    resolution: {integrity: sha512-vvykuAvrIeC6qLicwjQvGwu82fGgpgi86+ckH/dRAM2U7aYx0e9GZW55RgCz/EtLNMoU5mSvZ+UG14WOKM32qA==}
+    engines: {node: '>= 16.0.0'}
+    peerDependencies:
+      react: '>=16.8'
+      react-native: '>=0.71.6'
+
   '@radix-ui/primitive@1.1.4':
     resolution: {integrity: sha512-7AdCK9PQyiljKoBDbN8OuctCbd/esdwZPQ8RtOE3SsyQtUpiPb+ND75q0jEhC1m1ecBI0MFNeLJvwIh9iKHRcQ==}
 
@@ -1586,6 +1596,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@rozhkov/react-useful-hooks@1.0.10':
+    resolution: {integrity: sha512-aEDZDiqkpPJX8WqLqcnPGjXzRpCFiZmbtdr5RVUOciNbbANhdNu+oIxJv3g7ezMcgsYhgWp2/XGxU+g/ClsBew==}
+    peerDependencies:
+      react: ^16.8 || ^17 || ^18 || ^19
 
   '@sinclair/typebox@0.27.10':
     resolution: {integrity: sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA==}
@@ -2079,6 +2094,9 @@ packages:
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
+  date-fns@4.4.0:
+    resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
+
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
     peerDependencies:
@@ -2115,6 +2133,9 @@ packages:
   deepmerge@4.3.1:
     resolution: {integrity: sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==}
     engines: {node: '>=0.10.0'}
+
+  default-values@1.0.2:
+    resolution: {integrity: sha512-OaZEvojjexigvv1IT6N0rKUD5Af7fG11a0jg87jySv5xzjc2+IEW9oWNvqxWLHGhShRRZ0QopCGzGjJv/aY+mw==}
 
   defaults@1.0.4:
     resolution: {integrity: sha512-eFuaLoy/Rxalv2kr+lqMlUnrDWV+3j4pljOIJgLIhI058IQfWJ7vXhyEIHu+HtC738klGALYxOKDO0bQP3tg8A==}
@@ -5426,6 +5447,13 @@ snapshots:
 
   '@pinojs/redact@0.4.0': {}
 
+  '@quidone/react-native-wheel-picker@1.7.1(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@rozhkov/react-useful-hooks': 1.0.10(react@19.2.3)
+      date-fns: 4.4.0
+      react: 19.2.3
+      react-native: 0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3)
+
   '@radix-ui/primitive@1.1.4': {}
 
   '@radix-ui/react-collection@1.1.10(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
@@ -5787,6 +5815,11 @@ snapshots:
       react-native: 0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3)
     optionalDependencies:
       '@types/react': 19.2.17
+
+  '@rozhkov/react-useful-hooks@1.0.10(react@19.2.3)':
+    dependencies:
+      default-values: 1.0.2
+      react: 19.2.3
 
   '@sinclair/typebox@0.27.10': {}
 
@@ -6360,6 +6393,8 @@ snapshots:
 
   csstype@3.2.3: {}
 
+  date-fns@4.4.0: {}
+
   debug@2.6.9:
     dependencies:
       ms: 2.0.0
@@ -6377,6 +6412,8 @@ snapshots:
   decode-uri-component@0.2.2: {}
 
   deepmerge@4.3.1: {}
+
+  default-values@1.0.2: {}
 
   defaults@1.0.4:
     dependencies:

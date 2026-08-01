@@ -34,6 +34,8 @@ import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
+import ActivityFeed from '../../../src/components/ActivityFeed';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -87,6 +89,7 @@ export default function ItemDetailScreen() {
 
   // Request-approval sheet state
   const [approvalOpen, setApprovalOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const total = useMemo(
     () => stock.reduce((sum, st) => sum + st.quantity, 0),
@@ -462,9 +465,10 @@ export default function ItemDetailScreen() {
               <Text style={s.sectionLabel}>Photos</Text>
               <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
 
-              {/* Repair history (#178 Part 3 close-out) — past faults + resolutions
-                  logged against this item; omits itself entirely when there are none. */}
-              <PriorRepairsCard entityType="item" entityId={id} />
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setHistoryOpen(true)}>
+                <Text style={s.attrKey}>🕓 History</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setApprovalOpen(true)}>
                 <Text style={s.attrKey}>✅ Request Approval</Text>
@@ -495,6 +499,13 @@ export default function ItemDetailScreen() {
         entityId={item.id}
         entityLabel={item.name}
       />
+
+      {/* ── Item History (equipment-unit History sheet convention, #178) ── */}
+      <ModalSheet visible={historyOpen} onClose={() => setHistoryOpen(false)} scroll>
+        <Text style={s.modalTitle}>History — {item.name}</Text>
+        <PriorRepairsCard entityType="item" entityId={id} />
+        <ActivityFeed entityType="item" entityId={id} />
+      </ModalSheet>
     </>
   );
 }
@@ -523,6 +534,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   totalLbl: { fontSize: 13, color: t.colors.textSecondary },
   lowStock: { marginTop: 8, color: t.colors.danger, fontSize: 13, fontWeight: '600' },
   sectionLabel: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.brand, marginBottom: 8 },
   attrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11 },
   attrKey: { fontSize: 14, color: t.colors.textSecondary },
   attrVal: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },

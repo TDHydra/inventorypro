@@ -52,6 +52,7 @@ const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'activity-preview', width: 'full' },
   { widget: 'teams', width: 'full' },
   { widget: 'jobs', width: 'full' },
+  { widget: 'schedule', width: 'full' },
   { widget: 'equipment', width: 'full' },
   { widget: 'item-catalog', width: 'full' },
   // #165: managers see their team's vehicles/lockers (view inventory, edit
@@ -92,6 +93,7 @@ const ADMIN_LAYOUT: Layout = [
   { widget: 'jobs', width: 'full' },
   { widget: 'teams', width: 'full' },
   { widget: 'manage-my-team', width: 'full' },
+  { widget: 'schedule', width: 'full' },
   { widget: 'media', width: 'full' },
   { widget: 'logs', width: 'full' },
 
