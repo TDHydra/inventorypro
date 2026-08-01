@@ -45,6 +45,15 @@ const HUB_TRACK: Partial<Record<WidgetType, string>> = {
   'fast-checkout': 'hub_fast_checkout',
 };
 
+// #197 "show-but-locked": every permission-gated nav tile now stays VISIBLE
+// (dimmed + locked, tap explains why) instead of vanishing, so a locked-out
+// user learns the feature exists rather than filing a "feature is missing"
+// report (Matt/schedule, 2026-08-01). Users & Roles are the deliberate
+// exception — those admin screens control OTHER people's accounts and the
+// permission matrix itself, so they stay fully hidden (mode='hide') for
+// anyone without manage_users / manage_roles_permissions, same as before.
+const HIDDEN_TILES: ReadonlySet<WidgetType> = new Set<WidgetType>(['users', 'roles']);
+
 // Tiles rendered with the primary (brand-filled) treatment, and the subtitle each
 // shows beneath its label. fast-checkout (#127) joins checkout as a primary action.
 const PRIMARY_SUB: Partial<Record<WidgetType, string>> = {
@@ -176,28 +185,39 @@ export default function DashboardScreen() {
     );
 
     // Most tile widgets carry a requiredPermission; the fast-checkout/-checkin
-    // pair (data-driven access) do not. Both wrappers must be transparent to the
-    // row's flex layout — PermissionGate already renders a Fragment, so the
-    // ungated branch uses one too (a plain <View> here breaks the half tiles'
-    // flex:1, collapsing them to content width instead of an even 50/50 split).
-    return def.requiredPermission ? (
-      <PermissionGate key={key} permission={def.requiredPermission}>{tile}</PermissionGate>
-    ) : (
-      <Fragment key={key}>{tile}</Fragment>
+    // pair (data-driven access) do not. All wrappers must be transparent to the
+    // row's flex layout — PermissionGate already renders a Fragment when
+    // allowed, so the ungated branch uses a Fragment too (a plain <View> here
+    // breaks the half tiles' flex:1, collapsing them to content width instead
+    // of an even 50/50 split).
+    if (!def.requiredPermission) return <Fragment key={key}>{tile}</Fragment>;
+    // Users/Roles stay HIDDEN when denied (sensitive: other people's accounts,
+    // the permission matrix itself) — every other gated tile shows locked
+    // instead (#197).
+    if (HIDDEN_TILES.has(block.widget)) {
+      return <PermissionGate key={key} permission={def.requiredPermission}>{tile}</PermissionGate>;
+    }
+    return (
+      <PermissionGate key={key} permission={def.requiredPermission} mode="disable" compact>
+        {tile}
+      </PermissionGate>
     );
   };
 
-  // The permission that gates a section header: the requiredPermission of the first
-  // TILE that follows the section (until the next section / end). This reproduces
-  // today's per-section PermissionGate exactly — Inventory→add_inventory (add-stock),
-  // Operations→create_jobs (jobs), Admin→manage_users (users) — so a user who can't
-  // see any tile in a section never sees a bare header, just like now.
+  // The permission that gates a section header: the requiredPermission of the
+  // first TILE that follows the section (until the next section / end) — but
+  // ONLY when that tile is still a HIDDEN_TILES tile (#197: every other gated
+  // tile now shows locked rather than disappearing, so a header above it must
+  // keep showing too — an orphaned "show-but-locked" tile under no section
+  // title would be confusing). Today this only fires for Admin→manage_users
+  // (users): a user without it never sees the Admin header, matching the tile
+  // itself staying hidden.
   const sectionGate = (sectionIndex: number): Permission | undefined => {
     for (let j = sectionIndex + 1; j < layout.length; j++) {
       const w = layout[j].widget;
       if (w === 'section') break;
       const d = WIDGET_REGISTRY[w];
-      if (d?.kind === 'tile') return d.requiredPermission;
+      if (d?.kind === 'tile') return HIDDEN_TILES.has(w) ? d.requiredPermission : undefined;
     }
     return undefined;
   };

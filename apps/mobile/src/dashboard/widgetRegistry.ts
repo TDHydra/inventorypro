@@ -116,7 +116,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'add-stock':   { label: 'Add Stock to Location',   icon: '+',   route: '/(app)/(inventory)/add', requiredPermission: 'add_inventory',  kind: 'tile', section: 'inventory', weight: 10 },
   equipment:     { label: 'Manage Equipment Catalog',icon: '🛠️', route: '/(app)/(equipment)',     requiredPermission: 'add_inventory',  kind: 'tile', section: 'inventory', weight: 20 },
   repairs:       { label: 'Repairs',                 icon: '🔧',  route: '/(app)/(repairs)',       requiredPermission: 'add_inventory',  kind: 'tile', section: 'inventory', weight: 30 },
-  locations:     { label: 'Manage Locations',        icon: '⇄',   route: '/(app)/(locations)',     requiredPermission: 'add_inventory',  kind: 'tile', section: 'inventory', weight: 40 },
+  locations:     { label: 'Manage Locations',        icon: '⇄',   route: '/(app)/(locations)',     requiredPermission: 'view_locations',  kind: 'tile', section: 'inventory', weight: 40 },
   // Vehicles/lockers as their own system (#122 A2): no requiredPermission —
   // visibility is data-driven (getVisibleUnits); the screens render an EmptyState.
   // Half-width pair — see bundles.ts's HALF_WIDTH set.
@@ -126,7 +126,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
 
   // Operations (section run).
   jobs:          { label: 'Jobs',                    icon: '🏗', route: '/(app)/(jobs)',  requiredPermission: 'create_jobs',   kind: 'tile', section: 'operations', weight: 20 },
-  teams:         { label: 'Teams',                   icon: '👥', route: '/(app)/(teams)', requiredPermission: 'create_jobs',   kind: 'tile', section: 'operations', weight: 30 },
+  teams:         { label: 'Teams',                   icon: '👥', route: '/(app)/(teams)', requiredPermission: 'view_teams',   kind: 'tile', section: 'operations', weight: 30 },
   // Manage My Team (#124): no requiredPermission — ownership is data (my crews /
   // lockers / vehicles); the screen shows an EmptyState when the user owns nothing.
   'manage-my-team': { label: 'Manage My Team',       icon: '👥', route: '/(app)/(myteam)', kind: 'tile', section: 'operations', weight: 40 },
