@@ -538,7 +538,9 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'equipment_units') return canViewFinancial ? EQUIPMENT_UNITS_BASE + EQUIPMENT_UNITS_SENSITIVE : EQUIPMENT_UNITS_BASE;
   if (table === 'maintenance_events') return canViewFinancial ? MAINTENANCE_EVENTS_BASE + MAINTENANCE_EVENTS_SENSITIVE : MAINTENANCE_EVENTS_BASE;
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
-  if (table === 'user_prefs') return 'user_id, theme, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
+  // dashboard_prefs (#193/#196, migration 075): personal layout + starred
+  // widgets JSON blob — same self-scoped projection as theme.
+  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;

@@ -1,0 +1,11 @@
+-- Migration 075: personal dashboard layout + starred favorites (#193, #196).
+-- Mirrors mobile 060. TEXT deliberately (never a PG enum — see the
+-- unit_category/role remap incident) holding a single JSON blob:
+--   { layout?: LayoutBlock[], starred?: WidgetType[] }
+-- user_prefs is already self-write-scoped: user_id is forced to the caller on
+-- INSERT (syncPolicy.ts ATTRIBUTION_COLUMNS), so the upsert (ON CONFLICT
+-- user_id) can only ever land on the caller's own row — no OPERATION_PERM or
+-- privileged-table change needed for this column. No DEFAULT (nobody has
+-- customized yet; existing rows keep NULL, no backfill, no NOW()-dependent
+-- default, no seed-watermark risk).
+ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS dashboard_prefs TEXT;

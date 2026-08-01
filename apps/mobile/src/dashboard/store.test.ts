@@ -178,6 +178,70 @@ test('missing/invalid user preset falls through to the ROLE PRESET (DB), not pas
   assert.equal(resolveLayout('p-bad', 'p-empty', byId), DEFAULT_LAYOUT);
 });
 
+// --- Personal dashboard layout (#193): NEW top precedence tier --------------
+// store.ts's resolveLayoutFor() (not exported here — it pulls in op-sqlite via
+// db/userPrefs/db/queries/dashboards, same reason resolveLayoutFor itself has
+// no direct test in this DB-free file today) composes exactly:
+//   const personal = personalRaw ? parsePresetLayout(JSON.stringify(personalRaw)) : null;
+//   if (personal) return personal;
+//   return resolveLayout(userPresetId, rolePresetId, byId, roleDefault);
+// Mirrored here over the same two pure primitives store.ts actually calls, so
+// a regression in either primitive — or in the precedence composition itself —
+// is caught without needing a DB. (A bug introduced purely in store.ts's own
+// glue, e.g. swapping the `if (personal) return personal` order, would not be
+// caught by this file — same pre-existing gap as the real DB-backed
+// userPresetId/rolePresetId selection, which is likewise untested here.)
+function resolveWithPersonal(
+  personalRaw: unknown,
+  userPresetId: string | null,
+  rolePresetId: string | null,
+  byIdArg: Record<string, LayoutPreset>,
+  roleDefaultArg?: Layout | null,
+): Layout {
+  const personal = personalRaw ? parsePresetLayout(JSON.stringify(personalRaw)) : null;
+  if (personal) return personal;
+  return resolveLayout(userPresetId, rolePresetId, byIdArg, roleDefaultArg);
+}
+
+test('personal layout wins over user preset, role preset, AND role default', () => {
+  const personal = [{ widget: 'chat', width: 'full' }];
+  assert.deepEqual(
+    resolveWithPersonal(personal, 'p-user', 'p-role', byId, roleDefault),
+    [{ widget: 'chat', width: 'full' }],
+  );
+});
+
+test('missing personal layout falls through to the existing preset chain (user preset wins)', () => {
+  assert.deepEqual(resolveWithPersonal(undefined, 'p-user', 'p-role', byId, roleDefault), [
+    { widget: 'quick-add', width: 'full' },
+    { widget: 'checkout', width: 'half' },
+  ]);
+});
+
+test('empty personal layout falls through to the existing preset chain, not past it', () => {
+  assert.deepEqual(resolveWithPersonal([], 'p-user', 'p-role', byId, roleDefault), [
+    { widget: 'quick-add', width: 'full' },
+    { widget: 'checkout', width: 'half' },
+  ]);
+});
+
+test('personal layout with only unknown widgets falls through to role default', () => {
+  const junk = [{ widget: 'not-a-widget', width: 'full' }];
+  assert.equal(resolveWithPersonal(junk, null, null, byId, roleDefault), roleDefault);
+});
+
+test('personal layout drops unknown widgets but keeps valid ones (same validator as presets)', () => {
+  const mixed = [{ widget: 'bogus', width: 'full' }, { widget: 'teams', width: 'half' }];
+  assert.deepEqual(
+    resolveWithPersonal(mixed, null, null, byId, roleDefault),
+    [{ widget: 'teams', width: 'half' }],
+  );
+});
+
+test('no personal layout, no assignments, no role default → DEFAULT_LAYOUT', () => {
+  assert.equal(resolveWithPersonal(undefined, null, null, byId), DEFAULT_LAYOUT);
+});
+
 test('ROLE_DEFAULT_LAYOUTS entries (as filled in) are valid layouts', () => {
   // The map ships empty and is filled role by role — this guards every entry a
   // follow-up adds: real widget types only, sane widths.

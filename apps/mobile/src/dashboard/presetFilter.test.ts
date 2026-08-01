@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTilesForRoles, blockVisibleForRole } from './presetFilter';
+import { filterTilesForRoles, blockVisibleForRole, filterTilesForUser } from './presetFilter';
 import type { WidgetType, LayoutBlock } from './widgets';
 
 // checkout requires checkout_inventory; users requires manage_users;
@@ -57,4 +57,20 @@ test('a gated non-tile block (activity-preview) is checked the same way as a til
   const roleHasPerm = (role: string, perm: string) => role === 'hr_manager' && perm === 'view_all_logs';
   assert.equal(blockVisibleForRole(block, 'hr_manager', roleHasPerm), true);
   assert.equal(blockVisibleForRole(block, 'office_manager', roleHasPerm), false);
+});
+
+// --- Personal dashboard editor (#193): per-user permission filter ------------
+
+test('filterTilesForUser: permissionless tiles are always offered', () => {
+  assert.deepEqual(filterTilesForUser(TILES, () => false), ['fast-checkout', 'manage-my-team']);
+});
+
+test('filterTilesForUser: gated tiles need the CALLER (not a role) to pass', () => {
+  const granted = new Set(['checkout_inventory']);
+  const out = filterTilesForUser(TILES, (perm) => granted.has(perm));
+  assert.deepEqual(out, ['fast-checkout', 'checkout', 'manage-my-team']);
+});
+
+test('filterTilesForUser: every gate passing offers every tile', () => {
+  assert.deepEqual(filterTilesForUser(TILES, () => true), TILES);
 });
