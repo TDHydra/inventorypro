@@ -3,13 +3,13 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'reac
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
-import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox } from '../sync/outbox';
+import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox, getDeniedOutbox, discardDeniedEntry, OutboxEntry } from '../sync/outbox';
 import { syncNow } from '../sync/engine';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
 
-type SyncStatus = 'synced' | 'pending' | 'failed' | 'offline';
+type SyncStatus = 'synced' | 'pending' | 'failed' | 'denied' | 'offline';
 
 export function SyncIndicator() {
   const s = useThemedStyles(makeStyles);
@@ -22,6 +22,7 @@ export function SyncIndicator() {
   const [active, setActive] = useState(0);
   const [failed, setFailed] = useState(0);
   const [firstError, setFirstError] = useState<string | null>(null);
+  const [denied, setDenied] = useState<OutboxEntry[]>([]);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [showSheet, setShowSheet] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,12 +47,19 @@ export function SyncIndicator() {
         setFirstError(null);
       }
 
+      // Denied (#202): permanently rejected by the server (an authorization
+      // denial) — never retried, so they're listed separately with their
+      // friendly message (last_error, set by markOutboxDenied) and a Dismiss
+      // action instead of Retry.
+      const deniedEntries = getDeniedOutbox();
+      setDenied(deniedEntries);
+
       const settingResult = getDb().executeSync(
         `SELECT value FROM app_settings WHERE key = 'last_pulled_at'`
       );
       setLastSync((settingResult.rows[0] as { value: string } | undefined)?.value ?? null);
 
-      setStatus(f > 0 ? 'failed' : a > 0 ? 'pending' : 'synced');
+      setStatus(f > 0 ? 'failed' : deniedEntries.length > 0 ? 'denied' : a > 0 ? 'pending' : 'synced');
     } catch {
       setStatus('offline');
     }
@@ -85,10 +93,19 @@ export function SyncIndicator() {
     );
   }
 
+  // Denied entries have no Retry path (retrying can never make an
+  // authorization denial succeed) — Dismiss just removes the one row the user
+  // acknowledged, unlike handleDiscard's bulk "clear every failed entry".
+  function handleDismissDenied(id: string) {
+    discardDeniedEntry(id);
+    refresh();
+  }
+
   const SYNC_COLORS: Record<SyncStatus, string> = {
     synced: t.colors.success,
     pending: t.colors.warning,
     failed: t.colors.danger,
+    denied: t.colors.danger,
     offline: t.colors.danger,
   };
   const color = SYNC_COLORS[status];
@@ -96,6 +113,7 @@ export function SyncIndicator() {
     synced: 'Synced',
     pending: `${active} pending`,
     failed: `${failed} failed`,
+    denied: `${denied.length} denied`,
     offline: 'Offline',
   }[status];
 
@@ -144,6 +162,24 @@ export function SyncIndicator() {
                 </View>
               </>
             )}
+            {denied.length > 0 && (
+              <>
+                <Text style={s.sheetFailed}>
+                  {denied.length} change{denied.length !== 1 ? 's' : ''} could not be saved.
+                </Text>
+                {denied.map(entry => (
+                  <View key={entry.id} style={s.deniedRow}>
+                    <Text style={s.deniedMsg}>{entry.last_error ?? "Your account can't make this change — it wasn't saved."}</Text>
+                    <TouchableOpacity
+                      style={[s.btn, s.btnDanger, s.deniedDismissBtn]}
+                      onPress={() => handleDismissDenied(entry.id)}
+                    >
+                      <Text style={s.btnDangerText}>Dismiss</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </>
+            )}
             {status === 'offline' && (
               <Text style={s.sheetOffline}>
                 Connect to WiFi or cellular to sync your changes.
@@ -181,4 +217,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   btnDanger: { backgroundColor: t.colors.dangerBg },
   btnDangerText: { color: t.colors.danger, fontWeight: '700', fontSize: t.typography.fontSizes.body },
   btnDisabled: { opacity: 0.6 },
+  deniedRow: { width: '100%', alignItems: 'center', gap: t.spacing.xs, marginTop: t.spacing.sm },
+  deniedMsg: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, textAlign: 'center' },
+  deniedDismissBtn: { minWidth: 0, paddingVertical: 6, paddingHorizontal: 16 },
 });
