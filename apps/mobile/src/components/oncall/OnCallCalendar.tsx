@@ -6,7 +6,7 @@ import { useTableVersion } from '../../hooks/useDataVersion';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
 import { StatusPill } from '../ui/StatusPill';
-import { addDaysIso, boundaryWeekStartIso, enumerateWeeks, formatWeekRange } from './weekMath';
+import { addDaysIso, boundaryWeekStartIso, enumerateWeeks, formatWeekRange, localTodayIso, localNowHour } from './weekMath';
 import {
   assignWeek,
   ensureRotationFill,
@@ -16,21 +16,12 @@ import {
   type OnCallShift,
 } from '../../db/queries/oncall';
 
-// The device's LOCAL calendar date as YYYY-MM-DD. Deliberately not
-// toISOString().slice(0,10) — that's UTC, which flips to tomorrow in the
-// evening for US timezones, and on-call weeks are a wall-clock concept.
-export function localTodayIso(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-// The device's LOCAL wall-clock hour (0–23). The on-call week boundary is a
-// wall-clock concept (e.g. Thursday 08:00 local), so pair with localTodayIso.
-export function localNowHour(now: Date = new Date()): number {
-  return now.getHours();
-}
+// #184: localTodayIso/localNowHour moved to weekMath.ts (pure, node-test-safe)
+// so the schedule board's dayMath.ts can reuse them without pulling
+// react-native into a pure module's import graph. Re-exported here so
+// existing imports from './OnCallCalendar' (OnCallWidget, CoverageSheet)
+// keep working unchanged.
+export { localTodayIso, localNowHour };
 
 interface Props {
   /** Whole weeks shown before the current one. */
