@@ -386,6 +386,8 @@ MINIO_CONSOLE_URL=https://$MINIO_DOMAIN
 JWT_SECRET=$JWT_SECRET
 PUBLIC_MEDIA_URL=https://$S3_DOMAIN/$MINIO_BUCKET
 CORS_ORIGINS=https://$WEB_DOMAIN
+# #188: MinIO bucket CORS allowlist (minio-init step) — the web app's origin.
+MINIO_CORS_ORIGIN=https://$WEB_DOMAIN
 # nginx reaches the containers over the docker bridge — trust that subnet
 TRUST_PROXY=172.16.0.0/12
 

@@ -75,6 +75,22 @@ services:
         {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${MINIO_BUCKET:-inventorypro-media}/*"]}]}
         JSON
         mc anonymous set-json /tmp/anon-getobject.json local/${MINIO_BUCKET:-inventorypro-media}
+        # #188: today the browser PUT/GET works only because MinIO reflects
+        # whatever Origin it's sent when no CORS rule is configured — that's
+        # implicit any-origin, not a real allowlist. Pin it explicitly to the
+        # web app's origin (install.sh sets MINIO_CORS_ORIGIN per-deploy).
+        cat > /tmp/cors.xml <<'XML'
+        <CORSConfiguration>
+          <CORSRule>
+            <AllowedOrigin>${MINIO_CORS_ORIGIN:-https://invenpro.app}</AllowedOrigin>
+            <AllowedMethod>GET</AllowedMethod>
+            <AllowedMethod>PUT</AllowedMethod>
+            <AllowedMethod>HEAD</AllowedMethod>
+            <AllowedHeader>content-type</AllowedHeader>
+          </CORSRule>
+        </CORSConfiguration>
+        XML
+        mc cors set local/${MINIO_BUCKET:-inventorypro-media} /tmp/cors.xml
     restart: "no"
 
   api:
