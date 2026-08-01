@@ -11,12 +11,13 @@ import { usePermission } from '../../src/hooks/usePermission';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../../src/lib/alertBus';
+import { PreviewBanner } from '../../src/components/ui/PreviewBanner';
 import type { Theme } from '../../src/themes/types';
 import { useTheme } from '../../src/hooks/useTheme';
 import { useThemedStyles } from '../../src/hooks/useThemedStyles';
 
 export default function AppLayout() {
-  const { user, logout } = useSession();
+  const { user, realUser, logout } = useSession();
   const router = useRouter();
   const t = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -59,10 +60,15 @@ export default function AppLayout() {
     }
   }, [user]);
 
-  // Keep the write-layer exempt flag in sync with the current session user
+  // Keep the write-layer exempt flag in sync with the REAL session user
+  // (#199 follow-up) — this reads realUser, not the effective (possibly
+  // previewed) user, so a preview into a lower-tier role can never grant
+  // itself the tier-4 maintenance exemption; the preview write-block in
+  // db/maintenance.ts already covers the opposite direction (blocking writes
+  // even for an exempt real identity while previewing).
   useEffect(() => {
-    setMaintenanceRole(user?.role ?? null);
-  }, [user]);
+    setMaintenanceRole(realUser?.role ?? null);
+  }, [realUser]);
 
   if (!user) return null;
 
@@ -77,6 +83,12 @@ export default function AppLayout() {
         return false;
       }}
     >
+      {/* #199 follow-up: preview-as-role banner. Rendered above the
+          maintenance banners (topmost of the shell, above the Stack/header)
+          so it's visible on every screen while a preview is active without
+          crowding any screen's own header. Renders nothing when no preview
+          is active. */}
+      <PreviewBanner />
       {maint.locked && (
         <View style={styles.banLocked}>
           <Text style={styles.banLockedText}>⚠ System under maintenance — read-only</Text>

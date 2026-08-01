@@ -29,6 +29,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
+import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
@@ -53,9 +54,17 @@ function isLockedPerm(role: UserRole, perm: Permission): boolean {
 export default function RolesScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
-  const { user: sessionUser } = useSession();
+  // `user` is the EFFECTIVE identity (real, or real-with-previewed-role while
+  // a #199 preview is active) — every permission/capability check below stays
+  // on it, same as the rest of this screen (canManage). `realUser` is the
+  // untouched signed-in identity — activity-log attribution uses that so a
+  // preview never mis-attributes a write to the pretend role (writes are
+  // blocked outright while previewing anyway; this just keeps the log honest
+  // for the surrounding non-preview case too).
+  const { user, realUser, previewRole, setPreviewRole } = useSession();
   const { locked } = useMaintenanceMode();
   const canManage = usePermission('manage_roles_permissions');
+  const [previewPickerOpen, setPreviewPickerOpen] = useState(false);
   // Re-read when a local write or sync pull touches the tables this screen
   // renders — replaces the old manual post-write setState re-reads.
   const version = useTableVersion(['role_settings', 'dashboard_presets']);
@@ -125,7 +134,7 @@ export default function RolesScreen() {
       // input syntax for type uuid"). Keep entity_id null; carry the role in the
       // note + metadata. The permission change itself syncs via role_settings UPDATE.
       entity_id: null,
-      user_id: sessionUser?.id ?? null,
+      user_id: realUser?.id ?? null,
       note: `${role} · ${perm}: ${next === def ? 'reset to default' : next}`,
       team_id: null, from_location_id: null, to_location_id: null,
       quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
@@ -146,7 +155,7 @@ export default function RolesScreen() {
     if (isLockedPerm(role, perm)) return; // self-lockout guard
     // Only a full_admin may grant/revoke the destructive delete permissions
     // (mirrored + enforced server-side on the role_settings sync write).
-    if ((perm === 'delete_inventory' || perm === 'delete_media') && sessionUser?.role !== 'full_admin') return;
+    if ((perm === 'delete_inventory' || perm === 'delete_media') && user?.role !== 'full_admin') return;
     if (isWriteBlocked()) return;
     const def = ROLE_DEFAULTS[role][perm];
     const { value: cur } = effectivePerm(role, perm);
@@ -187,7 +196,7 @@ export default function RolesScreen() {
   async function toggleGroupAll(role: UserRole, group: PermissionGroupName) {
     if (!canManage) return;
     if (isWriteBlocked()) return;
-    const callerRole = (sessionUser?.role ?? '') as UserRole;
+    const callerRole = (user?.role ?? '') as UserRole;
     if (!canActOnTarget(callerRole, role)) return;
 
     const perms = PERMISSION_GROUPS[group];
@@ -245,7 +254,7 @@ export default function RolesScreen() {
           action: 'role_color_changed',
           entity_type: 'role_settings',
           entity_id: null,
-          user_id: sessionUser?.id ?? null,
+          user_id: realUser?.id ?? null,
           note: `${role} color → ${color ?? 'default'}`,
           team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
@@ -276,7 +285,7 @@ export default function RolesScreen() {
           entity_type: 'role_settings',
           // Role keys aren't UUIDs — entity_id must stay null (see role_permission_changed above).
           entity_id: null,
-          user_id: sessionUser?.id ?? null,
+          user_id: realUser?.id ?? null,
           note: `${role} dashboard → ${presetName}`,
           team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
@@ -309,7 +318,7 @@ export default function RolesScreen() {
           entity_type: 'role_settings',
           // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
           entity_id: null,
-          user_id: sessionUser?.id ?? null,
+          user_id: realUser?.id ?? null,
           note: `${role} → ${next}`,
           team_id: null, from_location_id: null, to_location_id: null,
           quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
@@ -325,9 +334,45 @@ export default function RolesScreen() {
     // minPins memo re-reads via the role_settings table version after commit
   }
 
+  // #199 follow-up: "Preview as…" entry point. Picking a role swaps what
+  // usePermission/hasPermission/PermissionGate resolve app-wide to that
+  // role's view (read-only — the central write-block in db/maintenance.ts
+  // covers every write path). Picking the CURRENT real role is equivalent to
+  // exiting: there's nothing to preview if it's already who you are.
+  function pickPreviewRole(role: UserRole) {
+    setPreviewPickerOpen(false);
+    setPreviewRole(role === realUser?.role ? null : role);
+  }
+  function exitPreview() {
+    setPreviewPickerOpen(false);
+    setPreviewRole(null);
+  }
+
   return (
     <>
-      <Stack.Screen options={{ title: 'Roles & Permissions', headerShown: true }} />
+      <Stack.Screen
+        options={{
+          title: 'Roles & Permissions',
+          headerShown: true,
+          // Gated on the EFFECTIVE permission (canManage), same as the rest of
+          // this screen — NOT realUser's own permission. While previewing as a
+          // role that lacks manage_roles_permissions this affordance hides
+          // along with the rest of the editor's controls; exiting the preview
+          // is still always available from the persistent PreviewBanner
+          // (app/(app)/_layout.tsx), which doesn't gate on any permission.
+          headerRight: canManage
+            ? () => (
+                <TouchableOpacity
+                  style={s.previewBtn}
+                  onPress={() => setPreviewPickerOpen(true)}
+                  hitSlop={8}
+                >
+                  <Text style={s.previewBtnText}>Preview as…</Text>
+                </TouchableOpacity>
+              )
+            : undefined,
+        }}
+      />
       <ScrollView style={s.container} contentContainerStyle={s.content}>
         <Text style={s.intro}>
           Each role grants a default set of permissions and a minimum PIN length. Toggle a
@@ -344,7 +389,7 @@ export default function RolesScreen() {
           // can't edit the matrix of a role at/above their own effective tier — e.g.
           // a tier-3 with manage_roles_permissions can't touch a tier-4 role. Fail
           // closed if the session role is missing.
-          const callerRole = (sessionUser?.role ?? '') as UserRole;
+          const callerRole = (user?.role ?? '') as UserRole;
           const canActThisRole = canActOnTarget(callerRole, role);
           return (
             <View key={role} style={s.card}>
@@ -530,6 +575,34 @@ export default function RolesScreen() {
           </Text>
         )}
       </ScrollView>
+
+      {/* #199 follow-up: "Preview as…" role picker. Only reachable via the
+          headerRight affordance above (canManage-gated); exiting a preview
+          doesn't require this sheet — the persistent PreviewBanner's "Exit
+          preview" button always works. */}
+      <ModalSheet visible={previewPickerOpen} onClose={() => setPreviewPickerOpen(false)}>
+        <Text style={s.pickerTitle}>Preview as…</Text>
+        <Text style={s.pickerHint}>
+          See the app as another role would. Writes stay blocked the whole time — nothing
+          done while previewing can change real data.
+        </Text>
+        {previewRole != null && (
+          <TouchableOpacity style={s.pickerExitRow} onPress={exitPreview}>
+            <Text style={s.pickerExitText}>✕ Exit preview</Text>
+          </TouchableOpacity>
+        )}
+        {ROLES_BY_TIER.map(role => {
+          const active = (previewRole ?? realUser?.role) === role;
+          return (
+            <TouchableOpacity key={role} style={s.pickerRow} onPress={() => pickPreviewRole(role)}>
+              <Text style={[s.pickerRoleName, active && s.pickerRoleNameActive]}>
+                {ROLE_DISPLAY_NAMES[role]}
+              </Text>
+              {active && <Text style={s.pickerCheck}>✓</Text>}
+            </TouchableOpacity>
+          );
+        })}
+      </ModalSheet>
     </>
   );
 }
@@ -586,4 +659,28 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   colorReset: { fontSize: t.typography.fontSizes.caption, color: t.colors.primaryText, fontWeight: '600' },
 
   presetSection: { paddingHorizontal: t.spacing.base, paddingBottom: t.spacing.sm },
+
+  previewBtn: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 4,
+  },
+  previewBtnText: { color: t.colors.headerTint, fontSize: 13, fontWeight: t.typography.weights.semibold },
+
+  pickerTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary },
+  pickerHint: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, marginTop: t.spacing.sm, lineHeight: 19, marginBottom: t.spacing.sm },
+  pickerExitRow: {
+    paddingVertical: 12, paddingHorizontal: t.spacing.base, borderRadius: t.radii.md,
+    backgroundColor: t.colors.surfaceAlt, marginBottom: t.spacing.sm,
+  },
+  pickerExitText: { fontSize: t.typography.fontSizes.body2, color: t.colors.warning, fontWeight: '700', textAlign: 'center' },
+  pickerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 14, borderTopWidth: 1, borderTopColor: t.colors.surfaceAlt,
+  },
+  pickerRoleName: { fontSize: t.typography.fontSizes.base, color: t.colors.textPrimary },
+  pickerRoleNameActive: { fontWeight: '700', color: t.colors.primaryText },
+  pickerCheck: { fontSize: t.typography.fontSizes.base, fontWeight: '700', color: t.colors.primaryText },
 });
