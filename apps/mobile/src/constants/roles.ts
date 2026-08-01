@@ -38,6 +38,10 @@ export type Permission =
   | 'view_all_logs'
   | 'view_own_logs'
   | 'view_team_activity'
+  // #198: read-only vocabulary — every role can view teams/locations. KEEP IN
+  // SYNC with apps/api/src/lib/permissions.ts.
+  | 'view_teams'
+  | 'view_locations'
   | 'manage_teams'
   | 'checkout_for_team'
   | 'manage_users'
@@ -72,6 +76,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   view_all_logs: 'View all activity logs',
   view_own_logs: 'View own activity logs',
   view_team_activity: "View team's activity",
+  view_teams: 'View teams',
+  view_locations: 'View locations',
   manage_teams: 'Manage teams',
   checkout_for_team: 'Check out for a team',
   manage_users: 'Manage users',
@@ -203,6 +209,8 @@ const tier4: PermissionMap = {
   view_all_logs:             true,
   view_own_logs:             true,
   view_team_activity:        true,
+  view_teams:                true,
+  view_locations:            true,
   manage_teams:              true,
   checkout_for_team:         true,
   manage_users:              true,
@@ -233,6 +241,8 @@ const tier3: PermissionMap = {
   view_all_logs:             true,
   view_own_logs:             true,
   view_team_activity:        true,
+  view_teams:                true,
+  view_locations:            true,
   manage_teams:              false,
   checkout_for_team:         false,
   manage_users:              true,
@@ -263,6 +273,8 @@ const tier2: PermissionMap = {
   view_all_logs:              true,
   view_own_logs:              true,
   view_team_activity:         true,
+  view_teams:                 true,
+  view_locations:             true,
   manage_teams:               true,
   checkout_for_team:          true,
   manage_users:               false,
@@ -293,6 +305,8 @@ const tier1: PermissionMap = {
   view_all_logs:              false,
   view_own_logs:              true,
   view_team_activity:         false,
+  view_teams:                 true,
+  view_locations:             true,
   manage_teams:               false,
   checkout_for_team:          true,
   manage_users:               false,

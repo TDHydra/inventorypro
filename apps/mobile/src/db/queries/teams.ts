@@ -51,6 +51,12 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   view_all_logs: 'View all activity logs',
   view_own_logs: 'View own activity logs',
   view_team_activity: "View team's activity",
+  // #198: present for the Record<Permission,…> exhaustiveness check only —
+  // deliberately absent from TEAM_OVERRIDABLE_PERMISSIONS above: these are
+  // account-wide read-only grants (every role already has them), not something
+  // a team manager scopes per-team.
+  view_teams: 'View teams',
+  view_locations: 'View locations',
   manage_teams: 'Manage teams',
   checkout_for_team: 'Check out for a team',
   manage_users: 'Manage users',

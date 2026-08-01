@@ -214,6 +214,70 @@ test('manage_schedule: every ROLE_DEFAULTS role carries a manage_schedule key ma
   }
 });
 
+// ── #198: view_teams/view_locations parity — MUST mirror apps/mobile/src/
+// constants/roles.ts ROLE_DEFAULTS exactly. Read-only grants: every role
+// (tier1-4 + tempEmployee, which inherits via spread) is true.
+
+const EXPECTED_VIEW_TEAMS: Record<string, boolean> = {
+  full_admin:               true,
+  franchise_manager:        true,
+  hr_manager:               true,
+  office_manager:           true,
+  head_of_construction:     true,
+  head_of_contents:         true,
+  production_manager:       true,
+  carpet_cleaning_manager:  true,
+  construction_crew:        true,
+  contents_crew:            true,
+  mitigation_technician:    true,
+  carpet_cleaning_crew:     true,
+  duct_cleaning_technician: true,
+  temporary_employee:       true,
+};
+
+test('view_teams: every ROLE_DEFAULTS role carries a view_teams key matching mobile roles.ts', () => {
+  const roles = Object.keys(ROLE_DEFAULTS);
+  assert.equal(roles.length, Object.keys(EXPECTED_VIEW_TEAMS).length);
+  for (const role of roles) {
+    assert.ok('view_teams' in ROLE_DEFAULTS[role], `${role} is missing a view_teams key`);
+    assert.equal(
+      userHasPermission(role, null, 'view_teams', null),
+      EXPECTED_VIEW_TEAMS[role],
+      `view_teams for ${role} should be ${EXPECTED_VIEW_TEAMS[role]}`,
+    );
+  }
+});
+
+const EXPECTED_VIEW_LOCATIONS: Record<string, boolean> = {
+  full_admin:               true,
+  franchise_manager:        true,
+  hr_manager:               true,
+  office_manager:           true,
+  head_of_construction:     true,
+  head_of_contents:         true,
+  production_manager:       true,
+  carpet_cleaning_manager:  true,
+  construction_crew:        true,
+  contents_crew:            true,
+  mitigation_technician:    true,
+  carpet_cleaning_crew:     true,
+  duct_cleaning_technician: true,
+  temporary_employee:       true,
+};
+
+test('view_locations: every ROLE_DEFAULTS role carries a view_locations key matching mobile roles.ts', () => {
+  const roles = Object.keys(ROLE_DEFAULTS);
+  assert.equal(roles.length, Object.keys(EXPECTED_VIEW_LOCATIONS).length);
+  for (const role of roles) {
+    assert.ok('view_locations' in ROLE_DEFAULTS[role], `${role} is missing a view_locations key`);
+    assert.equal(
+      userHasPermission(role, null, 'view_locations', null),
+      EXPECTED_VIEW_LOCATIONS[role],
+      `view_locations for ${role} should be ${EXPECTED_VIEW_LOCATIONS[role]}`,
+    );
+  }
+});
+
 // ── #76: tempEmployee byte-parity with mobile roles.ts (:261-268) — edit_media
 // and delete_media are explicit false (mobile lists them explicitly even
 // though tier1 already defaults both to false; this locks that in). ──────────
