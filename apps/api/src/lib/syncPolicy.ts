@@ -169,6 +169,9 @@ export const ATTRIBUTION_COLUMNS: Record<string, string[]> = {
   // Job assignments (#160): who assigned the crew/user is always the
   // authenticated caller on INSERT and never reassignable on UPDATE.
   job_assignments: ['assigned_by'],
+  // Schedule board (#184): who built the day's slot is always the authenticated
+  // caller on INSERT and never reassignable on UPDATE.
+  schedule_assignments: ['created_by'],
 };
 
 export function applyWritePolicy(
@@ -402,6 +405,11 @@ const OPERATION_PERM: Record<string, Partial<Record<Op, string | null>>> = {
   // (UPDATE active = FALSE); DELETE is deliberately absent → fails closed
   // (assignment rows are history, never torn down via sync).
   job_assignments:           { INSERT: 'create_jobs', UPDATE: 'create_jobs' },
+  // Employee day schedule board (#184): building/editing a slot requires
+  // manage_schedule. Clearing is a soft-delete (UPDATE active = FALSE); DELETE
+  // is deliberately absent → fails closed (assignment rows are history, never
+  // torn down via sync — job_assignments precedent).
+  schedule_assignments:      { INSERT: 'manage_schedule', UPDATE: 'manage_schedule' },
 };
 
 // Tables handled entirely by dedicated logic / gated separately → no op-perm here.
@@ -454,6 +462,12 @@ export const ACTIVITY_ACTIONS = new Set([
   // job's uuid — activity_log.entity_id is a UUID column, so string keys like
   // 'user'/'subteam' go in metadata, never entity_id).
   'job_assigned', 'job_unassigned',
+  // Employee day schedule board (#184): logged against entity_type 'user'
+  // (entity_id = the EMPLOYEE's uuid — the board is keyed by employee+day, so a
+  // future "this employee's schedule history" view resolves consistently for
+  // both job- and manager-kind slots). Kind/day/times/job_id/manager_id ride in
+  // metadata (activity_log.entity_id is a UUID column, never a free string).
+  'schedule_assigned', 'schedule_updated', 'schedule_cleared',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
@@ -514,6 +528,8 @@ const ON_CALL_SHIFTS_COLS = 'id, subteam_id, week_start, created_by, created_at,
 const ON_CALL_COVERAGE_COLS = 'id, date_start, date_end, user_off, covering_user, note, created_by, created_at, updated_at';
 // job_assignments (#160): no financial/secret columns — full synced column set.
 const JOB_ASSIGNMENTS_COLS = 'id, job_id, assignee_kind, assignee_id, assigned_by, active, created_at, updated_at';
+// schedule_assignments (#184): no financial/secret columns — full synced set.
+const SCHEDULE_ASSIGNMENTS_COLS = 'id, employee_id, day, start_minute, end_minute, assignment_kind, job_id, manager_id, note, created_by, active, created_at, updated_at';
 
 export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
   if (table === 'users') return USERS_COLS;
@@ -539,5 +555,6 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'on_call_shifts') return ON_CALL_SHIFTS_COLS;
   if (table === 'on_call_coverage') return ON_CALL_COVERAGE_COLS;
   if (table === 'job_assignments') return JOB_ASSIGNMENTS_COLS;
+  if (table === 'schedule_assignments') return SCHEDULE_ASSIGNMENTS_COLS;
   return '*';
 }

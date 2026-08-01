@@ -40,6 +40,7 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   job_assignments: `INSERT OR REPLACE INTO job_assignments (id, job_id, assignee_kind, assignee_id, assigned_by, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
   // #173: rooms catalog.
   rooms: `INSERT OR REPLACE INTO rooms (id, name, active, created_at, updated_at) VALUES (?,?,?,?,?)`,
+  schedule_assignments: `INSERT OR REPLACE INTO schedule_assignments (id, employee_id, day, start_minute, end_minute, assignment_kind, job_id, manager_id, note, created_by, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 };
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
@@ -80,6 +81,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'on_call_coverage': return [row.id, row.date_start, row.date_end, row.user_off ?? null, row.covering_user ?? null, row.note ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'job_assignments': return [row.id, row.job_id, row.assignee_kind, row.assignee_id, row.assigned_by ?? null, row.active ? 1 : 0, row.created_at, row.updated_at];
     case 'rooms': return [row.id, row.name, row.active ? 1 : 0, row.created_at, row.updated_at];
+    case 'schedule_assignments': return [row.id, row.employee_id, row.day, row.start_minute, row.end_minute, row.assignment_kind, row.job_id ?? null, row.manager_id ?? null, row.note ?? null, row.created_by ?? null, row.active ? 1 : 0, row.created_at, row.updated_at];
     default: return [];
   }
 }

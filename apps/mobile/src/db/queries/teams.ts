@@ -38,6 +38,11 @@ export const TEAM_PERMISSION_LABELS: Record<Permission, string> = {
   manage_other_team_inventory: "Manage other teams' inventory",
   create_jobs: 'Create jobs',
   close_jobs: 'Close jobs',
+  // #184: present for the Record<Permission,…> exhaustiveness check only —
+  // deliberately absent from TEAM_OVERRIDABLE_PERMISSIONS above. The design
+  // didn't call for per-team scoping of the schedule board; it stays
+  // role/user-level only, like manage_other_team_inventory/delete_media.
+  manage_schedule: 'Manage employee schedule board',
   manage_locations: 'Manage locations',
   upload_media: 'Upload photos/video',
   edit_media: 'Edit media details (caption/location, move)',

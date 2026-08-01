@@ -28,6 +28,9 @@ export type Permission =
   | 'manage_other_team_inventory'
   | 'create_jobs'
   | 'close_jobs'
+  // #184: build/edit the employee day schedule board (assign job/PM slots,
+  // clear slots). Daily dispatch authority — same population as create_jobs.
+  | 'manage_schedule'
   | 'manage_locations'
   | 'upload_media'
   | 'edit_media'
@@ -61,6 +64,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   manage_other_team_inventory: "Manage other teams' inventory",
   create_jobs: 'Create jobs',
   close_jobs: 'Close jobs',
+  manage_schedule: 'Manage employee schedule board',
   manage_locations: 'Manage locations',
   upload_media: 'Upload photos/video',
   edit_media: 'Edit media details (caption/location, move)',
@@ -191,6 +195,7 @@ const tier4: PermissionMap = {
   manage_other_team_inventory: true,
   create_jobs:               true,
   close_jobs:                true,
+  manage_schedule:           true,
   manage_locations:          true,
   upload_media:              true,
   edit_media:                true,
@@ -220,6 +225,7 @@ const tier3: PermissionMap = {
   manage_other_team_inventory: false,
   create_jobs:               true,
   close_jobs:                true,
+  manage_schedule:           true,
   manage_locations:          false,
   upload_media:              true,
   edit_media:                false,
@@ -249,6 +255,7 @@ const tier2: PermissionMap = {
   manage_other_team_inventory: false,
   create_jobs:                true,
   close_jobs:                 true,
+  manage_schedule:            true,
   manage_locations:           true,
   upload_media:               true,
   edit_media:                 true,
@@ -278,6 +285,7 @@ const tier1: PermissionMap = {
   manage_other_team_inventory: false,
   create_jobs:                false,
   close_jobs:                 false,
+  manage_schedule:            false,
   manage_locations:           false,
   upload_media:               true,
   edit_media:                 false,

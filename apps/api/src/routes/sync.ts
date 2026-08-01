@@ -54,7 +54,7 @@ const ALLOWED_TABLES = new Set([
   'user_prefs',
   'subteams', 'vehicles', 'vehicle_service_records', 'vehicle_checkouts',
   'locker_access', 'on_call_shifts', 'unit_access', 'on_call_coverage',
-  'job_assignments', 'rooms',
+  'job_assignments', 'rooms', 'schedule_assignments',
 ]);
 
 // Rows that must never be DELETED through the generic sync path: users are
@@ -302,6 +302,10 @@ const FULL_TABLES = [
   // #173: rooms is a small, unscoped catalog (like taxonomy_types) — every
   // device needs the full list to populate the room picker offline.
   'rooms',
+  // Schedule board (#184): unscoped like job_assignments — a fresh device needs
+  // the org's day-schedule rows to render the board offline; the screen itself
+  // stays permission-gated (manage_schedule) even though sync isn't row-scoped.
+  'schedule_assignments',
 ];
 
 // Entity tables whose taxonomy reference is being migrated from a label column to
