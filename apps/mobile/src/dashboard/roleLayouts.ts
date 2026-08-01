@@ -1,5 +1,6 @@
 import type { UserRole } from '../constants/roles';
 import type { Layout } from './widgets';
+import { composeLayout, buildSection } from './bundles';
 
 // Per-role starter dashboards (role dashboards §3). PURE data — no DB / native
 // imports (this module is on resolve.ts's DB-free unit-test path).
@@ -66,7 +67,10 @@ const TIER2_MANAGER_LAYOUT: Layout = [
 // jobs, then the admin nav tiles.
 // Admins keep the ENTIRE default button set (live review 2026-07-20: the first
 // widgets-only cut "got rid of all my buttons") — new data widgets layer on top.
-const ADMIN_LAYOUT: Layout = [
+// The three section runs are composed from the registry's section/weight
+// metadata (#189/#190/#191) — byte-identical to DEFAULT_LAYOUT's runs (see
+// widgets.ts), since both call the SAME buildSection().
+const ADMIN_LAYOUT: Layout = composeLayout(
   { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'open-repairs', 'units-due-service', 'shared-media'] } },
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
@@ -80,32 +84,13 @@ const ADMIN_LAYOUT: Layout = [
   { widget: 'activity-preview', width: 'full' },
   { widget: 'quick-add', width: 'full' },
 
-  { widget: 'section', width: 'full', config: { sectionTitle: 'Inventory Management' } },
-  { widget: 'add-stock', width: 'full' },
-  { widget: 'equipment', width: 'full' },
-  { widget: 'repairs', width: 'full' },
-  { widget: 'locations', width: 'full' },
-  { widget: 'vehicles', width: 'half' },
-  { widget: 'lockers', width: 'half' },
-  { widget: 'item-catalog', width: 'full' },
-
-  { widget: 'section', width: 'full', config: { sectionTitle: 'Operations' } },
-  { widget: 'chat', width: 'full' },
-  { widget: 'jobs', width: 'full' },
-  { widget: 'teams', width: 'full' },
-  { widget: 'manage-my-team', width: 'full' },
-  { widget: 'schedule', width: 'full' },
-  { widget: 'media', width: 'full' },
-  { widget: 'logs', width: 'full' },
-
-  { widget: 'section', width: 'full', config: { sectionTitle: 'Admin' } },
-  { widget: 'users', width: 'full' },
-  { widget: 'roles', width: 'full' },
-  { widget: 'settings', width: 'full' },
+  buildSection('inventory', 'Inventory Management'),
+  buildSection('operations', 'Operations'),
+  buildSection('admin', 'Admin'),
 
   { widget: 'low-stock', width: 'full' },
   { widget: 'on-call', width: 'full' },
-];
+);
 
 export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
   // Crew group.
