@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
 import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox, getDeniedOutbox, discardDeniedEntry, OutboxEntry } from '../sync/outbox';
 import { syncNow } from '../sync/engine';
+import { entityLabel } from '../sync/denialMessages';
+import { useSession } from '../hooks/useSession';
+import { pickAccessGrantor } from '../auth/pickAccessGrantor';
+import { createDmConversation } from '../db/queries/chat';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
@@ -14,6 +19,8 @@ type SyncStatus = 'synced' | 'pending' | 'failed' | 'denied' | 'offline';
 export function SyncIndicator() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
+  const { user } = useSession();
+  const router = useRouter();
   // Edge-to-edge: this is a hand-rolled bottom sheet (justifyContent:'flex-end'),
   // so the transparent gesture/3-button nav bar overlays its Retry/Discard
   // buttons without this inset (same class of bug as ScanReceipt, #163).
@@ -101,6 +108,32 @@ export function SyncIndicator() {
     refresh();
   }
 
+  // #203: a denied outbox entry never records WHICH permission was missing
+  // (engine.ts only classifies "was this a permanent authorization denial",
+  // not which check failed) — so unlike PermissionGate's tap-toast, this
+  // always asks for the fallback grantor (a manage_roles_permissions holder,
+  // i.e. someone who can grant SOMETHING) rather than a holder of the actual
+  // missing permission. The draft names the entity from the entry's own
+  // friendly message (via entityLabel, the same lookup denialMessage() uses)
+  // so the ask is still concrete even though the exact permission isn't known.
+  function handleRequestAccess(entry: OutboxEntry) {
+    if (!user) return;
+    const grantor = pickAccessGrantor('manage_roles_permissions', user);
+    if (!grantor) {
+      Alert.alert('No one found', 'Could not find anyone else who can grant permissions right now.');
+      return;
+    }
+    const conversationId = createDmConversation(user.id, grantor.id);
+    setShowSheet(false);
+    router.push({
+      pathname: '/(app)/(chat)/[id]',
+      params: {
+        id: conversationId,
+        draft: `Hi ${grantor.name} — a change I made to ${entityLabel(entry.table_name)} was blocked. Could I get access to do that?`,
+      },
+    });
+  }
+
   const SYNC_COLORS: Record<SyncStatus, string> = {
     synced: t.colors.success,
     pending: t.colors.warning,
@@ -170,12 +203,20 @@ export function SyncIndicator() {
                 {denied.map(entry => (
                   <View key={entry.id} style={s.deniedRow}>
                     <Text style={s.deniedMsg}>{entry.last_error ?? "Your account can't make this change — it wasn't saved."}</Text>
-                    <TouchableOpacity
-                      style={[s.btn, s.btnDanger, s.deniedDismissBtn]}
-                      onPress={() => handleDismissDenied(entry.id)}
-                    >
-                      <Text style={s.btnDangerText}>Dismiss</Text>
-                    </TouchableOpacity>
+                    <View style={s.deniedBtnRow}>
+                      <TouchableOpacity
+                        style={s.deniedRequestBtn}
+                        onPress={() => handleRequestAccess(entry)}
+                      >
+                        <Text style={s.deniedRequestText}>Request access</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[s.btn, s.btnDanger, s.deniedDismissBtn]}
+                        onPress={() => handleDismissDenied(entry.id)}
+                      >
+                        <Text style={s.btnDangerText}>Dismiss</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))}
               </>
@@ -219,5 +260,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   btnDisabled: { opacity: 0.6 },
   deniedRow: { width: '100%', alignItems: 'center', gap: t.spacing.xs, marginTop: t.spacing.sm },
   deniedMsg: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, textAlign: 'center' },
+  deniedBtnRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md },
+  deniedRequestBtn: { paddingVertical: 6, paddingHorizontal: 12 },
+  deniedRequestText: { color: t.colors.accent, fontWeight: '700', fontSize: t.typography.fontSizes.body },
   deniedDismissBtn: { minWidth: 0, paddingVertical: 6, paddingHorizontal: 16 },
 });
