@@ -18,6 +18,23 @@ export const DAY_START_MIN = 480;
 /** 5:00 PM — the board's visible workday window end (minutes since midnight). */
 export const DAY_END_MIN = 1020;
 
+// Shared layout metrics for the timeline grid — one source of truth so the
+// hour-label header (rendered once, in DayBoardScreen's `aboveList`) and each
+// EmployeeScheduleRow's own hour cells can never drift out of column
+// alignment with each other.
+export const SLOT_ROW_LAYOUT = {
+  /** Fixed-width employee name column, OUTSIDE each row's horizontal scroll. */
+  nameColWidth: 96,
+  /** Per-hour column width inside the scrollable track. */
+  colWidth: 72,
+  /** Number of hour columns spanning DAY_START_MIN..DAY_END_MIN. */
+  hourCount: (DAY_END_MIN - DAY_START_MIN) / 60,
+  /** Row height (also the header row's height, for alignment). */
+  rowHeight: 56,
+  /** Assignment chip height within a row (vertically centered). */
+  chipHeight: 40,
+};
+
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 

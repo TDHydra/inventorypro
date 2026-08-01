@@ -19,7 +19,7 @@ import type { Permission } from '../constants/roles';
 export type WidgetType =
   | 'fast-checkout' | 'fast-checkin' | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
-  | 'jobs' | 'teams' | 'manage-my-team' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
+  | 'jobs' | 'teams' | 'manage-my-team' | 'schedule' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
   | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog'     // contextual quick-actions (#144, #168)
   | 'stat-tiles' | 'work-list' | 'activity-preview';                         // config-driven data widgets (role dashboards)
@@ -115,6 +115,11 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // Manage My Team (#124): no requiredPermission — ownership is data (my crews /
   // lockers / vehicles); the screen shows an EmptyState when the user owns nothing.
   'manage-my-team': { label: 'Manage My Team',       icon: '👥', route: '/(app)/(myteam)', kind: 'tile' },
+  // Employee day schedule board (#184): dispatch-authority tile, same
+  // population as create_jobs — hidden entirely from non-editors (the board
+  // deep-link itself still renders read-only per the UI design's binding
+  // decision, but the dashboard tile is gated like every other tile here).
+  schedule:      { label: 'Schedule',                icon: '🗓', route: '/(app)/(schedule)', requiredPermission: 'manage_schedule', kind: 'tile' },
   logs:          { label: 'Activity Logs',           icon: '📊', route: '/(app)/(logs)',  requiredPermission: 'view_all_logs', kind: 'tile' },
   // Chat is available to every authenticated user — no requiredPermission gate.
   chat:          { label: 'Messages',                icon: '💬', route: '/(app)/(chat)', kind: 'tile' },
@@ -197,6 +202,7 @@ export const DEFAULT_LAYOUT: Layout = [
   { widget: 'jobs', width: 'full' },
   { widget: 'teams', width: 'full' },
   { widget: 'manage-my-team', width: 'full' },
+  { widget: 'schedule', width: 'full' },
   { widget: 'media', width: 'full' },
   { widget: 'logs', width: 'full' },
 

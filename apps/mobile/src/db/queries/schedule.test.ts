@@ -59,7 +59,8 @@ before(async () => {
       insurance_carrier TEXT, type_id TEXT, team_id TEXT
     );
     CREATE TABLE users (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT, active INTEGER NOT NULL DEFAULT 1
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT, active INTEGER NOT NULL DEFAULT 1,
+      expires_at TEXT
     );
     CREATE TABLE activity_log (
       id TEXT PRIMARY KEY, user_id TEXT, team_id TEXT, action TEXT NOT NULL,
@@ -228,4 +229,9 @@ test('getScheduleAssignmentsForJob returns every active row for a multi-slot job
 test('getAssignableManagers returns active production_manager users', () => {
   const names = sch.getAssignableManagers().map(u => u.name).sort();
   assert.deepEqual(names, ['Paula PM', 'Pete PM']);
+});
+
+test('getScheduleableEmployees returns only ROLE_TIER-1 users, excluding managers/dispatchers', () => {
+  const names = sch.getScheduleableEmployees().map(u => u.name).sort();
+  assert.deepEqual(names, ['Ellie Employee', 'Ethan Employee']);
 });

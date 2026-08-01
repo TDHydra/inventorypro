@@ -3,8 +3,9 @@ import { appendOutbox } from '../../sync/outbox';
 import { appendLog } from './log';
 import { runInTransaction } from '../tx';
 import { generateUUID } from '../../utils/uuid';
-import { getUsersByRole } from './users';
+import { getUsersByRole, getAllActiveUsers } from './users';
 import type { User } from './users';
+import { ROLE_TIER } from '../../constants/roles';
 
 // Employee day schedule board (#184, migration 059 / API 074). Each row is one
 // employee's contiguous time block on one day, pointing at either a JOB or a
@@ -90,6 +91,16 @@ export function getScheduleAssignmentsForJob(jobId: string, day?: string): Sched
 
 export function getAssignableManagers(): User[] {
   return getUsersByRole('production_manager');
+}
+
+// The board's row roster: active "field crew" tier (ROLE_TIER 1) users —
+// the population manage_schedule's tier defaults treat as SUBJECTS of
+// scheduling (tier1 + temporary_employee can't edit the board, per the #184
+// data design's permission rationale), not managers/dispatchers themselves.
+// Filters getAllActiveUsers() by ROLE_TIER instead of hardcoding a role list
+// so a future tier-1 role addition (roles.ts) is picked up automatically.
+export function getScheduleableEmployees(): User[] {
+  return getAllActiveUsers().filter(u => ROLE_TIER[u.role] === 1);
 }
 
 function overlapping(employeeId: string, day: string, startMinute: number, endMinute: number, excludeId?: string): ScheduleAssignmentView[] {

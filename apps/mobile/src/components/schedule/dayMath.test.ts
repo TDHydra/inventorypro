@@ -5,6 +5,7 @@ import {
   localTodayIso,
   DAY_START_MIN,
   DAY_END_MIN,
+  SLOT_ROW_LAYOUT,
   formatDayLabel,
   formatMinute,
   chipSpan,
@@ -116,4 +117,11 @@ test('re-export smoke: addDaysIso and localTodayIso are the real weekMath implem
   assert.equal(addDaysIso('2026-08-04', 3), '2026-08-07');
   assert.equal(typeof localTodayIso, 'function');
   assert.match(localTodayIso(new Date(2026, 0, 15)), /^2026-01-15$/);
+});
+
+// -------------------------------------------------------------- SLOT_ROW_LAYOUT
+
+test('SLOT_ROW_LAYOUT: hourCount matches the DAY_START_MIN..DAY_END_MIN window', () => {
+  assert.equal(SLOT_ROW_LAYOUT.hourCount, (DAY_END_MIN - DAY_START_MIN) / 60);
+  assert.equal(SLOT_ROW_LAYOUT.hourCount, 9);
 });
