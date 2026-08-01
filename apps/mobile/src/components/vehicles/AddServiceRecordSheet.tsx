@@ -66,6 +66,9 @@ interface PickedPhoto {
   uri: string;
   ext: string; // lowercase, no dot
   size?: number; // bytes when the picker reports it
+  // #188: web only — see QuickPhotoAsset.file (same expo-image-picker web
+  // shim, same stale-blob risk if the tab backgrounds during capture).
+  file?: File;
 }
 
 interface Props {
@@ -217,7 +220,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
     if (res.canceled || !res.assets?.[0]) return;
     const a = res.assets[0];
     const ext = (a.fileName?.split('.').pop() ?? a.uri.split('.').pop() ?? 'jpg').toLowerCase();
-    setPhoto({ uri: a.uri, ext: ext === 'jpeg' ? 'jpg' : ext, size: a.fileSize ?? undefined });
+    setPhoto({ uri: a.uri, ext: ext === 'jpeg' ? 'jpg' : ext, size: a.fileSize ?? undefined, file: a.file });
   }
 
   async function submit() {
@@ -298,6 +301,7 @@ export function AddServiceRecordSheet({ locationId, visible, onClose, initialKin
             mediaType: 'image',
             ext: photo.ext,
             uri: photo.uri,
+            file: photo.file,
             size: photo.size,
             userId: user.id,
           });

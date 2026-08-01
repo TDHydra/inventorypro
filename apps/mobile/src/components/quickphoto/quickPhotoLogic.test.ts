@@ -16,6 +16,12 @@ import {
   type QuickPhotoAsset,
 } from './quickPhotoLogic';
 
+// #188: minimal File stand-ins for node:test (no DOM File constructor) — used
+// to prove the *reference* survives phase transitions untouched, which is the
+// actual bug-fix mechanism (upload.web.ts streams this exact object).
+const FAKE_FILE_A = { name: 'a.jpg' } as unknown as File;
+const FAKE_FILE_B = { name: 'b.mp4' } as unknown as File;
+
 // Happy path: job destination
 test('happy path job: open → chooseDest → photoTaken → saveDone → closed', () => {
   let s = initialState();
@@ -34,15 +40,19 @@ test('happy path job: open → chooseDest → photoTaken → saveDone → closed
   assert.deepEqual(s.dest, jobDest);
   assert.equal(s.photoUri, null);
 
-  s = photoTaken(s, 'file://photo.jpg');
+  // #188: a File carried alongside the uri (web camera capture) must survive
+  // the photoTaken transition unchanged — it's what upload.web.ts streams.
+  s = photoTaken(s, 'file://photo.jpg', FAKE_FILE_A);
   assert.equal(s.phase, 'details');
   assert.deepEqual(s.dest, jobDest);
   assert.equal(s.photoUri, 'file://photo.jpg');
+  assert.equal(s.photoFile, FAKE_FILE_A);
 
   s = saveDone(s);
   assert.equal(s.phase, 'closed');
   assert.equal(s.dest, null);
   assert.equal(s.photoUri, null);
+  assert.equal(s.photoFile, undefined);
 });
 
 // Happy path: pool team destination
@@ -384,8 +394,8 @@ test('chooseDest with camera source (default) still goes to the camera phase', (
 });
 
 const TWO_ASSETS: QuickPhotoAsset[] = [
-  { uri: 'file://a.jpg', mediaType: 'image', ext: 'jpg' },
-  { uri: 'file://b.mp4', mediaType: 'video', ext: 'mp4' },
+  { uri: 'file://a.jpg', mediaType: 'image', ext: 'jpg', file: FAKE_FILE_A },
+  { uri: 'file://b.mp4', mediaType: 'video', ext: 'mp4', file: FAKE_FILE_B },
 ];
 
 test('assetsPicked from gallery phase: first asset feeds details, the rest queue up', () => {
@@ -400,7 +410,11 @@ test('assetsPicked from gallery phase: first asset feeds details, the rest queue
   assert.equal(s.photoUri, 'file://a.jpg');
   assert.equal(s.mediaType, 'image');
   assert.equal(s.ext, 'jpg');
-  assert.deepEqual(s.queue, [{ uri: 'file://b.mp4', mediaType: 'video', ext: 'mp4' }]);
+  // #188: the first asset's File feeds photoFile now; the rest keep THEIR
+  // own .file in the queue (each queued asset carries its own File through
+  // to whenever it's popped by saveAndAddAnother — see below).
+  assert.equal(s.photoFile, FAKE_FILE_A);
+  assert.deepEqual(s.queue, [{ uri: 'file://b.mp4', mediaType: 'video', ext: 'mp4', file: FAKE_FILE_B }]);
 });
 
 test('assetsPicked from non-gallery phase is a no-op', () => {
@@ -449,6 +463,9 @@ test('saveAndAddAnother (gallery, queue non-empty): pops the next asset into det
   assert.equal(s.photoUri, 'file://b.mp4');
   assert.equal(s.mediaType, 'video');
   assert.equal(s.ext, 'mp4');
+  // #188: popping the queue must carry THAT asset's own File along with it —
+  // this is what feeds uploadMediaAsset's input for the next save.
+  assert.equal(s.photoFile, FAKE_FILE_B);
   assert.deepEqual(s.queue, []);
 });
 
@@ -470,12 +487,15 @@ test('saveAndAddAnother (camera source, default): still relaunches the camera, u
   s = open(s);
   const poolDest = { kind: 'pool' as const, audience: 'team' as const, userIds: [] };
   s = chooseDest(s, poolDest);
-  s = photoTaken(s, 'file://a.jpg');
+  s = photoTaken(s, 'file://a.jpg', FAKE_FILE_A);
 
   s = saveAndAddAnother(s);
   assert.equal(s.phase, 'camera');
   assert.deepEqual(s.dest, poolDest);
   assert.equal(s.photoUri, null);
+  // #188: relaunching the camera must clear the stale File too, or a second
+  // shot's uri could get paired with the FIRST shot's File on upload.
+  assert.equal(s.photoFile, undefined);
   assert.deepEqual(s.queue, []);
 });
 
