@@ -186,6 +186,17 @@ function isWorkListSource(s: unknown): s is WorkListSource {
   return typeof s === 'string' && Object.prototype.hasOwnProperty.call(WORK_LIST_DEFS, s);
 }
 
+// #226: chip metadata for a starred `work-list:<source>` key on the dashboard
+// favorites strip — same title/icon/permission/route the card itself uses, so
+// the two surfaces can never disagree. Null for an unknown source (stale star).
+export function getWorkListChipMeta(source: string): {
+  title: string; icon: string; route: string; requiredPermission?: Permission;
+} | null {
+  if (!isWorkListSource(source)) return null;
+  const def = WORK_LIST_DEFS[source];
+  return { title: def.title, icon: def.icon, route: def.viewAllRoute, requiredPermission: def.requiredPermission };
+}
+
 function WorkListCard({ source, config }: { source: WorkListSource; config?: WidgetConfig }) {
   const s = useThemedStyles(makeStyles);
   const router = useRouter();

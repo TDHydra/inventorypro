@@ -117,7 +117,9 @@ export function applyUserTheme(userId: string, opts: { prompt?: boolean } = {}):
  */
 export interface DashboardPrefs {
   layout?: Layout;
-  starred?: WidgetType[];
+  // #226: plain WidgetType keys OR composite `widget:source` star keys
+  // (dashboard/starKeys.ts) — stored/validated as opaque strings here.
+  starred?: string[];
 }
 
 interface DashboardPrefsRow {
@@ -167,7 +169,7 @@ export function getDashboardPrefs(userId: string): DashboardPrefs | null {
     const result: DashboardPrefs = {};
     const layout = row.dashboard_layout != null ? parseArrayField<LayoutBlock>(row.dashboard_layout) : legacy?.layout;
     if (layout) result.layout = layout;
-    const starred = row.starred_widgets != null ? parseArrayField<WidgetType>(row.starred_widgets) : legacy?.starred;
+    const starred = row.starred_widgets != null ? parseArrayField<string>(row.starred_widgets) : legacy?.starred;
     if (starred) result.starred = starred;
     return (result.layout || result.starred) ? result : null;
   } catch {
@@ -201,7 +203,7 @@ export function setDashboardLayout(userId: string, layout: Layout | null): void 
  * dashboard_layout (and theme) are untouched locally AND in the outbox
  * payload, mirroring setDashboardLayout above.
  */
-export function setStarredWidgets(userId: string, starred: WidgetType[]): void {
+export function setStarredWidgets(userId: string, starred: string[]): void {
   const updated_at = new Date().toISOString();
   const json = starred.length > 0 ? JSON.stringify(starred) : null;
   runInTransaction(() => {
@@ -214,10 +216,10 @@ export function setStarredWidgets(userId: string, starred: WidgetType[]): void {
   });
 }
 
-/** Toggle one widget's starred membership and persist. Returns the new set. */
-export function toggleStarredWidget(userId: string, widget: WidgetType): WidgetType[] {
+/** Toggle one star key's membership and persist. Returns the new set. */
+export function toggleStarredWidget(userId: string, key: string): string[] {
   const current = getDashboardPrefs(userId)?.starred ?? [];
-  const next = current.includes(widget) ? current.filter(w => w !== widget) : [...current, widget];
+  const next = current.includes(key) ? current.filter(w => w !== key) : [...current, key];
   setStarredWidgets(userId, next);
   return next;
 }

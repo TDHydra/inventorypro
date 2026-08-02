@@ -29,7 +29,8 @@ import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { OnCallWidget } from '../../../src/components/oncall/OnCallWidget';
 import { StatTiles } from '../../../src/components/dashboard/StatTiles';
-import { WorkList } from '../../../src/components/dashboard/WorkList';
+import { WorkList, getWorkListChipMeta } from '../../../src/components/dashboard/WorkList';
+import { parseStarKey } from '../../../src/dashboard/starKeys';
 import { ActivityPreview } from '../../../src/components/dashboard/ActivityPreview';
 import { EditMyDashboardSheet } from '../../../src/components/dashboard/EditMyDashboardSheet';
 
@@ -172,19 +173,30 @@ export default function DashboardScreen() {
     </View>
   );
 
-  // Starred favorites strip (#196): a compact horizontal row of the user's
-  // starred TILE widgets (star-toggling a non-tile block isn't offered by the
-  // editor, so this filter is a defensive no-op today). Each chip re-checks
-  // the live permission — a role change revoking access must hide the chip
-  // even though the star itself lingers in prefs until the user removes it.
+  // Starred favorites strip (#196, #226): a compact horizontal row of the
+  // user's starred TILE widgets plus composite `work-list:<source>` keys
+  // (star just one list, e.g. My Jobs). Each chip re-checks the live
+  // permission — a role change revoking access must hide the chip even though
+  // the star itself lingers in prefs until the user removes it.
   // Placement: directly under the pinned search bar, above the greeting — the
   // strip is a quick-launch surface the user asked for explicitly (starring is
   // opt-in), so it earns the very top slot below only the non-negotiable search.
-  const starredTiles = starred.filter(w => {
-    const def = WIDGET_REGISTRY[w];
-    return def?.kind === 'tile' && (!def.requiredPermission || hasPermission(user, def.requiredPermission));
-  });
-  const starredStrip = starredTiles.length > 0 ? (
+  const starredChips = starred
+    .map(key => {
+      const parsed = parseStarKey(key);
+      if (!parsed) return null;
+      if (parsed.source) {
+        if (parsed.widget !== 'work-list') return null;
+        const meta = getWorkListChipMeta(parsed.source);
+        if (!meta || (meta.requiredPermission && !hasPermission(user, meta.requiredPermission))) return null;
+        return { key, widget: parsed.widget, icon: meta.icon, label: meta.title, route: meta.route };
+      }
+      const def = WIDGET_REGISTRY[parsed.widget];
+      if (def?.kind !== 'tile' || (def.requiredPermission && !hasPermission(user, def.requiredPermission))) return null;
+      return { key, widget: parsed.widget, icon: def.icon ?? '•', label: def.label, route: def.route };
+    })
+    .filter((c): c is Exclude<typeof c, null> => !!c);
+  const starredStrip = starredChips.length > 0 ? (
     <ScrollView
       key="__starred"
       horizontal
@@ -192,23 +204,20 @@ export default function DashboardScreen() {
       style={s.starredStrip}
       contentContainerStyle={s.starredStripContent}
     >
-      {starredTiles.map(w => {
-        const def = WIDGET_REGISTRY[w];
-        return (
-          <TouchableOpacity
-            key={w}
-            style={s.starredChip}
-            onPress={() => {
-              const trackKey = HUB_TRACK[w];
-              if (trackKey) track('action', trackKey, { screen: 'hub_starred' });
-              if (def.route) router.push(def.route as never);
-            }}
-          >
-            <Text style={s.starredIcon}>{def.icon ?? '•'}</Text>
-            <Text style={s.starredLabel} numberOfLines={1}>{def.label}</Text>
-          </TouchableOpacity>
-        );
-      })}
+      {starredChips.map(c => (
+        <TouchableOpacity
+          key={c.key}
+          style={s.starredChip}
+          onPress={() => {
+            const trackKey = HUB_TRACK[c.widget];
+            if (trackKey) track('action', trackKey, { screen: 'hub_starred' });
+            if (c.route) router.push(c.route as never);
+          }}
+        >
+          <Text style={s.starredIcon}>{c.icon}</Text>
+          <Text style={s.starredLabel} numberOfLines={1}>{c.label}</Text>
+        </TouchableOpacity>
+      ))}
     </ScrollView>
   ) : null;
 
