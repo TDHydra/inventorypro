@@ -13,6 +13,7 @@ import {
   getAllJobs, getActiveCheckoutsForUser, updateJobFields, archiveJob, Job,
 } from '../../../src/db/queries/jobs';
 import { getTypeIcon, getTaxonomyTypes, getTaxonomyTypesWithFallback } from '../../../src/db/queries/taxonomy';
+import { getCloseoutBlockers, describeCloseoutBlockers } from '../../../src/db/queries/equipmentUnits';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { isWriteBlocked } from '../../../src/db/maintenance';
@@ -135,7 +136,22 @@ export default function JobsScreen() {
     ms.exit();
   }, [ms, logJob]);
 
-  const doClose = useCallback(() => bulkSetStatus('closed'), [bulkSetStatus]);
+  // #212 close-out guard: closing a job with gear still deployed (or open
+  // repairs on that gear) strands it — surface the counts and make the user
+  // opt in instead of silently closing.
+  const doClose = useCallback(async () => {
+    const blockers = getCloseoutBlockers(Array.from(ms.selected));
+    if (blockers.deployedUnits > 0 || blockers.openRepairs > 0) {
+      const ok = await confirmSheet({
+        title: 'Close Jobs',
+        message: `${describeCloseoutBlockers(blockers)} — close anyway?`,
+        confirmLabel: 'Close anyway',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    bulkSetStatus('closed');
+  }, [ms, bulkSetStatus]);
   const doReopen = useCallback(() => bulkSetStatus('open'), [bulkSetStatus]);
 
   const doArchive = useCallback(async () => {

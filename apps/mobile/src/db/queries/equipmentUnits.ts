@@ -128,3 +128,32 @@ export function setUnitStatus(
   upsertUnit(next);
   return next;
 }
+
+// #212 close-out guard: what would be stranded if these jobs were closed right
+// now — units still deployed to them, and open (completed_at IS NULL, matching
+// getRepairs({done:false})) repairs on those units. One aggregate query pair so
+// the jobs screens can gate doClose/saveEdit with a single cheap call.
+export function getCloseoutBlockers(jobIds: string[]): { deployedUnits: number; openRepairs: number } {
+  if (jobIds.length === 0) return { deployedUnits: 0, openRepairs: 0 };
+  const db = getDb();
+  const placeholders = jobIds.map(() => '?').join(',');
+  const deployedUnits = ((db.executeSync(
+    `SELECT COUNT(*) AS cnt FROM equipment_units WHERE current_job_id IN (${placeholders})`,
+    [...jobIds]
+  ).rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+  const openRepairs = ((db.executeSync(
+    `SELECT COUNT(*) AS cnt FROM repairs r
+     JOIN equipment_units eu ON r.entity_type = 'equipment_unit' AND r.entity_id = eu.id
+     WHERE eu.current_job_id IN (${placeholders}) AND r.completed_at IS NULL`,
+    [...jobIds]
+  ).rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+  return { deployedUnits, openRepairs };
+}
+
+// #212: human copy for the guard's ConfirmSheet — zero buckets are omitted.
+export function describeCloseoutBlockers(b: { deployedUnits: number; openRepairs: number }): string {
+  const parts: string[] = [];
+  if (b.deployedUnits > 0) parts.push(`${b.deployedUnits} unit${b.deployedUnits === 1 ? '' : 's'} still checked out`);
+  if (b.openRepairs > 0) parts.push(`${b.openRepairs} open repair${b.openRepairs === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
