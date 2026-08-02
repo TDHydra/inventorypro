@@ -10,6 +10,8 @@ interface Props {
   tone?: PillTone;
   /** Override bg/text for data-driven colors (typeColors etc.). */
   color?: { bg: string; text: string };
+  /** #220: 'md' is the roomier detail-header variant StatusBadge carried. */
+  size?: 'sm' | 'md';
   style?: StyleProp<ViewStyle>;
 }
 
@@ -19,13 +21,13 @@ interface Props {
  * semantic bg/text pairs; shape follows t.components.chip.variant so square-tag
  * themes (Classic/Futuristic) restyle every badge at once.
  */
-export function StatusPill({ label, tone = 'neutral', color, style }: Props) {
+export function StatusPill({ label, tone = 'neutral', color, size = 'sm', style }: Props) {
   const t = useTheme();
   const s = useThemedStyles(makeStyles);
   const c = color ?? toneColors(t, tone);
   return (
-    <View style={[s.pill, { backgroundColor: c.bg }, style]}>
-      <Text style={[s.text, { color: c.text }]} numberOfLines={1}>
+    <View style={[s.pill, size === 'md' && s.pillMd, { backgroundColor: c.bg }, style]}>
+      <Text style={[s.text, size === 'md' && s.textMd, { color: c.text }]} numberOfLines={1}>
         {t.typography.uppercaseLabels ? label.toUpperCase() : label}
       </Text>
     </View>
@@ -50,10 +52,12 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     paddingVertical: 2,
     alignSelf: 'flex-start',
   },
+  pillMd: { paddingVertical: t.spacing.xs },
   text: {
     fontSize: t.typography.fontSizes.caption,
     fontWeight: t.typography.weights.semibold,
     fontFamily: t.typography.fontFamily.medium,
     letterSpacing: t.typography.letterSpacing,
   },
+  textMd: { fontSize: t.typography.fontSizes.sm },
 });

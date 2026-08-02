@@ -1,22 +1,26 @@
-// Small, display-only status/type pill for list rows and detail headers.
-// Replaces per-screen inline colored <Text> snippets with a single consistent
-// component.
+// #220: StatusBadge/TypeBadge are now thin wrappers over StatusPill — the two
+// near-identical tone-pill components diverged (#163/#168-class drift) and
+// StatusPill is the surviving implementation (semantic bg/text theme pairs,
+// square-tag variant support, uppercase-label themes). These wrappers keep the
+// original prop APIs so the existing call sites don't churn; NEW call sites
+// should use StatusPill directly.
 //
-// Usage:
-//   <StatusBadge label="Active" tone="success" />
-//   <StatusBadge label="Overdue" tone="danger" size="md" />
-//   <TypeBadge type={item.category} />
-//
-// Both are display-only (no onPress) — for an interactive/selectable pill use
-// FilterChip instead.
+// Both remain display-only (no onPress) — for an interactive/selectable pill
+// use FilterChip instead.
 
-import { Text, View, StyleSheet } from 'react-native';
-import type { Theme } from '../../themes/types';
-import { useTheme } from '../../hooks/useTheme';
-import { useThemedStyles } from '../../hooks/useThemedStyles';
+import { StatusPill, type PillTone } from './StatusPill';
 import { autoTypeColor } from '../../constants/typeColors';
 
 export type BadgeTone = 'default' | 'primary' | 'accent' | 'success' | 'warning' | 'danger';
+
+const TONE_MAP: Record<BadgeTone, PillTone> = {
+  default: 'neutral',
+  primary: 'primary',
+  accent: 'accent',
+  success: 'success',
+  warning: 'warning',
+  danger: 'danger',
+};
 
 interface StatusBadgeProps {
   label: string;
@@ -24,56 +28,9 @@ interface StatusBadgeProps {
   size?: 'sm' | 'md';
 }
 
-// Append an alpha channel to an existing 6-digit hex token to derive a light
-// tint, rather than inventing a new "*Bg" color that doesn't exist yet.
-function withAlpha(hex: string, alpha: string): string {
-  return `${hex}${alpha}`;
-}
-
-const toneStyles = (t: Theme): Record<BadgeTone, { bg: string; fg: string; border?: string }> => ({
-  default: { bg: t.colors.surface, fg: t.colors.textSecondary, border: t.colors.border },
-  primary: { bg: t.colors.primaryBg, fg: t.colors.primary },
-  accent: { bg: t.colors.accentBg, fg: t.colors.accent },
-  success: { bg: withAlpha(t.colors.success, '1A'), fg: t.colors.success },
-  warning: { bg: withAlpha(t.colors.warning, '1A'), fg: t.colors.warning },
-  danger: { bg: t.colors.dangerBg, fg: t.colors.danger },
-});
-
-function Badge({
-  label,
-  bg,
-  fg,
-  border,
-  size = 'sm',
-}: {
-  label: string;
-  bg: string;
-  fg: string;
-  border?: string;
-  size?: 'sm' | 'md';
-}) {
-  const s = useThemedStyles(makeStyles);
-  return (
-    <View
-      style={[
-        s.pill,
-        size === 'md' ? s.pillMd : s.pillSm,
-        { backgroundColor: bg },
-        border ? { borderWidth: 1, borderColor: border } : null,
-      ]}
-    >
-      <Text style={[s.text, size === 'md' ? s.textMd : s.textSm, { color: fg }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 export function StatusBadge({ label, tone = 'default', size = 'sm' }: StatusBadgeProps) {
-  const t = useTheme();
-  const { bg, fg, border } = toneStyles(t)[tone];
   if (!label?.trim()) return null;
-  return <Badge label={label} bg={bg} fg={fg} border={border} size={size} />;
+  return <StatusPill label={label} tone={TONE_MAP[tone]} size={size} />;
 }
 
 interface TypeBadgeProps {
@@ -82,29 +39,14 @@ interface TypeBadgeProps {
   size?: 'sm' | 'md';
 }
 
+// Append an alpha channel to the hashed 6-digit type color to derive a light
+// tint, rather than inventing a new "*Bg" token per type.
 export function TypeBadge({ type, icon, size = 'sm' }: TypeBadgeProps) {
-  const t = useTheme();
   const trimmed = type?.trim();
-  if (!trimmed) {
-    const { bg, fg, border } = toneStyles(t).default;
-    return <Badge label={type ?? ''} bg={bg} fg={fg} border={border} size={size} />;
-  }
+  if (!trimmed) return <StatusPill label={type ?? ''} size={size} />;
   // Always hash the bare type so the same type gets the same color whether or
   // not an icon is shown alongside it.
   const accent = autoTypeColor(trimmed);
   const label = icon ? `${icon} ${trimmed}` : trimmed;
-  return <Badge label={label} bg={withAlpha(accent, '1A')} fg={accent} size={size} />;
+  return <StatusPill label={label} color={{ bg: `${accent}1A`, text: accent }} size={size} />;
 }
-
-const makeStyles = (t: Theme) => StyleSheet.create({
-  pill: {
-    borderRadius: t.radii.xl,
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-  },
-  pillSm: { paddingHorizontal: t.spacing.sm, paddingVertical: 2 },
-  pillMd: { paddingHorizontal: t.spacing.sm, paddingVertical: t.spacing.xs },
-  text: { fontWeight: '600' },
-  textSm: { fontSize: t.typography.fontSizes.xs },
-  textMd: { fontSize: t.typography.fontSizes.sm },
-});
