@@ -1,12 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { useTableVersion } from '../../hooks/useDataVersion';
 import { Card } from '../ui/Card';
+import { EmptyState } from '../ui/EmptyState';
 import { ACTION_ICONS, actionLabel } from '../ActivityFeed';
 import { getRecentLog } from '../../db/queries/log';
+import { track } from '../../telemetry';
 import type { WidgetConfig } from '../../dashboard/widgets';
 
 // ActivityPreview (role dashboards §2): the last N activity-log entries as a
@@ -40,15 +42,39 @@ export function ActivityPreview({ config }: Props) {
   // Re-read when a pull (or local write) touches the log, like ActivityFeed.
   // users: getRecentLog joins it for user_name, so a rename refreshes too.
   const v = useTableVersion(['activity_log', 'users']);
+  // #195: a THROWING read must not look like "no activity" — erroredRef is
+  // set synchronously inside this useMemo (re-evaluated on every limit/version
+  // change, same lifecycle as `entries`), so render below always reflects the
+  // outcome of the read that produced the current `entries`.
+  const erroredRef = useRef(false);
   const entries = useMemo(() => {
-    try { return getRecentLog(limit); } catch { return []; }
+    try {
+      const rows = getRecentLog(limit);
+      erroredRef.current = false;
+      return rows;
+    } catch {
+      erroredRef.current = true;
+      track('error', 'activity_preview_read_failed', { screen: 'dashboard' });
+      return [];
+    }
   }, [limit, v]);
 
   const title = config?.title?.trim() || 'Recent Activity';
 
-  // #195 (generalizes #144): no activity is a valid, correctly-configured
-  // state — collapse the whole card instead of showing "No activity yet".
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    // #195: a throwing query must stay visible with an error presentation —
+    // collapsing it identically to "nothing to show" hid real failures from
+    // the office. Genuine empty (erroredRef false, generalizes #144) still
+    // collapses the whole card instead of showing "No activity yet".
+    if (erroredRef.current) {
+      return (
+        <Card>
+          <EmptyState icon="⚠️" title={`Couldn't load ${title}`} subtitle="Pull to sync, or check back shortly." />
+        </Card>
+      );
+    }
+    return null;
+  }
 
   return (
     <Card>

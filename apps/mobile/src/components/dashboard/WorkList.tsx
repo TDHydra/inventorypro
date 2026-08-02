@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { Theme } from '../../themes/types';
@@ -8,6 +8,7 @@ import { useReactiveRows } from '../../hooks/useReactiveRows';
 import { PermissionGate } from '../PermissionGate';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
+import { track } from '../../telemetry';
 import type { Permission } from '../../constants/roles';
 import type { WidgetConfig, WorkListSource } from '../../dashboard/widgets';
 import { getOpenJobs } from '../../db/queries/jobs';
@@ -156,20 +157,34 @@ function WorkListCard({ source, config }: { source: WorkListSource; config?: Wid
   const { user } = useSession();
   const def = WORK_LIST_DEFS[source];
   const userId = user?.id ?? '';
-  // Stable read for useReactiveRows; a failed read (fresh DB mid-migration)
-  // yields an empty list → EmptyState, never a crash. useReactiveRows compares
-  // rows by id + updated_at only, so overwrite updated_at with a signature that
-  // also covers the rendered text — otherwise content-only changes (stock count
-  // dropping 5→3 while still low, a service due date moving, a job rename) keep
-  // showing stale rows until membership or the source's updated_at changes.
-  // WorkRow.updated_at is never displayed, only compared.
+  // #195: a THROWING read must not be indistinguishable from a genuine empty
+  // list — erroredRef is set synchronously inside `read` (invoked by
+  // useReactiveRows both on mount and on every reload), so by the time render
+  // checks it below it always reflects the outcome of the read that produced
+  // the current `rows`.
+  const erroredRef = useRef(false);
+  // Stable read for useReactiveRows; a failed read (fresh DB mid-migration, a
+  // bad query) yields an empty list so the hook never throws, but the error
+  // is flagged via erroredRef rather than silently swallowed. useReactiveRows
+  // compares rows by id + updated_at only, so overwrite updated_at with a
+  // signature that also covers the rendered text — otherwise content-only
+  // changes (stock count dropping 5→3 while still low, a service due date
+  // moving, a job rename) keep showing stale rows until membership or the
+  // source's updated_at changes. WorkRow.updated_at is never displayed, only
+  // compared.
   const read = useCallback(() => {
     try {
-      return def.read(userId).map(r => ({
+      const out = def.read(userId).map(r => ({
         ...r,
         updated_at: `${r.updated_at ?? ''}|${r.primary}|${r.secondary ?? ''}`,
       }));
-    } catch { return []; }
+      erroredRef.current = false;
+      return out;
+    } catch {
+      erroredRef.current = true;
+      track('error', 'work_list_read_failed', { screen: 'dashboard', props: { source } });
+      return [];
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- def is static per source
   }, [source, userId]);
   // Scoped to the source's tables — the card is keyed by source (see WorkList),
@@ -180,11 +195,22 @@ function WorkListCard({ source, config }: { source: WorkListSource; config?: Wid
   const shown = rows.slice(0, limit);
   const title = config?.title?.trim() || def.title;
 
-  // #195 (generalizes #144): a correctly-configured source with zero rows
-  // collapses the whole card rather than showing def.emptyTitle — matching the
-  // quick-action blocks. This is distinct from the "misconfigured" branch in
-  // WorkList below (isWorkListSource false), which still renders its EmptyState.
-  if (shown.length === 0) return null;
+  if (shown.length === 0) {
+    // #195: a throwing query must stay visible with an error presentation —
+    // collapsing it identically to "nothing to show" hid real failures from
+    // the office. Genuine empty (erroredRef false) still collapses the whole
+    // card, matching the quick-action blocks (generalizes #144). This is
+    // distinct from the "misconfigured" branch in WorkList below
+    // (isWorkListSource false), which always renders its own EmptyState.
+    if (erroredRef.current) {
+      return (
+        <Card>
+          <EmptyState icon="⚠️" title={`Couldn't load ${title}`} subtitle="Pull to sync, or check back shortly." />
+        </Card>
+      );
+    }
+    return null;
+  }
 
   return (
     <Card>
