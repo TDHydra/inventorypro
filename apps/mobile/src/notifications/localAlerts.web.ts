@@ -19,6 +19,8 @@ import { hasPermission } from '../auth/permissions';
 import { isOverdueRepair } from '../dashboard/quickActions';
 import { getOutboxCounts } from '../sync/outbox';
 import { evaluateSyncStuckAlert, SYNC_STUCK_KEY } from './syncStuckAlert';
+import { listNotifications } from '../db/queries/notifications';
+import { evaluateInboxAlerts, INBOX_SEEN_KEY } from './inboxAlerts';
 
 const LOWSTOCK_PREFIX = 'alert:lowstock:';
 const EXPIRY_PREFIX = 'alert:expiry:';
@@ -111,6 +113,18 @@ export async function runLocalAlertChecks(): Promise<void> {
     } else if (stuck.action === 'clear') {
       deleteAppSetting(SYNC_STUCK_KEY);
     }
+
+    // ── Server inbox (#232) ──────────────────────────────────────────────────
+    // Native devices get these as Expo push; on web the synced inbox would land
+    // silently. Surface rows that arrived since the last check (watermarked, so
+    // a first run / fresh enrollment seeds silently instead of blasting
+    // history; rows read on another device never fire).
+    const inbox = evaluateInboxAlerts(
+      listNotifications(50),
+      getAppSetting(INBOX_SEEN_KEY),
+    );
+    for (const n of inbox.toNotify) notify(n.title, n.body);
+    if (inbox.nextWatermark !== null) setAppSetting(INBOX_SEEN_KEY, inbox.nextWatermark);
 
     // ── Low stock ────────────────────────────────────────────────────────────
     // Only fire if the user may see inventory; but always reconcile the dedup
