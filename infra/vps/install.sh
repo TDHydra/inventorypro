@@ -897,15 +897,66 @@ set -Eeuo pipefail
 COMPOSE="docker compose --project-name inventorypro --env-file /opt/inventorypro/.env -f /opt/inventorypro/app/infra/docker-compose.prod.yml -f /opt/inventorypro/compose.vps.yml"
 cd /opt/inventorypro/app
 git pull --ff-only
+
+# #208: pre-migration safety dump. Migrations run automatically when the new
+# API boots, so snapshot the DB while the OLD containers are still up — a
+# deploy-scoped restore point the nightly backup can't give us. Tagged with
+# the SHA about to be deployed; a failed/empty dump aborts the upgrade.
+# .env is compose-format, not valid bash — pluck keys, never `source` it.
+env_get() { grep -m1 "^$1=" /opt/inventorypro/.env | cut -d= -f2-; }
+PGUSER=$(env_get POSTGRES_USER); PGDB=$(env_get POSTGRES_DB)
+[ -n "$PGUSER" ] && [ -n "$PGDB" ] || { echo "POSTGRES_USER/DB missing from .env" >&2; exit 1; }
+PRE_DIR=/opt/inventorypro/backups/pre-upgrade
+mkdir -p "$PRE_DIR"; chmod 700 "$PRE_DIR"
+umask 077
+sha=$(git rev-parse --short HEAD)
+dump="$PRE_DIR/pre-$(date +%F-%H%M%S)-$sha.dump.gz"
+echo "pre-upgrade DB snapshot → $dump"
+$COMPOSE exec -T postgres pg_dump -U "$PGUSER" -Fc "$PGDB" | gzip >"$dump" \
+  || { echo "pre-upgrade pg_dump failed — aborting upgrade" >&2; exit 1; }
+[ -s "$dump" ] || { echo "pre-upgrade pg_dump produced an empty file — aborting upgrade" >&2; exit 1; }
+# keep the last 5 pre-upgrade snapshots
+ls -1t "$PRE_DIR"/pre-*.dump.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
+
+# #214: remember the images serving right now so a failed health gate can put
+# them back. `compose build` retags :latest, orphaning the old images — the
+# rollback tags keep them alive (pruning happens only after the gate passes).
+api_old=$($COMPOSE images -q api 2>/dev/null || true)
+web_old=$($COMPOSE images -q web 2>/dev/null || true)
+[ -n "$api_old" ] && docker tag "$api_old" inventorypro-api:rollback
+[ -n "$web_old" ] && docker tag "$web_old" inventorypro-web:rollback
+
 $COMPOSE build
 $COMPOSE up -d
-docker image prune -f >/dev/null
 echo "waiting for API health…"
 for i in $(seq 1 60); do
-  curl -fsS -m 5 http://127.0.0.1:3000/health >/dev/null 2>&1 && { echo "OK — upgrade complete"; exit 0; }
+  curl -fsS -m 5 http://127.0.0.1:3000/health >/dev/null 2>&1 && { docker image prune -f >/dev/null; echo "OK — upgrade complete"; exit 0; }
   sleep 5
 done
-echo "API did not come back — check: $COMPOSE logs --tail 50 api" >&2
+
+# #214: health gate failed — don't leave a broken API up. Retag the previous
+# images back to :latest and restart from them. If the new API already ran its
+# migrations, code is now BEHIND schema — restore the matching pre-upgrade
+# snapshot from /opt/inventorypro/backups/pre-upgrade (see docs/BACKUPS.md).
+echo "API did not come back after 5 min — last API logs:" >&2
+$COMPOSE logs --tail 50 api >&2 || true
+if [ -z "$api_old" ]; then
+  echo "no previous image recorded — cannot roll back automatically" >&2
+  exit 1
+fi
+echo "rolling back to previous images…" >&2
+docker tag inventorypro-api:rollback inventorypro-api:latest
+[ -n "$web_old" ] && docker tag inventorypro-web:rollback inventorypro-web:latest
+$COMPOSE up -d --no-build api web
+for i in $(seq 1 24); do
+  curl -fsS -m 5 http://127.0.0.1:3000/health >/dev/null 2>&1 && {
+    echo "ROLLED BACK — previous version is serving again." >&2
+    echo "If the failed deploy ran migrations, also restore the pre-upgrade DB snapshot ($sha) from /opt/inventorypro/backups/pre-upgrade." >&2
+    exit 1
+  }
+  sleep 5
+done
+echo "rollback did not become healthy either — manual intervention required (check: $COMPOSE logs --tail 50 api)" >&2
 exit 1
 EOF
 
