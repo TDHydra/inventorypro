@@ -2,6 +2,13 @@ import { useEffect } from 'react';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { appSyncSheetBus } from '../components/syncSheetBus';
+import { useSession } from '../hooks/useSession';
+import { sendMessage, markConversationRead } from '../db/queries/chat';
+import { loadChatCache } from '../chat/store';
+import { isWriteBlocked } from '../db/maintenance';
+import { syncNow } from '../sync/engine';
+import { track } from '../telemetry';
+import { resolveNotificationAction, CHAT_CATEGORY_ID } from './notificationActions';
 
 // NOTE: the foreground presentation handler (setNotificationHandler) is
 // already configured by `../notifications/localAlerts` (imported from
@@ -78,16 +85,62 @@ function navigateToPayload(router: Router, data: Record<string, unknown> | undef
  */
 export function useNotificationObservers(): void {
   const router = useRouter();
+  const { user } = useSession();
+  const userId = user?.id ?? null;
+
+  // #231: register the chat quick-action category. Idempotent (re-registering
+  // the same id just replaces it), so re-running on remount is harmless. The
+  // category is referenced by categoryId on the server's chat pushes; both
+  // actions run without foregrounding the app.
+  useEffect(() => {
+    void Notifications.setNotificationCategoryAsync(CHAT_CATEGORY_ID, [
+      {
+        identifier: 'chat-reply',
+        buttonTitle: 'Reply',
+        textInput: { submitButtonTitle: 'Send', placeholder: 'Reply…' },
+        options: { opensAppToForeground: false },
+      },
+      {
+        identifier: 'chat-mark-read',
+        buttonTitle: 'Mark read',
+        options: { opensAppToForeground: false },
+      },
+    ]).catch(() => { /* categories unsupported (web) — plain taps still work */ });
+  }, []);
 
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       try {
         const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+        const action = resolveNotificationAction(
+          response.actionIdentifier,
+          Notifications.DEFAULT_ACTION_IDENTIFIER,
+          data,
+          response.userText,
+        );
+        // #231: quick actions write locally + queue through the outbox like any
+        // other chat write; blocked writes (maintenance / preview-as-role) fall
+        // back to opening the conversation instead of silently dropping input.
+        if (action.kind === 'chat-reply' && userId && !isWriteBlocked()) {
+          sendMessage(action.conversationId, userId, action.text);
+          markConversationRead(action.conversationId, userId);
+          loadChatCache(userId);
+          track('action', 'chat_quick_reply', { screen: 'notification' });
+          void syncNow().catch(() => { /* offline — outbox syncs later */ });
+          return;
+        }
+        if (action.kind === 'chat-mark-read' && userId && !isWriteBlocked()) {
+          markConversationRead(action.conversationId, userId);
+          loadChatCache(userId);
+          track('action', 'chat_quick_mark_read', { screen: 'notification' });
+          void syncNow().catch(() => { /* offline — outbox syncs later */ });
+          return;
+        }
         navigateToPayload(router, data);
       } catch {
         /* malformed notification payload — never crash the app over a deep-link */
       }
     });
     return () => subscription.remove();
-  }, [router]);
+  }, [router, userId]);
 }

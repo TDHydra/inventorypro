@@ -8,6 +8,8 @@ export interface PushPayload {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  // #231: notification category (quick actions) registered on-device.
+  categoryId?: string;
 }
 
 export interface ExpoMessage {
@@ -15,6 +17,7 @@ export interface ExpoMessage {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  categoryId?: string;
 }
 
 export interface ChatParticipant { user_id: string; notify_pref: string }
@@ -47,7 +50,8 @@ export function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 export function buildMessages(tokens: string[], p: PushPayload): ExpoMessage[] {
-  return tokens.map(to => ({ to, title: p.title, body: p.body, ...(p.data ? { data: p.data } : {}) }));
+  // #231: categoryId only when set — Expo rejects null category ids.
+  return tokens.map(to => ({ to, title: p.title, body: p.body, ...(p.data ? { data: p.data } : {}), ...(p.categoryId ? { categoryId: p.categoryId } : {}) }));
 }
 
 // Classifies dead tokens from Expo's receipts (the second stage of Expo's

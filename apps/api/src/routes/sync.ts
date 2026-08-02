@@ -1761,7 +1761,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               const isGroup = conv?.kind === 'group';
               const title = isGroup && conv?.title ? conv.title : senderName;
               const pushBody = isGroup ? `${senderName}: ${body}` : body;
-              await sendPush(fastify.pg, recipients, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) } });
+              await sendPush(fastify.pg, recipients, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) }, categoryId: 'chat-message' }); // #231
             } catch { /* never disrupt sync */ }
           })();
         }
