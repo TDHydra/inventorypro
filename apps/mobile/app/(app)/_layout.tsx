@@ -12,6 +12,7 @@ import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../../src/lib/alertBus';
 import { PreviewBanner } from '../../src/components/ui/PreviewBanner';
+import { OfflineBanner } from '../../src/components/ui/OfflineBanner';
 import type { Theme } from '../../src/themes/types';
 import { useTheme } from '../../src/hooks/useTheme';
 import { useThemedStyles } from '../../src/hooks/useThemedStyles';
@@ -89,6 +90,8 @@ export default function AppLayout() {
           crowding any screen's own header. Renders nothing when no preview
           is active. */}
       <PreviewBanner />
+      {/* #215: offline strip — renders nothing while connected. */}
+      <OfflineBanner />
       {maint.locked && (
         <View style={styles.banLocked}>
           <Text style={styles.banLockedText}>⚠ System under maintenance — read-only</Text>
