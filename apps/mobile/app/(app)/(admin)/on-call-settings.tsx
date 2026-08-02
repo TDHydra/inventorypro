@@ -125,6 +125,26 @@ export default function OnCallSettingsScreen() {
                     <Text style={s.rotationName} numberOfLines={1}>
                       {crews.find(c => c.id === id)?.name ?? 'Unknown crew'}
                     </Text>
+                    {/* #216: no-drag fallback — drags are hardest for gloved
+                        fingers; same arrow convention as dashboards.tsx. */}
+                    <TouchableOpacity
+                      onPress={api.moveUp}
+                      disabled={api.isFirst}
+                      style={s.iconBtn}
+                      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                      accessibilityLabel="Move crew up"
+                    >
+                      <Text style={[s.arrow, api.isFirst && s.arrowDisabled]}>▲</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={api.moveDown}
+                      disabled={api.isLast}
+                      style={s.iconBtn}
+                      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                      accessibilityLabel="Move crew down"
+                    >
+                      <Text style={[s.arrow, api.isLast && s.arrowDisabled]}>▼</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => saveRotation(rotation.filter(r => r !== id))}
                       style={s.removeBtn}
@@ -198,6 +218,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   dragGlyph: { fontSize: 18, color: t.colors.textSecondary },
   rotationIndex: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary },
   rotationName: { flex: 1, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
+  iconBtn: { padding: 4 },
+  arrow: { fontSize: 12, color: t.colors.textSecondary, fontWeight: '700' },
+  arrowDisabled: { color: t.colors.textDisabled },
   removeBtn: {
     paddingHorizontal: t.spacing.sm,
     paddingVertical: t.spacing.xs,
