@@ -46,6 +46,7 @@ import { MediaGallery } from '../../../src/components/MediaGallery';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { track } from '../../../src/telemetry';
 import { MAX_QUANTITY, validateText } from '../../../src/lib/validation';
 
@@ -546,7 +547,16 @@ export default function RepairDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Repair', headerShown: true }} />
+      <Stack.Screen
+        options={{
+          title: 'Repair',
+          headerShown: true,
+          // #228: entity-linked chat entry.
+          headerRight: () => (
+            <DiscussThisButton kind="repair" label={repair.entity_label ?? ''} />
+          ),
+        }}
+      />
       <FormScreen contentContainerStyle={s.content}>
         {/* Header */}
         <View style={s.header}>

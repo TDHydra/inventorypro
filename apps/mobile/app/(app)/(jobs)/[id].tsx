@@ -39,6 +39,7 @@ import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { SegmentedControl } from '../../../src/components/ui/SegmentedControl';
 import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { track } from '../../../src/telemetry';
 import { validateName, validateText } from '../../../src/lib/validation';
 
@@ -393,7 +394,16 @@ export default function JobDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: editing ? 'Edit Job' : job.name, headerShown: true }} />
+      <Stack.Screen
+        options={{
+          title: editing ? 'Edit Job' : job.name,
+          headerShown: true,
+          // #228: entity-linked chat entry (hidden while editing).
+          headerRight: editing ? undefined : () => (
+            <DiscussThisButton kind="job" label={job.name} refText={job.job_number ? `#${job.job_number}` : null} />
+          ),
+        }}
+      />
       <FormScreen contentContainerStyle={s.content}>
 
           {editing ? (
