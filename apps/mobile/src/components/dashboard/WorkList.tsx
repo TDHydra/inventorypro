@@ -20,6 +20,7 @@ import { getLowStockItems } from '../../db/queries/items';
 import { getUnitLocations } from '../../db/queries/locations';
 import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
 import { getScheduleAssignmentsForEmployee } from '../../db/queries/schedule';
+import { listConversations } from '../../db/queries/chat';
 import { formatMinute, localTodayIso } from '../schedule/dayMath';
 
 // WorkList (role dashboards §2): a compact card list — title, up to N rows, and
@@ -120,6 +121,22 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       updated_at: u.updated_at ?? null,
     })),
     tables: ['equipment_units', 'inventory_items', 'jobs'],
+  },
+  // #229: conversations with unread messages — row-tap straight into the
+  // chat. No requiredPermission (chat is open to every authenticated user,
+  // same as the Messages tile); collapses when the user is caught up.
+  'unread-chats': {
+    title: 'Unread Messages', icon: '💬', emptyTitle: 'No unread messages',
+    viewAllRoute: '/(app)/(chat)',
+    rowRoute: id => `/(app)/(chat)/${id}`,
+    read: uid => listConversations(uid).filter(c => c.unread > 0).map(c => ({
+      id: c.id,
+      primary: c.kind === 'group' ? (c.title?.trim() || 'Group') : (c.peer_name?.trim() || 'Direct message'),
+      secondary: `${c.unread} unread${c.last_body ? ` · ${c.last_body}` : ''}`,
+      updated_at: c.last_at,
+    })),
+    // users: peer names resolved in listConversations' subquery.
+    tables: ['messages', 'conversations', 'conversation_participants', 'users'],
   },
   'open-jobs': {
     title: 'Open Jobs', icon: '🏗', emptyTitle: 'No open jobs',

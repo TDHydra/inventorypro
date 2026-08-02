@@ -32,6 +32,8 @@ const CREW_LAYOUT: Layout = [
   { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'vehicles-available', 'shared-media'] } },
   // #207: today's schedule leads — where to be and when, then the job list.
   { widget: 'work-list', width: 'full', config: { source: 'my-schedule-today' } },
+  // #229: unread chats — collapses when caught up.
+  { widget: 'work-list', width: 'full', config: { source: 'unread-chats' } },
   // #160: jobs assigned to me (directly or via my crew).
   { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
   { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
@@ -57,6 +59,8 @@ const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'schedule-gaps', width: 'full' },
   // #223: recovery list — renders only when a closed job still has gear on it.
   { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
+  // #229: unread chats — collapses when caught up.
+  { widget: 'work-list', width: 'full', config: { source: 'unread-chats' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'low-stock', width: 'full' },
   { widget: 'activity-preview', width: 'full' },
@@ -94,6 +98,8 @@ const ADMIN_LAYOUT: Layout = composeLayout(
   { widget: 'my-checkouts', width: 'full' },
   // #223: recovery list — renders only when a closed job still has gear on it.
   { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
+  // #229: unread chats — collapses when caught up.
+  { widget: 'work-list', width: 'full', config: { source: 'unread-chats' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'activity-preview', width: 'full' },
   // #227: the week's action counts right under the last-5 ticker.

@@ -12,7 +12,7 @@ const STAT_SOURCES: StatSource[] = [
   'vehicles-available', 'shared-media', 'scheduled-today',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
-  'my-equipment', 'my-jobs', 'my-schedule-today', 'stranded-equipment', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
+  'my-equipment', 'my-jobs', 'my-schedule-today', 'stranded-equipment', 'unread-chats', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
 ];
 
 // --- §3: every one of the 14 roles ships a starter layout --------------------
@@ -63,7 +63,7 @@ test('crew roles lead with the fast checkout/check-in pair and list "My jobs" + 
     assert.ok(widgets.includes('on-call'), `${role}: on-call present`);
     const sources = layout.filter(b => b.widget === 'work-list').map(b => b.config?.source);
     // #207: today's schedule leads; #160: my-jobs, then my-equipment.
-    assert.deepEqual(sources, ['my-schedule-today', 'my-jobs', 'my-equipment'], `${role}: schedule + my-jobs + my-equipment work lists`);
+    assert.deepEqual(sources, ['my-schedule-today', 'unread-chats', 'my-jobs', 'my-equipment'], `${role}: schedule + unread chats + my-jobs + my-equipment work lists`); // #229
   }
 });
 
@@ -97,7 +97,7 @@ test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles +
     // #223: the stranded-equipment recovery list leads (collapses when empty),
     // then the org-wide open-jobs list.
     const sources = layout.filter(b => b.widget === 'work-list').map(b => b.config?.source);
-    assert.deepEqual(sources, ['stranded-equipment', 'open-jobs'], `${role}: recovery + open jobs lists`);
+    assert.deepEqual(sources, ['stranded-equipment', 'unread-chats', 'open-jobs'], `${role}: recovery + unread chats + open jobs lists`); // #229
     assert.ok(!layout.some(b => b.config?.source === 'my-jobs'), `${role}: managers keep the org-wide list`);
     const widgets = layout.map(b => b.widget);
     assert.ok(widgets.includes('activity-preview'), `${role}: activity preview`);

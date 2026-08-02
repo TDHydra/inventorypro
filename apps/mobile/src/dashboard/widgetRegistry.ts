@@ -53,6 +53,7 @@ export type WorkListSource =
   | 'my-jobs'            // getMyAssignedJobs (#160: direct or via my crew)
   | 'my-schedule-today'  // #207: getScheduleAssignmentsForEmployee(uid, today)
   | 'stranded-equipment' // #223: getUnitsStrandedOnClosedJobs — deployed units on closed jobs
+  | 'unread-chats'       // #229: listConversations filtered to unread > 0
   | 'open-jobs'
   | 'open-repairs'
   | 'units-due-service'

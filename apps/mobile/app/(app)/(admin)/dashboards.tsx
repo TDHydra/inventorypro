@@ -105,6 +105,7 @@ const WORK_LIST_SOURCE_LABELS: Record<WorkListSource, string> = {
   'my-jobs': 'My Jobs',
   'my-schedule-today': 'My Schedule Today',
   'stranded-equipment': 'Left on Closed Jobs',
+  'unread-chats': 'Unread Messages',
   'open-jobs': 'Open Jobs',
   'open-repairs': 'Open Repairs',
   'units-due-service': 'Due for Service',
