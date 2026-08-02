@@ -18,6 +18,8 @@ import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { PermissionGate } from '../../../src/components/PermissionGate';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { MaintenanceBanner } from '../../../src/components/ui/MaintenanceBanner';
@@ -52,6 +54,11 @@ export default function TeamDetailScreen() {
   const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user, realUser } = useSession();
+  // #197/#198: previously this screen only checked team membership/org
+  // authority (the deep-link guard below) — a role with view_teams
+  // unchecked still saw teams it belonged to. Gate on the permission first,
+  // before the membership check even runs.
+  const canView = usePermission('view_teams');
   const { locked } = useMaintenanceMode();
   const router = useRouter();
 
@@ -449,6 +456,18 @@ export default function TeamDetailScreen() {
     }
     setCrews(getSubteamsForTeam(team.id));
     setMembers(getTeamMembers(team.id));
+  }
+
+  // ── Permission gate ────────────────────────────────────────────────────────
+  // Checked before "not found" so a denied role never learns whether the id
+  // even resolves to a real team.
+  if (!canView) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Team', headerShown: true }} />
+        <PermissionGate permission="view_teams" mode="screen" />
+      </>
+    );
   }
 
   // ── Not found ──────────────────────────────────────────────────────────────
