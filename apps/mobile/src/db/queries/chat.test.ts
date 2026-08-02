@@ -27,6 +27,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 let chat: typeof import('./chat');
+let maintenance: typeof import('../maintenance');
 
 const ALICE = 'user-alice';
 const BOB = 'user-bob';
@@ -75,8 +76,58 @@ before(async () => {
   `);
   exec(`INSERT INTO users (id, name) VALUES (?, ?), (?, ?)`, [ALICE, 'Alice', BOB, 'Bob']);
   chat = requireCjs('./chat') as typeof import('./chat');
+  maintenance = requireCjs('../maintenance') as typeof import('../maintenance');
   convId = chat.createDmConversation(ALICE, BOB);
   clearOutbox(); // conversation-creation ops aren't under test
+});
+
+// #203: PermissionGate's "Request access" toast action and SyncIndicator's
+// handleRequestAccess called createDmConversation with no isWriteBlocked()
+// pre-check, and createDmConversation itself did a raw local INSERT into
+// conversations BEFORE appendOutbox (the only place assertWritable() throws)
+// — so a blocked write left an orphaned, participant-less conversations row
+// behind an uncaught MaintenanceLockedError. createDmConversation now runs its
+// whole insert flow inside runInTransaction, so the throw rolls everything
+// back. (setPreviewWriteBlock is the #199 in-module flag exercised the same
+// way maintenance.test.ts does — this test double's app_config table is real
+// but empty, so toggling actual maintenance mode isn't needed to prove this.)
+test('#203: a write-blocked createDmConversation leaves zero local rows and throws (not an uncaught orphan write)', () => {
+  const CAROL = 'user-carol';
+  exec(`INSERT INTO users (id, name) VALUES (?, ?)`, [CAROL, 'Carol']);
+  assert.equal(chat.findDmConversation(ALICE, CAROL), null, 'sanity: no DM exists yet for this pair');
+
+  maintenance.setPreviewWriteBlock(true);
+  try {
+    assert.throws(
+      () => chat.createDmConversation(ALICE, CAROL),
+      (err: unknown) => err instanceof maintenance.MaintenanceLockedError,
+    );
+  } finally {
+    maintenance.setPreviewWriteBlock(false);
+  }
+
+  // No orphaned conversations row for this pair...
+  assert.equal(chat.findDmConversation(ALICE, CAROL), null);
+  const convRows = exec(
+    `SELECT COUNT(*) AS cnt FROM conversations WHERE created_by = ? AND id NOT IN (SELECT id FROM conversations WHERE id = ?)`,
+    [ALICE, convId],
+  ).rows as { cnt: number }[];
+  assert.equal(convRows[0].cnt, 0, 'the blocked attempt must not leave a second conversations row');
+  // ...and no orphaned participant row either (the #203 hazard: a
+  // participant-less conversations row, or vice versa).
+  const partRows = exec(
+    `SELECT COUNT(*) AS cnt FROM conversation_participants WHERE user_id = ?`,
+    [CAROL],
+  ).rows as { cnt: number }[];
+  assert.equal(partRows[0].cnt, 0, 'a blocked write must not leave an orphaned participant row');
+  // ...and no queued outbox entries for the rolled-back attempt.
+  assert.equal(outboxEntries().length, 0, 'the blocked attempt must not queue any outbox entries');
+
+  // Once unblocked, the exact same call succeeds normally (proves the guard
+  // doesn't permanently wedge the table/insert path).
+  const newConvId = chat.createDmConversation(ALICE, CAROL);
+  assert.ok(newConvId);
+  assert.equal(chat.findDmConversation(ALICE, CAROL), newConvId);
 });
 
 test('editMessage sets body + edited_at locally and queues an outbox UPDATE op', () => {

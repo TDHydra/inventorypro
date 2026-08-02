@@ -254,8 +254,18 @@ export default function DashboardScreen() {
     if (HIDDEN_TILES.has(block.widget)) {
       return <PermissionGate key={key} permission={def.requiredPermission}>{tile}</PermissionGate>;
     }
+    // #197: mirror the ungated branch's flex fix above — pass the tile's own
+    // half-width flex:1 through to PermissionGate's wrapper Views so a
+    // gated-but-disabled half tile still splits 50/50 with its sibling
+    // instead of collapsing to content width.
     return (
-      <PermissionGate key={key} permission={def.requiredPermission} mode="disable" compact>
+      <PermissionGate
+        key={key}
+        permission={def.requiredPermission}
+        mode="disable"
+        compact
+        style={block.width === 'half' ? s.tileHalf : undefined}
+      >
         {tile}
       </PermissionGate>
     );

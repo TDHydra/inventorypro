@@ -1,6 +1,7 @@
 import { getDb, rowsAs, bindParams } from '../schema';
 import { appendOutbox } from '../../sync/outbox';
 import { generateUUID } from '../../utils/uuid';
+import { runInTransaction } from '../tx';
 
 // Offline-first chat queries (migration 034, mirrors API migration 040). Every
 // write follows the taxonomy.ts pattern: apply the row locally, then queue the
@@ -91,23 +92,33 @@ export function findDmConversation(currentUserId: string, otherUserId: string): 
 }
 
 // Create (or reuse) a 1:1 DM with `otherUserId`. Returns the conversation id.
+//
+// #203: the whole insert flow runs inside runInTransaction so a write-blocked
+// caller (maintenance mode / session preview) rolls back cleanly instead of
+// leaving an orphaned, participant-less `conversations` row — appendOutbox's
+// assertWritable() is the only place that throws, and previously it fired
+// AFTER the raw `conversations` INSERT had already committed with nothing to
+// undo it. Callers still see the same thrown MaintenanceLockedError; they must
+// pre-check isWriteBlocked() or catch it, same as every other write path.
 export function createDmConversation(currentUserId: string, otherUserId: string): string {
   const existing = findDmConversation(currentUserId, otherUserId);
   if (existing) return existing;
   const id = generateUUID();
   const now = new Date().toISOString();
-  const db = getDb();
-  db.executeSync(
-    `INSERT OR REPLACE INTO conversations (id, kind, title, created_by, created_at, updated_at)
-     VALUES (?, 'dm', NULL, ?, ?, ?)`,
-    [id, currentUserId, now, now],
-  );
-  appendOutbox('INSERT', 'conversations', {
-    id, kind: 'dm', title: null, created_by: currentUserId, created_at: now, updated_at: now,
+  return runInTransaction(() => {
+    const db = getDb();
+    db.executeSync(
+      `INSERT OR REPLACE INTO conversations (id, kind, title, created_by, created_at, updated_at)
+       VALUES (?, 'dm', NULL, ?, ?, ?)`,
+      [id, currentUserId, now, now],
+    );
+    appendOutbox('INSERT', 'conversations', {
+      id, kind: 'dm', title: null, created_by: currentUserId, created_at: now, updated_at: now,
+    });
+    insertParticipantLocal(id, currentUserId, now);
+    insertParticipantLocal(id, otherUserId, now);
+    return id;
   });
-  insertParticipantLocal(id, currentUserId, now);
-  insertParticipantLocal(id, otherUserId, now);
-  return id;
 }
 
 // Create a group conversation with a title and member ids (the creator is added
