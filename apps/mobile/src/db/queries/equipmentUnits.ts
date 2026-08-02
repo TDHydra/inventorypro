@@ -150,6 +150,22 @@ export function getCloseoutBlockers(jobIds: string[]): { deployedUnits: number; 
   return { deployedUnits, openRepairs };
 }
 
+// #223: the recovery view of the #212 gap — units still pointing at a job
+// that has since been closed (via "close anyway" or a close from another
+// device). Deployed-only: retired/in_repair units keep their job pointer as
+// history and aren't recoverable field gear.
+export function getUnitsStrandedOnClosedJobs(): (EquipmentUnit & { item_name: string; job_name: string; job_number: number | null })[] {
+  const db = getDb();
+  return db.executeSync(
+    `SELECT eu.*, i.name AS item_name, j.name AS job_name, j.job_number
+     FROM equipment_units eu
+     JOIN inventory_items i ON i.id = eu.item_id
+     JOIN jobs j ON j.id = eu.current_job_id
+     WHERE eu.status = 'deployed' AND j.status = 'closed'
+     ORDER BY j.updated_at DESC, eu.asset_tag`
+  ).rows as any[];
+}
+
 // #212: human copy for the guard's ConfirmSheet — zero buckets are omitted.
 export function describeCloseoutBlockers(b: { deployedUnits: number; openRepairs: number }): string {
   const parts: string[] = [];

@@ -13,7 +13,7 @@ import type { Permission } from '../../constants/roles';
 import type { WidgetConfig, WorkListSource } from '../../dashboard/widgets';
 import { getOpenJobs } from '../../db/queries/jobs';
 import { getMyAssignedJobs } from '../../db/queries/jobAssignments';
-import { getDeployedUnitsForUser } from '../../db/queries/equipmentUnits';
+import { getDeployedUnitsForUser, getUnitsStrandedOnClosedJobs } from '../../db/queries/equipmentUnits';
 import { getRepairs } from '../../db/queries/repairs';
 import { getUnitsDueForService } from '../../db/queries/maintenance';
 import { getLowStockItems } from '../../db/queries/items';
@@ -105,6 +105,21 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
     })),
     // users: employee/manager names resolved in VIEW_SELECT's joins.
     tables: ['schedule_assignments', 'jobs', 'users'],
+  },
+  // #223: deployed units whose job has since been closed — the recovery view
+  // of the gap the #212 "close anyway" confirm knowingly allows. Permission
+  // mirrors the equipment tile it taps through to. Collapses when empty
+  // (WorkListCard renders null), so it costs no space on a healthy org.
+  'stranded-equipment': {
+    title: 'Left on Closed Jobs', icon: '🚨', emptyTitle: 'No stranded equipment',
+    viewAllRoute: '/(app)/(equipment)', requiredPermission: 'add_inventory',
+    read: () => getUnitsStrandedOnClosedJobs().map(u => ({
+      id: u.id,
+      primary: `${u.item_name} · ${u.asset_tag}`,
+      secondary: u.job_number ? `Closed job #${u.job_number} · ${u.job_name}` : `Closed job: ${u.job_name}`,
+      updated_at: u.updated_at ?? null,
+    })),
+    tables: ['equipment_units', 'inventory_items', 'jobs'],
   },
   'open-jobs': {
     title: 'Open Jobs', icon: '🏗', emptyTitle: 'No open jobs',

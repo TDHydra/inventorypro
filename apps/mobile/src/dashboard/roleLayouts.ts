@@ -52,6 +52,8 @@ const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
   { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'] } },
+  // #223: recovery list — renders only when a closed job still has gear on it.
+  { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'low-stock', width: 'full' },
   { widget: 'activity-preview', width: 'full' },
@@ -85,6 +87,8 @@ const ADMIN_LAYOUT: Layout = composeLayout(
   { widget: 'checkout', width: 'full' },
   { widget: 'checkin', width: 'full' },
   { widget: 'my-checkouts', width: 'full' },
+  // #223: recovery list — renders only when a closed job still has gear on it.
+  { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'activity-preview', width: 'full' },
   { widget: 'quick-add', width: 'full' },

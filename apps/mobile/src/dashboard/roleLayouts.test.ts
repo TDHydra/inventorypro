@@ -12,7 +12,7 @@ const STAT_SOURCES: StatSource[] = [
   'vehicles-available', 'shared-media',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
-  'my-equipment', 'my-jobs', 'my-schedule-today', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
+  'my-equipment', 'my-jobs', 'my-schedule-today', 'stranded-equipment', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
 ];
 
 // --- §3: every one of the 14 roles ships a starter layout --------------------
@@ -92,7 +92,10 @@ test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles +
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
     const stats = layout.find(b => b.widget === 'stat-tiles')?.config?.stats;
     assert.deepEqual(stats, ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'], `${role}: stat set`);
-    assert.equal(layout.find(b => b.widget === 'work-list')?.config?.source, 'open-jobs', `${role}: open jobs list`);
+    // #223: the stranded-equipment recovery list leads (collapses when empty),
+    // then the org-wide open-jobs list.
+    const sources = layout.filter(b => b.widget === 'work-list').map(b => b.config?.source);
+    assert.deepEqual(sources, ['stranded-equipment', 'open-jobs'], `${role}: recovery + open jobs lists`);
     assert.ok(!layout.some(b => b.config?.source === 'my-jobs'), `${role}: managers keep the org-wide list`);
     const widgets = layout.map(b => b.widget);
     assert.ok(widgets.includes('activity-preview'), `${role}: activity preview`);
