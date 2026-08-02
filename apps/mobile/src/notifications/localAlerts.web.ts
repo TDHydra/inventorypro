@@ -17,6 +17,8 @@ import { isTerminalStatus } from '../db/queries/taxonomy';
 import { getSavedUserId, buildUserSession } from '../auth/session';
 import { hasPermission } from '../auth/permissions';
 import { isOverdueRepair } from '../dashboard/quickActions';
+import { getOutboxCounts } from '../sync/outbox';
+import { evaluateSyncStuckAlert, SYNC_STUCK_KEY } from './syncStuckAlert';
 
 const LOWSTOCK_PREFIX = 'alert:lowstock:';
 const EXPIRY_PREFIX = 'alert:expiry:';
@@ -92,6 +94,23 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (!userId) return;
     const session = buildUserSession(userId);
     if (!session) return;
+
+    // ── Sync stuck (#205) ────────────────────────────────────────────────────
+    // Not permission-scoped: the outbox is this device's own unsynced work.
+    // Single aggregate alert — fires when the failed (retry-exhausted) bucket
+    // becomes non-empty, clears when it drains so a later failure can re-fire.
+    // No tap deep-link on web (browser Notification carries no data payload
+    // handler here); the alert itself is the parity that matters.
+    const stuck = evaluateSyncStuckAlert(
+      getOutboxCounts().failed,
+      getAppSetting(SYNC_STUCK_KEY) !== null
+    );
+    if (stuck.action === 'notify') {
+      notify('Sync needs attention', stuck.body ?? '');
+      setAppSetting(SYNC_STUCK_KEY, '1');
+    } else if (stuck.action === 'clear') {
+      deleteAppSetting(SYNC_STUCK_KEY);
+    }
 
     // ── Low stock ────────────────────────────────────────────────────────────
     // Only fire if the user may see inventory; but always reconcile the dedup

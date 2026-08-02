@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
+import { appSyncSheetBus } from '../components/syncSheetBus';
 
 // NOTE: the foreground presentation handler (setNotificationHandler) is
 // already configured by `../notifications/localAlerts` (imported from
@@ -50,6 +51,14 @@ function navigateToPayload(router: Router, data: Record<string, unknown> | undef
     case 'notifications':
       // broadcast / approval / checkout-idle pushes open the in-app inbox
       router.push('/(app)/(notifications)');
+      return;
+    case 'sync':
+      // #205 sync-stuck local alert: land on the dashboard, then ask the
+      // SyncIndicator (mounted in the app header) to open its sheet. The bus
+      // holds the request if the tap arrives before the indicator mounts
+      // (cold start straight from the notification).
+      router.push('/(app)/(dashboard)');
+      appSyncSheetBus.requestOpen();
       return;
     case 'dashboard':
     default:

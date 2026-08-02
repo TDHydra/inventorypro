@@ -13,6 +13,7 @@ import { createDmConversation } from '../db/queries/chat';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { appSyncSheetBus } from './syncSheetBus';
 
 type SyncStatus = 'synced' | 'pending' | 'failed' | 'denied' | 'offline';
 
@@ -38,6 +39,16 @@ export function SyncIndicator() {
     const interval = setInterval(refresh, 5000);
     refresh();
     return () => clearInterval(interval);
+  }, []);
+
+  // #205: a sync-stuck notification tap requests this sheet open (via
+  // push/handlers.ts); the bus holds a pre-mount request until we register.
+  useEffect(() => {
+    appSyncSheetBus.setListener(() => {
+      refresh();
+      setShowSheet(true);
+    });
+    return () => appSyncSheetBus.setListener(null);
   }, []);
 
   function refresh() {

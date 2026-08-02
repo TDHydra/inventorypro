@@ -14,6 +14,8 @@ import { isTerminalStatus } from '../db/queries/taxonomy';
 import { getSavedUserId, buildUserSession } from '../auth/session';
 import { hasPermission } from '../auth/permissions';
 import { isOverdueRepair } from '../dashboard/quickActions';
+import { getOutboxCounts } from '../sync/outbox';
+import { evaluateSyncStuckAlert, SYNC_STUCK_KEY } from './syncStuckAlert';
 
 // ── Foreground handler (set once at module load) ─────────────────────────────
 // Show an alert + play a sound when a notification arrives while the app is in
@@ -94,6 +96,31 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (!userId) return;
     const session = buildUserSession(userId);
     if (!session) return;
+
+    // ── Sync stuck (#205) ────────────────────────────────────────────────────
+    // Not permission-scoped: the outbox is this device's own unsynced work.
+    // Single aggregate alert (one dedup key, no per-entity suffix): fires when
+    // the failed (attempts >= MAX, silently dropped from retry) bucket becomes
+    // non-empty, clears when it drains so a later failure can re-fire. Runs
+    // after each sync cycle, so the count is fresh. Tap deep-links via
+    // data.screen 'sync' (push/handlers.ts) into the SyncIndicator sheet.
+    const stuck = evaluateSyncStuckAlert(
+      getOutboxCounts().failed,
+      getAppSetting(SYNC_STUCK_KEY) !== null
+    );
+    if (stuck.action === 'notify') {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Sync needs attention",
+          body: stuck.body,
+          data: { screen: 'sync' },
+        },
+        trigger: null,
+      });
+      setAppSetting(SYNC_STUCK_KEY, '1');
+    } else if (stuck.action === 'clear') {
+      deleteAppSetting(SYNC_STUCK_KEY);
+    }
 
     // ── Low stock ────────────────────────────────────────────────────────────
     // Only fire if the user may see inventory; but always reconcile the dedup
