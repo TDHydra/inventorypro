@@ -4,6 +4,7 @@ import { modern } from './modern';
 import { classic } from './classic';
 import { fluid } from './fluid';
 import { futuristic } from './futuristic';
+import { field } from './field';
 
 export { createTheme } from './createTheme';
 
@@ -18,6 +19,7 @@ export const themes: Record<string, Theme> = {
   classic,
   fluid,
   futuristic,
+  field,
 };
 
 // Dev-only coverage probe (garish values — unmigrated surfaces scream).
