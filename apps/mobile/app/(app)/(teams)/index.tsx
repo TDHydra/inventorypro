@@ -12,6 +12,7 @@ import { appendLog } from '../../../src/db/queries/log';
 import { runInTransaction } from '../../../src/db/tx';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { PermissionGate } from '../../../src/components/PermissionGate';
 import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/db/queries/taxonomy';
 import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
@@ -32,6 +33,11 @@ export default function TeamsScreen() {
   const router = useRouter();
   const { user, realUser } = useSession();
   const canManage = usePermission('manage_teams');
+  // #197/#198: previously only the dashboard's "Teams" tile was locked by
+  // view_teams — the screen itself, search results, and deep links all
+  // routed straight in regardless. Gate the whole screen here so every entry
+  // point is covered by construction.
+  const canView = usePermission('view_teams');
 
   const [showCreate, setShowCreate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -164,6 +170,18 @@ export default function TeamsScreen() {
           </View>
         </Card>
       </TouchableOpacity>
+    );
+  }
+
+  // #197/#198: view_teams gates the whole screen, not just the dashboard
+  // tile — checked before any team content renders. Defaults true for every
+  // role tier (src/constants/roles.ts), so no existing user loses access.
+  if (!canView) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Teams', headerShown: true }} />
+        <PermissionGate permission="view_teams" mode="screen" />
+      </>
     );
   }
 

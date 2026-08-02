@@ -11,6 +11,7 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { PermissionGate } from '../../../src/components/PermissionGate';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
@@ -41,6 +42,11 @@ export default function LocationsScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const canManage = usePermission('manage_locations');
+  // #197/#198: previously only the dashboard's "Locations" tile was locked by
+  // view_locations — the screen itself, search results, and deep links all
+  // routed straight in regardless. Gate the whole screen here so every entry
+  // point is covered by construction.
+  const canView = usePermission('view_locations');
   const router = useRouter();
   const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
@@ -362,6 +368,18 @@ export default function LocationsScreen() {
           </View>
         )}
       </View>
+    );
+  }
+
+  // #197/#198: view_locations gates the whole screen, not just the dashboard
+  // tile — checked before any location content renders. Defaults true for
+  // every role tier (src/constants/roles.ts), so no existing user loses access.
+  if (!canView) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Locations', headerShown: true }} />
+        <PermissionGate permission="view_locations" mode="screen" />
+      </>
     );
   }
 
