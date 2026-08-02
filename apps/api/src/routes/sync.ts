@@ -1872,6 +1872,46 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       })();
     }
 
+    // #230: schedule-change notifications — one per affected (employee, day)
+    // pair among this batch's committed schedule_assignments writes, resolved
+    // from the DB (an UPDATE payload may not carry employee_id/day). Deduped
+    // per source outbox entry via claimEvent so a retried push (whose entries
+    // short-circuit through processed_outbox into `ok`) can't re-notify.
+    // Self-scheduling never notifies. Fire-and-forget, like every other
+    // post-batch notifier here.
+    const okIds = new Set(ok);
+    const schedEntries = entries.filter(e => okIds.has(e.id)
+      && e.table_name === 'schedule_assignments'
+      && (e.operation === 'INSERT' || e.operation === 'UPDATE'));
+    if (schedEntries.length > 0) {
+      void (async () => {
+        try {
+          if (!(await getNotifyConfig(fastify.pg)).enabled) return;
+          const rowIds: string[] = [];
+          for (const e of schedEntries) {
+            if (!(await claimEvent(fastify.pg, dedupKeys.sched(String(e.id))))) continue;
+            if (e.payload.id != null) rowIds.push(String(e.payload.id));
+          }
+          if (!rowIds.length) return;
+          const { rows } = await fastify.pg.query(
+            `SELECT DISTINCT employee_id, day FROM schedule_assignments WHERE id = ANY($1)`,
+            [rowIds]);
+          for (const r of rows as { employee_id: string; day: string }[]) {
+            if (String(r.employee_id) === userId) continue;
+            const recipients = await resolveRecipients(fastify.pg, 'schedule', { userId: String(r.employee_id), actorId: userId });
+            if (!recipients.length) continue;
+            await deliver(fastify.pg, recipients, {
+              type: 'schedule',
+              title: 'Schedule updated',
+              body: `Your schedule for ${r.day} changed.`,
+              data: { screen: 'schedule', day: r.day },
+              createdBy: userId,
+            });
+          }
+        } catch { /* never disrupt sync */ }
+      })();
+    }
+
     // Threshold auto-flag: any large (|qty| >= approval_threshold_qty) stock movement
     // committed this batch auto-files a review approval_request + notifies approvers.
     // Non-blocking — the movement already applied; this is a post-hoc review flag.

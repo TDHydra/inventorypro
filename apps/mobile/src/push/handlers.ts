@@ -48,6 +48,10 @@ function navigateToPayload(router: Router, data: Record<string, unknown> | undef
       if (id) router.push({ pathname: '/(app)/(media)', params: { id } });
       else router.push('/(app)/(media)');
       return;
+    case 'schedule':
+      // #230: schedule-change push lands on the schedule board.
+      router.push('/(app)/(schedule)');
+      return;
     case 'notifications':
       // broadcast / approval / checkout-idle pushes open the in-app inbox
       router.push('/(app)/(notifications)');
