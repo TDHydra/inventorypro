@@ -14,6 +14,7 @@ import { TEST_SESSION_FLAG } from '../src/auth/finishLogin';
 import { setSandboxActive } from '../src/sync/sandbox';
 import { stopLocation } from '../src/location/positionCache';
 import { startSyncEngine, stopSyncEngine } from '../src/sync/engine';
+import { installOfflineSaveToast } from '../src/sync/installOfflineSaveToast';
 import { loadClassConfigCache } from '../src/constants/units';
 import { loadRolePermissionCache } from '../src/auth/permissions';
 import { loadDashboardCache } from '../src/dashboard/store';
@@ -99,6 +100,9 @@ export default function RootLayout() {
         loadDashboardCache();
         void getSavedUserId().then(id => loadChatCache(id));
         startSyncEngine();
+        // #218: offline "Saved — will sync" toast (subscribes to committed
+        // outbox appends; lives for the app's lifetime like the engine).
+        installOfflineSaveToast();
         // Notifications: create the Android channel, then (unless the user has
         // turned the pref off) make sure we hold OS permission so post-sync
         // alert checks can actually surface.
