@@ -51,7 +51,8 @@ const CREW_LAYOUT: Layout = [
 const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'] } },
+  // #225: scheduled-today leads the manager stat row — coverage first.
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['scheduled-today', 'open-jobs', 'open-repairs', 'low-stock', 'shared-media'] } },
   // #224: unscheduled-crew card — renders only with manage_schedule AND gaps.
   { widget: 'schedule-gaps', width: 'full' },
   // #223: recovery list — renders only when a closed job still has gear on it.
@@ -78,7 +79,7 @@ const TIER2_MANAGER_LAYOUT: Layout = [
 // metadata (#189/#190/#191) — byte-identical to DEFAULT_LAYOUT's runs (see
 // widgets.ts), since both call the SAME buildSection().
 const ADMIN_LAYOUT: Layout = composeLayout(
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'open-repairs', 'units-due-service', 'shared-media'] } },
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['scheduled-today', 'open-jobs', 'low-stock', 'open-repairs', 'shared-media'] } },
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },

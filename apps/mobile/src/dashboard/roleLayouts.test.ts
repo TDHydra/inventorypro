@@ -9,7 +9,7 @@ const ALL_ROLES = Object.keys(ROLE_TIER) as UserRole[];
 
 const STAT_SOURCES: StatSource[] = [
   'my-checkouts', 'open-repairs', 'units-due-service', 'low-stock', 'open-jobs', 'team-members',
-  'vehicles-available', 'shared-media',
+  'vehicles-available', 'shared-media', 'scheduled-today',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
   'my-equipment', 'my-jobs', 'my-schedule-today', 'stranded-equipment', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
@@ -91,7 +91,9 @@ test('tier-2 managers KEEP the open-jobs list (not my-jobs) + 4 org stat tiles +
   for (const role of managers) {
     const layout = ROLE_DEFAULT_LAYOUTS[role]!;
     const stats = layout.find(b => b.widget === 'stat-tiles')?.config?.stats;
-    assert.deepEqual(stats, ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'], `${role}: stat set`);
+    // #225: scheduled-today coverage leads; units-due-service moved out to
+    // keep the row at 5 tiles (it stays available via Due Service list/preset).
+    assert.deepEqual(stats, ['scheduled-today', 'open-jobs', 'open-repairs', 'low-stock', 'shared-media'], `${role}: stat set`);
     // #223: the stranded-equipment recovery list leads (collapses when empty),
     // then the org-wide open-jobs list.
     const sources = layout.filter(b => b.widget === 'work-list').map(b => b.config?.source);

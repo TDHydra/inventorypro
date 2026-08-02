@@ -44,7 +44,8 @@ export type StatSource =
   | 'open-jobs'          // getOpenJobs
   | 'team-members'       // getAllActiveUsers
   | 'vehicles-available' // #177: vehicle locations passing isVehicleAvailableForCheckout
-  | 'shared-media';      // pool photos shared to me (getSharedPoolMediaCount)
+  | 'shared-media'       // pool photos shared to me (getSharedPoolMediaCount)
+  | 'scheduled-today';   // #225: crew with a slot on today's board, as scheduled/total
 
 // Row sources a `work-list` block can show.
 export type WorkListSource =

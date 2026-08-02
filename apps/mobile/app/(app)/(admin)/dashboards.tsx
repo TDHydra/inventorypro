@@ -95,6 +95,7 @@ const STAT_SOURCE_LABELS: Record<StatSource, string> = {
   'team-members': 'Team Members',
   'vehicles-available': 'Vehicles Available',
   'shared-media': 'Shared Media',
+  'scheduled-today': 'Scheduled Today',
 };
 const STAT_SOURCES = Object.keys(STAT_SOURCE_LABELS) as StatSource[];
 
