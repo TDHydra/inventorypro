@@ -538,9 +538,14 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'equipment_units') return canViewFinancial ? EQUIPMENT_UNITS_BASE + EQUIPMENT_UNITS_SENSITIVE : EQUIPMENT_UNITS_BASE;
   if (table === 'maintenance_events') return canViewFinancial ? MAINTENANCE_EVENTS_BASE + MAINTENANCE_EVENTS_SENSITIVE : MAINTENANCE_EVENTS_BASE;
   if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
-  // dashboard_prefs (#193/#196, migration 075): personal layout + starred
-  // widgets JSON blob — same self-scoped projection as theme.
-  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
+  // dashboard_layout/starred_widgets (#193/#196, migration 076): split out of
+  // the single dashboard_prefs blob (migration 075) so each field syncs via
+  // its own column-scoped upsert instead of a read-merge-write of one JSON
+  // column (see mobile db/userPrefs.ts for the clobber this fixes).
+  // dashboard_prefs stays in the projection too — the column is dead, never
+  // dropped, kept here only so a client's full-row REPLACE on pull can't wipe
+  // it as a rollback safety net. Same self-scoped projection as theme.
+  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;
