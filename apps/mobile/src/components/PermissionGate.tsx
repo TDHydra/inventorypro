@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePermission } from '../hooks/usePermission';
 import { useSession } from '../hooks/useSession';
@@ -9,6 +9,7 @@ import { useThemedStyles } from '../hooks/useThemedStyles';
 import { appToastBus } from '../lib/toastBus';
 import { pickAccessGrantor } from '../auth/pickAccessGrantor';
 import { createDmConversation } from '../db/queries/chat';
+import { isWriteBlocked } from '../db/maintenance';
 
 interface Props {
   permission: Permission;
@@ -33,13 +34,24 @@ interface Props {
    * tap-toast either way.
    */
   compact?: boolean;
+  /**
+   * 'disable' only (#197 follow-up): applied to BOTH wrapper Views (outer +
+   * disabledContent) so a gated tile's own layout style — e.g. a half-width
+   * dashboard tile's flex:1 — reaches through the wrapper instead of
+   * collapsing to content width next to its full-width sibling. This is the
+   * exact hazard the dashboard file's own comment documents for the ungated
+   * branch ("a plain View here breaks the half tiles' flex:1"); 'hide' mode
+   * needs no style since it renders `<>{children}</>`/`<>{fallback}</>`
+   * directly with no wrapper at all.
+   */
+  style?: StyleProp<ViewStyle>;
 }
 
 /**
  * Renders children only if the current user has the given permission.
  * Pass fallback to show something instead (default: null = nothing shown).
  */
-export function PermissionGate({ permission, teamId, children, fallback = null, mode = 'hide', compact = false }: Props) {
+export function PermissionGate({ permission, teamId, children, fallback = null, mode = 'hide', compact = false, style }: Props) {
   const allowed = usePermission(permission, teamId);
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
@@ -65,6 +77,13 @@ export function PermissionGate({ permission, teamId, children, fallback = null, 
             label: 'Request access',
             onPress: () => {
               if (!user) return;
+              // #203: this is a write (a local conversations/participants
+              // INSERT) like any other — during maintenance lock or "Preview
+              // as role" it must silently no-op instead of letting an
+              // uncaught MaintenanceLockedError escape the toast action
+              // (matches the silent-return guard EditMyDashboardSheet.tsx and
+              // roles.tsx use ahead of every write).
+              if (isWriteBlocked()) return;
               const conversationId = createDmConversation(user.id, grantor.id);
               router.push({
                 pathname: '/(app)/(chat)/[id]',
@@ -80,8 +99,8 @@ export function PermissionGate({ permission, teamId, children, fallback = null, 
   };
 
   return (
-    <View>
-      <View style={s.disabledContent} pointerEvents="none">
+    <View style={style}>
+      <View style={[s.disabledContent, style]} pointerEvents="none">
         {children}
       </View>
       {/* Overlays the whole dimmed region so a tap ANYWHERE on it explains why,

@@ -10,6 +10,7 @@ import { entityLabel } from '../sync/denialMessages';
 import { useSession } from '../hooks/useSession';
 import { pickAccessGrantor } from '../auth/pickAccessGrantor';
 import { createDmConversation } from '../db/queries/chat';
+import { isWriteBlocked } from '../db/maintenance';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
@@ -123,6 +124,10 @@ export function SyncIndicator() {
       Alert.alert('No one found', 'Could not find anyone else who can grant permissions right now.');
       return;
     }
+    // #203: same write-block guard as every other write affordance — during
+    // maintenance lock or "Preview as role" this silently no-ops instead of
+    // letting an uncaught MaintenanceLockedError escape this handler.
+    if (isWriteBlocked()) return;
     const conversationId = createDmConversation(user.id, grantor.id);
     setShowSheet(false);
     router.push({
