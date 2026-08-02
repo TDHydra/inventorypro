@@ -370,6 +370,7 @@ export default function ItemDetailScreen() {
                   value={editUnit || null}
                   options={mergedEditUnitOptions.map(u => ({ id: u, label: u }))}
                   onSelect={setEditUnit}
+                  recentKey="unit"
                 />
               )}
               <TextField label="Custom unit" value={editUnit} onChangeText={setEditUnit} placeholder="Unit (e.g. each)" autoCapitalize="none" />

@@ -5,6 +5,7 @@ import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
 import { AppInput } from './AppInput';
 import { ModalSheet } from './ModalSheet';
+import { loadRecentPicks, saveRecentPick } from './recentPicksStore';
 
 export interface SelectOption { id: string; label: string; sublabel?: string }
 
@@ -18,6 +19,9 @@ interface Props {
   searchable?: boolean;              // default: options.length > 12
   onClear?: () => void;              // when provided, sheet shows a Clear row
   disabled?: boolean;                // read-only: trigger inert + muted
+  // #222: opt-in for high-frequency fields — persists the last 3 picked ids
+  // per key (device-local app_settings) and shows them as a Recent section.
+  recentKey?: string;
 }
 
 /**
@@ -36,11 +40,14 @@ interface Props {
  */
 export function SelectField({
   label, value, options, onSelect, placeholder = 'Select…',
-  required, hint, error, searchable, onClear, disabled,
+  required, hint, error, searchable, onClear, disabled, recentKey,
 }: Props) {
   const s = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // Snapshot on open (not reactive) so the Recent row doesn't reshuffle
+  // under the finger when a pick writes back.
+  const [recentIds, setRecentIds] = useState<string[]>([]);
 
   const isSearchable = searchable ?? options.length > 12;
   const selected = useMemo(() => options.find(o => o.id === value) ?? null, [options, value]);
@@ -51,11 +58,20 @@ export function SelectField({
     return options.filter(o => o.label.toLowerCase().includes(q));
   }, [options, query, isSearchable]);
 
+  const recentOptions = useMemo(() => {
+    if (!recentKey || query.trim()) return [];
+    return recentIds
+      .map(id => options.find(o => o.id === id))
+      .filter((o): o is SelectOption => !!o);
+  }, [recentKey, recentIds, options, query]);
+
   function openSheet() {
     setQuery('');
+    if (recentKey) setRecentIds(loadRecentPicks(recentKey));
     setOpen(true);
   }
   function pick(id: string) {
+    if (recentKey) saveRecentPick(recentKey, id);
     onSelect(id);
     setOpen(false);
   }
@@ -99,6 +115,27 @@ export function SelectField({
             <Text style={s.clearLabel}>Clear</Text>
           </Pressable>
         )}
+        {recentOptions.length > 0 && (
+          <>
+            <Text style={s.sectionLabel}>Recent</Text>
+            {recentOptions.map(opt => (
+              <Pressable
+                key={`recent-${opt.id}`}
+                style={s.row}
+                onPress={() => pick(opt.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Recent: ${opt.label}`}
+              >
+                <View style={s.rowText}>
+                  <Text style={[s.rowLabel, opt.id === value && s.rowLabelSelected]}>{opt.label}</Text>
+                  {!!opt.sublabel && <Text style={s.rowSub}>{opt.sublabel}</Text>}
+                </View>
+                {opt.id === value && <Text style={s.check}>✓</Text>}
+              </Pressable>
+            ))}
+            <Text style={s.sectionLabel}>All</Text>
+          </>
+        )}
         {filtered.map(opt => {
           const isSelected = opt.id === value;
           return (
@@ -140,5 +177,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   rowSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 1 },
   check: { fontSize: t.typography.fontSizes.body, color: t.colors.primary, fontWeight: '700', marginLeft: t.spacing.sm },
   clearLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, fontStyle: 'italic' },
+  sectionLabel: {
+    fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: t.spacing.sm, marginBottom: t.spacing.xs,
+  },
   empty: { fontSize: t.typography.fontSizes.body, color: t.colors.textMuted, paddingVertical: t.spacing.base, textAlign: 'center' },
 });
