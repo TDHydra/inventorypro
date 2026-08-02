@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
-import { View, Text, PanResponder, StyleSheet } from 'react-native';
+import { View, Text, Pressable, PanResponder, StyleSheet } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
+import { KIT_HIT_SLOP } from './hitSlop';
 
 interface Props {
   /** Committed value 0–100 (shown when not dragging). */
@@ -51,16 +52,53 @@ export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
   }), []);
 
   const display = drag ?? clampPct(value);
+  // #221: coarse nudge for anyone who can't land the drag (gloves, screen
+  // readers). Buttons commit directly; the adjustable role + actions cover
+  // the assistive-tech path on the track itself.
+  const nudge = (delta: number) => {
+    if (cfg.current.disabled) return;
+    cfg.current.onCommit(clampPct(clampPct(value) + delta));
+  };
   return (
     <View style={s.row}>
       <View
         style={[s.track, disabled && s.trackDisabled]}
         onLayout={e => { heightRef.current = Math.max(1, e.nativeEvent.layout.height); }}
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel="Level"
+        accessibilityValue={{ min: 0, max: 100, now: Math.round(display) }}
+        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+        onAccessibilityAction={e => nudge(e.nativeEvent.actionName === 'increment' ? 5 : -5)}
         {...responder.panHandlers}
       >
         <View style={[s.fill, { height: `${display}%` }]} />
       </View>
-      <Text style={s.pct}>{Math.round(display)}%</Text>
+      <View style={s.side}>
+        <Pressable
+          onPress={() => nudge(5)}
+          disabled={disabled || display >= 100}
+          hitSlop={KIT_HIT_SLOP}
+          style={s.nudgeBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Increase level"
+          accessibilityState={{ disabled: disabled || display >= 100 }}
+        >
+          <Text style={[s.nudgeText, (disabled || display >= 100) && s.nudgeTextDisabled]}>＋</Text>
+        </Pressable>
+        <Text style={s.pct}>{Math.round(display)}%</Text>
+        <Pressable
+          onPress={() => nudge(-5)}
+          disabled={disabled || display <= 0}
+          hitSlop={KIT_HIT_SLOP}
+          style={s.nudgeBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Decrease level"
+          accessibilityState={{ disabled: disabled || display <= 0 }}
+        >
+          <Text style={[s.nudgeText, (disabled || display <= 0) && s.nudgeTextDisabled]}>−</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -71,6 +109,14 @@ function clampPct(n: number): number {
 
 const makeStyles = (t: Theme) => StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: t.spacing.md },
+  side: { alignItems: 'center', gap: t.spacing.xs },
+  nudgeBtn: {
+    width: 36, height: 36, borderRadius: t.radii.md, borderWidth: 1,
+    borderColor: t.colors.border, backgroundColor: t.colors.surface,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  nudgeText: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.primaryText },
+  nudgeTextDisabled: { color: t.colors.textDisabled },
   track: {
     width: 44,
     height: 140,
