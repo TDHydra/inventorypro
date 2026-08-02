@@ -21,10 +21,17 @@ export function PrimaryButton({ label, onPress, disabled, loading, tone = 'prima
   const inactive = disabled || loading;
   const btnStyle = [s.btn, { backgroundColor: bg }, glow, inactive && s.disabled, style];
   const content = loading ? <ActivityIndicator color={fg} /> : <Text style={[s.text, { color: fg }]}>{label}</Text>;
+  // #219: same a11y surface on all three press-feedback variants — the label
+  // must be explicit because the loading state replaces the Text child.
+  const a11y = {
+    accessibilityRole: 'button' as const,
+    accessibilityLabel: label,
+    accessibilityState: { disabled: inactive, busy: !!loading },
+  };
 
   if (t.motion.pressFeedback === 'scale') {
     return (
-      <Pressable style={({ pressed }) => [...btnStyle, pressed && s.pressed]} onPress={onPress} disabled={inactive}>
+      <Pressable {...a11y} style={({ pressed }) => [...btnStyle, pressed && s.pressed]} onPress={onPress} disabled={inactive}>
         {content}
       </Pressable>
     );
@@ -32,6 +39,7 @@ export function PrimaryButton({ label, onPress, disabled, loading, tone = 'prima
   if (t.motion.pressFeedback === 'highlight') {
     return (
       <TouchableHighlight
+        {...a11y}
         style={btnStyle}
         underlayColor={tone === 'danger' ? t.colors.dangerBg : t.colors.primaryBgStrong}
         onPress={onPress}
@@ -42,7 +50,7 @@ export function PrimaryButton({ label, onPress, disabled, loading, tone = 'prima
     );
   }
   return (
-    <TouchableOpacity style={btnStyle} onPress={onPress} disabled={inactive} activeOpacity={0.85}>
+    <TouchableOpacity {...a11y} style={btnStyle} onPress={onPress} disabled={inactive} activeOpacity={0.85}>
       {content}
     </TouchableOpacity>
   );

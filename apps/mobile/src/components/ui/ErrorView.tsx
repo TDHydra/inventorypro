@@ -8,7 +8,7 @@ export function ErrorView({ message, onRetry }: { message: string; onRetry?: () 
     <View style={s.wrap}>
       <Text style={s.msg}>{message}</Text>
       {onRetry ? (
-        <TouchableOpacity style={s.btn} onPress={onRetry} activeOpacity={0.85}>
+        <TouchableOpacity style={s.btn} onPress={onRetry} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Retry">
           <Text style={s.btnText}>Retry</Text>
         </TouchableOpacity>
       ) : null}

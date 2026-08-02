@@ -72,7 +72,7 @@ export function ConfirmSheetHost(): ReactElement | null {
       <Text style={s.title}>{req.title}</Text>
       {!!req.message && <Text style={s.message}>{req.message}</Text>}
       <View style={s.actions}>
-        <TouchableOpacity style={s.btnGhost} onPress={() => settle(false)}>
+        <TouchableOpacity style={s.btnGhost} onPress={() => settle(false)} accessibilityRole="button" accessibilityLabel={cancelLabel}>
           <Text style={s.btnGhostText}>{cancelLabel}</Text>
         </TouchableOpacity>
         <PrimaryButton

@@ -71,6 +71,9 @@ export function SelectField({
         style={[s.trigger, disabled && s.triggerDisabled]}
         onPress={openSheet}
         disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${selected ? selected.label : placeholder}`}
+        accessibilityState={{ disabled: !!disabled }}
       >
         <Text style={selected ? s.value : s.placeholder} numberOfLines={1}>
           {selected ? selected.label : placeholder}
