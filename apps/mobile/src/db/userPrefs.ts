@@ -1,9 +1,10 @@
-import { getDb } from './schema';
+import { getDb, rowsAs } from './schema';
 import { appendOutbox } from '../sync/outbox';
+import { runInTransaction } from './tx';
 import { getTheme, setThemeId } from '../themes/store';
 import { resolveTheme } from '../themes/registry';
 import { appAlertBus } from '../lib/alertBus';
-import type { Layout, WidgetType } from '../dashboard/widgets';
+import type { Layout, LayoutBlock, WidgetType } from '../dashboard/widgets';
 
 /** Tag so repeated pulls can't stack duplicate theme prompts (bus dedupes). */
 const THEME_SYNC_TAG = 'theme-sync';
@@ -80,13 +81,28 @@ export function applyUserTheme(userId: string, opts: { prompt?: boolean } = {}):
 }
 
 /**
- * Personal dashboard customization (#193/#196, dashboard_prefs, migration 060).
- * A single JSON blob so one outbox write covers either edit:
- *   { layout?: LayoutBlock[], starred?: WidgetType[] }
+ * Personal dashboard customization (#193/#196; dashboard_layout/starred_widgets,
+ * migration 062). Each field is its OWN synced column — split out of the
+ * original single dashboard_prefs JSON blob (migration 060) because a blob
+ * multiplexing both fields forced every setter to read-merge-write the WHOLE
+ * column: a device whose local replica was stale (hadn't pulled the other
+ * device's edit yet) would silently clobber it (Device B saving a layout
+ * erased Device A's already-synced stars, since B's read of the blob predated
+ * A's write). Per-column writes below only ever touch ONE column, so the
+ * existing column-scoped server upsert (ON CONFLICT DO UPDATE SET <only the
+ * columns present in the payload> — routes/sync.ts) protects each field
+ * independently, same as it already does for theme.
+ *
  * `layout` is the user's personal override of the resolution chain — validated
  * by the caller (dashboard/store.ts resolveLayoutFor, via the same
  * parsePresetLayout a preset's raw layout column goes through). `starred` is
  * the set of WidgetType ids pinned to the dashboard's favorites strip.
+ *
+ * getDashboardPrefs() keeps its old {layout?, starred?} composed shape (so
+ * dashboard/store.ts's two call sites are unchanged) but now reads from the
+ * two columns, falling back per-field to the legacy dashboard_prefs blob only
+ * when a column is NULL (a row pulled before this device ran migration 062 —
+ * ordinary rows get backfilled by the migration itself).
  *
  * NOTE: dashboard/store.ts is the reactive cache for the hub — these helpers
  * are plain DB writes with no reactivity of their own (mirroring getUserTheme/
@@ -104,55 +120,98 @@ export interface DashboardPrefs {
   starred?: WidgetType[];
 }
 
-/** The user's personal dashboard_prefs blob, or null if never set / invalid JSON. */
-export function getDashboardPrefs(userId: string): DashboardPrefs | null {
+interface DashboardPrefsRow {
+  dashboard_layout: string | null;
+  starred_widgets: string | null;
+  dashboard_prefs: string | null;
+}
+
+/** Parse the legacy single-blob column — used only as a per-field fallback. */
+function parseLegacyBlob(raw: string | null): DashboardPrefs | null {
+  if (!raw) return null;
   try {
-    const rows = getDb().executeSync(
-      `SELECT dashboard_prefs FROM user_prefs WHERE user_id = ?`, [userId]
-    ).rows as { dashboard_prefs: string | null }[];
-    const raw = rows.length ? rows[0].dashboard_prefs : null;
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? (parsed as DashboardPrefs) : null;
   } catch {
     return null;
   }
 }
 
-// ON CONFLICT DO UPDATE (not INSERT OR REPLACE — same theme-clobber trap fixed
-// in chooseTheme above): only dashboard_prefs/updated_at are touched, so an
-// existing theme is never wiped by a personal-layout or star edit, and the
-// outbox payload mirrors that (server's generic push path likewise only sets
-// the columns present in the payload — routes/sync.ts).
-function writeDashboardPrefs(userId: string, prefs: DashboardPrefs): void {
-  const updated_at = new Date().toISOString();
-  const json = JSON.stringify(prefs);
-  getDb().executeSync(
-    `INSERT INTO user_prefs (user_id, dashboard_prefs, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET dashboard_prefs = excluded.dashboard_prefs, updated_at = excluded.updated_at`,
-    [userId, json, updated_at]
-  );
-  appendOutbox('INSERT', 'user_prefs', { user_id: userId, dashboard_prefs: json, updated_at });
+/** Parse one of the split JSON-array columns; null/invalid/empty -> undefined. */
+function parseArrayField<T>(raw: string | null): T[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? (parsed as T[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The user's personal dashboard customization, composed from the split
+ * columns (falling back to the legacy blob per-field for a not-yet-backfilled
+ * row), or null if the user has never customized either field.
+ */
+export function getDashboardPrefs(userId: string): DashboardPrefs | null {
+  try {
+    const rows = rowsAs<DashboardPrefsRow>(getDb().executeSync(
+      `SELECT dashboard_layout, starred_widgets, dashboard_prefs FROM user_prefs WHERE user_id = ?`,
+      [userId]
+    ).rows);
+    if (!rows.length) return null;
+    const row = rows[0];
+    const legacy = row.dashboard_layout == null || row.starred_widgets == null
+      ? parseLegacyBlob(row.dashboard_prefs) : null;
+
+    const result: DashboardPrefs = {};
+    const layout = row.dashboard_layout != null ? parseArrayField<LayoutBlock>(row.dashboard_layout) : legacy?.layout;
+    if (layout) result.layout = layout;
+    const starred = row.starred_widgets != null ? parseArrayField<WidgetType>(row.starred_widgets) : legacy?.starred;
+    if (starred) result.starred = starred;
+    return (result.layout || result.starred) ? result : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Persist the user's personal layout override (#193), or clear it (pass null
  * or an empty array) to fall back to the user/role preset → role default →
- * DEFAULT_LAYOUT chain. Preserves any existing `starred` set.
+ * DEFAULT_LAYOUT chain. Writes ONLY dashboard_layout — starred_widgets (and
+ * theme) are untouched locally AND in the outbox payload, so a stale local
+ * replica can never clobber another device's already-synced stars (#193/#196
+ * regression this migration fixes).
  */
 export function setDashboardLayout(userId: string, layout: Layout | null): void {
-  const next: DashboardPrefs = { ...(getDashboardPrefs(userId) ?? {}) };
-  if (layout && layout.length > 0) next.layout = layout;
-  else delete next.layout;
-  writeDashboardPrefs(userId, next);
+  const updated_at = new Date().toISOString();
+  const json = layout && layout.length > 0 ? JSON.stringify(layout) : null;
+  runInTransaction(() => {
+    getDb().executeSync(
+      `INSERT INTO user_prefs (user_id, dashboard_layout, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET dashboard_layout = excluded.dashboard_layout, updated_at = excluded.updated_at`,
+      [userId, json, updated_at]
+    );
+    appendOutbox('INSERT', 'user_prefs', { user_id: userId, dashboard_layout: json, updated_at });
+  });
 }
 
-/** Persist the user's starred-widget set (#196). Preserves any personal layout. */
+/**
+ * Persist the user's starred-widget set (#196). Writes ONLY starred_widgets —
+ * dashboard_layout (and theme) are untouched locally AND in the outbox
+ * payload, mirroring setDashboardLayout above.
+ */
 export function setStarredWidgets(userId: string, starred: WidgetType[]): void {
-  const next: DashboardPrefs = { ...(getDashboardPrefs(userId) ?? {}) };
-  if (starred.length > 0) next.starred = starred;
-  else delete next.starred;
-  writeDashboardPrefs(userId, next);
+  const updated_at = new Date().toISOString();
+  const json = starred.length > 0 ? JSON.stringify(starred) : null;
+  runInTransaction(() => {
+    getDb().executeSync(
+      `INSERT INTO user_prefs (user_id, starred_widgets, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET starred_widgets = excluded.starred_widgets, updated_at = excluded.updated_at`,
+      [userId, json, updated_at]
+    );
+    appendOutbox('INSERT', 'user_prefs', { user_id: userId, starred_widgets: json, updated_at });
+  });
 }
 
 /** Toggle one widget's starred membership and persist. Returns the new set. */

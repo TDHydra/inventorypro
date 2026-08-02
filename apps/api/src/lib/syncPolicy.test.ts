@@ -673,3 +673,49 @@ test('schedule_assignments strips created_by reassignment on UPDATE', () => {
   );
   assert.ok(!('created_by' in row), 'created_by must never be reassignable on UPDATE');
 });
+
+// ── #193/#196 follow-up: dashboard_prefs split (migration 076) ───────────────
+
+test('user_prefs projection carries the split dashboard_layout/starred_widgets columns', () => {
+  assert.equal(
+    selectColumnsFor('user_prefs', false),
+    'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at',
+  );
+  // No financial gate on personal prefs — canViewFinancial must not change it.
+  assert.equal(selectColumnsFor('user_prefs', false), selectColumnsFor('user_prefs', true));
+});
+
+test('user_prefs: a layout-only push does not touch starred_widgets (or vice versa) — the #193/#196 clobber fix', () => {
+  // Real table columns as they exist post-076: both split columns are real,
+  // independent columns the generic write path may touch.
+  const realUserPrefs = new Map([
+    ['user_prefs', new Set(['user_id', 'theme', 'dashboard_prefs', 'dashboard_layout', 'starred_widgets', 'updated_at'])],
+  ]);
+  const layoutOnly = applyWritePolicy(
+    'user_prefs', 'INSERT',
+    { user_id: 'someone-else', dashboard_layout: '[{"widget":"chat","width":"full"}]', updated_at: '2026-08-02T00:00:00.000Z' },
+    'caller', realUserPrefs, () => true,
+  );
+  // Attribution forces user_id to the caller (own-row scoping) ...
+  assert.equal(layoutOnly.row.user_id, 'caller');
+  // ... and the payload the generic write applies has NO starred_widgets/theme
+  // key at all, so the generated UPDATE/INSERT can never SET them — a stale
+  // device pushing only its layout edit cannot clobber another device's
+  // already-synced stars.
+  assert.ok(!('starred_widgets' in layoutOnly.row));
+  assert.ok(!('theme' in layoutOnly.row));
+  assert.equal(layoutOnly.row.dashboard_layout, '[{"widget":"chat","width":"full"}]');
+
+  const starredOnly = applyWritePolicy(
+    'user_prefs', 'INSERT',
+    { user_id: 'someone-else', starred_widgets: '["low-stock"]', updated_at: '2026-08-02T00:00:00.000Z' },
+    'caller', realUserPrefs, () => true,
+  );
+  assert.ok(!('dashboard_layout' in starredOnly.row));
+  assert.ok(!('theme' in starredOnly.row));
+  assert.equal(starredOnly.row.starred_widgets, '["low-stock"]');
+});
+
+test('user_prefs: INSERT stays permission-free (any authed user sets their own prefs)', () => {
+  assert.equal(requiredOperationPerm('user_prefs', 'INSERT'), null);
+});
