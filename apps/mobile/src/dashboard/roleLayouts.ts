@@ -24,12 +24,15 @@ import { composeLayout, buildSection } from './bundles';
 const CREW_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
+  // #206: one-tap scan launcher right under the fast pair.
+  { widget: 'scan', width: 'full' },
   // #177: "daily driver" reading order — my counts first, then the crew's
   // marching orders. vehicles-available replaces units-due-service (crews
   // check vehicle availability far more than service due-dates).
   { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'vehicles-available', 'shared-media'] } },
-  // #160: jobs assigned to me (directly or via my crew) lead the work lists —
-  // this is the crew's marching orders for the day.
+  // #207: today's schedule leads — where to be and when, then the job list.
+  { widget: 'work-list', width: 'full', config: { source: 'my-schedule-today' } },
+  // #160: jobs assigned to me (directly or via my crew).
   { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
   { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
   { widget: 'vehicle-checkin', width: 'full' },
@@ -77,6 +80,8 @@ const ADMIN_LAYOUT: Layout = composeLayout(
   { widget: 'low-stock-catalog', width: 'full' },
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
+  // #206: one-tap scan launcher right under the fast pair.
+  { widget: 'scan', width: 'full' },
   { widget: 'checkout', width: 'full' },
   { widget: 'checkin', width: 'full' },
   { widget: 'my-checkouts', width: 'full' },
@@ -105,6 +110,8 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
     { widget: 'fast-checkout', width: 'half' },
     { widget: 'fast-checkin', width: 'half' },
     { widget: 'stat-tiles', width: 'full', config: { stats: ['shared-media'] } },
+    // #207: today's schedule leads, same as the crew group.
+    { widget: 'work-list', width: 'full', config: { source: 'my-schedule-today' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
     { widget: 'schedule', width: 'full' },

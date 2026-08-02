@@ -18,6 +18,8 @@ import { getUnitsDueForService } from '../../db/queries/maintenance';
 import { getLowStockItems } from '../../db/queries/items';
 import { getUnitLocations } from '../../db/queries/locations';
 import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
+import { getScheduleAssignmentsForEmployee } from '../../db/queries/schedule';
+import { formatMinute, localTodayIso } from '../schedule/dayMath';
 
 // WorkList (role dashboards §2): a compact card list — title, up to N rows, and
 // a "View all" tap-through — driven by the block's `config.source`. Rows come
@@ -84,6 +86,24 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
     })),
     // taxonomy_types: job type resolved from type_id inside the read.
     tables: ['jobs', 'job_assignments', 'team_members', 'taxonomy_types'],
+  },
+  // #207: my schedule for today — the crew's marching orders, straight off the
+  // #184 board. No requiredPermission: it's the user's OWN day (the schedule
+  // tile is open to every authenticated user for the same reason); tapping
+  // through opens the read-only-unless-manage_schedule board.
+  'my-schedule-today': {
+    title: 'My Schedule Today', icon: '🗓', emptyTitle: 'Nothing scheduled today',
+    viewAllRoute: '/(app)/(schedule)',
+    read: uid => getScheduleAssignmentsForEmployee(uid, localTodayIso()).map(a => ({
+      id: a.id,
+      primary: a.assignment_kind === 'job'
+        ? (a.job_number ? `#${a.job_number} · ${a.job_name ?? 'Job'}` : a.job_name ?? 'Job')
+        : `With ${a.manager_name ?? 'manager'}`,
+      secondary: `${formatMinute(a.start_minute)}–${formatMinute(a.end_minute)}${a.note ? ` · ${a.note}` : ''}`,
+      updated_at: a.updated_at,
+    })),
+    // users: employee/manager names resolved in VIEW_SELECT's joins.
+    tables: ['schedule_assignments', 'jobs', 'users'],
   },
   'open-jobs': {
     title: 'Open Jobs', icon: '🏗', emptyTitle: 'No open jobs',

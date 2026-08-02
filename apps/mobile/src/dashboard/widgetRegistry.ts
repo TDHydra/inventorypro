@@ -22,7 +22,7 @@ import type { Permission } from '../constants/roles';
 // still contain a `search` block parse fine (isWidgetType drops it, so it's
 // skipped rather than rendered twice).
 export type WidgetType =
-  | 'fast-checkout' | 'fast-checkin' | 'checkout' | 'checkin' | 'my-checkouts'
+  | 'fast-checkout' | 'fast-checkin' | 'scan' | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'schedule' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
@@ -50,6 +50,7 @@ export type StatSource =
 export type WorkListSource =
   | 'my-equipment'       // getDeployedUnitsForUser
   | 'my-jobs'            // getMyAssignedJobs (#160: direct or via my crew)
+  | 'my-schedule-today'  // #207: getScheduleAssignmentsForEmployee(uid, today)
   | 'open-jobs'
   | 'open-repairs'
   | 'units-due-service'
@@ -108,6 +109,10 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // Fast check-in (#83): same source picker in return mode. No requiredPermission
   // (data-driven access, like fast-checkout); the picker gates on accessible sources.
   'fast-checkin':  { label: 'Fast Check-In',         icon: '↩', route: '/(app)/(crew)?dir=in', kind: 'tile' },
+  // Scan launcher (#206): straight to the universal scan screen (resolveScan
+  // classifies whatever is scanned). No requiredPermission — like fast-checkout,
+  // what a scan can DO is decided per result by that screen's own gates.
+  scan:          { label: 'Scan',                    icon: '📷', route: '/(app)/(inventory)/scan', kind: 'tile' },
   checkout:      { label: 'Check Out Item',          icon: '📦', route: '/(app)/(checkout)', requiredPermission: 'checkout_inventory', kind: 'tile' },
   checkin:       { label: 'Check In',                icon: '↩',  route: '/(app)/(checkin)',  requiredPermission: 'checkin_inventory',  kind: 'tile' },
   'my-checkouts':{ label: 'My Active Checkouts',     icon: '📋', route: '/(app)/(jobs)',     requiredPermission: 'checkout_inventory', kind: 'tile' },
