@@ -260,6 +260,7 @@ export default function DashboardsScreen() {
       const id = createDashboardPreset({ name: `${p.name} (copy)` });
       const layout = parsePresetLayout(p.layout) ?? [];
       setDashboardPresetLayout(id, layout);
+      loadDashboardCache(); // #192: refresh presetsById so an immediate assign/edit sees this layout
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -277,6 +278,7 @@ export default function DashboardsScreen() {
       const layout = resolveLayout(null, rolePresetId, presetsById, ROLE_DEFAULT_LAYOUTS[role] ?? null);
       const id = createDashboardPreset({ name: `${ROLE_DISPLAY_NAMES[role]} (from role)` });
       setDashboardPresetLayout(id, layout);
+      loadDashboardCache(); // #192: refresh presetsById so an immediate assign/edit sees this layout
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
@@ -299,6 +301,7 @@ export default function DashboardsScreen() {
           onPress: () => {
             try {
               setDashboardPresetActive(p.id, nextActive);
+              loadDashboardCache(); // #192: archiving falls a live assignment back to default immediately
             } catch (err) {
               Alert.alert('Error', (err as Error).message);
             }
@@ -319,6 +322,10 @@ export default function DashboardsScreen() {
     if (!editingId) return;
     try {
       setDashboardPresetLayout(editingId, next.map((b) => b.block) as Layout);
+      // #192: without this, store.ts's presetsById cache stays stale until the
+      // next sync pull/restart — the editing admin (and everyone else resolved
+      // onto this preset) kept rendering the OLD layout. Mirrors assignRole below.
+      loadDashboardCache();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     }
