@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
+import { KIT_HIT_SLOP } from './ui/hitSlop';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Alert } from '../lib/themedAlert';
@@ -168,7 +169,7 @@ export function SyncIndicator() {
 
   return (
     <>
-      <TouchableOpacity onPress={() => { refresh(); setShowSheet(true); }} style={s.dot}>
+      <TouchableOpacity onPress={() => { refresh(); setShowSheet(true); }} style={s.dot} hitSlop={KIT_HIT_SLOP}>
         <View style={[s.circle, { backgroundColor: color }]} />
       </TouchableOpacity>
 
