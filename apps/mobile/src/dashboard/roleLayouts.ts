@@ -96,6 +96,8 @@ const ADMIN_LAYOUT: Layout = composeLayout(
   { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'activity-preview', width: 'full' },
+  // #227: the week's action counts right under the last-5 ticker.
+  { widget: 'activity-digest', width: 'full' },
   { widget: 'quick-add', width: 'full' },
 
   buildSection('inventory', 'Inventory Management'),

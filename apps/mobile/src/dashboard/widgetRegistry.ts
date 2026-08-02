@@ -27,7 +27,7 @@ export type WidgetType =
   | 'jobs' | 'teams' | 'manage-my-team' | 'schedule' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
   | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog' | 'schedule-gaps' // contextual quick-actions (#144, #168, #224)
-  | 'stat-tiles' | 'work-list' | 'activity-preview';                         // config-driven data widgets (role dashboards)
+  | 'stat-tiles' | 'work-list' | 'activity-preview' | 'activity-digest';     // config-driven data widgets (role dashboards, #227)
 
 // --- Per-widget config payloads (role dashboards §2) -------------------------
 // One widget type renders different content depending on its block config.
@@ -184,6 +184,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'stat-tiles':       { label: 'Stat Tiles',       icon: '🔢', kind: 'block' },
   'work-list':        { label: 'Work List',        icon: '🗒', kind: 'block' },
   'activity-preview': { label: 'Recent Activity',  icon: '📊', kind: 'block', requiredPermission: 'view_all_logs' },
+  // #227: 7-day action-type counts; same gate as the preview it sits beside.
+  'activity-digest':  { label: 'This Week',        icon: '📈', kind: 'block', requiredPermission: 'view_all_logs' },
 };
 
 // True when a widget key is a real registry entry — used to validate a persisted

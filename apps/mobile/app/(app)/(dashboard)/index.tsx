@@ -32,6 +32,7 @@ import { StatTiles } from '../../../src/components/dashboard/StatTiles';
 import { WorkList, getWorkListChipMeta } from '../../../src/components/dashboard/WorkList';
 import { parseStarKey } from '../../../src/dashboard/starKeys';
 import { ActivityPreview } from '../../../src/components/dashboard/ActivityPreview';
+import { ActivityDigest } from '../../../src/components/dashboard/ActivityDigest';
 import { EditMyDashboardSheet } from '../../../src/components/dashboard/EditMyDashboardSheet';
 
 function timeGreeting(): string {
@@ -328,9 +329,12 @@ export default function DashboardScreen() {
         return <StatTiles key={key} config={block.config} />;
       case 'work-list':
         return <WorkList key={key} config={block.config} />;
-      case 'activity-preview': {
-        const perm = WIDGET_REGISTRY['activity-preview'].requiredPermission;
-        const preview = <ActivityPreview config={block.config} />;
+      case 'activity-preview':
+      case 'activity-digest': {
+        const perm = WIDGET_REGISTRY[block.widget].requiredPermission;
+        const preview = block.widget === 'activity-preview'
+          ? <ActivityPreview config={block.config} />
+          : <ActivityDigest config={block.config} />;
         return perm
           ? <PermissionGate key={key} permission={perm}>{preview}</PermissionGate>
           : <Fragment key={key}>{preview}</Fragment>;
