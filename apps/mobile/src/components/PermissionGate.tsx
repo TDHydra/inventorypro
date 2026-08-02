@@ -9,11 +9,12 @@ import { useThemedStyles } from '../hooks/useThemedStyles';
 import { appToastBus } from '../lib/toastBus';
 import { pickAccessGrantor } from '../auth/pickAccessGrantor';
 import { createDmConversation } from '../db/queries/chat';
+import { EmptyState } from './ui/EmptyState';
 
 interface Props {
   permission: Permission;
   teamId?: string | null;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   fallback?: React.ReactNode;
   /**
    * 'hide' (default, backward compatible): render `fallback` (default null)
@@ -24,8 +25,15 @@ interface Props {
    * "Requires <label>" (a themed snackbar, never a second Modal) instead of a
    * silent no-op or a sync conflict (#76). Generalizes the {editable, reason}
    * shape roles.tsx already renders for per-permission role-editor cells.
+   * 'screen' (#197/#198): whole-screen gate for route components that show
+   * real entity data (teams/locations list + detail) rather than a single
+   * control — denied renders the same house 🔒 `EmptyState` full-screen
+   * pattern already used for "not a member"/"not found" guards (see
+   * app/(app)/(teams)/[id].tsx), with the Request-access CTA wired the same
+   * way as 'disable' mode's toast action, NOT a dimmed peek at `children` —
+   * the whole point is that no real content renders when denied.
    */
-  mode?: 'hide' | 'disable';
+  mode?: 'hide' | 'disable' | 'screen';
   /**
    * 'disable' only: dense-grid variant for dashboard tile grids etc. Swaps
    * the full centered 🔒 overlay for a small corner lock badge that doesn't
@@ -52,29 +60,43 @@ export function PermissionGate({ permission, teamId, children, fallback = null, 
 
   // #203: find someone who could grant this, lazily (only on tap — never on
   // every render) and only when we have a real signed-in user to exclude/
-  // anchor tier-distance against. Tapping the toast's action opens (or
-  // reuses) a DM with them, prefilled with a draft asking for it — the user
+  // anchor tier-distance against. Opening (or reusing) a DM with them,
+  // prefilled with a draft asking for it, is shared by both 'disable' (via
+  // the toast action below) and 'screen' (via the EmptyState CTA) — the user
   // still has to actually send it, this only removes the "who do I even ask"
   // friction.
+  const openRequestAccessDm = (grantor: { id: string; name: string }) => {
+    if (!user) return;
+    const conversationId = createDmConversation(user.id, grantor.id);
+    router.push({
+      pathname: '/(app)/(chat)/[id]',
+      params: {
+        id: conversationId,
+        draft: `Hi ${grantor.name} — could I get access to "${PERMISSION_LABELS[permission]}"? I need it for `,
+      },
+    });
+  };
+
+  if (mode === 'screen') {
+    const grantor = user ? pickAccessGrantor(permission, user) : null;
+    return (
+      <View style={s.screenWrap}>
+        <EmptyState
+          icon="🔒"
+          title="Access restricted"
+          subtitle={reason}
+          cta={grantor ? { label: 'Request access', onPress: () => openRequestAccessDm(grantor) } : undefined}
+        />
+      </View>
+    );
+  }
+
   const explain = () => {
     const grantor = user ? pickAccessGrantor(permission, user) : null;
     appToastBus.push({
       message: reason,
       action: grantor
-        ? {
-            label: 'Request access',
-            onPress: () => {
-              if (!user) return;
-              const conversationId = createDmConversation(user.id, grantor.id);
-              router.push({
-                pathname: '/(app)/(chat)/[id]',
-                params: {
-                  id: conversationId,
-                  draft: `Hi ${grantor.name} — could I get access to "${PERMISSION_LABELS[permission]}"? I need it for `,
-                },
-              });
-            },
-          }
+        ? { label: 'Request access', onPress: () => openRequestAccessDm(grantor) }
         : undefined,
     });
   };
@@ -113,6 +135,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   // literal textDisabled recolor — the same 0.5 dim already used for disabled
   // buttons/rows across the app (PrimaryButton, BulkActionBar, pickers).
   disabledContent: { opacity: 0.5 },
+  // 'screen' mode: fills the route's content area (the caller's own
+  // Stack.Screen header still renders above this).
+  screenWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.background },
   lockCenter: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   lockGlyph: { fontSize: 20 },
   lockBadge: {

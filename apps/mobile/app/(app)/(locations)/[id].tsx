@@ -13,6 +13,7 @@ import {
 import { appendOutbox } from '../../../src/sync/outbox';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
+import { PermissionGate } from '../../../src/components/PermissionGate';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { getAllActiveUsers } from '../../../src/db/queries/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
@@ -53,6 +54,10 @@ export default function LocationDetailScreen() {
   const canManage = usePermission('manage_locations');
   const canUpload = usePermission('upload_media');
   const canAddStock = usePermission('edit_inventory');
+  // #197/#198: previously this screen had no view_locations check at all —
+  // hub links, search results, and deep links all routed straight in
+  // regardless of the role's permission. Gate the whole screen here.
+  const canView = usePermission('view_locations');
   const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
@@ -196,6 +201,17 @@ export default function LocationDetailScreen() {
     if (!location?.owner_user_id) return null;
     return userMap.get(location.owner_user_id) ?? location.owner_user_id;
   }, [location?.owner_user_id, userMap]);
+
+  // Permission gate checked before "not found" so a denied role never learns
+  // whether the id even resolves to a real location.
+  if (!canView) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Location', headerShown: true }} />
+        <PermissionGate permission="view_locations" mode="screen" />
+      </>
+    );
+  }
 
   if (!location) {
     return (
