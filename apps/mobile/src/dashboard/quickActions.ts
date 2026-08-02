@@ -19,7 +19,9 @@ export type QuickAction =
   // #168: open session → one-tap gas receipt against that vehicle.
   | { key: 'gas-receipt'; vehicleLocationId: string; label: string }
   | { key: 'past-due'; count: number; target: 'repairs' | 'equipment'; label: string }
-  | { key: 'low-stock-catalog'; count: number; label: string };
+  | { key: 'low-stock-catalog'; count: number; label: string }
+  // #224: today's board has uncovered crew — one tap to go fill it.
+  | { key: 'schedule-gaps'; count: number; label: string };
 
 export interface QuickActionsInput {
   /** The current user's open vehicle session, if any. */
@@ -29,6 +31,10 @@ export interface QuickActionsInput {
   /** Past-due and low-stock are scoped to edit_inventory, same as localAlerts. */
   canEditInventory: boolean;
   lowStockCount: number;
+  // #224: optional so pre-existing callers/tests stay valid; both must be
+  // provided (permission + count) for the schedule-gaps card to appear.
+  canManageSchedule?: boolean;
+  unscheduledTodayCount?: number;
 }
 
 export function computeQuickActions(input: QuickActionsInput): QuickAction[] {
@@ -69,6 +75,17 @@ export function computeQuickActions(input: QuickActionsInput): QuickAction[] {
         label: `${input.lowStockCount} low stock item${input.lowStockCount === 1 ? '' : 's'}`,
       });
     }
+  }
+
+  // #224: scoped to manage_schedule — the card is a call to EDIT the board,
+  // so crew who can only view their own day never see it.
+  const gaps = input.unscheduledTodayCount ?? 0;
+  if (input.canManageSchedule && gaps > 0) {
+    out.push({
+      key: 'schedule-gaps',
+      count: gaps,
+      label: `${gaps} crew${gaps === 1 ? ' member' : ''} unscheduled today`,
+    });
   }
 
   return out;

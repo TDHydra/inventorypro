@@ -52,6 +52,8 @@ const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
   { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'] } },
+  // #224: unscheduled-crew card — renders only with manage_schedule AND gaps.
+  { widget: 'schedule-gaps', width: 'full' },
   // #223: recovery list — renders only when a closed job still has gear on it.
   { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
@@ -80,6 +82,8 @@ const ADMIN_LAYOUT: Layout = composeLayout(
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
+  // #224: unscheduled-crew card — renders only with manage_schedule AND gaps.
+  { widget: 'schedule-gaps', width: 'full' },
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
   // #206: one-tap scan launcher right under the fast pair.

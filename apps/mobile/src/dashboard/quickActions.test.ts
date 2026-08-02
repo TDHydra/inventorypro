@@ -124,3 +124,26 @@ test('#144: all conditions → all actions, checkin first (gas rides the session
   assert.deepEqual(actions.map(a => a.key), ['vehicle-checkin', 'gas-receipt', 'past-due', 'low-stock-catalog']);
   assert.equal((actions[0] as { mode: string }).mode, 'check_in');
 });
+
+// ── #224: schedule-gap quick action ─────────────────────────────────────────
+
+test('#224: unscheduled crew + manage_schedule → schedule-gaps action', () => {
+  const out = computeQuickActions({ ...NONE, canManageSchedule: true, unscheduledTodayCount: 3 });
+  const gap = out.find(a => a.key === 'schedule-gaps');
+  assert.ok(gap, 'schedule-gaps present');
+  assert.equal((gap as { count: number }).count, 3);
+  assert.equal(gap!.label, '3 crew unscheduled today');
+});
+
+test('#224: singular label for one unscheduled crew member', () => {
+  const out = computeQuickActions({ ...NONE, canManageSchedule: true, unscheduledTodayCount: 1 });
+  assert.equal(out.find(a => a.key === 'schedule-gaps')!.label, '1 crew member unscheduled today');
+});
+
+test('#224: no schedule-gaps without manage_schedule or with full coverage', () => {
+  assert.ok(!computeQuickActions({ ...NONE, canManageSchedule: false, unscheduledTodayCount: 3 })
+    .some(a => a.key === 'schedule-gaps'), 'permission gate');
+  assert.ok(!computeQuickActions({ ...NONE, canManageSchedule: true, unscheduledTodayCount: 0 })
+    .some(a => a.key === 'schedule-gaps'), 'zero count');
+  assert.ok(!computeQuickActions(NONE).some(a => a.key === 'schedule-gaps'), 'fields omitted');
+});

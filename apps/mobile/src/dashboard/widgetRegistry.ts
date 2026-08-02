@@ -26,7 +26,7 @@ export type WidgetType =
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'schedule' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
-  | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog'     // contextual quick-actions (#144, #168)
+  | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog' | 'schedule-gaps' // contextual quick-actions (#144, #168, #224)
   | 'stat-tiles' | 'work-list' | 'activity-preview';                         // config-driven data widgets (role dashboards)
 
 // --- Per-widget config payloads (role dashboards §2) -------------------------
@@ -173,6 +173,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'gas-receipt':       { label: '', kind: 'block' }, // #168: shows only with an open vehicle session
   'past-due':          { label: '', kind: 'block' },
   'low-stock-catalog': { label: '', kind: 'block' },
+  // #224: unscheduled-crew card; self-gates on manage_schedule in the compute.
+  'schedule-gaps':     { label: '', kind: 'block' },
 
   // Config-driven data widgets (role dashboards §2). stat-tiles and work-list
   // gate PER SOURCE inside the component (each source mirrors the permission of

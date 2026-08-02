@@ -13,6 +13,8 @@ import { AddServiceRecordSheet } from '../../../src/components/vehicles/AddServi
 import { getRepairs } from '../../../src/db/queries/repairs';
 import { getUnitsDueForService } from '../../../src/db/queries/maintenance';
 import { isTerminalStatus } from '../../../src/db/queries/taxonomy';
+import { getScheduleBoardForDay, getScheduleableEmployees } from '../../../src/db/queries/schedule';
+import { localTodayIso } from '../../../src/components/schedule/dayMath';
 import { computeQuickActions, isOverdueRepair, type QuickAction } from '../../../src/dashboard/quickActions';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { roleColor } from '../../../src/db/queries/users';
@@ -96,8 +98,17 @@ export default function DashboardScreen() {
   // edit_inventory holders; the vehicle check-in card is data-driven. The
   // low-stock count rides in via `all` (a dep), not its own read.
   const canEditInventory = usePermission('edit_inventory');
+  const canManageSchedule = usePermission('manage_schedule');
   const quickActions: QuickAction[] = useDbQuery(() => {
     if (!user) return [];
+    // #224: crew (tier 1) with zero assignments on today's board. Computed
+    // only for manage_schedule holders — the queries are cheap but pointless
+    // for everyone else.
+    let unscheduledTodayCount = 0;
+    if (canManageSchedule) {
+      const covered = new Set(getScheduleBoardForDay(localTodayIso()).map(a => a.employee_id));
+      unscheduledTodayCount = getScheduleableEmployees().filter(u => !covered.has(u.id)).length;
+    }
     return computeQuickActions({
       activeVehicleCheckout: getActiveCheckoutForUser(user.id),
       overdueRepairCount: canEditInventory
@@ -106,9 +117,11 @@ export default function DashboardScreen() {
       serviceDueCount: canEditInventory ? getUnitsDueForService(new Date().toISOString()).length : 0,
       canEditInventory,
       lowStockCount: all.length,
+      canManageSchedule,
+      unscheduledTodayCount,
     });
-  }, [user?.id, canEditInventory, all],
-    ['vehicle_checkouts', 'locations', 'repairs', 'equipment_units', 'taxonomy_types']);
+  }, [user?.id, canEditInventory, canManageSchedule, all],
+    ['vehicle_checkouts', 'locations', 'repairs', 'equipment_units', 'taxonomy_types', 'schedule_assignments', 'users']);
 
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
   // which reproduces today's dashboard exactly (same tiles/order/gates below).
@@ -325,7 +338,8 @@ export default function DashboardScreen() {
       case 'vehicle-checkin':
       case 'gas-receipt':
       case 'past-due':
-      case 'low-stock-catalog': {
+      case 'low-stock-catalog':
+      case 'schedule-gaps': {
         const action = quickActions.find(a => a.key === block.widget);
         if (!action) return null;
         const qa: Record<QuickAction['key'], { icon: string; sub: string; onPress: () => void }> = {
@@ -366,6 +380,12 @@ export default function DashboardScreen() {
             icon: '⚠️',
             sub: 'View them like the Item Catalog',
             onPress: () => router.push('/(app)/(inventory)/low-stock' as never),
+          },
+          // #224: straight to today's board to fill the gaps.
+          'schedule-gaps': {
+            icon: '🗓',
+            sub: "Fill today's schedule board",
+            onPress: () => router.push('/(app)/(schedule)' as never),
           },
         };
         const { icon, sub, onPress } = qa[action.key];
