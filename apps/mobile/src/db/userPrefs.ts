@@ -280,3 +280,123 @@ export function setQuietHours(userId: string, start: number | null, end: number 
     appendOutbox('INSERT', 'user_prefs', { user_id: userId, quiet_hours_start: start, quiet_hours_end: end, updated_at });
   });
 }
+
+/**
+ * Self-service "My Notifications" (#245, migration 065). notification_prefs
+ * is a single JSON blob { category: boolean } multiplexing all 7 categories —
+ * a deliberate, documented trade-off (personal settings, single-user edits,
+ * low collision probability; mirrors how users.permission_overrides /
+ * role_settings.permission_overrides already work elsewhere in this
+ * codebase), not a repeat of the 060 dashboard_prefs anti-pattern by
+ * accident. Missing key OR missing row = enabled (opt-out model, so shipping
+ * this feature changes nobody's delivery by default). Server-side enforcement
+ * (push suppression only, inbox always lands) is filterMuted() in
+ * apps/api/src/lib/notifications.ts.
+ *
+ * Scope: only the 7 categories that route through deliver()/sendPush server-
+ * side (assignment/chat/schedule/approvals/on_call/checkout_idle/broadcast).
+ * low_stock and server_errors are deliberately NOT here — production/
+ * inventory-health pings an individual shouldn't be able to silence alone.
+ * The separate client-local alerts engine (notifications/localAlerts.ts) is a
+ * different subsystem, already gated by the device-level toggle in
+ * settings.tsx, and out of scope here.
+ */
+export const NOTIFICATION_CATEGORIES = [
+  'assignment', 'chat', 'schedule', 'approvals', 'on_call', 'checkout_idle', 'broadcast',
+] as const;
+export type NotificationCategory = typeof NOTIFICATION_CATEGORIES[number];
+
+interface NotificationPrefsRow {
+  notification_prefs: string | null;
+}
+
+/** Parsed { category: enabled } map. A missing/malformed row is `{}` (every category enabled). */
+export function getNotificationPrefs(userId: string): Record<string, boolean> {
+  try {
+    const rows = rowsAs<NotificationPrefsRow>(getDb().executeSync(
+      `SELECT notification_prefs FROM user_prefs WHERE user_id = ?`, [userId]
+    ).rows);
+    if (!rows.length || !rows[0].notification_prefs) return {};
+    const parsed: unknown = JSON.parse(rows[0].notification_prefs);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Toggle one category's mute state and persist. Writes ONLY notification_prefs
+ * + updated_at (column-scoped upsert, mig-060 postmortem — never INSERT OR
+ * REPLACE), same discipline as setQuietHours/setDashboardLayout.
+ */
+export function setNotificationCategoryPref(userId: string, category: NotificationCategory, enabled: boolean): void {
+  const current = getNotificationPrefs(userId);
+  const next = { ...current, [category]: enabled };
+  const json = JSON.stringify(next);
+  const updated_at = new Date().toISOString();
+  runInTransaction(() => {
+    getDb().executeSync(
+      `INSERT INTO user_prefs (user_id, notification_prefs, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs, updated_at = excluded.updated_at`,
+      [userId, json, updated_at]
+    );
+    appendOutbox('INSERT', 'user_prefs', { user_id: userId, notification_prefs: json, updated_at });
+  });
+}
+
+/**
+ * First-login onboarding checklist (#246, migration 065). The ONLY writer of
+ * 'pending' is login.tsx's submitSetPin success branch — the one unambiguous
+ * "this account just did first-ever PIN setup" event — deliberately NOT the
+ * first-launch/full-download path, since a veteran re-enrolling on a
+ * replacement device also takes that path and must never see this again.
+ * Single-dismiss model: one "Got it" closes the whole checklist, no per-item
+ * completion tracking.
+ */
+export interface OnboardingChecklist {
+  status: 'pending' | 'dismissed';
+}
+
+interface OnboardingChecklistRow {
+  onboarding_checklist: string | null;
+}
+
+/** The user's checklist state, or null if never started (nothing to show) or malformed. */
+export function getOnboardingChecklist(userId: string): OnboardingChecklist | null {
+  try {
+    const rows = rowsAs<OnboardingChecklistRow>(getDb().executeSync(
+      `SELECT onboarding_checklist FROM user_prefs WHERE user_id = ?`, [userId]
+    ).rows);
+    if (!rows.length || !rows[0].onboarding_checklist) return null;
+    const parsed: unknown = JSON.parse(rows[0].onboarding_checklist);
+    if (parsed && typeof parsed === 'object' && (parsed as OnboardingChecklist).status) {
+      return parsed as OnboardingChecklist;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOnboardingChecklist(userId: string, status: OnboardingChecklist['status']): void {
+  const json = JSON.stringify({ status });
+  const updated_at = new Date().toISOString();
+  runInTransaction(() => {
+    getDb().executeSync(
+      `INSERT INTO user_prefs (user_id, onboarding_checklist, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET onboarding_checklist = excluded.onboarding_checklist, updated_at = excluded.updated_at`,
+      [userId, json, updated_at]
+    );
+    appendOutbox('INSERT', 'user_prefs', { user_id: userId, onboarding_checklist: json, updated_at });
+  });
+}
+
+/** Called once, from login.tsx's submitSetPin success branch only. */
+export function startOnboardingChecklist(userId: string): void {
+  writeOnboardingChecklist(userId, 'pending');
+}
+
+/** The single "Got it" dismiss — never re-shows on this or any other device. */
+export function dismissOnboardingChecklist(userId: string): void {
+  writeOnboardingChecklist(userId, 'dismissed');
+}

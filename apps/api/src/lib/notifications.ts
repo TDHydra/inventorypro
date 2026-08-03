@@ -152,6 +152,52 @@ export async function filterQuietHours(
   }
 }
 
+// #245: maps a deliver() call's `p.type` to one of the 7 "My Notifications"
+// self-service categories (see mobile db/userPrefs.ts's NOTIFICATION_CATEGORIES).
+// low_stock and server_error_spike are deliberately ABSENT — an individual
+// can't silence a production/inventory-health alert for themselves alone, so
+// they're never looked up and never suppressed. Types with no entry here
+// (including sync_stuck, media_share) are likewise never personally mutable.
+const TYPE_TO_CATEGORY: Record<string, string> = {
+  assignment: 'assignment',
+  approval_request: 'approvals',
+  approval_decision: 'approvals',
+  on_call: 'on_call',
+  schedule: 'schedule',
+  checkout_idle: 'checkout_idle',
+  broadcast: 'broadcast',
+};
+
+// #245: filters `ids` down to those who have NOT muted `category` in their
+// personal "My Notifications" prefs (user_prefs.notification_prefs, a JSON
+// { category: boolean } map). Missing row / missing key / malformed JSON is
+// fail-open — always included — so a missing pref can never silently suppress
+// every push forever (same fail-open contract as filterQuietHours). Exported
+// so the direct chat sendPush in routes/sync.ts (which bypasses deliver()
+// entirely) can apply the same gate for the 'chat' category.
+export async function filterMuted(pg: Pg, ids: string[], category: string): Promise<string[]> {
+  if (!ids.length) return ids;
+  try {
+    const { rows } = await pg.query(
+      `SELECT user_id, notification_prefs FROM user_prefs WHERE user_id = ANY($1)`,
+      [ids],
+    );
+    const prefs = new Map<string, string | null>(rows.map(r => [r.user_id as string, r.notification_prefs]));
+    return ids.filter(id => {
+      const raw = prefs.get(id);
+      if (!raw) return true; // no row / never set → fail-open
+      try {
+        const parsed = JSON.parse(raw) as Record<string, boolean>;
+        return parsed[category] !== false;
+      } catch {
+        return true; // malformed JSON → fail-open
+      }
+    });
+  } catch {
+    return ids; // never suppress a push over a mute-pref lookup hiccup
+  }
+}
+
 // The single delivery funnel: writes one durable per-user `notifications` inbox
 // row per recipient AND fires sendPush as a nudge. Every notification trigger
 // (assignment, low-stock, checkout-idle, broadcast, approvals) routes through
@@ -162,6 +208,10 @@ export async function filterQuietHours(
 // still runs for every id regardless (same precedent as the #87 'everyone'
 // push:false pool-share case: inbox-only, no blast). Pass bypassQuietHours to
 // skip the gate entirely (e.g. the user's own actionable stuck-outbox nudge).
+//
+// #245: a personally-muted category is filtered the same way — inbox-only,
+// push suppressed — applied AFTER the quiet-hours gate (order doesn't matter,
+// both only ever narrow the push-recipient set).
 export async function deliver(
   pg: Pg,
   userIds: string[],
@@ -180,7 +230,9 @@ export async function deliver(
     // #87: inbox-only channels (e.g. an 'everyone' pool share) pass push:false —
     // the inbox row above still lands, only the device push nudge is skipped.
     if (p.push === false) return;
-    const pushTo = p.bypassQuietHours ? ids : await filterQuietHours(pg, ids);
+    let pushTo = p.bypassQuietHours ? ids : await filterQuietHours(pg, ids);
+    const category = TYPE_TO_CATEGORY[p.type];
+    if (category) pushTo = await filterMuted(pg, pushTo, category);
     if (pushTo.length) await sendPush(pg, pushTo, { title: p.title, body: p.body, data: p.data });
   } catch { /* never disrupt callers */ }
 }

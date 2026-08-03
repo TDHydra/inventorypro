@@ -51,7 +51,8 @@ function outboxEntries(): OutboxRow[] {
 before(async () => {
   await testDb.initTestDb(); // locations/taxonomy_types/outbox
   // Mirrors mobile migrations 040 (user_prefs) + 060 (dashboard_prefs) + 062
-  // (dashboard_layout/starred_widgets split) + app_config (010)/app_settings.
+  // (dashboard_layout/starred_widgets split) + 065 (notification_prefs/
+  // onboarding_checklist) + app_config (010)/app_settings.
   exec(`
     CREATE TABLE app_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     CREATE TABLE user_prefs (
@@ -60,7 +61,9 @@ before(async () => {
       dashboard_prefs TEXT,
       dashboard_layout TEXT,
       starred_widgets TEXT,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      notification_prefs TEXT,
+      onboarding_checklist TEXT
     );
     CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
@@ -198,4 +201,71 @@ test('setStarredWidgets([]) on a row with a legacy blob: the blob stars must not
   const prefs = userPrefs.getDashboardPrefs(ALICE);
   assert.equal(prefs?.starred, undefined, 'a cleared star set must stay cleared, not fall back to the blob');
   assert.deepEqual(prefs?.layout, [{ widget: 'low-stock', width: 'half' }]);
+});
+
+// ── #245: "My Notifications" self-service push category mute ────────────────
+
+test('getNotificationPrefs returns {} for a user with no row', () => {
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), {});
+});
+
+test('setNotificationCategoryPref writes ONLY notification_prefs locally and in the outbox payload', () => {
+  exec(`INSERT INTO user_prefs (user_id, theme, dashboard_layout, updated_at) VALUES (?, 'modern', ?, '2026-07-01T00:00:00.000Z')`,
+    [ALICE, JSON.stringify([{ widget: 'chat', width: 'full' }])]);
+
+  userPrefs.setNotificationCategoryPref(ALICE, 'chat', false);
+
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), { chat: false });
+  const row = exec(`SELECT theme, dashboard_layout FROM user_prefs WHERE user_id = ?`, [ALICE]).rows[0] as
+    { theme: string; dashboard_layout: string };
+  assert.equal(row.theme, 'modern', 'theme must be untouched by a notification-pref write');
+  assert.equal(row.dashboard_layout, JSON.stringify([{ widget: 'chat', width: 'full' }]));
+
+  const entries = outboxEntries();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].table_name, 'user_prefs');
+  assert.deepEqual(Object.keys(entries[0].payload).sort(), ['notification_prefs', 'updated_at', 'user_id']);
+});
+
+test('setNotificationCategoryPref preserves other categories already set (read-merge-write on the ONE column)', () => {
+  userPrefs.setNotificationCategoryPref(ALICE, 'chat', false);
+  userPrefs.setNotificationCategoryPref(ALICE, 'broadcast', false);
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), { chat: false, broadcast: false });
+  userPrefs.setNotificationCategoryPref(ALICE, 'chat', true);
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), { chat: true, broadcast: false });
+});
+
+test('getNotificationPrefs tolerates malformed JSON, returning {}', () => {
+  exec(`INSERT INTO user_prefs (user_id, notification_prefs, updated_at) VALUES (?, 'not-json', '2026-07-01T00:00:00.000Z')`, [ALICE]);
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), {});
+});
+
+// ── #246: first-login onboarding checklist ───────────────────────────────────
+
+test('getOnboardingChecklist returns null for a user with no row (pre-existing account, never shows the checklist)', () => {
+  assert.equal(userPrefs.getOnboardingChecklist(ALICE), null);
+});
+
+test('startOnboardingChecklist writes {status:"pending"} and ONLY the onboarding_checklist column', () => {
+  exec(`INSERT INTO user_prefs (user_id, theme, updated_at) VALUES (?, 'modern', '2026-07-01T00:00:00.000Z')`, [ALICE]);
+
+  userPrefs.startOnboardingChecklist(ALICE);
+
+  assert.deepEqual(userPrefs.getOnboardingChecklist(ALICE), { status: 'pending' });
+  const row = exec(`SELECT theme FROM user_prefs WHERE user_id = ?`, [ALICE]).rows[0] as { theme: string };
+  assert.equal(row.theme, 'modern');
+  const entries = outboxEntries();
+  assert.equal(entries.length, 1);
+  assert.deepEqual(Object.keys(entries[0].payload).sort(), ['onboarding_checklist', 'updated_at', 'user_id']);
+});
+
+test('dismissOnboardingChecklist flips status to "dismissed" and it never returns to pending', () => {
+  userPrefs.startOnboardingChecklist(ALICE);
+  userPrefs.dismissOnboardingChecklist(ALICE);
+  assert.deepEqual(userPrefs.getOnboardingChecklist(ALICE), { status: 'dismissed' });
+});
+
+test('getOnboardingChecklist tolerates malformed JSON, returning null (fail-open: never blocks the app on garbage)', () => {
+  exec(`INSERT INTO user_prefs (user_id, onboarding_checklist, updated_at) VALUES (?, 'not-json', '2026-07-01T00:00:00.000Z')`, [ALICE]);
+  assert.equal(userPrefs.getOnboardingChecklist(ALICE), null);
 });

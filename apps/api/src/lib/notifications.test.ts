@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients, filterQuietHours, notifySyncStuck } from './notifications';
+import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients, filterQuietHours, filterMuted, notifySyncStuck } from './notifications';
 
 test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.assign('r1', 'u1'), 'assign:repair:r1:u1');
@@ -355,6 +355,69 @@ test('deliver: bypassQuietHours:true ignores the window entirely', async () => {
   // bypass means filterQuietHours (and its user_prefs lookup) is never consulted.
   assert.equal(calls.filter(c => c.sql.includes('FROM user_prefs')).length, 0);
   assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 1);
+});
+
+// ── #245: "My Notifications" self-service push category mute ────────────────
+
+function stubPgNotificationPrefs(prefs: Record<string, string | null>) {
+  return { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM user_prefs')) {
+      const asked = (params[0] as string[]) ?? [];
+      return {
+        rows: asked.filter(id => id in prefs).map(id => ({ user_id: id, notification_prefs: prefs[id] })),
+      };
+    }
+    return { rows: [] as any[] };
+  } };
+}
+
+test('filterMuted: a user who muted the category is dropped, one who did not stays', async () => {
+  const pg = stubPgNotificationPrefs({ u1: JSON.stringify({ chat: false }), u2: JSON.stringify({ chat: true }) });
+  assert.deepEqual(await filterMuted(pg as any, ['u1', 'u2'], 'chat'), ['u2']);
+});
+
+test('filterMuted: no row / missing key / malformed JSON is fail-open (never suppress a never-set user)', async () => {
+  const pgNoRow = stubPgNotificationPrefs({});
+  assert.deepEqual(await filterMuted(pgNoRow as any, ['u1'], 'chat'), ['u1']);
+  const pgMissingKey = stubPgNotificationPrefs({ u1: JSON.stringify({ broadcast: false }) });
+  assert.deepEqual(await filterMuted(pgMissingKey as any, ['u1'], 'chat'), ['u1']);
+  const pgMalformed = stubPgNotificationPrefs({ u1: 'not-json' });
+  assert.deepEqual(await filterMuted(pgMalformed as any, ['u1'], 'chat'), ['u1']);
+});
+
+test('filterMuted: empty ids is a no-op (no query issued)', async () => {
+  const calls: string[] = [];
+  const pg = { query: async (sql: string) => { calls.push(sql); return { rows: [] as any[] }; } };
+  assert.deepEqual(await filterMuted(pg as any, [], 'chat'), []);
+  assert.equal(calls.length, 0);
+});
+
+test('deliver: a muted category is dropped from the push recipients but still gets an inbox row', async () => {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('FROM user_prefs') && sql.includes('notification_prefs')) {
+        return { rows: [{ user_id: 'u1', notification_prefs: JSON.stringify({ broadcast: false }) }] };
+      }
+      return { rows: [] as any[] };
+    },
+  };
+  await deliver(pg as any, ['u1'], { type: 'broadcast', title: 't', body: 'b' });
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notifications')).length, 1);
+  assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 0);
+});
+
+test('deliver: a type with no TYPE_TO_CATEGORY entry (e.g. low_stock) never consults notification_prefs', async () => {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      return { rows: [] as any[] };
+    },
+  };
+  await deliver(pg as any, ['u1'], { type: 'low_stock', title: 't', body: 'b' });
+  assert.equal(calls.filter(c => c.sql.includes('notification_prefs')).length, 0);
 });
 
 // ── #243: stuck-outbox server nudge ─────────────────────────────────────────

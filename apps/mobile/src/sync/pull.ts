@@ -24,7 +24,10 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   // quiet_hours_start/_end (#242, migration 064): UTC-minutes-since-midnight,
   // NULL/NULL = disabled. Column-scoped upsert same as every other user_prefs
   // field (see db/userPrefs.ts's setQuietHours).
-  user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  // notification_prefs/onboarding_checklist (#245/#246, migration 065): JSON
+  // columns, same column-scoped-upsert discipline (see db/userPrefs.ts's
+  // setNotificationCategoryPref / startOnboardingChecklist / dismissOnboardingChecklist).
+  user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end, notification_prefs, onboarding_checklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   taxonomy_types: `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta) VALUES (?,?,?,?,?,?,?,?)`,
   repairs: `INSERT OR REPLACE INTO repairs (id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, cost, due_at, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   repair_parts: `INSERT OR REPLACE INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at, step_id) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -67,7 +70,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at, row.is_manager ? 1 : 0, row.updated_at, row.subteam_id ?? null, row.subteam_role ?? null];
     case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at, row.location_note ?? null, row.updated_at ?? row.created_at, row.audience ?? null, row.audience_user_ids ?? null, row.room_id ?? null];
     case 'app_config': return [row.key, row.value, row.updated_at];
-    case 'user_prefs': return [row.user_id, row.theme ?? null, row.dashboard_prefs ?? null, row.dashboard_layout ?? null, row.starred_widgets ?? null, row.updated_at, row.quiet_hours_start ?? null, row.quiet_hours_end ?? null];
+    case 'user_prefs': return [row.user_id, row.theme ?? null, row.dashboard_prefs ?? null, row.dashboard_layout ?? null, row.starred_widgets ?? null, row.updated_at, row.quiet_hours_start ?? null, row.quiet_hours_end ?? null, row.notification_prefs ?? null, row.onboarding_checklist ?? null];
     case 'taxonomy_types': return [row.id, row.category, row.label, row.icon ?? null, row.sort_order, row.active ? 1 : 0, row.updated_at, row.meta ?? null];
     case 'repairs': return [row.id, row.entity_type, row.entity_id, row.entity_label ?? null, row.notes ?? null, row.parts_needed ?? null, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.completed_at ?? null, row.assignee_id ?? null, row.cost ?? null, row.due_at ?? null, row.status_id ?? null];
     case 'repair_parts': return [row.id, row.repair_id, row.item_id, row.qty, row.unit, row.created_by ?? null, row.created_at, row.updated_at, row.step_id ?? null];

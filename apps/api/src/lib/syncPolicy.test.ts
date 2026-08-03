@@ -711,7 +711,7 @@ test('schedule_assignments strips created_by reassignment on UPDATE', () => {
 test('user_prefs projection carries the split dashboard_layout/starred_widgets columns', () => {
   assert.equal(
     selectColumnsFor('user_prefs', false),
-    'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end',
+    'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end, notification_prefs, onboarding_checklist',
   );
   // No financial gate on personal prefs — canViewFinancial must not change it.
   assert.equal(selectColumnsFor('user_prefs', false), selectColumnsFor('user_prefs', true));

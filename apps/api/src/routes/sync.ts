@@ -19,7 +19,7 @@ import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
 import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
-import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, resolvePoolRecipients, claimEvent, releaseEvent, dedupKeys, filterQuietHours } from '../lib/notifications';
+import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, resolvePoolRecipients, claimEvent, releaseEvent, dedupKeys, filterQuietHours, filterMuted } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
 import { sendPush, messageRecipients } from '../lib/push';
@@ -1828,7 +1828,14 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               // so quiet hours need their own gate here. @mentions bypass quiet
               // hours too — same rationale as their mute bypass above: a direct
               // @mention is the sender explicitly reaching for that person.
-              const pushTo = await filterQuietHours(fastify.pg, recipients, new Set(mentionedUserIds));
+              // #245: chat also bypasses deliver()'s TYPE_TO_CATEGORY filter, so
+              // a user who globally muted 'chat' in My Notifications needs its
+              // own gate here too — applied regardless of any individual
+              // conversation's notify_pref (messageRecipients already handled
+              // that) or mention bypass (a global mute wins over a mention, same
+              // as it would for any other category).
+              let pushTo = await filterQuietHours(fastify.pg, recipients, new Set(mentionedUserIds));
+              pushTo = await filterMuted(fastify.pg, pushTo, 'chat');
               if (pushTo.length) {
                 await sendPush(fastify.pg, pushTo, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) }, categoryId: 'chat-message' }); // #231
               }

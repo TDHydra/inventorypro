@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useSession } from '../../src/hooks/useSession';
@@ -13,6 +13,9 @@ import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 import { appAlertBus, IDLE_NUDGE_TAG } from '../../src/lib/alertBus';
 import { PreviewBanner } from '../../src/components/ui/PreviewBanner';
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner';
+import { useDbQuery } from '../../src/hooks/useDbQuery';
+import { getOnboardingChecklist } from '../../src/db/userPrefs';
+import { OnboardingChecklistSheet } from '../../src/components/profile/OnboardingChecklistSheet';
 import type { Theme } from '../../src/themes/types';
 import { useTheme } from '../../src/hooks/useTheme';
 import { useThemedStyles } from '../../src/hooks/useThemedStyles';
@@ -70,6 +73,22 @@ export default function AppLayout() {
   useEffect(() => {
     setMaintenanceRole(realUser?.role ?? null);
   }, [realUser]);
+
+  // #246: first-login onboarding checklist. Keyed off realUser (not the
+  // effective/previewed user), same identity-sensitive convention as the
+  // maintenance-role effect above — a preview-as-role session must never
+  // surface (or hide) the REAL signed-in user's own checklist state.
+  // `dismissedThisSession` hides the sheet after any row tap (navigating away
+  // to complete a task) or the explicit "Got it" WITHOUT re-showing it later
+  // in the same session — only "Got it" actually persists the dismissal
+  // (dismissOnboardingChecklist, called inside OnboardingChecklistSheet), so a
+  // row-tap-away still shows it again next app launch if never formally dismissed.
+  const onboarding = useDbQuery(
+    () => (realUser ? getOnboardingChecklist(realUser.id) : null),
+    [realUser?.id],
+    ['user_prefs'],
+  );
+  const [dismissedThisSession, setDismissedThisSession] = useState(false);
 
   if (!user) return null;
 
@@ -141,6 +160,13 @@ export default function AppLayout() {
         <Stack.Screen name="(chat)" options={{ headerShown: false }} />
       </Stack>
       <QuickPhotoFlow />
+      {realUser && (
+        <OnboardingChecklistSheet
+          visible={!dismissedThisSession && onboarding?.status === 'pending'}
+          userId={realUser.id}
+          onClose={() => setDismissedThisSession(true)}
+        />
+      )}
     </View>
   );
 }

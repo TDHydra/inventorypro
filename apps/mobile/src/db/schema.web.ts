@@ -172,6 +172,7 @@ async function loadMigrations(): Promise<Migration[]> {
     import('./migrations/062_dashboard_prefs_split'),
     import('./migrations/063_message_mentions'),
     import('./migrations/064_quiet_hours'),
+    import('./migrations/065_user_prefs_notify_onboarding'),
   ]);
   return m.map(x => x.migration as Migration).sort((a, b) => a.version - b.version);
 }

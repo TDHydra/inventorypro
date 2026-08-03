@@ -578,7 +578,10 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean, canVi
   // it as a rollback safety net. Same self-scoped projection as theme.
   // quiet_hours_start/_end (#242, migration 078): UTC-minutes-since-midnight,
   // same column-scoped-upsert discipline as dashboard_layout/starred_widgets.
-  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end'; // scoped to the caller in sync.ts; explicit projection regardless
+  // notification_prefs/onboarding_checklist (#245/#246, migration 079): same
+  // column-scoped-upsert discipline; see notifications.ts's filterMuted for
+  // the server-side enforcement of notification_prefs.
+  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end, notification_prefs, onboarding_checklist'; // scoped to the caller in sync.ts; explicit projection regardless
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;
