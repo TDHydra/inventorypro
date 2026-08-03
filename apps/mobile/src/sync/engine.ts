@@ -10,7 +10,7 @@ import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
 import { reconcileChat } from './chatPurge';
 import { reconcileLogSyncState } from '../db/queries/log';
-import { getValidJwt, getSavedUserId } from '../auth/session';
+import { getValidJwt, getSavedUserId, revalidateSession } from '../auth/session';
 import { loadClassConfigCache } from '../constants/units';
 import { loadRolePermissionCache } from '../auth/permissions';
 import { loadDashboardCache } from '../dashboard/store';
@@ -120,6 +120,9 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
   });
 
   if (!res.ok) {
+    // 401 on a token we considered valid → possibly revoked server-side; ask
+    // /auth/refresh to settle it (dead session → app logout via the bus).
+    if (res.status === 401) void revalidateSession();
     const errText = await res.text();
     entries.forEach(e => {
       incrementOutboxAttempt(e.id, withRequestRef(`HTTP ${res.status}: ${errText}`, res));

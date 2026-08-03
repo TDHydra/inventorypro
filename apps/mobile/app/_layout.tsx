@@ -25,7 +25,7 @@ import { getAppSetting } from '../src/db/appSettings';
 // Importing localAlerts also registers the foreground notification handler at
 // module load (setNotificationHandler).
 import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
-import { AlertHost } from '../src/lib/themedAlert';
+import { AlertHost, Alert } from '../src/lib/themedAlert';
 import { ConfirmSheetHost } from '../src/components/ui/ConfirmSheet';
 import { ToastHost } from '../src/components/ToastHost';
 import { loadThemeFromSettings } from '../src/themes/store';
@@ -39,6 +39,7 @@ import { initSentry } from '../src/telemetry/sentry';
 import { useNotificationObservers } from '../src/push/handlers';
 import { registerForPush, unregisterPush } from '../src/push/register';
 import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
+import { setSessionExpiredHandler, resetSessionExpiredNotice } from '../src/auth/sessionExpiredBus';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -210,6 +211,23 @@ export default function RootLayout() {
     setWebIdleLogoutHandler(() => { void logout(); });
     return () => setWebIdleLogoutHandler(null);
   }, [logout]);
+
+  // Server-side session death (refresh token expired/revoked, account
+  // deactivated): auth/sync internals raise sessionExpiredBus; run the same
+  // full logout() as the user-initiated path so the route guard redirects to
+  // login. The alert explains WHY they're suddenly on the login screen.
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      Alert.alert('Signed out', 'Your session has expired. Please log in again.');
+      void logout();
+    });
+    return () => setSessionExpiredHandler(null);
+  }, [logout]);
+
+  // Re-arm the once-per-session expiry notice on each sign-in.
+  useEffect(() => {
+    if (user) resetSessionExpiredNotice();
+  }, [user?.id]);
 
   const sessionValue: SessionContextValue = {
     user: effectiveUser,

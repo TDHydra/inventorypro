@@ -3,6 +3,7 @@ import { UserSession, TeamContext, parsePermissionOverrides } from './permission
 import { getUserById } from '../db/queries/users';
 import { getDb, rowsAs } from '../db/schema';
 import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
+import { noteSessionExpired } from './sessionExpiredBus';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 if (!__DEV__ && !API_BASE.startsWith('https://')) {
@@ -65,12 +66,51 @@ export async function getValidJwt(): Promise<string | null> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refresh }),
     });
-    if (!res.ok) return jwt;                            // refresh rejected — keep existing
+    if (res.status === 401 || res.status === 403) {
+      // The server DEFINITIVELY rejected the refresh token — the session is
+      // dead (expired/revoked/deactivated). Tell the app to log out instead
+      // of handing back a JWT that will 401 forever.
+      noteSessionExpired();
+      return null;
+    }
+    if (!res.ok) return jwt;                            // 5xx/transient — keep existing
     const data = await res.json() as { jwt: string };
     await SecureStore.setItemAsync(JWT_KEY, data.jwt);
     return data.jwt;
   } catch {
     return jwt;                                         // offline — keep existing
+  }
+}
+
+/**
+ * Called by sync when a request 401s: the JWT the server just refused may be
+ * revoked BEFORE its exp (server-side logout), which getValidJwt()'s local
+ * expiry check can't see. Settle it by asking /auth/refresh directly — a
+ * definite rejection (or no refresh token at all) means the session is dead;
+ * success mints a fresh JWT for the next cycle; network errors decide nothing.
+ */
+export async function revalidateSession(): Promise<void> {
+  const refresh = await getRefreshToken();
+  if (!refresh) {
+    noteSessionExpired();
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      noteSessionExpired();
+      return;
+    }
+    if (res.ok) {
+      const data = await res.json() as { jwt: string };
+      await SecureStore.setItemAsync(JWT_KEY, data.jwt);
+    }
+  } catch {
+    /* offline/transient — decide nothing */
   }
 }
 

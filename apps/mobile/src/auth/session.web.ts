@@ -8,6 +8,7 @@ import { getDb, rowsAs, resetLocalDb } from '../db/schema';
 // toggle is the very one flush()/scheduleSave() read.
 import { markDbWiped, clearDbWiped } from '../db/schema.web';
 import { TEAM_OVERRIDABLE_PERMISSIONS } from '../db/queries/teams';
+import { noteSessionExpired } from './sessionExpiredBus';
 import {
   clearDbSnapshot,
   saveSecureValue,
@@ -100,12 +101,44 @@ export async function getValidJwt(): Promise<string | null> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refresh }),
     });
-    if (!res.ok) return jwt;                            // refresh rejected — keep existing
+    if (res.status === 401 || res.status === 403) {
+      // Definitive rejection — dead session; the app must log out (see the
+      // native twin session.ts for the full rationale).
+      noteSessionExpired();
+      return null;
+    }
+    if (!res.ok) return jwt;                            // 5xx/transient — keep existing
     const data = await res.json() as { jwt: string };
     await saveSecureValue(JWT_KEY, data.jwt);
     return data.jwt;
   } catch {
     return jwt;                                         // offline — keep existing
+  }
+}
+
+/** Web twin of session.ts revalidateSession — see there for rationale. */
+export async function revalidateSession(): Promise<void> {
+  const refresh = await getRefreshToken();
+  if (!refresh) {
+    noteSessionExpired();
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      noteSessionExpired();
+      return;
+    }
+    if (res.ok) {
+      const data = await res.json() as { jwt: string };
+      await saveSecureValue(JWT_KEY, data.jwt);
+    }
+  } catch {
+    /* offline/transient — decide nothing */
   }
 }
 

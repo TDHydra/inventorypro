@@ -1,5 +1,5 @@
 import { getDb } from '../db/schema';
-import { getValidJwt } from '../auth/session';
+import { getValidJwt, revalidateSession } from '../auth/session';
 import { bumpTablesVersion } from './dataVersion';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -131,6 +131,12 @@ export async function pullChanges(): Promise<void> {
     headers: { Authorization: `Bearer ${jwt}` },
   });
 
+  if (res.status === 401) {
+    // The server refused a JWT we thought was valid — it may be revoked ahead
+    // of its exp (server-side logout). Settle it now (fire-and-forget; a dead
+    // session raises the app logout via sessionExpiredBus).
+    void revalidateSession();
+  }
   if (!res.ok) throw new Error(`Pull failed: ${res.status}`);
 
   const data = await res.json() as Record<string, { rows: Record<string, unknown>[] }>;
