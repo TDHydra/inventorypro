@@ -134,6 +134,19 @@ services:
       HOST: "0.0.0.0"
     ports:
       - "${API_PORT:-3000}:3000"             # NPM -> api.<domain>
+    # #238: log rotation lever. The API's pino logger writes to stdout (no file
+    # transport — adding one would be a new dependency, and this container has
+    # no writable log volume anyway), so stdout capture is entirely docker's
+    # json-file driver. Left at its own defaults that driver never rotates —
+    # one long-running container can grow an unbounded log file on the host.
+    # Capping size/count here is the correct place for that, not the app: it
+    # applies uniformly to whatever writes to stdout (pino now, anything else
+    # later) without every service needing its own rotation logic.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   web:
     # Expo Web static build served by nginx. The API URL is baked at build time,

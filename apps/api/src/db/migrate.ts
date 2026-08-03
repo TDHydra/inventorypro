@@ -2,6 +2,12 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { Client } from 'pg';
 
+// #238: arbitrary constant bigint identifying "the InventoryPro migration
+// run" as a Postgres advisory lock key. Any int64 works as long as it's
+// stable across boots and unlikely to collide with another app's lock on the
+// same DB (nothing else in this codebase takes advisory locks).
+const MIGRATION_LOCK_KEY = 727274;
+
 export async function runMigrations(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL env var required');
@@ -10,84 +16,104 @@ export async function runMigrations(): Promise<void> {
   await client.connect();
 
   try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        version    INT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    const { rows: applied } = await client.query<{ version: number }>(
-      'SELECT version FROM schema_migrations ORDER BY version'
-    );
-    const appliedVersions = new Set(applied.map(r => r.version));
-
-    const migrationsDir = join(__dirname, 'migrations');
-    const files = readdirSync(migrationsDir)
-      .filter(f => f.endsWith('.sql'))
-      .sort();
-
-    let ran = 0;
-    for (const file of files) {
-      const version = parseInt(file.split('_')[0], 10);
-      if (appliedVersions.has(version)) continue;
-
-      console.log(`Applying migration ${file}...`);
-      const sql = readFileSync(join(migrationsDir, file), 'utf-8');
-
-      await client.query('BEGIN');
-      try {
-        await client.query(sql);
-        await client.query(
-          'INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING',
-          [version]
-        );
-        await client.query('COMMIT');
-        ran++;
-        console.log(`  ✓ Migration ${version} applied`);
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
-      }
-    }
-
-    if (ran === 0) {
-      console.log('All migrations already applied.');
-    } else {
-      console.log(`✓ ${ran} migration(s) applied.`);
-    }
-
-    // Prune the sync dedup table: processed_outbox rows only matter inside the
-    // push-retry window, so anything older than 7 days is safe to drop. Runs on
-    // every boot (after migration 013 has created the table).
-    const pruned = await client.query(
-      `DELETE FROM processed_outbox WHERE processed_at < NOW() - INTERVAL '7 days'`
-    );
-    if (pruned.rowCount) {
-      console.log(`✓ Pruned ${pruned.rowCount} stale processed_outbox row(s).`);
-    }
-
-    // Prune telemetry_events: lossy-by-design behavioral sink, retained 90 days
-    // (see migration 029). Runs on every boot alongside the other dedup prunes.
-    const prunedTel = await client.query(
-      `DELETE FROM telemetry_events WHERE received_at < NOW() - INTERVAL '90 days'`
-    );
-    if (prunedTel.rowCount) {
-      console.log(`✓ Pruned ${prunedTel.rowCount} stale telemetry_events row(s).`);
-    }
-
-    // Prune notification_dedup (migration 031): a backstop against unbounded
-    // growth. 30 days is well past when any key still matters — a still-relevant
-    // low-stock key just re-arms (a fresh alert on the next dip), and session
-    // keys are one-shot. Runs on every boot after 031 exists.
-    const prunedNotif = await client.query(
-      `DELETE FROM notification_dedup WHERE created_at < NOW() - INTERVAL '30 days'`
-    );
-    if (prunedNotif.rowCount) {
-      console.log(`✓ Pruned ${prunedNotif.rowCount} stale notification_dedup row(s).`);
+    // #238: two containers can boot at once (rolling deploy) and both call
+    // runMigrations() against the same DB — without serializing them, two
+    // processes racing the same "ALTER TABLE ... ADD COLUMN" or reading a
+    // stale `appliedVersions` set can double-apply a migration or step on
+    // each other's transaction. pg_advisory_lock blocks the second caller
+    // until the first releases it, so migrations always run one-at-a-time
+    // system-wide. Advisory locks are SESSION-scoped (tied to the connection
+    // that took them, not the transaction), so this must run on `client` —
+    // the same dedicated `pg.Client` used for every query below — never a
+    // pool-per-query helper, where a later query (and the unlock call) could
+    // land on a different physical connection and silently no-op.
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
+    try {
+      await runMigrationsLocked(client);
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
     }
   } finally {
     await client.end();
+  }
+}
+
+async function runMigrationsLocked(client: Client): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version    INT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  const { rows: applied } = await client.query<{ version: number }>(
+    'SELECT version FROM schema_migrations ORDER BY version'
+  );
+  const appliedVersions = new Set(applied.map(r => r.version));
+
+  const migrationsDir = join(__dirname, 'migrations');
+  const files = readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+
+  let ran = 0;
+  for (const file of files) {
+    const version = parseInt(file.split('_')[0], 10);
+    if (appliedVersions.has(version)) continue;
+
+    console.log(`Applying migration ${file}...`);
+    const sql = readFileSync(join(migrationsDir, file), 'utf-8');
+
+    await client.query('BEGIN');
+    try {
+      await client.query(sql);
+      await client.query(
+        'INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING',
+        [version]
+      );
+      await client.query('COMMIT');
+      ran++;
+      console.log(`  ✓ Migration ${version} applied`);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
+    }
+  }
+
+  if (ran === 0) {
+    console.log('All migrations already applied.');
+  } else {
+    console.log(`✓ ${ran} migration(s) applied.`);
+  }
+
+  // Prune the sync dedup table: processed_outbox rows only matter inside the
+  // push-retry window, so anything older than 7 days is safe to drop. Runs on
+  // every boot (after migration 013 has created the table).
+  const pruned = await client.query(
+    `DELETE FROM processed_outbox WHERE processed_at < NOW() - INTERVAL '7 days'`
+  );
+  if (pruned.rowCount) {
+    console.log(`✓ Pruned ${pruned.rowCount} stale processed_outbox row(s).`);
+  }
+
+  // Prune telemetry_events: lossy-by-design behavioral sink, retained 90 days
+  // (see migration 029). Runs on every boot alongside the other dedup prunes.
+  const prunedTel = await client.query(
+    `DELETE FROM telemetry_events WHERE received_at < NOW() - INTERVAL '90 days'`
+  );
+  if (prunedTel.rowCount) {
+    console.log(`✓ Pruned ${prunedTel.rowCount} stale telemetry_events row(s).`);
+  }
+
+  // Prune notification_dedup (migration 031): a backstop against unbounded
+  // growth. 30 days is well past when any key still matters — a still-relevant
+  // low-stock key just re-arms (a fresh alert on the next dip), and session
+  // keys are one-shot. Runs on every boot after 031 exists.
+  const prunedNotif = await client.query(
+    `DELETE FROM notification_dedup WHERE created_at < NOW() - INTERVAL '30 days'`
+  );
+  if (prunedNotif.rowCount) {
+    console.log(`✓ Pruned ${prunedNotif.rowCount} stale notification_dedup row(s).`);
   }
 }
 
