@@ -47,6 +47,8 @@ export const DEFAULT_LAYOUT: Layout = composeLayout(
   // Fast checkout leads the dashboard (#127); fast check-in (#83) pairs with it.
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
+  // #206: one-tap scan launcher right under the fast pair.
+  { widget: 'scan', width: 'full' },
   { widget: 'checkout', width: 'full' },
   { widget: 'checkin', width: 'full' },
   { widget: 'my-checkouts', width: 'full' },

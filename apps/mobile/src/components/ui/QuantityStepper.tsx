@@ -4,6 +4,7 @@ import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { Field } from './Field';
 import { clampQuantity, parseQuantityInput } from './quantityMath';
+import { KIT_HIT_SLOP } from './hitSlop';
 
 export { clampQuantity, parseQuantityInput } from './quantityMath';
 
@@ -120,6 +121,10 @@ export function QuantityStepper({
         onLongPress={() => startRepeat(-step)}
         onPressOut={clearTimer}
         disabled={atMin}
+        hitSlop={KIT_HIT_SLOP}
+        accessibilityRole="button"
+        accessibilityLabel="Decrease quantity"
+        accessibilityState={{ disabled: atMin }}
         style={[s.btn, { height: rowHeight, width: rowHeight }, atMin && s.btnDisabled]}
       >
         <Text style={[s.btnText, atMin && s.btnTextDisabled]}>−</Text>
@@ -152,6 +157,10 @@ export function QuantityStepper({
         onLongPress={() => startRepeat(step)}
         onPressOut={clearTimer}
         disabled={atMax}
+        hitSlop={KIT_HIT_SLOP}
+        accessibilityRole="button"
+        accessibilityLabel="Increase quantity"
+        accessibilityState={{ disabled: atMax }}
         style={[s.btn, { height: rowHeight, width: rowHeight }, atMax && s.btnDisabled]}
       >
         <Text style={[s.btnText, atMax && s.btnTextDisabled]}>+</Text>

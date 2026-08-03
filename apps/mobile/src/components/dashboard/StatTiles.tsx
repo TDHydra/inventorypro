@@ -18,6 +18,8 @@ import { getAllActiveUsers } from '../../db/queries/users';
 import { getUnitLocations } from '../../db/queries/locations';
 import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
 import { getSharedPoolMediaCount } from '../../db/queries/media';
+import { getScheduleBoardForDay, getScheduleableEmployees } from '../../db/queries/schedule';
+import { localTodayIso } from '../schedule/dayMath';
 
 // StatTiles (role dashboards §2): a row of tappable count cards, driven by the
 // block's `config.stats` source list. Each source mirrors the permission of the
@@ -32,6 +34,9 @@ interface StatDef {
   route: string;
   requiredPermission?: Permission;
   count: (userId: string) => number;
+  // #225: coverage-style stats render "count/denominator" (e.g. 5/8) instead
+  // of a bare count. Read in the same useDbQuery pass as `count`.
+  denominator?: (userId: string) => number;
   tables: string[];
 }
 
@@ -96,6 +101,19 @@ const STAT_DEFS: Record<StatSource, StatDef> = {
     count: uid => getSharedPoolMediaCount(uid),
     tables: ['media'],
   },
+  // #225: today's board coverage at a glance — scheduled/total tier-1 crew.
+  // manage_schedule mirrors who acts on a gap (same scoping as the #224
+  // schedule-gaps quick-action; crew see their own day via my-schedule-today).
+  'scheduled-today': {
+    label: 'Scheduled Today', icon: '🗓', route: '/(app)/(schedule)',
+    requiredPermission: 'manage_schedule',
+    count: () => {
+      const covered = new Set(getScheduleBoardForDay(localTodayIso()).map(a => a.employee_id));
+      return getScheduleableEmployees().filter(u => covered.has(u.id)).length;
+    },
+    denominator: () => getScheduleableEmployees().length,
+    tables: ['schedule_assignments', 'users'],
+  },
 };
 
 function isStatSource(s: unknown): s is StatSource {
@@ -113,7 +131,11 @@ function StatTileCard({ source }: { source: StatSource }) {
   const def = STAT_DEFS[source];
   const userId = user?.id ?? '';
   const count = useDbQuery(() => {
-    try { return def.count(userId); } catch { return 0; }
+    try {
+      const n = def.count(userId);
+      // #225: coverage stats read as "n/total"; plain stats stay a bare count.
+      return def.denominator ? `${n}/${def.denominator(userId)}` : String(n);
+    } catch { return '0'; }
   }, [source, userId], def.tables);
 
   return (

@@ -55,6 +55,12 @@ compose `AppInput` but aren't part of this kit's exports.
 - **Icons are text/emoji** — no icon library.
 - **Shape** — named function components, inline `interface Props`, relative
   imports.
+- **Accessibility (#219)** — every interactive primitive carries
+  `accessibilityRole` (+ `accessibilityLabel` when the visible text isn't the
+  whole story, e.g. icon/emoji-only or loading states) and
+  `accessibilityState` for `disabled`/`selected`. Small targets take
+  `KIT_HIT_SLOP` from `./hitSlop`. ToastHost's action button is the reference
+  pattern.
 
 Wave B items add their own usage notes as doc-comments in their own files,
 not here — keeps this file conflict-free under parallel edits.

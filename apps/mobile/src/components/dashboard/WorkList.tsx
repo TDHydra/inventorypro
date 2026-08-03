@@ -13,12 +13,15 @@ import type { Permission } from '../../constants/roles';
 import type { WidgetConfig, WorkListSource } from '../../dashboard/widgets';
 import { getOpenJobs } from '../../db/queries/jobs';
 import { getMyAssignedJobs } from '../../db/queries/jobAssignments';
-import { getDeployedUnitsForUser } from '../../db/queries/equipmentUnits';
+import { getDeployedUnitsForUser, getUnitsStrandedOnClosedJobs } from '../../db/queries/equipmentUnits';
 import { getRepairs } from '../../db/queries/repairs';
 import { getUnitsDueForService } from '../../db/queries/maintenance';
 import { getLowStockItems } from '../../db/queries/items';
 import { getUnitLocations } from '../../db/queries/locations';
 import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
+import { getScheduleAssignmentsForEmployee } from '../../db/queries/schedule';
+import { listConversations } from '../../db/queries/chat';
+import { formatMinute, localTodayIso } from '../schedule/dayMath';
 
 // WorkList (role dashboards §2): a compact card list — title, up to N rows, and
 // a "View all" tap-through — driven by the block's `config.source`. Rows come
@@ -86,6 +89,55 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
     // taxonomy_types: job type resolved from type_id inside the read.
     tables: ['jobs', 'job_assignments', 'team_members', 'taxonomy_types'],
   },
+  // #207: my schedule for today — the crew's marching orders, straight off the
+  // #184 board. No requiredPermission: it's the user's OWN day (the schedule
+  // tile is open to every authenticated user for the same reason); tapping
+  // through opens the read-only-unless-manage_schedule board.
+  'my-schedule-today': {
+    title: 'My Schedule Today', icon: '🗓', emptyTitle: 'Nothing scheduled today',
+    viewAllRoute: '/(app)/(schedule)',
+    read: uid => getScheduleAssignmentsForEmployee(uid, localTodayIso()).map(a => ({
+      id: a.id,
+      primary: a.assignment_kind === 'job'
+        ? (a.job_number ? `#${a.job_number} · ${a.job_name ?? 'Job'}` : a.job_name ?? 'Job')
+        : `With ${a.manager_name ?? 'manager'}`,
+      secondary: `${formatMinute(a.start_minute)}–${formatMinute(a.end_minute)}${a.note ? ` · ${a.note}` : ''}`,
+      updated_at: a.updated_at,
+    })),
+    // users: employee/manager names resolved in VIEW_SELECT's joins.
+    tables: ['schedule_assignments', 'jobs', 'users'],
+  },
+  // #223: deployed units whose job has since been closed — the recovery view
+  // of the gap the #212 "close anyway" confirm knowingly allows. Permission
+  // mirrors the equipment tile it taps through to. Collapses when empty
+  // (WorkListCard renders null), so it costs no space on a healthy org.
+  'stranded-equipment': {
+    title: 'Left on Closed Jobs', icon: '🚨', emptyTitle: 'No stranded equipment',
+    viewAllRoute: '/(app)/(equipment)', requiredPermission: 'add_inventory',
+    read: () => getUnitsStrandedOnClosedJobs().map(u => ({
+      id: u.id,
+      primary: `${u.item_name} · ${u.asset_tag}`,
+      secondary: u.job_number ? `Closed job #${u.job_number} · ${u.job_name}` : `Closed job: ${u.job_name}`,
+      updated_at: u.updated_at ?? null,
+    })),
+    tables: ['equipment_units', 'inventory_items', 'jobs'],
+  },
+  // #229: conversations with unread messages — row-tap straight into the
+  // chat. No requiredPermission (chat is open to every authenticated user,
+  // same as the Messages tile); collapses when the user is caught up.
+  'unread-chats': {
+    title: 'Unread Messages', icon: '💬', emptyTitle: 'No unread messages',
+    viewAllRoute: '/(app)/(chat)',
+    rowRoute: id => `/(app)/(chat)/${id}`,
+    read: uid => listConversations(uid).filter(c => c.unread > 0).map(c => ({
+      id: c.id,
+      primary: c.kind === 'group' ? (c.title?.trim() || 'Group') : (c.peer_name?.trim() || 'Direct message'),
+      secondary: `${c.unread} unread${c.last_body ? ` · ${c.last_body}` : ''}`,
+      updated_at: c.last_at,
+    })),
+    // users: peer names resolved in listConversations' subquery.
+    tables: ['messages', 'conversations', 'conversation_participants', 'users'],
+  },
   'open-jobs': {
     title: 'Open Jobs', icon: '🏗', emptyTitle: 'No open jobs',
     viewAllRoute: '/(app)/(jobs)', requiredPermission: 'create_jobs',
@@ -149,6 +201,17 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
 
 function isWorkListSource(s: unknown): s is WorkListSource {
   return typeof s === 'string' && Object.prototype.hasOwnProperty.call(WORK_LIST_DEFS, s);
+}
+
+// #226: chip metadata for a starred `work-list:<source>` key on the dashboard
+// favorites strip — same title/icon/permission/route the card itself uses, so
+// the two surfaces can never disagree. Null for an unknown source (stale star).
+export function getWorkListChipMeta(source: string): {
+  title: string; icon: string; route: string; requiredPermission?: Permission;
+} | null {
+  if (!isWorkListSource(source)) return null;
+  const def = WORK_LIST_DEFS[source];
+  return { title: def.title, icon: def.icon, route: def.viewAllRoute, requiredPermission: def.requiredPermission };
 }
 
 function WorkListCard({ source, config }: { source: WorkListSource; config?: WidgetConfig }) {

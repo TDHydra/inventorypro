@@ -44,6 +44,9 @@ export function SegmentedControl({ segments, value, onChange, size = 'md' }: Pro
         key={seg.id}
         onPress={() => onChange(seg.id)}
         style={[s.segment, sizeStyle, !scrolls && s.segmentFlex, selected && s.segmentSelected]}
+        accessibilityRole="button"
+        accessibilityLabel={seg.label}
+        accessibilityState={{ selected }}
       >
         <Text style={[s.text, textSizeStyle, selected ? s.textSelected : s.textUnselected]} numberOfLines={1}>
           {seg.label}

@@ -10,6 +10,7 @@ import { runMigrations } from './db/migrate';
 import { overRateLimit, overLimit, peekOverLimit, sweepBuckets } from './lib/rateLimit';
 import { startNotificationTimer } from './lib/notificationTimer';
 import { recordAudit, startAuditPruneTimer } from './lib/auditWriter';
+import { startErrorCanaryTimer } from './lib/errorCanary';
 import { createTestAccountGate } from './lib/testAccounts';
 import { createDemoModeGate } from './lib/demoMode';
 import { sanitizeErrorMessage } from './lib/audit';
@@ -301,6 +302,8 @@ runMigrations()
       // Prune api_request_audit now and daily. Boot-only pruning would never
       // fire in practice — prod restarts are rare and this table grows per request.
       startAuditPruneTimer(app);
+      // #210: notify admins when server_error audit rows spike.
+      startErrorCanaryTimer(app.pg);
       // GC the in-memory limiter maps so they can't grow without bound.
       startLimiterSweepTimer();
     });

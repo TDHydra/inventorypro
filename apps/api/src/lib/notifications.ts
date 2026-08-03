@@ -21,6 +21,10 @@ export const dedupKeys = {
   approval: (id: string) => `approval:req:${id}`,
   apprDecision: (id: string, status: string) => `approval:dec:${id}:${status}`,
   coverage: (id: string) => `oncall:coverage:${id}`,
+  // #210: one 5xx-spike alert per UTC-hour bucket
+  canary: (bucket: string) => `canary:5xx:${bucket}`,
+  // #230: one schedule-change notification per source outbox entry (retry-proof)
+  sched: (entryId: string) => `sched:entry:${entryId}`,
 };
 
 // Returns true only if this key was newly inserted (i.e. the caller "won" the
@@ -165,6 +169,14 @@ const INTRINSIC: Record<string, (pg: Pg, ctx: RecipientCtx) => Promise<string[]>
     return [ctx.userId];
   },
   low_stock:     async (pg) => resolveRoleRecipients(pg, ['full_admin', 'franchise_manager']),
+  // #210: 5xx-spike canary — same manager roles as low_stock; reroutable via
+  // notify_route_server_errors like every other channel.
+  server_errors: async (pg) => resolveRoleRecipients(pg, ['full_admin', 'franchise_manager']),
+  // #230: schedule changes go to the affected employee. No sharesTeam gate
+  // (unlike assignment): the write itself already requires manage_schedule via
+  // OPERATION_PERM, and the board is org-wide — a scheduler legitimately moves
+  // people outside their own team. notify_route_schedule unions on top.
+  schedule:      async (_pg, ctx) => ctx.userId ? [ctx.userId] : [],
   checkout_idle: async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   approvals:     async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   // Coverage saves concern the PM bench: every other active production_manager

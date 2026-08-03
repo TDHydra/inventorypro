@@ -24,12 +24,17 @@ import { composeLayout, buildSection } from './bundles';
 const CREW_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
+  // #206: one-tap scan launcher right under the fast pair.
+  { widget: 'scan', width: 'full' },
   // #177: "daily driver" reading order — my counts first, then the crew's
   // marching orders. vehicles-available replaces units-due-service (crews
   // check vehicle availability far more than service due-dates).
   { widget: 'stat-tiles', width: 'full', config: { stats: ['my-checkouts', 'vehicles-available', 'shared-media'] } },
-  // #160: jobs assigned to me (directly or via my crew) lead the work lists —
-  // this is the crew's marching orders for the day.
+  // #207: today's schedule leads — where to be and when, then the job list.
+  { widget: 'work-list', width: 'full', config: { source: 'my-schedule-today' } },
+  // #229: unread chats — collapses when caught up.
+  { widget: 'work-list', width: 'full', config: { source: 'unread-chats' } },
+  // #160: jobs assigned to me (directly or via my crew).
   { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
   { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
   { widget: 'vehicle-checkin', width: 'full' },
@@ -48,7 +53,14 @@ const CREW_LAYOUT: Layout = [
 const TIER2_MANAGER_LAYOUT: Layout = [
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'open-repairs', 'low-stock', 'units-due-service', 'shared-media'] } },
+  // #225: scheduled-today leads the manager stat row — coverage first.
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['scheduled-today', 'open-jobs', 'open-repairs', 'low-stock', 'shared-media'] } },
+  // #224: unscheduled-crew card — renders only with manage_schedule AND gaps.
+  { widget: 'schedule-gaps', width: 'full' },
+  // #223: recovery list — renders only when a closed job still has gear on it.
+  { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
+  // #229: unread chats — collapses when caught up.
+  { widget: 'work-list', width: 'full', config: { source: 'unread-chats' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'low-stock', width: 'full' },
   { widget: 'activity-preview', width: 'full' },
@@ -71,17 +83,27 @@ const TIER2_MANAGER_LAYOUT: Layout = [
 // metadata (#189/#190/#191) — byte-identical to DEFAULT_LAYOUT's runs (see
 // widgets.ts), since both call the SAME buildSection().
 const ADMIN_LAYOUT: Layout = composeLayout(
-  { widget: 'stat-tiles', width: 'full', config: { stats: ['open-jobs', 'low-stock', 'open-repairs', 'units-due-service', 'shared-media'] } },
+  { widget: 'stat-tiles', width: 'full', config: { stats: ['scheduled-today', 'open-jobs', 'low-stock', 'open-repairs', 'shared-media'] } },
   { widget: 'vehicle-checkin', width: 'full' },
   { widget: 'past-due', width: 'full' },
   { widget: 'low-stock-catalog', width: 'full' },
+  // #224: unscheduled-crew card — renders only with manage_schedule AND gaps.
+  { widget: 'schedule-gaps', width: 'full' },
   { widget: 'fast-checkout', width: 'half' },
   { widget: 'fast-checkin', width: 'half' },
+  // #206: one-tap scan launcher right under the fast pair.
+  { widget: 'scan', width: 'full' },
   { widget: 'checkout', width: 'full' },
   { widget: 'checkin', width: 'full' },
   { widget: 'my-checkouts', width: 'full' },
+  // #223: recovery list — renders only when a closed job still has gear on it.
+  { widget: 'work-list', width: 'full', config: { source: 'stranded-equipment' } },
+  // #229: unread chats — collapses when caught up.
+  { widget: 'work-list', width: 'full', config: { source: 'unread-chats' } },
   { widget: 'work-list', width: 'full', config: { source: 'open-jobs', title: 'Open jobs' } },
   { widget: 'activity-preview', width: 'full' },
+  // #227: the week's action counts right under the last-5 ticker.
+  { widget: 'activity-digest', width: 'full' },
   { widget: 'quick-add', width: 'full' },
 
   buildSection('inventory', 'Inventory Management'),
@@ -105,6 +127,8 @@ export const ROLE_DEFAULT_LAYOUTS: Partial<Record<UserRole, Layout>> = {
     { widget: 'fast-checkout', width: 'half' },
     { widget: 'fast-checkin', width: 'half' },
     { widget: 'stat-tiles', width: 'full', config: { stats: ['shared-media'] } },
+    // #207: today's schedule leads, same as the crew group.
+    { widget: 'work-list', width: 'full', config: { source: 'my-schedule-today' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-jobs', title: 'My jobs' } },
     { widget: 'work-list', width: 'full', config: { source: 'my-equipment', title: 'My equipment' } },
     { widget: 'schedule', width: 'full' },

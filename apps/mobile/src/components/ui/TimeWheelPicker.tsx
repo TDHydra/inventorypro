@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
+import { stepTimeMinute } from './timeWheelStep';
 
 // Themed time-of-day wheel (#184 follow-up): JS-only per the kit's hard
 // constraint — @quidone/react-native-wheel-picker animates with the RN
@@ -56,6 +57,20 @@ export function TimeWheelPicker({
   return (
     <View style={s.col}>
       <Text style={s.label}>{label}</Text>
+      {/* #221: the wheel is gesture-only; the adjustable role gives screen
+          readers swipe-up/down stepping over the same option grid. */}
+      <View
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel={label}
+        accessibilityValue={{ text: formatTimeOfDay(valueMinute) }}
+        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+        onAccessibilityAction={e => onChange(stepTimeMinute(
+          valueMinute,
+          e.nativeEvent.actionName === 'increment' ? 1 : -1,
+          minMinute, maxMinute, stepMinutes,
+        ))}
+      >
       <WheelPicker
         data={data}
         value={valueMinute}
@@ -71,6 +86,7 @@ export function TimeWheelPicker({
           </View>
         )}
       />
+      </View>
     </View>
   );
 }

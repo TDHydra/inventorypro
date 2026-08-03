@@ -87,11 +87,23 @@ the rolling mirror never diverges mid-file.
    To keep old sessions valid instead, copy the old `JWT_SECRET` into
    `/opt/inventorypro/.env` before `install.sh`'s app phase / restart api.
 
-## Verifying backups (do this occasionally)
+## Verifying backups
 
-- `systemctl list-timers inventorypro-backup.timer` — next run scheduled?
+The restore drill below is automated (#209): `inventorypro-restore-test.timer`
+runs `/opt/inventorypro/bin/restore-test.sh` on the 1st of each month — it
+restores the newest dump into a scratch `restore_test` database, checks the
+`users` table is non-empty, drops it, logs to
+`/var/log/inventorypro-restore-test.log`, and pings `HC_URL_RESTORE_TEST`
+(from `/opt/inventorypro/healthchecks.env`) if configured. It also fails
+loudly when the newest dump is >2 days old, catching a silently-dead backup
+timer.
+
+Occasional manual checks:
+
+- `systemctl list-timers 'inventorypro-*'` — backup + restore-test scheduled?
 - `tail /var/log/inventorypro-backup.log` — nightly `OK` lines, `offsite=ok`?
-- Quarterly: actually restore the latest dump into a scratch database:
+- `tail /var/log/inventorypro-restore-test.log` — monthly `OK` lines?
+- Or run the drill by hand any time (same as the timer does):
   ```bash
   $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" restore_test
   gunzip -c /opt/inventorypro/backups/db/db-<latest>.dump.gz \

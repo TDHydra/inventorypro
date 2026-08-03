@@ -95,6 +95,7 @@ const STAT_SOURCE_LABELS: Record<StatSource, string> = {
   'team-members': 'Team Members',
   'vehicles-available': 'Vehicles Available',
   'shared-media': 'Shared Media',
+  'scheduled-today': 'Scheduled Today',
 };
 const STAT_SOURCES = Object.keys(STAT_SOURCE_LABELS) as StatSource[];
 
@@ -102,6 +103,9 @@ const STAT_SOURCES = Object.keys(STAT_SOURCE_LABELS) as StatSource[];
 const WORK_LIST_SOURCE_LABELS: Record<WorkListSource, string> = {
   'my-equipment': 'My Equipment',
   'my-jobs': 'My Jobs',
+  'my-schedule-today': 'My Schedule Today',
+  'stranded-equipment': 'Left on Closed Jobs',
+  'unread-chats': 'Unread Messages',
   'open-jobs': 'Open Jobs',
   'open-repairs': 'Open Repairs',
   'units-due-service': 'Due for Service',

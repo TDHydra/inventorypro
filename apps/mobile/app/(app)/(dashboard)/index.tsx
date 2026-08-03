@@ -13,6 +13,8 @@ import { AddServiceRecordSheet } from '../../../src/components/vehicles/AddServi
 import { getRepairs } from '../../../src/db/queries/repairs';
 import { getUnitsDueForService } from '../../../src/db/queries/maintenance';
 import { isTerminalStatus } from '../../../src/db/queries/taxonomy';
+import { getScheduleBoardForDay, getScheduleableEmployees } from '../../../src/db/queries/schedule';
+import { localTodayIso } from '../../../src/components/schedule/dayMath';
 import { computeQuickActions, isOverdueRepair, type QuickAction } from '../../../src/dashboard/quickActions';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { roleColor } from '../../../src/db/queries/users';
@@ -27,8 +29,10 @@ import { WIDGET_REGISTRY, type LayoutBlock, type WidgetType } from '../../../src
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { OnCallWidget } from '../../../src/components/oncall/OnCallWidget';
 import { StatTiles } from '../../../src/components/dashboard/StatTiles';
-import { WorkList } from '../../../src/components/dashboard/WorkList';
+import { WorkList, getWorkListChipMeta } from '../../../src/components/dashboard/WorkList';
+import { parseStarKey } from '../../../src/dashboard/starKeys';
 import { ActivityPreview } from '../../../src/components/dashboard/ActivityPreview';
+import { ActivityDigest } from '../../../src/components/dashboard/ActivityDigest';
 import { EditMyDashboardSheet } from '../../../src/components/dashboard/EditMyDashboardSheet';
 
 function timeGreeting(): string {
@@ -96,8 +100,17 @@ export default function DashboardScreen() {
   // edit_inventory holders; the vehicle check-in card is data-driven. The
   // low-stock count rides in via `all` (a dep), not its own read.
   const canEditInventory = usePermission('edit_inventory');
+  const canManageSchedule = usePermission('manage_schedule');
   const quickActions: QuickAction[] = useDbQuery(() => {
     if (!user) return [];
+    // #224: crew (tier 1) with zero assignments on today's board. Computed
+    // only for manage_schedule holders — the queries are cheap but pointless
+    // for everyone else.
+    let unscheduledTodayCount = 0;
+    if (canManageSchedule) {
+      const covered = new Set(getScheduleBoardForDay(localTodayIso()).map(a => a.employee_id));
+      unscheduledTodayCount = getScheduleableEmployees().filter(u => !covered.has(u.id)).length;
+    }
     return computeQuickActions({
       activeVehicleCheckout: getActiveCheckoutForUser(user.id),
       overdueRepairCount: canEditInventory
@@ -106,9 +119,11 @@ export default function DashboardScreen() {
       serviceDueCount: canEditInventory ? getUnitsDueForService(new Date().toISOString()).length : 0,
       canEditInventory,
       lowStockCount: all.length,
+      canManageSchedule,
+      unscheduledTodayCount,
     });
-  }, [user?.id, canEditInventory, all],
-    ['vehicle_checkouts', 'locations', 'repairs', 'equipment_units', 'taxonomy_types']);
+  }, [user?.id, canEditInventory, canManageSchedule, all],
+    ['vehicle_checkouts', 'locations', 'repairs', 'equipment_units', 'taxonomy_types', 'schedule_assignments', 'users']);
 
   // Resolved per-user/role layout. An unassigned user resolves to DEFAULT_LAYOUT,
   // which reproduces today's dashboard exactly (same tiles/order/gates below).
@@ -159,19 +174,30 @@ export default function DashboardScreen() {
     </View>
   );
 
-  // Starred favorites strip (#196): a compact horizontal row of the user's
-  // starred TILE widgets (star-toggling a non-tile block isn't offered by the
-  // editor, so this filter is a defensive no-op today). Each chip re-checks
-  // the live permission — a role change revoking access must hide the chip
-  // even though the star itself lingers in prefs until the user removes it.
+  // Starred favorites strip (#196, #226): a compact horizontal row of the
+  // user's starred TILE widgets plus composite `work-list:<source>` keys
+  // (star just one list, e.g. My Jobs). Each chip re-checks the live
+  // permission — a role change revoking access must hide the chip even though
+  // the star itself lingers in prefs until the user removes it.
   // Placement: directly under the pinned search bar, above the greeting — the
   // strip is a quick-launch surface the user asked for explicitly (starring is
   // opt-in), so it earns the very top slot below only the non-negotiable search.
-  const starredTiles = starred.filter(w => {
-    const def = WIDGET_REGISTRY[w];
-    return def?.kind === 'tile' && (!def.requiredPermission || hasPermission(user, def.requiredPermission));
-  });
-  const starredStrip = starredTiles.length > 0 ? (
+  const starredChips = starred
+    .map(key => {
+      const parsed = parseStarKey(key);
+      if (!parsed) return null;
+      if (parsed.source) {
+        if (parsed.widget !== 'work-list') return null;
+        const meta = getWorkListChipMeta(parsed.source);
+        if (!meta || (meta.requiredPermission && !hasPermission(user, meta.requiredPermission))) return null;
+        return { key, widget: parsed.widget, icon: meta.icon, label: meta.title, route: meta.route };
+      }
+      const def = WIDGET_REGISTRY[parsed.widget];
+      if (def?.kind !== 'tile' || (def.requiredPermission && !hasPermission(user, def.requiredPermission))) return null;
+      return { key, widget: parsed.widget, icon: def.icon ?? '•', label: def.label, route: def.route };
+    })
+    .filter((c): c is Exclude<typeof c, null> => !!c);
+  const starredStrip = starredChips.length > 0 ? (
     <ScrollView
       key="__starred"
       horizontal
@@ -179,23 +205,20 @@ export default function DashboardScreen() {
       style={s.starredStrip}
       contentContainerStyle={s.starredStripContent}
     >
-      {starredTiles.map(w => {
-        const def = WIDGET_REGISTRY[w];
-        return (
-          <TouchableOpacity
-            key={w}
-            style={s.starredChip}
-            onPress={() => {
-              const trackKey = HUB_TRACK[w];
-              if (trackKey) track('action', trackKey, { screen: 'hub_starred' });
-              if (def.route) router.push(def.route as never);
-            }}
-          >
-            <Text style={s.starredIcon}>{def.icon ?? '•'}</Text>
-            <Text style={s.starredLabel} numberOfLines={1}>{def.label}</Text>
-          </TouchableOpacity>
-        );
-      })}
+      {starredChips.map(c => (
+        <TouchableOpacity
+          key={c.key}
+          style={s.starredChip}
+          onPress={() => {
+            const trackKey = HUB_TRACK[c.widget];
+            if (trackKey) track('action', trackKey, { screen: 'hub_starred' });
+            if (c.route) router.push(c.route as never);
+          }}
+        >
+          <Text style={s.starredIcon}>{c.icon}</Text>
+          <Text style={s.starredLabel} numberOfLines={1}>{c.label}</Text>
+        </TouchableOpacity>
+      ))}
     </ScrollView>
   ) : null;
 
@@ -306,9 +329,12 @@ export default function DashboardScreen() {
         return <StatTiles key={key} config={block.config} />;
       case 'work-list':
         return <WorkList key={key} config={block.config} />;
-      case 'activity-preview': {
-        const perm = WIDGET_REGISTRY['activity-preview'].requiredPermission;
-        const preview = <ActivityPreview config={block.config} />;
+      case 'activity-preview':
+      case 'activity-digest': {
+        const perm = WIDGET_REGISTRY[block.widget].requiredPermission;
+        const preview = block.widget === 'activity-preview'
+          ? <ActivityPreview config={block.config} />
+          : <ActivityDigest config={block.config} />;
         return perm
           ? <PermissionGate key={key} permission={perm}>{preview}</PermissionGate>
           : <Fragment key={key}>{preview}</Fragment>;
@@ -325,7 +351,8 @@ export default function DashboardScreen() {
       case 'vehicle-checkin':
       case 'gas-receipt':
       case 'past-due':
-      case 'low-stock-catalog': {
+      case 'low-stock-catalog':
+      case 'schedule-gaps': {
         const action = quickActions.find(a => a.key === block.widget);
         if (!action) return null;
         const qa: Record<QuickAction['key'], { icon: string; sub: string; onPress: () => void }> = {
@@ -366,6 +393,12 @@ export default function DashboardScreen() {
             icon: '⚠️',
             sub: 'View them like the Item Catalog',
             onPress: () => router.push('/(app)/(inventory)/low-stock' as never),
+          },
+          // #224: straight to today's board to fill the gaps.
+          'schedule-gaps': {
+            icon: '🗓',
+            sub: "Fill today's schedule board",
+            onPress: () => router.push('/(app)/(schedule)' as never),
           },
         };
         const { icon, sub, onPress } = qa[action.key];

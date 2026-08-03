@@ -45,6 +45,10 @@ export function appendOutbox(
   // already-open screens (useTableVersion/useReactiveRows/useDataVersion) re-query
   // after the surrounding transaction commits — the sync pull bumps separately.
   queueTableBump(table_name);
+  // #218: 'outbox' is a local-only table no sync pull ever bumps, so this key
+  // fires exactly on committed local appends (deferred to COMMIT, deduped per
+  // transaction) — the offline "Saved — will sync" toast subscribes to it.
+  queueTableBump('outbox');
 }
 
 // `tableName` scopes the batch to one table — used to drain activity_log on its

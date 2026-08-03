@@ -477,6 +477,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
           value={unit}
           options={mergedUnitOptions.map(u => ({ id: u, label: u }))}
           onSelect={setUnit}
+          recentKey="unit"
         />
       ) : (
         <>

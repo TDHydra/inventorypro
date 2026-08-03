@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
+import { KIT_HIT_SLOP } from './ui/hitSlop';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Alert } from '../lib/themedAlert';
@@ -14,6 +15,7 @@ import { isWriteBlocked } from '../db/maintenance';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { appSyncSheetBus } from './syncSheetBus';
 
 type SyncStatus = 'synced' | 'pending' | 'failed' | 'denied' | 'offline';
 
@@ -39,6 +41,16 @@ export function SyncIndicator() {
     const interval = setInterval(refresh, 5000);
     refresh();
     return () => clearInterval(interval);
+  }, []);
+
+  // #205: a sync-stuck notification tap requests this sheet open (via
+  // push/handlers.ts); the bus holds a pre-mount request until we register.
+  useEffect(() => {
+    appSyncSheetBus.setListener(() => {
+      refresh();
+      setShowSheet(true);
+    });
+    return () => appSyncSheetBus.setListener(null);
   }, []);
 
   function refresh() {
@@ -157,7 +169,7 @@ export function SyncIndicator() {
 
   return (
     <>
-      <TouchableOpacity onPress={() => { refresh(); setShowSheet(true); }} style={s.dot}>
+      <TouchableOpacity onPress={() => { refresh(); setShowSheet(true); }} style={s.dot} hitSlop={KIT_HIT_SLOP}>
         <View style={[s.circle, { backgroundColor: color }]} />
       </TouchableOpacity>
 

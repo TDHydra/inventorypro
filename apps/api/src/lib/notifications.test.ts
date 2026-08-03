@@ -8,6 +8,20 @@ test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.session('u1', '2026-07-01T10:00:00Z'), 'session:user:u1:2026-07-01T10:00:00Z');
   assert.equal(dedupKeys.approval('a1'), 'approval:req:a1');
   assert.equal(dedupKeys.apprDecision('a1', 'approved'), 'approval:dec:a1:approved');
+  assert.equal(dedupKeys.sched('e1'), 'sched:entry:e1'); // #230
+});
+
+// #230: the schedule channel's intrinsic recipient is the affected employee.
+test('resolveRecipients schedule channel targets the employee', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('app_config')) return { rows: [] as any[] };
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual(await resolveRecipients(pg as any, 'schedule', { userId: 'emp1', actorId: 'mgr1' }), ['emp1']);
+  assert.deepEqual(await resolveRecipients(pg as any, 'schedule', {}), []);
 });
 
 test('deliver writes one inbox row per deduped user and fires exactly one push', async () => {

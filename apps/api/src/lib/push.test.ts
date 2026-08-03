@@ -35,6 +35,15 @@ test('buildMessages maps tokens to expo messages with payload', () => {
   assert.equal(msgs.length, 2);
   assert.deepEqual(msgs[0], { to: 'ExpoTok1', title: 'Hi', body: 'B', data: { screen: 's' } });
 });
+
+// #231: chat pushes carry the category so devices render quick-reply actions.
+test('buildMessages passes categoryId through when set', () => {
+  const msgs = buildMessages(['T1'], { title: 'Hi', body: 'B', categoryId: 'chat-message' });
+  assert.equal(msgs[0].categoryId, 'chat-message');
+  // absent → field omitted entirely (Expo rejects null category ids)
+  const plain = buildMessages(['T1'], { title: 'Hi', body: 'B' });
+  assert.ok(!('categoryId' in plain[0]));
+});
 test('deadTokensFromReceipts returns DeviceNotRegistered tokens', () => {
   const receipts = { r1: { status: 'ok' }, r2: { status: 'error', details: { error: 'DeviceNotRegistered' } } };
   const dead = deadTokensFromReceipts(receipts, { r1: 'tokA', r2: 'tokB' });

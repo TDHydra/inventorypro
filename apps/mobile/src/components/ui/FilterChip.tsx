@@ -1,11 +1,20 @@
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { KIT_HIT_SLOP } from './hitSlop';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 
 export function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const s = useThemedStyles(makeStyles);
   return (
-    <TouchableOpacity style={[s.chip, active && s.chipActive]} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity
+      style={[s.chip, active && s.chipActive]}
+      onPress={onPress}
+      activeOpacity={0.8}
+      hitSlop={KIT_HIT_SLOP}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+    >
       <Text style={[s.text, active && s.textActive]}>{label}</Text>
     </TouchableOpacity>
   );

@@ -128,3 +128,48 @@ export function setUnitStatus(
   upsertUnit(next);
   return next;
 }
+
+// #212 close-out guard: what would be stranded if these jobs were closed right
+// now — units still deployed to them, and open (completed_at IS NULL, matching
+// getRepairs({done:false})) repairs on those units. One aggregate query pair so
+// the jobs screens can gate doClose/saveEdit with a single cheap call.
+export function getCloseoutBlockers(jobIds: string[]): { deployedUnits: number; openRepairs: number } {
+  if (jobIds.length === 0) return { deployedUnits: 0, openRepairs: 0 };
+  const db = getDb();
+  const placeholders = jobIds.map(() => '?').join(',');
+  const deployedUnits = ((db.executeSync(
+    `SELECT COUNT(*) AS cnt FROM equipment_units WHERE current_job_id IN (${placeholders})`,
+    [...jobIds]
+  ).rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+  const openRepairs = ((db.executeSync(
+    `SELECT COUNT(*) AS cnt FROM repairs r
+     JOIN equipment_units eu ON r.entity_type = 'equipment_unit' AND r.entity_id = eu.id
+     WHERE eu.current_job_id IN (${placeholders}) AND r.completed_at IS NULL`,
+    [...jobIds]
+  ).rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+  return { deployedUnits, openRepairs };
+}
+
+// #223: the recovery view of the #212 gap — units still pointing at a job
+// that has since been closed (via "close anyway" or a close from another
+// device). Deployed-only: retired/in_repair units keep their job pointer as
+// history and aren't recoverable field gear.
+export function getUnitsStrandedOnClosedJobs(): (EquipmentUnit & { item_name: string; job_name: string; job_number: number | null })[] {
+  const db = getDb();
+  return db.executeSync(
+    `SELECT eu.*, i.name AS item_name, j.name AS job_name, j.job_number
+     FROM equipment_units eu
+     JOIN inventory_items i ON i.id = eu.item_id
+     JOIN jobs j ON j.id = eu.current_job_id
+     WHERE eu.status = 'deployed' AND j.status = 'closed'
+     ORDER BY j.updated_at DESC, eu.asset_tag`
+  ).rows as any[];
+}
+
+// #212: human copy for the guard's ConfirmSheet — zero buckets are omitted.
+export function describeCloseoutBlockers(b: { deployedUnits: number; openRepairs: number }): string {
+  const parts: string[] = [];
+  if (b.deployedUnits > 0) parts.push(`${b.deployedUnits} unit${b.deployedUnits === 1 ? '' : 's'} still checked out`);
+  if (b.openRepairs > 0) parts.push(`${b.openRepairs} open repair${b.openRepairs === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}

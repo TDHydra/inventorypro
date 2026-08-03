@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { UserSession } from '../auth/permissions';
-import { DEFAULT_LAYOUT, isWidgetType, type Layout, type WidgetType } from './widgets';
+import { DEFAULT_LAYOUT, type Layout } from './widgets';
+import { parseStarKey } from './starKeys';
 import { ROLE_DEFAULT_LAYOUTS } from './roleLayouts';
 import { resolveLayout, parsePresetLayout } from './resolve';
 import {
@@ -93,13 +94,15 @@ export function useDashboardLayout(user: UserSession | null): Layout {
   return resolveLayoutFor(user);
 }
 
-// The user's starred widgets (#196), filtered against isWidgetType so a stale
-// entry from a removed/renamed widget type is dropped rather than rendered
-// broken. Any failure (DB not ready / bad JSON, already handled inside
+// The user's starred keys (#196, #226): plain WidgetType keys or composite
+// `widget:source` keys, filtered through parseStarKey so a stale entry from a
+// removed/renamed widget type is dropped rather than rendered broken (the
+// source half is validated by the strip against its own source registry).
+// Any failure (DB not ready / bad JSON, already handled inside
 // getDashboardPrefs) resolves to no stars — the strip just doesn't render.
-export function getStarredWidgets(userId: string): WidgetType[] {
+export function getStarredWidgets(userId: string): string[] {
   try {
-    return (getDashboardPrefs(userId)?.starred ?? []).filter(isWidgetType);
+    return (getDashboardPrefs(userId)?.starred ?? []).filter(k => parseStarKey(k) !== null);
   } catch {
     return [];
   }
@@ -108,7 +111,7 @@ export function getStarredWidgets(userId: string): WidgetType[] {
 // Hook: re-renders on the SAME cache signal as useDashboardLayout (loadDashboardCache
 // is called after a sync pull AND after the personal editor's star/layout writes — see
 // db/userPrefs.ts), so the favorites strip updates without a remount either way.
-export function useStarredWidgets(user: UserSession | null): WidgetType[] {
+export function useStarredWidgets(user: UserSession | null): string[] {
   useSyncExternalStore(subscribeDashboard, getDashboardVersion, getDashboardVersion);
   if (!user) return [];
   return getStarredWidgets(user.id);

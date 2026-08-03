@@ -44,6 +44,7 @@ import { AutofillTextField } from '../../../src/components/ui/AutofillTextField'
 import { DateField } from '../../../src/components/ui/DateField';
 import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { useDataVersion } from '../../../src/hooks/useDataVersion';
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
@@ -596,7 +597,16 @@ export default function EquipmentModelDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: editing ? 'Edit Model' : item.name, headerShown: true }} />
+      <Stack.Screen
+        options={{
+          title: editing ? 'Edit Model' : item.name,
+          headerShown: true,
+          // #228: entity-linked chat entry (hidden while editing).
+          headerRight: editing ? undefined : () => (
+            <DiscussThisButton kind="equipment" label={item.name} />
+          ),
+        }}
+      />
       <FormScreen contentContainerStyle={s.content}>
           {editing ? (
             <>

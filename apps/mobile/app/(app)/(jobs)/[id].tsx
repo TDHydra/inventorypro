@@ -7,6 +7,7 @@ import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, Job,
 } from '../../../src/db/queries/jobs';
 import { getLogForJob, appendLog, LogEntry } from '../../../src/db/queries/log';
+import { getCloseoutBlockers, describeCloseoutBlockers } from '../../../src/db/queries/equipmentUnits';
 import { runInTransaction } from '../../../src/db/tx';
 import { getAllLocations, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { getAllTeams } from '../../../src/db/queries/teams';
@@ -34,9 +35,11 @@ import { FieldLabel } from '../../../src/components/ui/FieldLabel';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import { Card } from '../../../src/components/ui/Card';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { confirmSheet } from '../../../src/components/ui/ConfirmSheet';
 import { SegmentedControl } from '../../../src/components/ui/SegmentedControl';
 import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { track } from '../../../src/telemetry';
 import { validateName, validateText } from '../../../src/lib/validation';
 
@@ -160,7 +163,7 @@ export default function JobDetailScreen() {
     setEditing(true);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     // Bounded, control-char-free name (same 'Job name is required.' copy as
     // before for the blank case).
     const nameResult = validateName(editName, { label: 'Job name' });
@@ -188,6 +191,22 @@ export default function JobDetailScreen() {
     if (!locRes.ok) {
       Alert.alert('Could not create shelf', `Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
       return;
+    }
+
+    // #212 close-out guard: flipping to closed with gear still deployed (or
+    // open repairs on it) strands the gear — same opt-in confirm as the bulk
+    // close on the list screen.
+    if (editStatus === 'closed' && job?.status !== 'closed') {
+      const blockers = getCloseoutBlockers([id]);
+      if (blockers.deployedUnits > 0 || blockers.openRepairs > 0) {
+        const ok = await confirmSheet({
+          title: 'Close Job',
+          message: `${describeCloseoutBlockers(blockers)} — close anyway?`,
+          confirmLabel: 'Close anyway',
+          destructive: true,
+        });
+        if (!ok) return;
+      }
     }
 
     const fields = {
@@ -375,7 +394,16 @@ export default function JobDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: editing ? 'Edit Job' : job.name, headerShown: true }} />
+      <Stack.Screen
+        options={{
+          title: editing ? 'Edit Job' : job.name,
+          headerShown: true,
+          // #228: entity-linked chat entry (hidden while editing).
+          headerRight: editing ? undefined : () => (
+            <DiscussThisButton kind="job" label={job.name} refText={job.job_number ? `#${job.job_number}` : null} />
+          ),
+        }}
+      />
       <FormScreen contentContainerStyle={s.content}>
 
           {editing ? (

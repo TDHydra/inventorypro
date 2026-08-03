@@ -518,6 +518,7 @@ export default function AddStockScreen() {
                     value={unit}
                     options={mergedUnitOptions.map(u => ({ id: u, label: u }))}
                     onSelect={setUnit}
+                    recentKey="unit"
                   />
                 ) : (
                   <TextField label="Unit" placeholder="e.g. each" value={unit} onChangeText={setUnit} />

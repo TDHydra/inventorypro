@@ -7,6 +7,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { DragList } from '../ui/DragList';
 import { WIDGET_REGISTRY, type Layout, type LayoutBlock, type WidgetType } from '../../dashboard/widgets';
 import { filterTilesForUser } from '../../dashboard/presetFilter';
+import { makeStarKey } from '../../dashboard/starKeys';
 import {
   hasPermission,
   subscribeRolePermissions,
@@ -66,7 +67,7 @@ export function EditMyDashboardSheet({
   // rather than re-resolved here so the editor always starts from what the
   // user is actually looking at.
   currentLayout: Layout;
-  starred: WidgetType[];
+  starred: string[]; // #226: plain WidgetType or composite `widget:source` star keys
 }) {
   const s = useThemedStyles(makeStyles);
   // Reactive permission cache (same subscription usePermission() makes) so the
@@ -75,7 +76,7 @@ export function EditMyDashboardSheet({
   useSyncExternalStore(subscribeRolePermissions, getRolePermissionsVersion, getRolePermissionsVersion);
 
   const [blocks, setBlocks] = useState<KeyedBlock[]>([]);
-  const [starredSet, setStarredSet] = useState<Set<WidgetType>>(new Set());
+  const [starredSet, setStarredSet] = useState<Set<string>>(new Set());
 
   // Re-seed the working copy every time the sheet opens — a stale in-memory
   // draft from a previous open must not clobber a change that landed elsewhere
@@ -115,11 +116,11 @@ export function EditMyDashboardSheet({
     persistLayout([...blocks, { key: generateUUID(), block: { widget, width: 'full' } }]);
   }
 
-  function toggleStar(widget: WidgetType) {
+  function toggleStar(key: string) {
     if (isWriteBlocked()) return;
     const next = new Set(starredSet);
-    if (next.has(widget)) next.delete(widget);
-    else next.add(widget);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     setStarredSet(next);
     setStarredWidgets(user.id, [...next]);
     loadDashboardCache();
@@ -163,7 +164,12 @@ export function EditMyDashboardSheet({
               renderRow={(item, api) => {
                 const def = WIDGET_REGISTRY[item.block.widget];
                 const isTile = def?.kind === 'tile';
-                const starredOn = starredSet.has(item.block.widget);
+                // #226: a configured work-list stars as `work-list:<source>`
+                // so ONE list (e.g. My Jobs) can sit on the favorites strip.
+                const workListSource = item.block.widget === 'work-list' ? item.block.config?.source : undefined;
+                const starKey = makeStarKey(item.block.widget, workListSource);
+                const starrable = isTile || !!workListSource;
+                const starredOn = starredSet.has(starKey);
                 return (
                   <View style={[s.row, api.index > 0 && s.rowBorder]}>
                     {/* Grab handle (best-effort PanResponder on web) — the
@@ -178,9 +184,9 @@ export function EditMyDashboardSheet({
                     </View>
                     <Text style={s.rowIcon}>{blockIcon(item.block)}</Text>
                     <Text style={s.rowLabel} numberOfLines={1}>{blockLabel(item.block)}</Text>
-                    {isTile && (
+                    {starrable && (
                       <TouchableOpacity
-                        onPress={() => toggleStar(item.block.widget)}
+                        onPress={() => toggleStar(starKey)}
                         hitSlop={hitSlop}
                         style={s.iconBtn}
                         accessibilityLabel={starredOn ? `Unstar ${blockLabel(item.block)}` : `Star ${blockLabel(item.block)}`}

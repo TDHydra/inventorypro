@@ -43,6 +43,12 @@ export function TimeWheelPicker({
             key={d.value}
             style={[s.item, d.value === valueMinute && s.itemSelected]}
             onPress={() => onChange(d.value)}
+            // #221: native twin carries accessibilityRole="adjustable" on the
+            // wheel; here every option is a plain button, which is already the
+            // accessible form — just label the rows.
+            accessibilityRole="button"
+            accessibilityLabel={`${label}: ${d.label}`}
+            accessibilityState={{ selected: d.value === valueMinute }}
           >
             <Text style={[s.itemText, d.value === valueMinute && s.itemTextSelected]}>{d.label}</Text>
           </Pressable>

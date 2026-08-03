@@ -22,12 +22,12 @@ import type { Permission } from '../constants/roles';
 // still contain a `search` block parse fine (isWidgetType drops it, so it's
 // skipped rather than rendered twice).
 export type WidgetType =
-  | 'fast-checkout' | 'fast-checkin' | 'checkout' | 'checkin' | 'my-checkouts'
+  | 'fast-checkout' | 'fast-checkin' | 'scan' | 'checkout' | 'checkin' | 'my-checkouts'
   | 'add-stock' | 'equipment' | 'repairs' | 'locations' | 'item-catalog' | 'vehicles' | 'lockers'
   | 'jobs' | 'teams' | 'manage-my-team' | 'schedule' | 'logs' | 'users' | 'roles' | 'settings' | 'chat' | 'media'   // tiles
   | 'section' | 'quick-add' | 'low-stock' | 'on-call'                        // non-tile blocks
-  | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog'     // contextual quick-actions (#144, #168)
-  | 'stat-tiles' | 'work-list' | 'activity-preview';                         // config-driven data widgets (role dashboards)
+  | 'vehicle-checkin' | 'gas-receipt' | 'past-due' | 'low-stock-catalog' | 'schedule-gaps' // contextual quick-actions (#144, #168, #224)
+  | 'stat-tiles' | 'work-list' | 'activity-preview' | 'activity-digest';     // config-driven data widgets (role dashboards, #227)
 
 // --- Per-widget config payloads (role dashboards §2) -------------------------
 // One widget type renders different content depending on its block config.
@@ -44,12 +44,16 @@ export type StatSource =
   | 'open-jobs'          // getOpenJobs
   | 'team-members'       // getAllActiveUsers
   | 'vehicles-available' // #177: vehicle locations passing isVehicleAvailableForCheckout
-  | 'shared-media';      // pool photos shared to me (getSharedPoolMediaCount)
+  | 'shared-media'       // pool photos shared to me (getSharedPoolMediaCount)
+  | 'scheduled-today';   // #225: crew with a slot on today's board, as scheduled/total
 
 // Row sources a `work-list` block can show.
 export type WorkListSource =
   | 'my-equipment'       // getDeployedUnitsForUser
   | 'my-jobs'            // getMyAssignedJobs (#160: direct or via my crew)
+  | 'my-schedule-today'  // #207: getScheduleAssignmentsForEmployee(uid, today)
+  | 'stranded-equipment' // #223: getUnitsStrandedOnClosedJobs — deployed units on closed jobs
+  | 'unread-chats'       // #229: listConversations filtered to unread > 0
   | 'open-jobs'
   | 'open-repairs'
   | 'units-due-service'
@@ -108,6 +112,10 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   // Fast check-in (#83): same source picker in return mode. No requiredPermission
   // (data-driven access, like fast-checkout); the picker gates on accessible sources.
   'fast-checkin':  { label: 'Fast Check-In',         icon: '↩', route: '/(app)/(crew)?dir=in', kind: 'tile' },
+  // Scan launcher (#206): straight to the universal scan screen (resolveScan
+  // classifies whatever is scanned). No requiredPermission — like fast-checkout,
+  // what a scan can DO is decided per result by that screen's own gates.
+  scan:          { label: 'Scan',                    icon: '📷', route: '/(app)/(inventory)/scan', kind: 'tile' },
   checkout:      { label: 'Check Out Item',          icon: '📦', route: '/(app)/(checkout)', requiredPermission: 'checkout_inventory', kind: 'tile' },
   checkin:       { label: 'Check In',                icon: '↩',  route: '/(app)/(checkin)',  requiredPermission: 'checkin_inventory',  kind: 'tile' },
   'my-checkouts':{ label: 'My Active Checkouts',     icon: '📋', route: '/(app)/(jobs)',     requiredPermission: 'checkout_inventory', kind: 'tile' },
@@ -167,6 +175,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'gas-receipt':       { label: '', kind: 'block' }, // #168: shows only with an open vehicle session
   'past-due':          { label: '', kind: 'block' },
   'low-stock-catalog': { label: '', kind: 'block' },
+  // #224: unscheduled-crew card; self-gates on manage_schedule in the compute.
+  'schedule-gaps':     { label: '', kind: 'block' },
 
   // Config-driven data widgets (role dashboards §2). stat-tiles and work-list
   // gate PER SOURCE inside the component (each source mirrors the permission of
@@ -175,6 +185,8 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
   'stat-tiles':       { label: 'Stat Tiles',       icon: '🔢', kind: 'block' },
   'work-list':        { label: 'Work List',        icon: '🗒', kind: 'block' },
   'activity-preview': { label: 'Recent Activity',  icon: '📊', kind: 'block', requiredPermission: 'view_all_logs' },
+  // #227: 7-day action-type counts; same gate as the preview it sits beside.
+  'activity-digest':  { label: 'This Week',        icon: '📈', kind: 'block', requiredPermission: 'view_all_logs' },
 };
 
 // True when a widget key is a real registry entry — used to validate a persisted
