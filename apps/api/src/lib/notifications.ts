@@ -26,6 +26,9 @@ export const dedupKeys = {
   canary: (bucket: string) => `canary:5xx:${bucket}`,
   // #230: one schedule-change notification per source outbox entry (retry-proof)
   sched: (entryId: string) => `sched:entry:${entryId}`,
+  // #243: one stuck-outbox nudge per user per episode — re-armed by
+  // notifySyncStuck's own release once the failed bucket returns to zero.
+  syncStuck: (userId: string) => `sync_stuck:user:${userId}`,
 };
 
 // Returns true only if this key was newly inserted (i.e. the caller "won" the
@@ -222,6 +225,9 @@ const INTRINSIC: Record<string, (pg: Pg, ctx: RecipientCtx) => Promise<string[]>
   // OPERATION_PERM, and the board is org-wide — a scheduler legitimately moves
   // people outside their own team. notify_route_schedule unions on top.
   schedule:      async (_pg, ctx) => ctx.userId ? [ctx.userId] : [],
+  // #243: stuck-outbox nudge is always self-targeted (a device's own unsynced
+  // backlog) — no sharesTeam gate needed, same shape as `schedule`.
+  sync_stuck:    async (_pg, ctx) => ctx.userId ? [ctx.userId] : [],
   checkout_idle: async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   approvals:     async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   // Coverage saves concern the PM bench: every other active production_manager
@@ -304,4 +310,40 @@ export async function notifyLowStock(pg: Pg, itemId: string): Promise<void> {
       await releaseEvent(pg, key); // back above threshold → re-arm
     }
   } catch { /* never disrupt sync */ }
+}
+
+// #243: reacts to a device's `outbox_heartbeat` telemetry beat (ingested via
+// telemetry.ts's ingestEvents) by nudging the OWNING user when their outbox has
+// permanently-failed (retry-exhausted) entries — the server-side twin of the
+// mobile-local #205 alert (evaluateSyncStuckAlert), same wording + same
+// `data: { screen: 'sync' }` deep-link contract so a tap lands on the identical
+// SyncIndicator sheet whether the nudge fired locally or from the server.
+// Dedup'd per user per episode via claimEvent/releaseEvent (notifyLowStock
+// precedent): the first heartbeat with failed>0 claims and notifies; every
+// later heartbeat while still stuck is a no-op; a heartbeat reporting the
+// bucket cleared releases the key so a later relapse can re-fire. Respects
+// quiet hours like every other deliver()-routed channel (no bypass) — this is
+// the user's own actionable backlog, not urgent enough to override a window
+// they set themself. Never throws into the caller (telemetry ingestion must
+// never fail over a notify hiccup).
+export async function notifySyncStuck(pg: Pg, userId: string, failedCount: number): Promise<void> {
+  try {
+    const key = dedupKeys.syncStuck(userId);
+    if (failedCount > 0) {
+      if (await claimEvent(pg, key)) {
+        const to = await resolveRecipients(pg, 'sync_stuck', { userId });
+        if (to.length) {
+          const noun = failedCount === 1 ? 'change' : 'changes';
+          await deliver(pg, to, {
+            type: 'sync_stuck',
+            title: 'Sync needs attention',
+            body: `${failedCount} ${noun} couldn't sync — tap to review`,
+            data: { screen: 'sync' },
+          });
+        }
+      }
+    } else {
+      await releaseEvent(pg, key); // recovered → re-arm for a future relapse
+    }
+  } catch { /* never disrupt telemetry ingestion */ }
 }

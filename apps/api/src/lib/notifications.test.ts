@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients, filterQuietHours } from './notifications';
+import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients, filterQuietHours, notifySyncStuck } from './notifications';
 
 test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.assign('r1', 'u1'), 'assign:repair:r1:u1');
@@ -9,6 +9,7 @@ test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.approval('a1'), 'approval:req:a1');
   assert.equal(dedupKeys.apprDecision('a1', 'approved'), 'approval:dec:a1:approved');
   assert.equal(dedupKeys.sched('e1'), 'sched:entry:e1'); // #230
+  assert.equal(dedupKeys.syncStuck('u1'), 'sync_stuck:user:u1'); // #243
 });
 
 // #230: the schedule channel's intrinsic recipient is the affected employee.
@@ -354,4 +355,93 @@ test('deliver: bypassQuietHours:true ignores the window entirely', async () => {
   // bypass means filterQuietHours (and its user_prefs lookup) is never consulted.
   assert.equal(calls.filter(c => c.sql.includes('FROM user_prefs')).length, 0);
   assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 1);
+});
+
+// ── #243: stuck-outbox server nudge ─────────────────────────────────────────
+
+test('resolveRecipients sync_stuck channel is always self-targeted', async () => {
+  const pg = { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('app_config')) return { rows: [] as any[] };
+    if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+      return { rows: (params[0] as string[]).map(id => ({ id })) };
+    }
+    return { rows: [] as any[] };
+  } };
+  assert.deepEqual(await resolveRecipients(pg as any, 'sync_stuck', { userId: 'u1' }), ['u1']);
+  assert.deepEqual(await resolveRecipients(pg as any, 'sync_stuck', {}), []);
+});
+
+// Mock pg that plays the full role notifySyncStuck needs: notification_dedup
+// claim/release (a Set standing in for the unique event_key), the active-user
+// echo for resolveRecipients' final pass, and inbox/push inserts recorded for
+// assertions — mirrors the assignment-dedup mock's ON CONFLICT DO NOTHING shape.
+function stubSyncStuckPg(claimed: Set<string>) {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('INSERT INTO notification_dedup')) {
+        const key = params[0] as string;
+        if (claimed.has(key)) return { rows: [] as any[] };
+        claimed.add(key);
+        return { rows: [{ event_key: key }] };
+      }
+      if (sql.includes('DELETE FROM notification_dedup')) {
+        claimed.delete(params[0] as string);
+        return { rows: [] as any[] };
+      }
+      if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+        return { rows: (params[0] as string[]).map(id => ({ id })) };
+      }
+      return { rows: [] as any[] };
+    },
+  };
+  return { pg, calls };
+}
+
+test('notifySyncStuck: a fresh claim delivers an inbox row + push with the failed count in the body', async () => {
+  const { pg, calls } = stubSyncStuckPg(new Set());
+  await notifySyncStuck(pg as any, 'u1', 3);
+  const inserts = calls.filter(c => c.sql.includes('INSERT INTO notifications'));
+  assert.equal(inserts.length, 1);
+  assert.equal(inserts[0].params[1], 'u1');
+  assert.ok(String(inserts[0].params[4]).includes('3 changes'));
+  assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 1);
+});
+
+test('notifySyncStuck: singular wording for exactly 1 failed change', async () => {
+  const { pg, calls } = stubSyncStuckPg(new Set());
+  await notifySyncStuck(pg as any, 'u1', 1);
+  const inserts = calls.filter(c => c.sql.includes('INSERT INTO notifications'));
+  assert.ok(String(inserts[0].params[4]).includes('1 change ')); // "change" not "changes"
+});
+
+test('notifySyncStuck: repeated failed>0 heartbeats within the same episode do not double-notify', async () => {
+  const claimed = new Set<string>();
+  const { pg: pg1, calls: calls1 } = stubSyncStuckPg(claimed);
+  await notifySyncStuck(pg1 as any, 'u1', 2);
+  const { pg: pg2, calls: calls2 } = stubSyncStuckPg(claimed);
+  await notifySyncStuck(pg2 as any, 'u1', 4); // still stuck, different count — still suppressed
+  assert.equal(calls1.filter(c => c.sql.includes('INSERT INTO notifications')).length, 1);
+  assert.equal(calls2.filter(c => c.sql.includes('INSERT INTO notifications')).length, 0);
+});
+
+test('notifySyncStuck: failed=0 releases the dedup key (no notify) and re-arms for a later relapse', async () => {
+  const claimed = new Set<string>(['sync_stuck:user:u1']); // previously claimed/notified
+  const { pg, calls } = stubSyncStuckPg(claimed);
+  await notifySyncStuck(pg as any, 'u1', 0);
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notifications')).length, 0);
+  assert.equal(calls.filter(c => c.sql.includes('DELETE FROM notification_dedup')).length, 1);
+  assert.equal(claimed.has('sync_stuck:user:u1'), false);
+
+  // relapse: a later failed>0 heartbeat can claim + notify again.
+  const { pg: pg2, calls: calls2 } = stubSyncStuckPg(claimed);
+  await notifySyncStuck(pg2 as any, 'u1', 1);
+  assert.equal(calls2.filter(c => c.sql.includes('INSERT INTO notifications')).length, 1);
+});
+
+test('notifySyncStuck: failed=0 with nothing claimed is a harmless no-op', async () => {
+  const { pg, calls } = stubSyncStuckPg(new Set());
+  await notifySyncStuck(pg as any, 'u1', 0);
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notifications')).length, 0);
 });
