@@ -115,7 +115,7 @@ test('setStarredWidgets writes ONLY starred_widgets locally and in the outbox pa
   assert.ok(!('theme' in ops[0].payload), 'starred write must not push theme');
 });
 
-test('setDashboardLayout(null) clears the override (writes NULL) without touching starred_widgets', () => {
+test('setDashboardLayout(null) clears the override (writes \'[]\', not NULL — #240) without touching starred_widgets', () => {
   exec(`INSERT INTO user_prefs (user_id, dashboard_layout, starred_widgets, updated_at) VALUES (?, ?, ?, '2026-07-01T00:00:00.000Z')`,
     [ALICE, JSON.stringify([{ widget: 'quick-add', width: 'full' }]), JSON.stringify(['chat'])]);
 
@@ -123,7 +123,9 @@ test('setDashboardLayout(null) clears the override (writes NULL) without touchin
 
   const row = exec(`SELECT dashboard_layout, starred_widgets FROM user_prefs WHERE user_id = ?`, [ALICE]).rows[0] as
     { dashboard_layout: string | null; starred_widgets: string };
-  assert.equal(row.dashboard_layout, null);
+  // '[]', not NULL: NULL would mean "un-backfilled row" and reactivate the
+  // legacy dashboard_prefs blob fallback, resurrecting the layout just cleared.
+  assert.equal(row.dashboard_layout, '[]');
   assert.deepEqual(JSON.parse(row.starred_widgets), ['chat']);
 });
 
@@ -162,4 +164,38 @@ test('getDashboardPrefs falls back to the legacy dashboard_prefs blob when the s
 test('getDashboardPrefs returns null when nothing has been customized', () => {
   exec(`INSERT INTO user_prefs (user_id, theme, updated_at) VALUES (?, 'modern', '2026-07-01T00:00:00.000Z')`, [ALICE]);
   assert.equal(userPrefs.getDashboardPrefs(ALICE), null);
+});
+
+// ── #240: "Reset to default" vs the legacy-blob fallback ─────────────────────
+// A row can carry BOTH a legacy dashboard_prefs blob (pre-062 write) and the
+// split columns. Clearing a split column must not drop the field back into the
+// blob fallback — that resurrected the old layout after an in-app reset (the
+// reset synced fine but the dashboard never changed, even across cold starts).
+
+test('setDashboardLayout(null) on a row with a legacy blob: the blob layout must not resurrect', () => {
+  exec(`INSERT INTO user_prefs (user_id, dashboard_prefs, dashboard_layout, updated_at) VALUES (?, ?, ?, '2026-07-01T00:00:00.000Z')`,
+    [ALICE,
+      JSON.stringify({ layout: [{ widget: 'low-stock', width: 'half' }], starred: ['on-call'] }),
+      JSON.stringify([{ widget: 'quick-add', width: 'full' }])]);
+
+  userPrefs.setDashboardLayout(ALICE, null);
+
+  const prefs = userPrefs.getDashboardPrefs(ALICE);
+  assert.equal(prefs?.layout, undefined, 'a cleared layout must stay cleared, not fall back to the blob');
+  // Per-field fallback is preserved: starred_widgets is still NULL (never
+  // written on this row), so the blob's starred set remains visible.
+  assert.deepEqual(prefs?.starred, ['on-call']);
+});
+
+test('setStarredWidgets([]) on a row with a legacy blob: the blob stars must not resurrect', () => {
+  exec(`INSERT INTO user_prefs (user_id, dashboard_prefs, starred_widgets, updated_at) VALUES (?, ?, ?, '2026-07-01T00:00:00.000Z')`,
+    [ALICE,
+      JSON.stringify({ layout: [{ widget: 'low-stock', width: 'half' }], starred: ['on-call'] }),
+      JSON.stringify(['chat'])]);
+
+  userPrefs.setStarredWidgets(ALICE, []);
+
+  const prefs = userPrefs.getDashboardPrefs(ALICE);
+  assert.equal(prefs?.starred, undefined, 'a cleared star set must stay cleared, not fall back to the blob');
+  assert.deepEqual(prefs?.layout, [{ widget: 'low-stock', width: 'half' }]);
 });

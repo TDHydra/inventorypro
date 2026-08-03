@@ -187,7 +187,12 @@ export function getDashboardPrefs(userId: string): DashboardPrefs | null {
  */
 export function setDashboardLayout(userId: string, layout: Layout | null): void {
   const updated_at = new Date().toISOString();
-  const json = layout && layout.length > 0 ? JSON.stringify(layout) : null;
+  // '[]', never NULL (#240): to getDashboardPrefs, NULL means "not yet
+  // backfilled from the legacy blob" and falls back to dashboard_prefs — so a
+  // NULL-clearing reset was silently undone by the old blob layout on every
+  // render. '[]' parses to "explicitly cleared" (parseArrayField -> undefined)
+  // with no fallback, while genuinely un-migrated rows keep their NULL.
+  const json = layout && layout.length > 0 ? JSON.stringify(layout) : '[]';
   runInTransaction(() => {
     getDb().executeSync(
       `INSERT INTO user_prefs (user_id, dashboard_layout, updated_at) VALUES (?, ?, ?)
@@ -205,7 +210,8 @@ export function setDashboardLayout(userId: string, layout: Layout | null): void 
  */
 export function setStarredWidgets(userId: string, starred: string[]): void {
   const updated_at = new Date().toISOString();
-  const json = starred.length > 0 ? JSON.stringify(starred) : null;
+  // '[]', never NULL — same #240 legacy-blob-fallback trap as setDashboardLayout.
+  const json = starred.length > 0 ? JSON.stringify(starred) : '[]';
   runInTransaction(() => {
     getDb().executeSync(
       `INSERT INTO user_prefs (user_id, starred_widgets, updated_at) VALUES (?, ?, ?)
