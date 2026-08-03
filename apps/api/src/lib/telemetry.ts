@@ -12,6 +12,9 @@ export const TELEMETRY_PROP_ALLOWLIST = new Set([
   // validation_reject metadata: the FIELD PATH and RULE NAME only — never the
   // entered value (which must not appear anywhere in telemetry).
   'field', 'rule',
+  // outbox_heartbeat (#236): fleet sync-health counts — three independent
+  // buckets, so 'count' alone can't carry them.
+  'pending', 'failed', 'denied',
 ]);
 
 export interface CleanEvent {
