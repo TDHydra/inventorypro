@@ -184,3 +184,77 @@ test('reset-enrollment-code: target already has a PIN → 409, no activity_log r
   assert.ok(!wrote(pg, 'INSERT INTO activity_log'), 'no audit row when the request is rejected');
   await app.close();
 });
+
+// ---------------------------------------------------------------------------
+// #204: PATCH /users/:id permission_overrides — this REST path is a SECOND
+// writer of users.permission_overrides (the generic sync outbox in
+// routes/sync.ts is the first, covered in sync-permission-reconcile.test.ts).
+// touchTeamsAndLocationsIfViewPermsChanged must fire from here too, or an admin
+// editing permissions through the REST-backed user editor (rather than through
+// a synced mobile device) would leave teams/team_members/locations stale/stub
+// on every device's next incremental pull.
+// ---------------------------------------------------------------------------
+
+test('PATCH permission_overrides: view_teams present → touches teams/team_members/locations', async () => {
+  const users: Record<string, FakeUser> = {
+    'admin-1': { role: 'full_admin', name: 'Admin' },
+    'crew-1': { role: 'carpet_cleaning_crew', name: 'Crew Member' },
+  };
+  const { app, pg } = await buildApp(users, 'admin-1');
+  const res = await app.inject({
+    method: 'PATCH', url: '/users/crew-1', payload: { permission_overrides: { view_teams: false } },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.ok(wrote(pg, 'UPDATE teams SET updated_at = NOW()'), 'teams touched');
+  assert.ok(wrote(pg, 'UPDATE team_members SET updated_at = NOW()'), 'team_members touched');
+  assert.ok(wrote(pg, 'UPDATE locations SET updated_at = NOW()'), 'locations touched');
+  await app.close();
+});
+
+test('PATCH permission_overrides: view_locations present → touches teams/team_members/locations', async () => {
+  const users: Record<string, FakeUser> = {
+    'admin-1': { role: 'full_admin', name: 'Admin' },
+    'crew-1': { role: 'carpet_cleaning_crew', name: 'Crew Member' },
+  };
+  const { app, pg } = await buildApp(users, 'admin-1');
+  const res = await app.inject({
+    method: 'PATCH', url: '/users/crew-1', payload: { permission_overrides: { view_locations: true } },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.ok(wrote(pg, 'UPDATE teams SET updated_at = NOW()'), 'teams touched');
+  assert.ok(wrote(pg, 'UPDATE team_members SET updated_at = NOW()'), 'team_members touched');
+  assert.ok(wrote(pg, 'UPDATE locations SET updated_at = NOW()'), 'locations touched');
+  await app.close();
+});
+
+test('PATCH permission_overrides: unrelated permission only → does NOT touch teams/team_members/locations', async () => {
+  const users: Record<string, FakeUser> = {
+    'admin-1': { role: 'full_admin', name: 'Admin' },
+    'crew-1': { role: 'carpet_cleaning_crew', name: 'Crew Member' },
+  };
+  const { app, pg } = await buildApp(users, 'admin-1');
+  const res = await app.inject({
+    method: 'PATCH', url: '/users/crew-1', payload: { permission_overrides: { edit_inventory: true } },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.ok(!wrote(pg, 'UPDATE teams SET updated_at = NOW()'), 'teams NOT touched');
+  assert.ok(!wrote(pg, 'UPDATE team_members SET updated_at = NOW()'), 'team_members NOT touched');
+  assert.ok(!wrote(pg, 'UPDATE locations SET updated_at = NOW()'), 'locations NOT touched');
+  await app.close();
+});
+
+test('PATCH without a permission_overrides field at all (e.g. name-only edit) → does NOT touch teams/team_members/locations', async () => {
+  const users: Record<string, FakeUser> = {
+    'admin-1': { role: 'full_admin', name: 'Admin' },
+    'crew-1': { role: 'carpet_cleaning_crew', name: 'Crew Member' },
+  };
+  const { app, pg } = await buildApp(users, 'admin-1');
+  const res = await app.inject({
+    method: 'PATCH', url: '/users/crew-1', payload: { name: 'Renamed Crew Member' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.ok(!wrote(pg, 'UPDATE teams SET updated_at = NOW()'), 'teams NOT touched');
+  assert.ok(!wrote(pg, 'UPDATE team_members SET updated_at = NOW()'), 'team_members NOT touched');
+  assert.ok(!wrote(pg, 'UPDATE locations SET updated_at = NOW()'), 'locations NOT touched');
+  await app.close();
+});

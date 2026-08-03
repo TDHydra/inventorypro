@@ -36,6 +36,24 @@ const TEAM_MEMBERS: Record<string, string[]> = {
   'team-a': [CALLER, 'teammate-1'],
   'team-b': ['not-my-teammate'],
 };
+// #204: one location row carrying every BASE + SENSITIVE column, so a test
+// can assert exactly which keys survive the projection for a given
+// canViewLocations. owner_user_id lives in BASE (see syncPolicy.ts) —
+// present regardless of view_locations.
+const LOCATION_ROWS = [
+  {
+    id: 'loc-1', name: 'Main Warehouse', parent_id: null, color: null, icon: null,
+    active: true, has_shelves: false, type: 'Shop', type_id: null, updated_at: NOW,
+    owner_user_id: 'owner-user-id', latitude: 39.5, longitude: -98.35, subareas_require_owner: false,
+  },
+];
+// #204: team_members fixture reusing the TEAM_MEMBERS roster above — CALLER
+// and teammate-1 share team-a; not-my-teammate is on the unrelated team-b.
+const TEAM_MEMBER_ROWS = [
+  { team_id: 'team-a', user_id: CALLER, team_permission_overrides: {}, added_by: null, joined_at: NOW, is_manager: false, updated_at: NOW, subteam_id: null, subteam_role: null },
+  { team_id: 'team-a', user_id: 'teammate-1', team_permission_overrides: {}, added_by: null, joined_at: NOW, is_manager: false, updated_at: NOW, subteam_id: null, subteam_role: null },
+  { team_id: 'team-b', user_id: 'not-my-teammate', team_permission_overrides: {}, added_by: null, joined_at: NOW, is_manager: false, updated_at: NOW, subteam_id: null, subteam_role: null },
+];
 const MEDIA_ROWS = [
   { id: 'media-item', entity_type: 'item', entity_id: 'item-1' },
   { id: 'media-msg-mine', entity_type: 'message', entity_id: 'msg-mine' },
@@ -239,6 +257,37 @@ function fakePg(opts: FakePgOpts = {}) {
       // messages-UPDATE sender guard lookup.
       if (sql.includes('SELECT sender_id FROM messages')) {
         return { rows: opts.messageSender ? [{ sender_id: opts.messageSender }] : [] };
+      }
+      // #204: the real /sync/full and /sync/pull locations SELECT (column-level
+      // redaction — never row-scoped). More specific existing locations checks
+      // above (parent-type guard, locker_access owner guard) already returned
+      // by the time execution reaches here, so this only matches the actual
+      // projection query. Trim each fixture row down to exactly the requested
+      // column list, mirroring what real Postgres would return.
+      if (/^SELECT .+ FROM locations\b/.test(sql)) {
+        const cols = sql.match(/^SELECT (.+?) FROM locations\b/)![1].split(',').map(s => s.trim());
+        return {
+          rows: LOCATION_ROWS.map(r => {
+            const out: Record<string, unknown> = {};
+            for (const c of cols) out[c] = (r as Record<string, unknown>)[c];
+            return out;
+          }),
+        };
+      }
+      // #204: the real /sync/full and /sync/pull team_members SELECT (row-level
+      // scoping — always '*' column-wise, no projection split). Distinguishes
+      // the self-row carve-out (`user_id = $N` alone) from the normal
+      // any-of-my-teams scope (`team_id IN (SELECT team_id FROM team_members
+      // WHERE user_id = $N)`) from unscoped (canSeeAllTeams, no WHERE at all).
+      if (/^SELECT .+ FROM team_members\b/.test(sql)) {
+        const teamsScoped = sql.includes('team_id IN (SELECT team_id FROM team_members');
+        const selfOnly = !teamsScoped && /\buser_id = \$\d+\b/.test(sql);
+        if (selfOnly) return { rows: TEAM_MEMBER_ROWS.filter(r => r.user_id === CALLER) };
+        if (teamsScoped) {
+          const myTeams = Object.keys(TEAM_MEMBERS).filter(t => TEAM_MEMBERS[t].includes(CALLER));
+          return { rows: TEAM_MEMBER_ROWS.filter(r => myTeams.includes(r.team_id)) };
+        }
+        return { rows: TEAM_MEMBER_ROWS };
       }
       if (sql.includes('FROM media')) {
         const msgScoped = sql.includes(`entity_type != 'message'`)
@@ -1379,4 +1428,101 @@ test('push: conflicts[].code — VALIDATION for an FK violation, CONFLICT for an
     assert.equal(body.conflicts[0].code, expected, `failCode=${failCode}`);
     await app.close();
   }
+});
+
+// ── #204: server-side sync scoping for view_teams/view_locations ────────────
+// Column redaction (locations, gated on view_locations) + a team_members
+// row-level self-carve-out (gated on view_teams) — computed identically in
+// /sync/full and /sync/pull. teams itself carries no sensitive columns and is
+// never gated by either permission.
+
+test('full: locations hides latitude/longitude/subareas_require_owner without view_locations; owner_user_id (BASE) survives', async () => {
+  const pg = fakePg({ callerOverrides: { view_locations: false } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=locations' });
+  assert.equal(res.statusCode, 200);
+  const { rows } = res.json() as { rows: Array<Record<string, unknown>> };
+  assert.equal(rows.length, 1);
+  assert.ok('owner_user_id' in rows[0], 'owner_user_id (BASE, mobile-grep verified) must survive');
+  assert.ok('name' in rows[0] && 'active' in rows[0] && 'type' in rows[0] && 'has_shelves' in rows[0]);
+  assert.ok(!('latitude' in rows[0]) && !('longitude' in rows[0]) && !('subareas_require_owner' in rows[0]));
+  await app.close();
+});
+
+test('full: locations exposes latitude/longitude/subareas_require_owner WITH view_locations', async () => {
+  const pg = fakePg({ callerOverrides: { view_locations: true } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=locations' });
+  const { rows } = res.json() as { rows: Array<Record<string, unknown>> };
+  assert.equal(rows[0].latitude, 39.5);
+  assert.equal(rows[0].longitude, -98.35);
+  assert.equal(rows[0].subareas_require_owner, false);
+  await app.close();
+});
+
+test('pull: locations redaction matches /full exactly (parity requirement)', async () => {
+  const pg = fakePg({ callerOverrides: { view_locations: false } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/pull?since=2020-01-01T00:00:00.000Z' });
+  const rows = (res.json() as Record<string, { rows: Array<Record<string, unknown>> }>).locations.rows;
+  assert.equal(rows.length, 1);
+  assert.ok('owner_user_id' in rows[0]);
+  assert.ok(!('latitude' in rows[0]) && !('longitude' in rows[0]) && !('subareas_require_owner' in rows[0]));
+  await app.close();
+});
+
+test('full: a caller WITHOUT view_teams is restricted to their own team_members row — overrides canSeeAllTeams', async () => {
+  // full_admin is org-authority (canSeeAllTeams=true) — without this fix an
+  // explicit per-user revoke of view_teams would be silently ignored and
+  // they'd still see every team's roster.
+  const pg = fakePg({ callerRole: 'full_admin', callerOverrides: { view_teams: false } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=team_members' });
+  const { rows } = res.json() as { rows: Array<{ user_id: string }> };
+  assert.deepEqual(rows.map(r => r.user_id), [CALLER]);
+  await app.close();
+});
+
+test('full: an org-authority caller WITH view_teams still sees every team\'s members (canSeeAllTeams, unscoped, unaffected by this fix)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', callerOverrides: { view_teams: true } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=team_members' });
+  const { rows } = res.json() as { rows: Array<{ user_id: string }> };
+  assert.deepEqual(rows.map(r => r.user_id).sort(), ['not-my-teammate', 'teammate-1', CALLER].sort());
+  await app.close();
+});
+
+test('full: a tier-1 caller WITHOUT view_teams sees only their own row — not even a teammate\'s', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', callerOverrides: { view_teams: false } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=team_members' });
+  const { rows } = res.json() as { rows: Array<{ user_id: string }> };
+  assert.deepEqual(rows.map(r => r.user_id), [CALLER]);
+  await app.close();
+});
+
+test('full: a tier-1 caller WITH view_teams sees their own team\'s roster, not the whole org (baseline teamScopeSql, unaffected by this fix)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', callerOverrides: { view_teams: true } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=team_members' });
+  const { rows } = res.json() as { rows: Array<{ user_id: string }> };
+  assert.deepEqual(rows.map(r => r.user_id).sort(), ['teammate-1', CALLER].sort());
+  await app.close();
+});
+
+test('pull: the self-row carve-out matches /full exactly (parity requirement)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', callerOverrides: { view_teams: false } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/pull?since=2020-01-01T00:00:00.000Z' });
+  const rows = (res.json() as Record<string, { rows: Array<{ user_id: string }> }>).team_members.rows;
+  assert.deepEqual(rows.map(r => r.user_id), [CALLER]);
+  await app.close();
+});
+
+test('full: teams itself is never gated by view_teams (request still succeeds; no sensitive columns to redact)', async () => {
+  const pg = fakePg({ callerRole: 'full_admin', callerOverrides: { view_teams: false } });
+  const app = await buildApp(pg);
+  const res = await app.inject({ method: 'GET', url: '/sync/full?table=teams' });
+  assert.equal(res.statusCode, 200);
+  await app.close();
 });

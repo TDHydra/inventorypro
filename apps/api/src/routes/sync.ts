@@ -12,6 +12,7 @@ import {
   selectColumnsFor,
   requiresRolesPermForTarget,
   validateMediaWrite,
+  touchTeamsAndLocationsIfViewPermsChanged,
 } from '../lib/syncPolicy';
 import { cleanupMediaObjects } from '../lib/mediaCleanup';
 import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
@@ -790,6 +791,11 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
     const caller = await resolveCaller(fastify.pg, userId);
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
     const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides, caller.team_overrides);
+    // #204: view_teams/view_locations — column redaction (locations) + a
+    // team_members row carve-out (below), computed identically here and in
+    // /sync/pull so full-download and incremental pull never diverge.
+    const canViewTeams = userHasPermission(caller.role, caller.permission_overrides, 'view_teams', caller.role_overrides, caller.team_overrides);
+    const canViewLocations = userHasPermission(caller.role, caller.permission_overrides, 'view_locations', caller.role_overrides, caller.team_overrides);
 
     // Scoped tables (e.g. notifications) only ever return the caller's own rows;
     // chat tables are scoped to the caller's own conversations (chatScopeSql); team
@@ -798,14 +804,22 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
     const scopeCol = SCOPED_TABLES[table];
     const chatScope = chatScopeSql(table, '$3');
     const mediaScope = table === 'media' ? mediaScopeSql('$3') : null;
-    const teamScope = canSeeAllTeams(caller) ? null : teamScopeSql(table, '$3');
+    // #204: a caller lacking view_teams sees only their OWN team_members row(s)
+    // — needed for checkout_for_team/subteam_role/"my team" filters — never a
+    // teammate's row or team_permission_overrides. This OVERRIDES canSeeAllTeams
+    // (an org-authority caller who has had view_teams explicitly revoked is
+    // still restricted to self). `teams` itself is never gated by this
+    // permission — it carries no sensitive columns (id/name/type/type_id).
+    const teamScope = table === 'team_members' && !canViewTeams
+      ? 'user_id = $3'
+      : (canSeeAllTeams(caller) ? null : teamScopeSql(table, '$3'));
     const scopeSql = scopeCol ? ` WHERE ${scopeCol} = $3`
       : chatScope ? ` WHERE ${chatScope}`
       : mediaScope ? ` WHERE ${mediaScope}`
       : teamScope ? ` WHERE ${teamScope}` : '';
     const scoped = !!scopeCol || !!chatScope || !!mediaScope || !!teamScope;
     const { rows } = await fastify.pg.query(
-      `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
+      `SELECT ${selectColumnsFor(table, canViewFinancial, canViewLocations)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
       scoped ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
     );
 
@@ -841,6 +855,9 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
     const caller = await resolveCaller(fastify.pg, userId);
     if (!caller) return reply.status(403).send({ error: 'Unknown user' });
     const canViewFinancial = userHasPermission(caller.role, caller.permission_overrides, 'view_financial_data', caller.role_overrides, caller.team_overrides);
+    // #204: computed identically to /sync/full above — see the comment there.
+    const canViewTeams = userHasPermission(caller.role, caller.permission_overrides, 'view_teams', caller.role_overrides, caller.team_overrides);
+    const canViewLocations = userHasPermission(caller.role, caller.permission_overrides, 'view_locations', caller.role_overrides, caller.team_overrides);
 
     for (const table of FULL_TABLES) {
       // media used created_at here until migration 044 added updated_at (backfilled
@@ -854,14 +871,17 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       const scopeCol = SCOPED_TABLES[table];
       const chatScope = chatScopeSql(table, '$2');
       const mediaScope = table === 'media' ? mediaScopeSql('$2') : null;
-      const teamScope = canSeeAllTeams(caller) ? null : teamScopeSql(table, '$2');
+      // #204: self-row carve-out — see the identical comment in /sync/full.
+      const teamScope = table === 'team_members' && !canViewTeams
+        ? 'user_id = $2'
+        : (canSeeAllTeams(caller) ? null : teamScopeSql(table, '$2'));
       const scopeSql = scopeCol ? ` AND ${scopeCol} = $2`
         : chatScope ? ` AND ${chatScope}`
         : mediaScope ? ` AND ${mediaScope}`
         : teamScope ? ` AND ${teamScope}` : '';
       const scoped = !!scopeCol || !!chatScope || !!mediaScope || !!teamScope;
       const { rows } = await fastify.pg.query(
-        `SELECT ${selectColumnsFor(table, canViewFinancial)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
+        `SELECT ${selectColumnsFor(table, canViewFinancial, canViewLocations)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
         scoped ? [since, userId] : [since]
       );
       results[table] = { rows };
@@ -1744,6 +1764,19 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       try {
         await applyEntry(fastify.pg, entry, userId, realColumns, can, touchedItems);
         ok.push(entry.id);
+        // #204: this write just changed users.permission_overrides or
+        // role_settings.permission_overrides (the two writers reachable via
+        // the generic sync outbox — the REST PATCH /users/:id writer is
+        // covered separately in routes/users.ts). If the new overrides object
+        // mentions view_teams/view_locations, bump updated_at on
+        // teams/team_members/locations so every device's next incremental
+        // pull re-fetches them under the now-different projection/row-filter
+        // — otherwise a grant/revoke of either permission would leave stale
+        // or stub-only data cached indefinitely (see the helper's doc comment).
+        if ((entry.table_name === 'role_settings' || entry.table_name === 'users')
+            && 'permission_overrides' in entry.payload) {
+          await touchTeamsAndLocationsIfViewPermsChanged(fastify.pg, entry.payload.permission_overrides);
+        }
         // Media row deleted → best-effort MinIO object cleanup (shared with the
         // REST route; move-tolerant + table-wide refcount). Fire-and-forget:
         // never blocks or fails the sync write — a failed cleanup only leaves
