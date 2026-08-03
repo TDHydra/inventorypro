@@ -229,3 +229,54 @@ export function toggleStarredWidget(userId: string, key: string): string[] {
   setStarredWidgets(userId, next);
   return next;
 }
+
+/**
+ * Per-user quiet hours (#242, migration 064). Stored as UTC-minutes-since-
+ * midnight (0-1439); NULL/NULL means disabled. See
+ * apps/mobile/src/notifications/quietHours.ts for the shared window-math
+ * (isQuietHoursNow) this feeds, and settings.tsx's save site for the
+ * DST/travel-drift tradeoff of computing UTC minutes client-side.
+ */
+export interface QuietHours {
+  start: number;
+  end: number;
+}
+
+interface QuietHoursRow {
+  quiet_hours_start: number | null;
+  quiet_hours_end: number | null;
+}
+
+/** The user's synced quiet-hours window, or null if never set / disabled. */
+export function getQuietHours(userId: string): QuietHours | null {
+  try {
+    const rows = rowsAs<QuietHoursRow>(getDb().executeSync(
+      `SELECT quiet_hours_start, quiet_hours_end FROM user_prefs WHERE user_id = ?`, [userId]
+    ).rows);
+    if (!rows.length) return null;
+    const { quiet_hours_start, quiet_hours_end } = rows[0];
+    if (quiet_hours_start == null || quiet_hours_end == null) return null;
+    return { start: quiet_hours_start, end: quiet_hours_end };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist the user's quiet-hours window (both UTC-minutes-since-midnight), or
+ * clear it (pass null for both) to disable. Writes ONLY the two quiet_hours
+ * columns + updated_at (column-scoped upsert, mig-060 postmortem — never
+ * INSERT OR REPLACE) — a stale replica on one device can never clobber
+ * another device's theme/dashboard/quiet-hours edit or vice versa.
+ */
+export function setQuietHours(userId: string, start: number | null, end: number | null): void {
+  const updated_at = new Date().toISOString();
+  runInTransaction(() => {
+    getDb().executeSync(
+      `INSERT INTO user_prefs (user_id, quiet_hours_start, quiet_hours_end, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET quiet_hours_start = excluded.quiet_hours_start, quiet_hours_end = excluded.quiet_hours_end, updated_at = excluded.updated_at`,
+      [userId, start, end, updated_at]
+    );
+    appendOutbox('INSERT', 'user_prefs', { user_id: userId, quiet_hours_start: start, quiet_hours_end: end, updated_at });
+  });
+}

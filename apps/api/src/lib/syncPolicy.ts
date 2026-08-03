@@ -576,7 +576,9 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean, canVi
   // dashboard_prefs stays in the projection too — the column is dead, never
   // dropped, kept here only so a client's full-row REPLACE on pull can't wipe
   // it as a rollback safety net. Same self-scoped projection as theme.
-  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
+  // quiet_hours_start/_end (#242, migration 078): UTC-minutes-since-midnight,
+  // same column-scoped-upsert discipline as dashboard_layout/starred_widgets.
+  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end'; // scoped to the caller in sync.ts; explicit projection regardless
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;

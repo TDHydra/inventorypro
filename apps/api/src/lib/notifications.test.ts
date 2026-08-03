@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients } from './notifications';
+import { dedupKeys, getNotifyConfig, deliver, resolveRecipients, claimEvent, resolvePoolRecipients, filterQuietHours } from './notifications';
 
 test('dedupKeys build stable keys', () => {
   assert.equal(dedupKeys.assign('r1', 'u1'), 'assign:repair:r1:u1');
@@ -257,4 +257,101 @@ test('deliver: push defaults to true (sendPush still fires when omitted)', async
   await deliver(pg as any, ['u1'], { type: 'media_share', title: 't', body: 'b' });
   const pushLookups = calls.filter(c => c.sql.includes('device_push_tokens'));
   assert.equal(pushLookups.length, 1);
+});
+
+// ── #242: quiet hours ────────────────────────────────────────────────────────
+
+// user_prefs stub: rows keyed by user_id -> {quiet_hours_start, quiet_hours_end}.
+// Uses a FIXED "now" via Date override isn't available here (utcMinutesNow reads
+// real time), so these prefs are built relative to the CURRENT UTC minute to
+// stay deterministic regardless of when the suite runs: a window that always
+// contains "now" (start = now-1, end = now+2) and one that never does (a
+// 1-minute window ending a minute ago).
+function nowWindow(offsetStartMin: number, offsetEndMin: number) {
+  const now = new Date();
+  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const wrap = (m: number) => ((m % 1440) + 1440) % 1440;
+  return { start: wrap(nowMin + offsetStartMin), end: wrap(nowMin + offsetEndMin) };
+}
+
+function stubPgUserPrefs(prefs: Record<string, { start: number | null; end: number | null }>) {
+  return { query: async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM user_prefs')) {
+      const asked = (params[0] as string[]) ?? [];
+      return {
+        rows: asked.filter(id => id in prefs).map(id => ({
+          user_id: id, quiet_hours_start: prefs[id].start, quiet_hours_end: prefs[id].end,
+        })),
+      };
+    }
+    return { rows: [] as any[] };
+  } };
+}
+
+test('filterQuietHours: a user inside their window is dropped, one outside stays', async () => {
+  const inWindow = nowWindow(-1, 2); // covers "now"
+  const outWindow = nowWindow(5, 10); // doesn't cover "now"
+  const pg = stubPgUserPrefs({ u1: inWindow, u2: outWindow });
+  const kept = await filterQuietHours(pg as any, ['u1', 'u2']);
+  assert.deepEqual(kept, ['u2']);
+});
+
+test('filterQuietHours: bypassIds always keep, even inside their window', async () => {
+  const inWindow = nowWindow(-1, 2);
+  const pg = stubPgUserPrefs({ u1: inWindow });
+  const kept = await filterQuietHours(pg as any, ['u1'], new Set(['u1']));
+  assert.deepEqual(kept, ['u1']);
+});
+
+test('filterQuietHours: no row / NULL prefs is fail-open (never suppress a never-set user)', async () => {
+  const pg = stubPgUserPrefs({}); // no row for u1
+  assert.deepEqual(await filterQuietHours(pg as any, ['u1']), ['u1']);
+  const pgNull = stubPgUserPrefs({ u1: { start: null, end: null } });
+  assert.deepEqual(await filterQuietHours(pgNull as any, ['u1']), ['u1']);
+});
+
+test('deliver: a user in quiet hours still gets an inbox row but no push', async () => {
+  const inWindow = nowWindow(-1, 2);
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('FROM user_prefs')) return { rows: [{ user_id: 'u1', quiet_hours_start: inWindow.start, quiet_hours_end: inWindow.end }] };
+      return { rows: [] as any[] };
+    },
+  };
+  await deliver(pg as any, ['u1'], { type: 'low_stock', title: 't', body: 'b' });
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notifications')).length, 1);
+  assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 0);
+});
+
+test('deliver: a user outside quiet hours gets both inbox row and push', async () => {
+  const outWindow = nowWindow(5, 10);
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('FROM user_prefs')) return { rows: [{ user_id: 'u1', quiet_hours_start: outWindow.start, quiet_hours_end: outWindow.end }] };
+      return { rows: [] as any[] };
+    },
+  };
+  await deliver(pg as any, ['u1'], { type: 'low_stock', title: 't', body: 'b' });
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notifications')).length, 1);
+  assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 1);
+});
+
+test('deliver: bypassQuietHours:true ignores the window entirely', async () => {
+  const inWindow = nowWindow(-1, 2);
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('FROM user_prefs')) return { rows: [{ user_id: 'u1', quiet_hours_start: inWindow.start, quiet_hours_end: inWindow.end }] };
+      return { rows: [] as any[] };
+    },
+  };
+  await deliver(pg as any, ['u1'], { type: 'sync_stuck', title: 't', body: 'b', bypassQuietHours: true });
+  // bypass means filterQuietHours (and its user_prefs lookup) is never consulted.
+  assert.equal(calls.filter(c => c.sql.includes('FROM user_prefs')).length, 0);
+  assert.equal(calls.filter(c => c.sql.includes('device_push_tokens')).length, 1);
 });

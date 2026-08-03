@@ -19,7 +19,7 @@ import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
 import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
 import { TEST_ACCOUNT_WRITE_ERROR } from '../lib/testAccounts';
 import { randomUUID } from 'node:crypto';
-import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, resolvePoolRecipients, claimEvent, releaseEvent, dedupKeys } from '../lib/notifications';
+import { getNotifyConfig, notifyLowStock, deliver, resolveRecipients, resolvePoolRecipients, claimEvent, releaseEvent, dedupKeys, filterQuietHours } from '../lib/notifications';
 import { isThresholdMovement, shouldNotifyDecision, approvalUpdateAllowed, parseThreshold } from '../lib/approvals';
 import { overLimit } from '../lib/rateLimit';
 import { sendPush, messageRecipients } from '../lib/push';
@@ -1824,7 +1824,14 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               const isGroup = conv?.kind === 'group';
               const title = isGroup && conv?.title ? conv.title : senderName;
               const pushBody = isGroup ? `${senderName}: ${body}` : body;
-              await sendPush(fastify.pg, recipients, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) }, categoryId: 'chat-message' }); // #231
+              // #242: chat pushes bypass deliver() entirely (this whole block),
+              // so quiet hours need their own gate here. @mentions bypass quiet
+              // hours too — same rationale as their mute bypass above: a direct
+              // @mention is the sender explicitly reaching for that person.
+              const pushTo = await filterQuietHours(fastify.pg, recipients, new Set(mentionedUserIds));
+              if (pushTo.length) {
+                await sendPush(fastify.pg, pushTo, { title, body: pushBody, data: { screen: 'chat', conversationId: String(convId) }, categoryId: 'chat-message' }); // #231
+              }
             } catch { /* never disrupt sync */ }
           })();
         }

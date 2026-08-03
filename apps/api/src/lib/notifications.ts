@@ -4,6 +4,7 @@
 // that actually sends goes through sendPush (lib/push), which is fire-and-forget.
 import { randomUUID } from 'node:crypto';
 import { sendPush } from './push';
+import { isQuietHoursNow, utcMinutesNow } from './quietHours';
 
 type Pg = { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> };
 
@@ -111,15 +112,57 @@ export async function getNotifyConfig(pg: Pg): Promise<{ enabled: boolean; pollM
   };
 }
 
+// #242: splits `ids` into who gets pushed NOW vs who's in their own quiet
+// hours right now (deferred — no push, but they still got their inbox row
+// from the caller). `bypassIds` (e.g. @mention targets) always push,
+// regardless of their quiet-hours window — same escape-hatch rationale as
+// the chat mute bypass. One batch query against user_prefs; a user with no
+// row (or NULL/NULL, i.e. never set) is fail-open — always pushed — so a
+// missing pref can never silently suppress every push forever. Exported so
+// the direct chat sendPush in routes/sync.ts (which bypasses deliver()
+// entirely) can apply the same gate.
+export async function filterQuietHours(
+  pg: Pg,
+  ids: string[],
+  bypassIds: Set<string> = new Set(),
+): Promise<string[]> {
+  if (!ids.length) return ids;
+  const toCheck = ids.filter(id => !bypassIds.has(id));
+  if (!toCheck.length) return ids;
+  try {
+    const { rows } = await pg.query(
+      `SELECT user_id, quiet_hours_start, quiet_hours_end FROM user_prefs WHERE user_id = ANY($1)`,
+      [toCheck],
+    );
+    const prefs = new Map<string, { start: number | null; end: number | null }>(
+      rows.map(r => [r.user_id as string, { start: r.quiet_hours_start, end: r.quiet_hours_end }]),
+    );
+    const now = utcMinutesNow();
+    return ids.filter(id => {
+      if (bypassIds.has(id)) return true;
+      const pref = prefs.get(id);
+      if (!pref) return true; // no row → never set → fail-open
+      return !isQuietHoursNow(pref.start, pref.end, now);
+    });
+  } catch {
+    return ids; // never suppress a push over a quiet-hours lookup hiccup
+  }
+}
+
 // The single delivery funnel: writes one durable per-user `notifications` inbox
 // row per recipient AND fires sendPush as a nudge. Every notification trigger
 // (assignment, low-stock, checkout-idle, broadcast, approvals) routes through
 // here so the in-app inbox stays authoritative and push is best-effort. userIds
 // are deduped; empty → no-op. Never throws into callers.
+//
+// #242: quiet hours suppress the PUSH nudge ONLY — the inbox INSERT loop below
+// still runs for every id regardless (same precedent as the #87 'everyone'
+// push:false pool-share case: inbox-only, no blast). Pass bypassQuietHours to
+// skip the gate entirely (e.g. the user's own actionable stuck-outbox nudge).
 export async function deliver(
   pg: Pg,
   userIds: string[],
-  p: { type: string; title: string; body: string; data?: Record<string, unknown>; createdBy?: string; push?: boolean },
+  p: { type: string; title: string; body: string; data?: Record<string, unknown>; createdBy?: string; push?: boolean; bypassQuietHours?: boolean },
 ): Promise<void> {
   try {
     const ids = [...new Set(userIds)].filter(Boolean);
@@ -133,7 +176,9 @@ export async function deliver(
     }
     // #87: inbox-only channels (e.g. an 'everyone' pool share) pass push:false —
     // the inbox row above still lands, only the device push nudge is skipped.
-    if (p.push !== false) await sendPush(pg, ids, { title: p.title, body: p.body, data: p.data });
+    if (p.push === false) return;
+    const pushTo = p.bypassQuietHours ? ids : await filterQuietHours(pg, ids);
+    if (pushTo.length) await sendPush(pg, pushTo, { title: p.title, body: p.body, data: p.data });
   } catch { /* never disrupt callers */ }
 }
 
