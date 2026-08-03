@@ -12,6 +12,7 @@ import { SearchInput } from '../../../src/components/ui/SearchInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { Fab } from '../../../src/components/ui/Fab';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { ErrorView } from '../../../src/components/ui/ErrorView';
 import { MediaDetailSheet } from '../../../src/components/MediaDetailSheet';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
@@ -68,6 +69,12 @@ export default function MediaHubScreen() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  // #237: getMediaHubPage was uncaught here — a local-read failure (e.g. a
+  // malformed row from a bad sync pull) crashed the whole hub instead of
+  // leaving a way back. Only the initial (non-append) page sets this so an
+  // infinite-scroll failure just stops pagination rather than blanking rows
+  // already on screen.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // #171: Fab → "Take photo" / "Choose from gallery" — both hand off to the
@@ -77,11 +84,19 @@ export default function MediaHubScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback((f: MediaHubFilter, q: string, newOffset: number, append = false) => {
-    const page = getMediaHubPage(f, q.trim(), PAGE_SIZE, newOffset);
-    setRows(prev => (append ? [...prev, ...page] : page));
-    setHasMore(page.length === PAGE_SIZE);
-    setOffset(newOffset + page.length);
-    setLoaded(true);
+    try {
+      const page = getMediaHubPage(f, q.trim(), PAGE_SIZE, newOffset);
+      setRows(prev => (append ? [...prev, ...page] : page));
+      setHasMore(page.length === PAGE_SIZE);
+      setOffset(newOffset + page.length);
+      setLoaded(true);
+      if (!append) setLoadError(null);
+    } catch {
+      if (!append) setLoadError('Couldn’t load media.');
+      // A persistently failing read would otherwise be re-hit on every
+      // onEndReached crossing — stop paginating until a fresh non-append load.
+      else setHasMore(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -117,11 +132,19 @@ export default function MediaHubScreen() {
   // Re-query the ENTIRE loaded window so a mutation deep in an infinite-scrolled
   // list doesn't truncate it back to page 1 (mirrors the inventory list).
   const reloadWindow = useCallback(() => {
-    const limit = Math.max(PAGE_SIZE, offset);
-    const page = getMediaHubPage(filter, query.trim(), limit, 0);
-    setRows(page);
-    setHasMore(page.length === limit);
-    setOffset(page.length);
+    // #237: same guard as runSearch — this path fires on background pulls
+    // (mediaTrigger below), i.e. exactly when a malformed synced row can land,
+    // and an uncaught throw here takes down the whole app via the root boundary.
+    try {
+      const limit = Math.max(PAGE_SIZE, offset);
+      const page = getMediaHubPage(filter, query.trim(), limit, 0);
+      setRows(page);
+      setHasMore(page.length === limit);
+      setOffset(page.length);
+      setLoadError(null);
+    } catch {
+      setLoadError('Couldn’t load media.');
+    }
   }, [filter, query, offset]);
 
   const onRefresh = useCallback(async () => {
@@ -141,7 +164,12 @@ export default function MediaHubScreen() {
   // exactly once per 'media' version bump), so it's a reliable effect trigger
   // even when the change wouldn't alter row *count* (e.g. a caption edit) —
   // same rationale as ChatBell's unreadVersion (src/components/ChatBell.tsx).
-  const mediaTrigger = useDbQuery(() => getMediaHubPage('everything', '', 1, 0), [], ['media']);
+  // #237: guarded — this probe reruns synchronously on every 'media' pull; a
+  // throw would crash the app, not just this screen. null on failure is stable
+  // across recomputes, so a broken read simply stops triggering reloads.
+  const mediaTrigger = useDbQuery(() => {
+    try { return getMediaHubPage('everything', '', 1, 0); } catch { return null; }
+  }, [], ['media']);
   const reloadWindowRef = useRef(reloadWindow);
   reloadWindowRef.current = reloadWindow;
   useEffect(() => {
@@ -248,6 +276,9 @@ export default function MediaHubScreen() {
           <Text style={s.count}>{rows.length}{hasMore ? '+' : ''} item{rows.length === 1 && !hasMore ? '' : 's'}</Text>
         ) : null}
 
+        {loadError ? (
+          <ErrorView message={loadError} onRetry={() => runSearch(filter, query, 0)} />
+        ) : (
         <FlatList
           data={rows}
           keyExtractor={r => r.id}
@@ -307,6 +338,7 @@ export default function MediaHubScreen() {
             ) : null
           }
         />
+        )}
         {ms.active && (
           <BulkActionBar
             count={ms.count}

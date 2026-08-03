@@ -16,6 +16,7 @@ import { SearchInput } from '../../../src/components/ui/SearchInput';
 import { EmptyState } from '../../../src/components/ui/EmptyState';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { MapDisplay } from '../../../src/components/MapDisplay';
+import { ErrorView } from '../../../src/components/ui/ErrorView';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -200,6 +201,9 @@ export default function AuditLogScreen() {
   const [mapLookupBusy, setMapLookupBusy] = useState(false);
   const [ipMap, setIpMap] = useState<IpGeo | null>(null);
   const [activityError, setActivityError] = useState(false);
+  // #237: bumped by the ErrorView retry below to re-run the correlated-activity
+  // fetch for the same `selected` row without a full modal close/reopen.
+  const [activityRetryKey, setActivityRetryKey] = useState(0);
 
   // Build the query string from the current filters (+ optional keyset cursor).
   const buildQuery = useCallback((c: Cursor | null): string => {
@@ -318,7 +322,7 @@ export default function AuditLogScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [selected]);
+  }, [selected, activityRetryKey]);
 
   if (!canView) {
     return (
@@ -386,11 +390,10 @@ export default function AuditLogScreen() {
         ) : phase === 'loading' ? (
           <View style={s.center}><ActivityIndicator color={t.colors.primary} /></View>
         ) : phase === 'error' ? (
+          // #237: was a hand-rolled Text + TouchableOpacity retry — swap for the
+          // kit's ErrorView so the audit log matches the rest of the app.
           <View style={s.center}>
-            <Text style={s.errorText}>{errMsg}</Text>
-            <TouchableOpacity style={s.retryBtn} onPress={() => void loadInitial(false)}>
-              <Text style={s.retryText}>Retry</Text>
-            </TouchableOpacity>
+            <ErrorView message={errMsg} onRetry={() => void loadInitial(false)} />
           </View>
         ) : (
           <FlatList<AuditRow>
@@ -518,7 +521,12 @@ export default function AuditLogScreen() {
             {activityLoading ? (
               <View style={s.footer}><ActivityIndicator color={t.colors.primary} /></View>
             ) : activityError ? (
-              <Text style={s.note}>Couldn’t load correlated activity.</Text>
+              // #237: was a bare Text note with no way back short of closing and
+              // reopening the sheet — ErrorView's retry re-runs the same fetch.
+              <ErrorView
+                message="Couldn’t load correlated activity."
+                onRetry={() => setActivityRetryKey(k => k + 1)}
+              />
             ) : activity && activity.length > 0 ? (
               activity.map(a => (
                 <View key={a.id} style={s.activityRow}>
@@ -625,10 +633,6 @@ const makeStyles = (t: Theme) => {
 
   footer: { paddingVertical: t.spacing.lg, alignItems: 'center' },
   endNote: { textAlign: 'center', color: t.colors.textMuted, fontSize: t.typography.fontSizes.caption, paddingVertical: t.spacing.lg },
-
-  errorText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.body, textAlign: 'center' },
-  retryBtn: { paddingVertical: t.spacing.xs, paddingHorizontal: t.spacing.base, borderRadius: t.radii.sm, backgroundColor: t.colors.primaryBg },
-  retryText: { color: t.colors.primaryText, fontWeight: '700' },
 
   // Detail sheet
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: t.spacing.sm },
