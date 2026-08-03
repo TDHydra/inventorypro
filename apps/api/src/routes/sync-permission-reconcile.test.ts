@@ -27,7 +27,7 @@ const COLUMNS: Record<string, string[]> = {
   rooms: ['id', 'name', 'active', 'created_at', 'updated_at'],
   // #204: the two permission_overrides writers reachable through the generic
   // sync outbox (see touchTeamsAndLocationsIfViewPermsChanged's call site).
-  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at'],
+  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at', 'idle_reauth_minutes'],
   users: [
     'id', 'name', 'role', 'pin_hash', 'pin_length_required', 'permission_overrides',
     'active', 'expires_at', 'created_at', 'updated_at', 'pin_set', 'email',

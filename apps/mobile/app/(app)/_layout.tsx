@@ -7,6 +7,7 @@ import { NotificationBell } from '../../src/components/NotificationBell';
 import { ChatBell } from '../../src/components/ChatBell';
 import { QuickPhotoFlow, openQuickPhoto } from '../../src/components/quickphoto/QuickPhotoFlow';
 import { useIdleLogout } from '../../src/hooks/useIdleLogout';
+import { useIdleReauth } from '../../src/hooks/useIdleReauth';
 import { usePermission } from '../../src/hooks/usePermission';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
@@ -15,7 +16,11 @@ import { PreviewBanner } from '../../src/components/ui/PreviewBanner';
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner';
 import { useDbQuery } from '../../src/hooks/useDbQuery';
 import { getOnboardingChecklist } from '../../src/db/userPrefs';
+import { getRoleIdleReauthMinutes } from '../../src/db/queries/users';
 import { OnboardingChecklistSheet } from '../../src/components/profile/OnboardingChecklistSheet';
+import { ReauthGate } from '../../src/components/ReauthGate';
+import { useReauthRequired } from '../../src/auth/reauthGate';
+import { markReauthed } from '../../src/auth/reauthTracker';
 import type { Theme } from '../../src/themes/types';
 import { useTheme } from '../../src/hooks/useTheme';
 import { useThemedStyles } from '../../src/hooks/useThemedStyles';
@@ -56,6 +61,32 @@ export default function AppLayout() {
   // #169: hide the header quick-photo button for users who can't upload —
   // without the gate they walk the whole capture flow and fail at presign.
   const canUploadMedia = usePermission('upload_media');
+
+  // #244: per-role idle re-auth. Keyed off realUser (never the effective/
+  // previewed user — a preview-as-role session must never inherit a looser or
+  // tighter threshold than the real signed-in identity, same convention as the
+  // maintenance-role effect below). Demo/test sessions are exempt (no real
+  // security stake, mirrors the is_test carve-out already used elsewhere in
+  // this file) — resolved to 0 (disabled), which useIdleReauth/checkReauthDue
+  // both already treat as a no-op.
+  const idleReauthMinutes = useDbQuery(
+    () => (realUser && !realUser.is_test ? getRoleIdleReauthMinutes()[realUser.role] ?? 0 : 0),
+    [realUser?.id, realUser?.role, realUser?.is_test],
+    ['role_settings'],
+  );
+  const reauth = useIdleReauth(idleReauthMinutes);
+  const reauthRequired = useReauthRequired();
+  // Stamp a fresh activity timestamp (AND clear any gate left raised by a
+  // PRIOR session — the gate module cache is a process-wide singleton, not
+  // per-user, so without this a signed-out gate could otherwise carry over
+  // onto the next signed-in user) whenever the real identity changes: covers
+  // login, first-time PIN setup, and biometric unlock (unlock.tsx) — none of
+  // which call a shared "session started" function, so this user-keyed effect
+  // is the one place all three funnel through.
+  useEffect(() => {
+    if (realUser) markReauthed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realUser?.id]);
 
   // Guard — redirect to login if no session
   useEffect(() => {
@@ -99,6 +130,7 @@ export default function AppLayout() {
       style={{ flex: 1 }}
       onStartShouldSetResponderCapture={() => {
         reset();
+        reauth.touch(); // #244: also stamps/re-arms the idle re-auth gate
         appAlertBus.dismissActive(IDLE_NUDGE_TAG); // any activity clears the nudge
         return false;
       }}
@@ -165,6 +197,18 @@ export default function AppLayout() {
           visible={!dismissedThisSession && onboarding?.status === 'pending'}
           userId={realUser.id}
           onClose={() => setDismissedThisSession(true)}
+        />
+      )}
+      {/* #244: rendered LAST (topmost) so a full-screen re-auth requirement
+          can interrupt an already-open ModalSheet/ConfirmSheet, not just a
+          bare screen — see reauthCore.ts's header comment for the enforcement
+          design. Keyed off realUser (never the previewed/effective user). */}
+      {realUser && (
+        <ReauthGate
+          visible={reauthRequired}
+          userId={realUser.id}
+          userName={realUser.name}
+          requiredLength={realUser.pin_length_required}
         />
       )}
     </View>

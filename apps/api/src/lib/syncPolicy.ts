@@ -531,8 +531,10 @@ const MAINTENANCE_EVENTS_SENSITIVE = ', cost';
 const NOTIFICATIONS_COLS = 'id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at';
 const APPROVAL_REQUESTS_COLS = 'id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at';
 // role_settings: full synced column set (explicit, never '*') — carries the new
-// dashboard_preset_id assignment (migration 039) alongside the pin/perm/color config.
-const ROLE_SETTINGS_COLS = 'role, min_pin_length, permission_overrides, color, dashboard_preset_id, updated_at';
+// dashboard_preset_id assignment (migration 039) alongside the pin/perm/color
+// config, plus idle_reauth_minutes (#244, migration 080) — no financial/secret
+// columns, so every synced device reads the full row.
+const ROLE_SETTINGS_COLS = 'role, min_pin_length, permission_overrides, color, dashboard_preset_id, updated_at, idle_reauth_minutes';
 // dashboard_presets: org-shared dashboard layouts. No financial/secret columns —
 // every synced device reads the full row to render its hub.
 const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';

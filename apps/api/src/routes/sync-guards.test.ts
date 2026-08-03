@@ -69,7 +69,7 @@ const MEDIA_ROWS = [
 // Boot-time column introspection result — just the tables these tests write to.
 const COLUMNS: Record<string, string[]> = {
   app_config: ['key', 'value', 'updated_at'],
-  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at'],
+  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at', 'idle_reauth_minutes'],
   messages: ['id', 'conversation_id', 'sender_id', 'body', 'urgency', 'created_at', 'updated_at', 'edited_at', 'deleted_at'],
   // field-crew (#122)
   subteams: ['id', 'team_id', 'name', 'active', 'created_at', 'updated_at'],

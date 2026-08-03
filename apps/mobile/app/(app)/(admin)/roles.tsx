@@ -10,6 +10,7 @@ import {
   getRoleSettings, setRoleMinPin,
   getRolePermissionOverrides, setRolePermission,
   getRoleColorMap, setRoleColor, getActiveUserCountByRole,
+  getRoleIdleReauthMinutes, setRoleIdleReauthMinutes,
 } from '../../../src/db/queries/users';
 import { loadRolePermissionCache, canEditRolePermission } from '../../../src/auth/permissions';
 import {
@@ -43,6 +44,17 @@ const PERMISSION_ORDER = Object.keys(PERMISSION_LABELS) as Permission[];
 
 const MIN_PIN = 4;
 const MAX_PIN = 8;
+
+// #244: fixed idle re-auth presets (minutes). "0" = disabled — the DEFAULT for
+// every role until an admin opts in.
+const IDLE_REAUTH_OPTIONS = [
+  { id: '0', label: 'Off' },
+  { id: '5', label: '5 min' },
+  { id: '15', label: '15 min' },
+  { id: '30', label: '30 min' },
+  { id: '60', label: '60 min' },
+  { id: '120', label: '120 min' },
+];
 
 // Self-lockout guard: full_admin must always retain the keys to the kingdom, so
 // these two are forced ON and non-toggleable for that role in the matrix.
@@ -87,6 +99,9 @@ export default function RolesScreen() {
     });
   }
   const roleColors = useMemo<Record<string, string>>(() => getRoleColorMap(), [version]);
+  // #244: per-role idle re-auth minutes (0 = disabled). Re-reads via the same
+  // role_settings table version as minPins/roleColors above.
+  const idleReauthMinutes = useMemo<Record<string, number>>(() => getRoleIdleReauthMinutes(), [version]);
   const rolePresets = useMemo<Record<string, string | null>>(() => getRoleDashboardPresetIds(), [version]);
   const presets = useMemo(() => getDashboardPresets(), [version]);
 
@@ -302,11 +317,26 @@ export default function RolesScreen() {
     loadDashboardCache(); // notify subscribers → affected dashboards re-render live (no remount)
   }
 
-  function changeMinPin(role: UserRole, delta: number) {
+  // Idea-32 sliver: this is the ONE role_settings editor left that committed
+  // with no impact-preview confirm (togglePerm/toggleGroupAll already gate
+  // through confirmSheet + impactMessage — commit 33d1070, #200/#201). Same
+  // pattern here: preview the blast radius, cancel aborts with no write.
+  async function changeMinPin(role: UserRole, delta: number) {
     if (!canManage) return;
     if (isWriteBlocked()) return;
     const next = Math.min(MAX_PIN, Math.max(MIN_PIN, effectiveMinPin(role) + delta));
     if (next === effectiveMinPin(role)) return;
+
+    const ok = await confirmSheet({
+      title: 'Change minimum PIN length?',
+      message: impactMessage(role, 'the minimum PIN length'),
+      confirmLabel: 'Change',
+    });
+    if (!ok) return;
+    // Re-check after the await — maintenance mode or role toggling could have
+    // changed state while the sheet was showing (mirrors togglePerm).
+    if (isWriteBlocked()) return;
+
     try {
       // Write + outbox + log land atomically so a partial failure can't sync/log a
       // PIN length the DB didn't persist.
@@ -332,6 +362,39 @@ export default function RolesScreen() {
       return;
     }
     // minPins memo re-reads via the role_settings table version after commit
+  }
+
+  // #244: per-role idle re-auth minutes. No impact-preview confirm — unlike
+  // the min-PIN/permission edits above, this doesn't change what anyone can
+  // already do, only how often they're asked to prove it's still them; the
+  // SelectField's fixed option list (Off/5/15/30/60/120) is also much lower
+  // blast-radius than a permission flip.
+  function changeIdleReauth(role: UserRole, minutes: number) {
+    if (!canManage) return;
+    if (isWriteBlocked()) return;
+    try {
+      runInTransaction(() => {
+        const now = setRoleIdleReauthMinutes(role, minutes);
+        appendOutbox('UPDATE', 'role_settings', { role, idle_reauth_minutes: minutes, updated_at: now });
+        appendLog({
+          action: 'role_idle_reauth_changed',
+          entity_type: 'role_settings',
+          // Role keys aren't UUIDs — keep entity_id null (see role_permission_changed above).
+          entity_id: null,
+          user_id: realUser?.id ?? null,
+          note: `${role} idle re-auth → ${minutes === 0 ? 'off' : `${minutes} min`}`,
+          team_id: null, from_location_id: null, to_location_id: null,
+          quantity: null, unit: null, job_id: null, metadata: JSON.stringify({ role }), device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not change idle re-auth',
+        e instanceof Error ? e.message : 'The change was not saved. Please try again.'
+      );
+      return;
+    }
+    // idleReauthMinutes memo re-reads via the role_settings table version after commit
   }
 
   // #199 follow-up: "Preview as…" entry point. Picking a role swaps what
@@ -433,6 +496,21 @@ export default function RolesScreen() {
                     <Text style={s.stepText}>+</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+
+              {/* #244: per-role idle re-auth. Independent of the org-wide idle
+                  auto-logout (settings.tsx) — this only re-prompts for the PIN
+                  after inactivity; the session itself stays intact. */}
+              <View style={s.idleReauthSection}>
+                <SelectField
+                  label="Idle re-auth"
+                  hint="Re-prompt for this role's PIN after this much inactivity, foreground or backgrounded"
+                  placeholder="Off"
+                  value={String(idleReauthMinutes[role] ?? 0)}
+                  options={IDLE_REAUTH_OPTIONS}
+                  onSelect={(id) => changeIdleReauth(role, Number(id))}
+                  disabled={!canManage || locked || !canActThisRole}
+                />
               </View>
 
               {/* Color swatch picker */}
@@ -649,6 +727,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   readOnly: { fontSize: t.typography.fontSizes.body2, color: t.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
   lockNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 17, paddingHorizontal: t.spacing.base, paddingBottom: t.spacing.base },
 
+  idleReauthSection: { paddingHorizontal: t.spacing.base, paddingBottom: t.spacing.sm },
   colorSection: { paddingHorizontal: t.spacing.base, paddingVertical: t.spacing.sm, gap: t.spacing.sm },
   colorPreview: { fontSize: t.typography.fontSizes.base, fontWeight: '700' },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing.sm },

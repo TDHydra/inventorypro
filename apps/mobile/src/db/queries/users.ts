@@ -133,6 +133,35 @@ export function getRoleSettings(): Record<string, number> {
   );
 }
 
+// Role → idle re-auth minutes (#244, migration 066). 0 = disabled (DEFAULT
+// for every role until an admin opts in via the Roles editor). Missing rows
+// (shouldn't happen — every role gets a role_settings row) read as 0/disabled
+// via the caller's own `?? 0` fallback, same convention as getRoleSettings.
+export function getRoleIdleReauthMinutes(): Record<string, number> {
+  const db = getDb();
+  const result = db.executeSync(`SELECT role, idle_reauth_minutes FROM role_settings`);
+  return Object.fromEntries(
+    (result.rows as { role: string; idle_reauth_minutes: number }[])
+      .map(r => [r.role, r.idle_reauth_minutes])
+  );
+}
+
+// Set a role's idle re-auth minutes. Column-scoped upsert (ON CONFLICT DO
+// UPDATE touching ONLY idle_reauth_minutes + updated_at) — mirrors
+// setRoleColor/setRoleMinPin exactly, never INSERT OR REPLACE (mig-060
+// postmortem: a full-row REPLACE naming a column subset silently nulls out
+// every OTHER column on an existing row). Returns the new updated_at stamp.
+export function setRoleIdleReauthMinutes(role: string, minutes: number): string {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.executeSync(
+    `INSERT INTO role_settings (role, idle_reauth_minutes, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(role) DO UPDATE SET idle_reauth_minutes = excluded.idle_reauth_minutes, updated_at = excluded.updated_at`,
+    [role, minutes, now]
+  );
+  return now;
+}
+
 // Role → override color (only non-null overrides). Callers build this ONCE per
 // screen and pass it to roleColor() per row to avoid per-row DB reads.
 export function getRoleColorMap(): Record<string, string> {
@@ -327,13 +356,10 @@ export function setRolePermission(role: string, perm: string, allowed: boolean |
   const db = getDb();
   const now = new Date().toISOString();
   const existing = db.executeSync(
-    `SELECT min_pin_length, permission_overrides FROM role_settings WHERE role = ?`,
+    `SELECT permission_overrides FROM role_settings WHERE role = ?`,
     [role]
   );
-  const cur = existing.rows[0] as
-    | { min_pin_length: number; permission_overrides: string | null }
-    | undefined;
-  const minPin = cur?.min_pin_length ?? 4;
+  const cur = existing.rows[0] as { permission_overrides: string | null } | undefined;
   let overrides: Record<string, boolean> = {};
   try {
     overrides = cur?.permission_overrides ? JSON.parse(cur.permission_overrides) : {};
@@ -345,10 +371,21 @@ export function setRolePermission(role: string, perm: string, allowed: boolean |
   } else {
     overrides[perm] = allowed;
   }
+  // Column-scoped upsert (ON CONFLICT DO UPDATE touching ONLY
+  // permission_overrides + updated_at) — this used to be `INSERT OR REPLACE
+  // (role, min_pin_length, permission_overrides, updated_at)`, which silently
+  // NULLed out color/dashboard_preset_id/idle_reauth_minutes on every existing
+  // row (a full-row REPLACE naming a column subset resets every unlisted
+  // column to its default, it does not preserve it — verified against
+  // sql.js). Fixed here because #244's idle_reauth_minutes would otherwise
+  // silently reset to 0/disabled the next time ANY permission was toggled for
+  // the role — same mig-060 postmortem class of bug, on role_settings instead
+  // of user_prefs. min_pin_length no longer needs reading/rewriting at all —
+  // ON CONFLICT DO UPDATE leaves it untouched.
   db.executeSync(
-    `INSERT OR REPLACE INTO role_settings (role, min_pin_length, permission_overrides, updated_at)
-     VALUES (?, ?, ?, ?)`,
-    [role, minPin, JSON.stringify(overrides), now]
+    `INSERT INTO role_settings (role, permission_overrides, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(role) DO UPDATE SET permission_overrides = excluded.permission_overrides, updated_at = excluded.updated_at`,
+    [role, JSON.stringify(overrides), now]
   );
   appendOutbox('UPDATE', 'role_settings', { role, permission_overrides: overrides, updated_at: now });
   return now;

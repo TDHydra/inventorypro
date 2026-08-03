@@ -610,6 +610,10 @@ test('role_settings projection carries dashboard_preset_id (role assignment sync
   assert.match(selectColumnsFor('role_settings', false), /dashboard_preset_id/);
 });
 
+test('role_settings projection carries idle_reauth_minutes (#244 — every device must see the policy)', () => {
+  assert.match(selectColumnsFor('role_settings', false), /idle_reauth_minutes/);
+});
+
 // ── #122 Phase C: on_call_coverage sync policy ───────────────────────────────
 
 test('on_call_coverage: all ops gated on manage_teams', () => {
