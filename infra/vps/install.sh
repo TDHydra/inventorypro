@@ -58,6 +58,12 @@ PORT_API=3000
 PORT_WEB=8088
 PORT_S3=9000
 PORT_CONSOLE=9001
+# #247: second API color for blue-green deploys — see phase_nginx/phase_app/
+# phase_helpers. "blue" = the `api` service on PORT_API; "green" = the `api2`
+# service on PORT_API2. Both run as permanent warm standbys; nginx's active
+# upstream (one line in inventorypro-api-active.conf) decides which one is
+# actually serving traffic at any moment.
+PORT_API2=3001
 
 COMPOSE="docker compose --project-name inventorypro --env-file $ENV_FILE -f $APP_DIR/infra/docker-compose.prod.yml -f $INSTALL_DIR/compose.vps.yml"
 
@@ -391,6 +397,13 @@ MINIO_CORS_ORIGIN=https://$WEB_DOMAIN
 # nginx reaches the containers over the docker bridge — trust that subnet
 TRUST_PROXY=172.16.0.0/12
 
+# #247: activates the api2 (green) color defined in docker-compose.prod.yml's
+# `blue-green` profile — read by the docker compose CLI itself straight out of
+# this --env-file, no --profile flag needed anywhere. This is what makes
+# blue-green deploys the DEFAULT path for VPS installs; the Unraid/self-host
+# compose file has no such line, so api2 stays inert there.
+COMPOSE_PROFILES=blue-green
+
 SMTP_HOST=${SMTP_HOST:-}
 SMTP_PORT=${SMTP_PORT:-587}
 SMTP_USER=${SMTP_USER:-}
@@ -590,8 +603,45 @@ map $http_upgrade $connection_upgrade {
 }
 EOF
 
+  # #247: blue-green upstreams for the API only. Two named upstreams (one per
+  # color, ports fixed at PORT_API/PORT_API2) — `upstream` is valid at http
+  # context, so this one DOES belong in conf.d (auto-included by nginx.conf's
+  # `include conf.d/*.conf;`).
+  cat >/etc/nginx/conf.d/inventorypro-api-upstreams.conf <<EOF
+upstream inventorypro_api_blue  { server 127.0.0.1:$PORT_API; }
+upstream inventorypro_api_green { server 127.0.0.1:$PORT_API2; }
+EOF
+
+  # The "which color is active" file is a single `set $api_upstream ...;`
+  # directive — `set` is only valid in server/location/if context, NEVER at
+  # http context, so this file must NOT go in conf.d (which nginx.conf
+  # auto-includes at http level) or nginx -t fails. Instead it lives at a
+  # plain path that the api vhost `include`s explicitly inside its own
+  # server{} block (below). `bin/upgrade.sh` (installed by phase_helpers)
+  # rewrites only this one file + `nginx -s reload` — reload doesn't drop
+  # in-flight connections, it only routes new ones, so the flip itself is
+  # effectively zero-downtime.
+  ACTIVE_COLOR_CONF=/etc/nginx/inventorypro-api-active.conf
+  if [[ ! -f $ACTIVE_COLOR_CONF ]]; then
+    # First install only: blue (api/$PORT_API) is what phase_app just brought
+    # up and health-gated, so it's the only color that can legitimately be
+    # "active" yet. A --redo nginx on an already-flipped box must NOT reset
+    # this back to blue — see the retrofit runbook in infra/README.md.
+    echo 'set $api_upstream inventorypro_api_blue;' >"$ACTIVE_COLOR_CONF"
+  fi
+
   write_vhost() { # name domain port extra
     local name=$1 domain=$2 port=$3 extra=$4
+    # The api vhost proxies to the swappable $api_upstream nginx variable
+    # (named by the included inventorypro-api-active.conf) instead of a fixed
+    # 127.0.0.1:port — every other vhost (web/s3/minio) keeps the old
+    # fixed-port form, since only the API has a standby color to flip to.
+    local proxy_target="127.0.0.1:$port"
+    local color_include=""
+    if [[ $name == api ]]; then
+      proxy_target='$api_upstream'
+      color_include="    include $ACTIVE_COLOR_CONF;"
+    fi
     cat >"/etc/nginx/sites-available/inventorypro-$name.conf" <<EOF
 server {
     listen 80;
@@ -605,9 +655,10 @@ server {
 $HTTP2_DIRECTIVE
     server_name $domain;
     include snippets/inventorypro-ssl.conf;
+$color_include
 $extra
     location / {
-        proxy_pass http://127.0.0.1:$port;
+        proxy_pass http://$proxy_target;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -752,6 +803,12 @@ services:
   api:
     ports: !override
       - "127.0.0.1:3000:3000"
+  # #247: the green color. Only created because COMPOSE_PROFILES=blue-green
+  # is set in .env (phase_secrets) — this override just gives it the same
+  # loopback-only treatment as every other service here, whenever it exists.
+  api2:
+    ports: !override
+      - "127.0.0.1:3001:3000"
   web:
     ports: !override
       - "127.0.0.1:8088:80"
@@ -777,6 +834,24 @@ EOF
     sleep 5
   done
   ok "Stack is up — API /health OK, migrations applied"
+
+  # #247: api2 (green) comes up from the SAME image/migration state as api
+  # (blue) — both just ran the identical boot sequence, so this is a much
+  # shorter wait in practice, but poll for real health rather than assuming.
+  # Both colors stay warm from here on; upgrade.sh's flip needs a healthy
+  # standby to exist already, not start one cold at deploy time.
+  info "Waiting for the standby color (api2) to come up…"
+  n=0
+  until curl -fsS -m 5 "http://127.0.0.1:$PORT_API2/health" >/dev/null 2>&1; do
+    n=$((n + 1))
+    if (( n > 60 )); then
+      err "api2 not healthy after 5 minutes. Recent api2 logs:"
+      $COMPOSE logs --tail 40 api2 >&2
+      return 1
+    fi
+    sleep 5
+  done
+  ok "Standby color (api2) is up — blue-green ready"
 }
 
 # ---------------------------------------------------------------------------
@@ -827,7 +902,17 @@ run_check() { # run_check name command...
   if out=$("$@" 2>&1); then STATUS[$name]=ok; else STATUS[$name]=fail; DETAIL[$name]=${out:0:400}; fi
 }
 
-run_check api      curl -fsS -m 10 http://127.0.0.1:3000/health
+# #247: check whichever color is ACTUALLY active, not a hardcoded port — once
+# upgrade.sh flips for the first time, the other color's container is stopped
+# (not removed), so a hardcoded :3000 check would false-alarm forever the
+# first time green becomes active. Falls back to :3000 if the box predates
+# blue-green (no active-color file yet).
+api_port=3000
+if [ -f /etc/nginx/inventorypro-api-active.conf ] \
+   && grep -q inventorypro_api_green /etc/nginx/inventorypro-api-active.conf; then
+  api_port=3001
+fi
+run_check api      curl -fsS -m 10 "http://127.0.0.1:$api_port/health"
 run_check web      curl -fsS -m 10 -o /dev/null http://127.0.0.1:8088/
 run_check minio    curl -fsS -m 10 http://127.0.0.1:9000/minio/health/live
 run_check postgres bash -c "$COMPOSE exec -T postgres pg_isready -q"
@@ -892,9 +977,31 @@ EOF
 phase_helpers() {
   cat >"$BIN_DIR/upgrade.sh" <<'EOF'
 #!/usr/bin/env bash
-# Pull latest code, rebuild, restart. Migrations run automatically on API boot.
+# Pull latest code, rebuild, flip to the new API color. Migrations run
+# automatically on API boot (#238: advisory-lock guarded, so the brief
+# both-colors-up overlap this creates can never double-apply one).
+#
+# #247: blue-green is the DEFAULT (only) upgrade path — there is no flag to
+# opt out. Flow: build the INACTIVE color -> health-gate it on its OWN
+# loopback port while the ACTIVE color keeps serving live traffic
+# unmodified -> flip nginx's one-line active-upstream pointer + reload ->
+# drain -> stop the now-old color. If the standby never becomes healthy,
+# nginx is never touched and the old container is never stopped — the old
+# #214 "retag the previous image and restart the same container" rollback
+# is gone because there is nothing to roll back: nothing live was ever
+# touched. A second, post-flip smoke test can still flip back if the newly
+# active color breaks in a way the loopback gate didn't catch.
+#
+# Known gap (infra/README.md "Known gaps" has the full writeup): the API's
+# per-process in-memory rate-limit / login-attempt maps (apps/api/src/lib/
+# rateLimit.ts, routes/auth.ts's `attempts` map) are NOT shared between the
+# two colors, so a client bouncing between both during the brief overlap
+# effectively sees close to 2x the intended quota for that window. Low
+# severity (limits are already generous, overlap is short) — documented,
+# not silently fixed.
 set -Eeuo pipefail
 COMPOSE="docker compose --project-name inventorypro --env-file /opt/inventorypro/.env -f /opt/inventorypro/app/infra/docker-compose.prod.yml -f /opt/inventorypro/compose.vps.yml"
+ACTIVE_COLOR_CONF=/etc/nginx/inventorypro-api-active.conf
 cd /opt/inventorypro/app
 git pull --ff-only
 
@@ -918,52 +1025,93 @@ $COMPOSE exec -T postgres pg_dump -U "$PGUSER" -Fc "$PGDB" | gzip >"$dump" \
 # keep the last 5 pre-upgrade snapshots
 ls -1t "$PRE_DIR"/pre-*.dump.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
 
-# #214: remember the images serving right now so a failed health gate can put
-# them back. `compose build` retags :latest, orphaning the old images — the
-# rollback tags keep them alive (pruning happens only after the gate passes).
-api_old=$($COMPOSE images -q api 2>/dev/null || true)
+# Which color is live right now? Single source of truth = the one nginx line
+# that actually routes traffic — never a separate state file that could drift
+# from reality.
+[ -f "$ACTIVE_COLOR_CONF" ] || {
+  echo "missing $ACTIVE_COLOR_CONF — this box hasn't been set up for blue-green yet." >&2
+  echo "See the retrofit runbook in infra/README.md, then re-run this upgrade." >&2
+  exit 1
+}
+case "$(cat "$ACTIVE_COLOR_CONF")" in
+  *inventorypro_api_blue*)  active_color=blue;  active_svc=api;  standby_color=green; standby_svc=api2; standby_port=3001 ;;
+  *inventorypro_api_green*) active_color=green; active_svc=api2; standby_color=blue;  standby_svc=api;  standby_port=3000 ;;
+  *) echo "unrecognized contents of $ACTIVE_COLOR_CONF — expected inventorypro_api_blue or inventorypro_api_green" >&2; exit 1 ;;
+esac
+echo "active: $active_color ($active_svc, still serving) — deploying standby: $standby_color ($standby_svc, port $standby_port)"
+
+# web has no blue-green color of its own — keep #214's original retag/restore
+# safety net for it (it never gets a live-traffic gate either way).
 web_old=$($COMPOSE images -q web 2>/dev/null || true)
-[ -n "$api_old" ] && docker tag "$api_old" inventorypro-api:rollback
 [ -n "$web_old" ] && docker tag "$web_old" inventorypro-web:rollback
 
-$COMPOSE build
-$COMPOSE up -d
-echo "waiting for API health…"
+$COMPOSE build "$standby_svc" web
+$COMPOSE up -d "$standby_svc" web
+
+echo "waiting for standby API health ($standby_svc on 127.0.0.1:$standby_port)…"
+gate_ok=
 for i in $(seq 1 60); do
-  curl -fsS -m 5 http://127.0.0.1:3000/health >/dev/null 2>&1 && { docker image prune -f >/dev/null; echo "OK — upgrade complete"; exit 0; }
+  curl -fsS -m 5 "http://127.0.0.1:$standby_port/health" >/dev/null 2>&1 && { gate_ok=1; break; }
   sleep 5
 done
 
-# #214: health gate failed — don't leave a broken API up. Retag the previous
-# images back to :latest and restart from them. If the new API already ran its
-# migrations, code is now BEHIND schema — restore the matching pre-upgrade
-# snapshot from /opt/inventorypro/backups/pre-upgrade (see docs/BACKUPS.md).
-echo "API did not come back after 5 min — last API logs:" >&2
-$COMPOSE logs --tail 50 api >&2 || true
-if [ -z "$api_old" ]; then
-  echo "no previous image recorded — cannot roll back automatically" >&2
+if [ -z "$gate_ok" ]; then
+  # $active_svc was NEVER touched — it is still serving live traffic exactly
+  # as before this script ran, so there is nothing to roll back on the API
+  # side. Only web (no standby color of its own) needs restoring.
+  echo "$standby_color ($standby_svc) did not become healthy after 5 min — never flipped; $active_color ($active_svc) is still serving. Last logs:" >&2
+  $COMPOSE logs --tail 50 "$standby_svc" >&2 || true
+  if [ -n "$web_old" ]; then
+    echo "rolling back web to its previous image…" >&2
+    docker tag inventorypro-web:rollback inventorypro-web:latest
+    $COMPOSE up -d --no-build web
+  fi
+  echo "If $standby_svc ran migrations before failing health, its code is now BEHIND the new schema — do not just retry blindly; check the logs above and, if truly needed, the pre-upgrade snapshot ($dump)." >&2
   exit 1
 fi
-echo "rolling back to previous images…" >&2
-docker tag inventorypro-api:rollback inventorypro-api:latest
-[ -n "$web_old" ] && docker tag inventorypro-web:rollback inventorypro-web:latest
-$COMPOSE up -d --no-build api web
-for i in $(seq 1 24); do
-  curl -fsS -m 5 http://127.0.0.1:3000/health >/dev/null 2>&1 && {
-    echo "ROLLED BACK — previous version is serving again." >&2
-    echo "If the failed deploy ran migrations, also restore the pre-upgrade DB snapshot ($sha) from /opt/inventorypro/backups/pre-upgrade." >&2
-    exit 1
-  }
-  sleep 5
-done
-echo "rollback did not become healthy either — manual intervention required (check: $COMPOSE logs --tail 50 api)" >&2
-exit 1
+
+echo "flipping nginx from $active_color to $standby_color…"
+echo "set \$api_upstream inventorypro_api_$standby_color;" >"$ACTIVE_COLOR_CONF"
+nginx -t && nginx -s reload
+
+# Post-flip smoke test through the REAL public path (SNI + Host both correct
+# via --resolve, so this hits the actual api vhost over its real cert — not
+# just the standby's own loopback port again, which we already know is
+# healthy). This is the "flip back" half of #247's gate: catches an
+# nginx-level misroute the loopback check alone can't see.
+API_DOMAIN=$(grep -m1 '^API_DOMAIN=' /opt/inventorypro/install.conf 2>/dev/null | cut -d= -f2- | tr -d "'\"")
+sleep 2
+if [ -n "$API_DOMAIN" ] && ! curl -fsS -m 5 --resolve "$API_DOMAIN:443:127.0.0.1" "https://$API_DOMAIN/health" >/dev/null 2>&1; then
+  echo "post-flip smoke test failed — flipping back to $active_color ($active_svc)" >&2
+  echo "set \$api_upstream inventorypro_api_$active_color;" >"$ACTIVE_COLOR_CONF"
+  nginx -t && nginx -s reload
+  echo "$active_color ($active_svc) is serving again — $standby_svc was never stopped, so no service impact beyond investigating the smoke-test failure." >&2
+  exit 1
+fi
+
+echo "draining $active_color ($active_svc) for 10s before stopping…"
+sleep 10
+$COMPOSE stop "$active_svc"
+docker image prune -f >/dev/null
+echo "OK — upgrade complete, now serving from $standby_color ($standby_svc). $active_color ($active_svc) is stopped (not removed) — it's next deploy's standby."
 EOF
 
   cat >"$BIN_DIR/status.sh" <<'EOF'
 #!/usr/bin/env bash
 # One-screen status: containers, wireguard peers, last health results.
 COMPOSE="docker compose --project-name inventorypro --env-file /opt/inventorypro/.env -f /opt/inventorypro/app/infra/docker-compose.prod.yml -f /opt/inventorypro/compose.vps.yml"
+echo "── blue-green ─────────────────────────────"
+# #247: whichever color nginx is actually routing to, read straight from the
+# same file upgrade.sh flips — never a separate/stale status-only copy.
+if [ -f /etc/nginx/inventorypro-api-active.conf ]; then
+  case "$(cat /etc/nginx/inventorypro-api-active.conf)" in
+    *inventorypro_api_blue*)  echo "active: blue (api, :3000)  — standby: green (api2, :3001)" ;;
+    *inventorypro_api_green*) echo "active: green (api2, :3001) — standby: blue (api, :3000)" ;;
+    *) echo "active-color file present but unrecognized: $(cat /etc/nginx/inventorypro-api-active.conf)" ;;
+  esac
+else
+  echo "not set up for blue-green yet (no /etc/nginx/inventorypro-api-active.conf) — see infra/README.md"
+fi
 echo "── containers ─────────────────────────────"; $COMPOSE ps
 echo "── wireguard ──────────────────────────────"; wg show
 echo "── health (last 5) ────────────────────────"; tail -5 /var/log/inventorypro-health.log 2>/dev/null || echo "(no runs yet)"
@@ -1091,8 +1239,13 @@ phase_summary() {
      docs/BACKUPS.md in the repo.
 
   Day-2 operations:
-      $BIN_DIR/status.sh            overview
-      $BIN_DIR/upgrade.sh           deploy latest code
+      $BIN_DIR/status.sh            overview (now shows the active API color)
+      $BIN_DIR/upgrade.sh           deploy latest code — blue-green flip by
+                                     default (#247): builds the standby color,
+                                     health-gates it, flips nginx, then stops
+                                     the old color. api/api2 both run warm at
+                                     all times; see infra/README.md for the
+                                     full flow and known gaps.
       $BIN_DIR/add-wg-client.sh X   add a device
       $LOG_FILE   (install log)  /var/log/inventorypro-health.log  (monitor log)
 EOF
