@@ -118,6 +118,8 @@ interface FakePgOpts {
   parentType?: string;
   /** #122 C: active-PM roster for the on_call fan-out (resolveRoleRecipients). */
   pmRoster?: string[];
+  /** #235: maintenance_mode flag row ('1' freezes writes); absent → off. */
+  maintenanceOn?: boolean;
   /** applyEntry failure injection: throw on any sql containing this string. */
   failOn?: string;
   /** Postgres error code stamped on the injected failure (e.g. '23503'). */
@@ -175,7 +177,9 @@ function fakePg(opts: FakePgOpts = {}) {
       if (sql.includes('id = ANY') && sql.includes('NOT is_test')) {
         return { rows: (params[0] as string[]).map(id => ({ id })) };
       }
-      if (sql.includes(`key = 'maintenance_mode'`)) return { rows: [] };
+      if (sql.includes(`key = 'maintenance_mode'`)) {
+        return { rows: opts.maintenanceOn ? [{ value: '1' }] : [] };
+      }
       if (sql.includes(`key = 'crew_add_vehicle_enabled'`)) {
         return { rows: opts.crewAddVehicle ? [{ value: '1' }] : [] };
       }
@@ -1312,4 +1316,67 @@ test('repair_steps: a crafted DELETE on an existing step is rejected as a perman
   assert.deepEqual(body.ok, []);
   assert.match(body.conflicts[0].error, PERMANENT);
   assert.ok(!pg.queries.some(q => q.sql.startsWith('DELETE FROM repair_steps')), 'the step row must never be deleted via sync');
+});
+
+// ── #235: stable machine-readable rejection codes on push conflicts ──────────
+// The mobile engine's rejectionClassify.ts prefers `code` over the legacy
+// wording regex — one assertion per SyncRejectionCode value so a future edit
+// that flips a site's classification is caught by CI, not just by comments.
+
+test('push: conflicts[].code — NOT_ALLOWED for a table outside the sync allowlist', async () => {
+  const pg = fakePg();
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{ operation: 'INSERT', table_name: 'api_request_audit', payload: { id: 'x' } }]),
+  });
+  const body = res.json() as { conflicts: Array<{ error: string; code: string }> };
+  assert.equal(body.conflicts.length, 1);
+  assert.equal(body.conflicts[0].code, 'NOT_ALLOWED');
+  await app.close();
+});
+
+test('push: conflicts[].code — FORBIDDEN for a non-sender messages UPDATE', async () => {
+  const pg = fakePg({ messageSender: OTHER });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{ operation: 'UPDATE', table_name: 'messages', payload: { id: 'msg-1', body: 'rewritten', edited_at: NOW } }]),
+  });
+  const body = res.json() as { conflicts: Array<{ error: string; code: string }> };
+  assert.equal(body.conflicts.length, 1);
+  assert.equal(body.conflicts[0].code, 'FORBIDDEN');
+  await app.close();
+});
+
+test('push: conflicts[].code — MAINTENANCE while the write freeze is on', async () => {
+  // A system_settings holder (the fake's default full_admin) is maintenance-
+  // exempt — the freeze only bites non-exempt callers.
+  const pg = fakePg({ maintenanceOn: true, callerRole: 'mitigation_technician' });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{ operation: 'INSERT', table_name: 'app_config', payload: { key: 'approval_threshold_qty', value: '50', updated_at: NOW } }]),
+  });
+  const body = res.json() as { conflicts: Array<{ error: string; code: string }> };
+  assert.equal(body.conflicts.length, 1);
+  assert.equal(body.conflicts[0].code, 'MAINTENANCE');
+  await app.close();
+});
+
+test('push: conflicts[].code — VALIDATION for an FK violation, CONFLICT for any other write error', async () => {
+  // Same failing write, two Postgres error codes: 23503 (fk) must classify as a
+  // permanent payload/reference problem; anything else stays transient.
+  for (const [failCode, expected] of [['23503', 'VALIDATION'], [undefined, 'CONFLICT']] as const) {
+    const pg = fakePg({ failOn: 'INSERT INTO app_config', failCode });
+    const app = await buildApp(pg);
+    const res = await app.inject({
+      method: 'POST', url: '/sync/push',
+      payload: pushBody([{ operation: 'INSERT', table_name: 'app_config', payload: { key: 'approval_threshold_qty', value: '50', updated_at: NOW } }]),
+    });
+    const body = res.json() as { conflicts: Array<{ error: string; code: string }> };
+    assert.equal(body.conflicts.length, 1, `failCode=${failCode}`);
+    assert.equal(body.conflicts[0].code, expected, `failCode=${failCode}`);
+    await app.close();
+  }
 });

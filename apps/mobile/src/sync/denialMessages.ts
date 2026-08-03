@@ -70,3 +70,28 @@ export function denialMessage(entry: DeniedOutboxEntryInfo): string {
   const verb = verbFor(entry.operation);
   return `Your account can't ${verb} ${label} — this change wasn't saved.`;
 }
+
+// #235: engine.ts's pushEntries stores a raw `HTTP <status>: <body>` string in
+// last_error for a non-2xx /sync/push response (a proxy/server hiccup, not a
+// rejection the server ever got to classify) — meaningless to whoever opens
+// SyncIndicator's failed bucket. Specific statuses first (502/503/504 read
+// better than the generic 500-class message); everything else, including any
+// status this doesn't recognize, is returned unchanged.
+const HTTP_STATUS_MESSAGES: Record<number, string> = {
+  408: 'Timed out — will retry',
+  429: 'Server busy — will retry',
+  502: 'Server unavailable — will retry',
+  503: 'Server unavailable — will retry',
+  504: 'Server unavailable — will retry',
+};
+
+const HTTP_STATUS_PREFIX = /^HTTP (\d{3}):/;
+
+export function readableFailureReason(rawError: string): string {
+  const m = HTTP_STATUS_PREFIX.exec(rawError);
+  if (!m) return rawError;
+  const status = Number(m[1]);
+  if (HTTP_STATUS_MESSAGES[status]) return HTTP_STATUS_MESSAGES[status];
+  if (status >= 500 && status < 600) return 'Server error — will retry';
+  return rawError;
+}

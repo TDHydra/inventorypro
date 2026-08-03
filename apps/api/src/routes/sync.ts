@@ -39,6 +39,15 @@ interface OutboxEntry {
 // without brittle message-string matching.
 class ForbiddenColumnsError extends Error {}
 
+// #235: a stable, machine-readable companion to each conflict's free-text
+// `error` (that text is allowed to change wording; the mobile client — and
+// any future integration — should classify on this instead of string-
+// matching). FORBIDDEN/NOT_ALLOWED/VALIDATION are permanent (the mobile
+// engine's isPermanentRejection treats them like the legacy regex match);
+// MAINTENANCE and CONFLICT are transient (retried, bounded by MAX_ATTEMPTS).
+// See the conflicts.push call sites below for the per-rejection rationale.
+type SyncRejectionCode = 'FORBIDDEN' | 'VALIDATION' | 'MAINTENANCE' | 'NOT_ALLOWED' | 'CONFLICT';
+
 interface PushBody {
   entries: OutboxEntry[];
 }
@@ -876,7 +885,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
   }, async (request, reply) => {
     const { entries } = request.body;
     const ok: string[] = [];
-    const conflicts: Array<{ id: string; error: string }> = [];
+    const conflicts: Array<{ id: string; error: string; code: SyncRejectionCode }> = [];
     // #129: merge map + response for duplicate Vehicle-typed location INSERTs.
     const merged: Array<{ id: string; duplicate_id: string; survivor_id: string }> = [];
     const vehicleAlias = new Map<string, string>(); // duplicate location id -> survivor id
@@ -910,7 +919,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           { userId: (request.user as { sub?: string })?.sub, table: entry.table_name, operation: entry.operation },
           'sync push entry rejected (table not allowlisted)',
         );
-        conflicts.push({ id: entry.id, error: 'Table not allowed' });
+        conflicts.push({ id: entry.id, error: 'Table not allowed', code: 'NOT_ALLOWED' });
         continue;
       }
 
@@ -918,12 +927,12 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       // (including the system_settings maintenance exemption) so not even the
       // full_admin demo account can write anything through sync.
       if (caller.is_test) {
-        conflicts.push({ id: entry.id, error: TEST_ACCOUNT_WRITE_ERROR });
+        conflicts.push({ id: entry.id, error: TEST_ACCOUNT_WRITE_ERROR, code: 'FORBIDDEN' });
         continue;
       }
 
       if (maintenanceOn && !maintenanceExempt) {
-        conflicts.push({ id: entry.id, error: 'Maintenance mode: writes are frozen' });
+        conflicts.push({ id: entry.id, error: 'Maintenance mode: writes are frozen', code: 'MAINTENANCE' });
         continue;
       }
 
@@ -934,7 +943,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           { userId, role: caller.role, table: entry.table_name, operation: entry.operation, reqPerm },
           'sync push entry denied (authz)',
         );
-        conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} requires ${reqPerm}` });
+        conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} requires ${reqPerm}`, code: 'FORBIDDEN' });
         continue;
       }
 
@@ -948,7 +957,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           { userId, role: caller.role, operation: entry.operation },
           'sync push app_config demo_mode denied',
         );
-        conflicts.push({ id: entry.id, error: 'Forbidden: demo_mode cannot be changed via sync' });
+        conflicts.push({ id: entry.id, error: 'Forbidden: demo_mode cannot be changed via sync', code: 'NOT_ALLOWED' });
         continue;
       }
 
@@ -964,7 +973,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, role: caller.role, editedRole },
             'sync push role_settings denied (tier guard)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: cannot edit permissions for a role at or above your level' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: cannot edit permissions for a role at or above your level', code: 'FORBIDDEN' });
           continue;
         }
 
@@ -994,7 +1003,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, editedRole, perm: guarded },
               'sync push role_settings destructive-grant denied (not full_admin)',
             );
-            conflicts.push({ id: entry.id, error: `Forbidden: only a full admin can grant or revoke the ${guarded} permission` });
+            conflicts.push({ id: entry.id, error: `Forbidden: only a full admin can grant or revoke the ${guarded} permission`, code: 'FORBIDDEN' });
             continue;
           }
         }
@@ -1005,7 +1014,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       // tier-3 hr_manager) could remove a full_admin row via a crafted DELETE entry —
       // a capability the REST API deliberately never exposes.
       if (entry.operation === 'DELETE' && DELETE_FORBIDDEN_TABLES.has(entry.table_name)) {
-        conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} cannot be deleted via sync` });
+        conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name} cannot be deleted via sync`, code: 'NOT_ALLOWED' });
         continue;
       }
 
@@ -1020,7 +1029,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, role: caller.role, table: entry.table_name, operation: entry.operation },
             'sync push ADJUST denied (authz)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: stock adjust requires checkin/checkout permission' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: stock adjust requires checkin/checkout permission', code: 'FORBIDDEN' });
           continue;
         }
         // Hard locker enforcement (#126, user decision 2026-07-18): a NEGATIVE
@@ -1055,7 +1064,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           } catch {
             // Lookup failure is transient — surface a NON-permanent conflict so
             // the entry retries instead of being silently dropped.
-            conflicts.push({ id: entry.id, error: 'locker access check failed' });
+            conflicts.push({ id: entry.id, error: 'locker access check failed', code: 'CONFLICT' });
             continue;
           }
           if (lockerDenied) {
@@ -1063,7 +1072,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, locationId: entry.payload.location_id, delta: adjDelta },
               'sync push ADJUST denied (locker access)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: you do not have access to this locker' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: you do not have access to this locker', code: 'FORBIDDEN' });
             continue;
           }
         }
@@ -1074,7 +1083,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         // UI's delete gate would be advisory-only and an edit_inventory-only role
         // could deactivate items via a crafted push.
         if (!can('delete_inventory')) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: deactivating an item requires delete_inventory' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: deactivating an item requires delete_inventory', code: 'FORBIDDEN' });
           continue;
         }
       } else if (
@@ -1101,7 +1110,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         // generic gate this carve-out bypasses). Blocks a forged crew push
         // from planting costs; everything else passes unconditionally.
         if (entry.payload.cost != null && !can('view_financial_data') && !can('edit_inventory')) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: cost on a fuel_up requires edit_inventory or view_financial_data' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: cost on a fuel_up requires edit_inventory or view_financial_data', code: 'FORBIDDEN' });
           continue;
         }
       } else if (
@@ -1117,13 +1126,13 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         // NOT matched here: it falls through to the generic gate below, which
         // denies it (rooms has no OPERATION_PERM DELETE entry).
         if (!can('upload_media') && !can('edit_inventory')) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: rooms requires upload_media or edit_inventory' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: rooms requires upload_media or edit_inventory', code: 'FORBIDDEN' });
           continue;
         }
       } else {
         const opPerm = requiredOperationPerm(entry.table_name, entry.operation as 'INSERT' | 'UPDATE' | 'DELETE');
         if (opPerm === 'DENY') {
-          conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} not permitted via sync` });
+          conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} not permitted via sync`, code: 'NOT_ALLOWED' });
           continue;
         }
         if (opPerm && !can(opPerm)) {
@@ -1145,7 +1154,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, table: entry.table_name, operation: entry.operation, opPerm },
               'sync push op denied (authz)',
             );
-            conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} requires ${opPerm}` });
+            conflicts.push({ id: entry.id, error: `Forbidden: ${entry.table_name}/${entry.operation} requires ${opPerm}`, code: 'FORBIDDEN' });
             continue;
           }
         }
@@ -1199,7 +1208,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         if (unitCheckFailed) {
           // Lookup failure is transient — surface a NON-permanent conflict so
           // the entry retries instead of being silently dropped.
-          conflicts.push({ id: entry.id, error: 'team inventory check failed' });
+          conflicts.push({ id: entry.id, error: 'team inventory check failed', code: 'CONFLICT' });
           continue;
         }
         if (unitDenied) {
@@ -1207,7 +1216,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, role: caller.role, table: entry.table_name, operation: entry.operation },
             'sync push denied (foreign-team unit inventory)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: this unit\'s inventory belongs to another team (requires manage_other_team_inventory)' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: this unit\'s inventory belongs to another team (requires manage_other_team_inventory)', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1233,7 +1242,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, targetId, targetRole: target.role },
               'sync push users update denied (target-role guard)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: target user has a privileged role; requires roles & permissions' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: target user has a privileged role; requires roles & permissions', code: 'FORBIDDEN' });
             continue;
           }
           // Tier guard (security-critical): the caller must be at or above the
@@ -1244,7 +1253,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, targetId, targetRole: target.role },
               'sync push users write denied (tier guard)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: target user is at or above your level' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: target user is at or above your level', code: 'FORBIDDEN' });
             continue;
           }
           // Assigning/changing the role: the NEW role must also be at or below the
@@ -1254,7 +1263,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, targetId, newRole: entry.payload.role },
               'sync push users role-assign denied (tier guard)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level', code: 'FORBIDDEN' });
             continue;
           }
           // "Deactivating" = explicit active:false OR pushing expires_at into the
@@ -1263,7 +1272,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           const expiredOut = exp != null && !Number.isNaN(Date.parse(String(exp))) && new Date(String(exp)) < new Date();
           const deactivating = entry.payload.active === false || expiredOut;
           if (deactivating && targetId === userId) {
-            conflicts.push({ id: entry.id, error: 'Forbidden: you cannot deactivate your own account' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: you cannot deactivate your own account', code: 'FORBIDDEN' });
             continue;
           }
           if (deactivating && target.active && target.role === 'full_admin') {
@@ -1273,7 +1282,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             );
             const activeAdminCount = (activeAdminRows[0] as { n: number }).n;
             if (activeAdminCount <= 1) {
-              conflicts.push({ id: entry.id, error: 'Forbidden: cannot deactivate the last active full_admin' });
+              conflicts.push({ id: entry.id, error: 'Forbidden: cannot deactivate the last active full_admin', code: 'FORBIDDEN' });
               continue;
             }
           }
@@ -1287,7 +1296,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, targetId, newRole: entry.payload.role },
               'sync push users insert role-assign denied (tier guard)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot assign a role at or above your level', code: 'FORBIDDEN' });
             continue;
           }
         }
@@ -1302,7 +1311,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         const mediaErr = validateMediaWrite(entry.operation, entry.payload);
         if (mediaErr) {
           request.log.warn({ userId, operation: entry.operation }, 'sync push media write denied (entity linkage)');
-          conflicts.push({ id: entry.id, error: `Forbidden: ${mediaErr}` });
+          conflicts.push({ id: entry.id, error: `Forbidden: ${mediaErr}`, code: 'VALIDATION' });
           continue;
         }
         if (entry.operation === 'UPDATE' && entry.payload.entity_id !== undefined) {
@@ -1310,7 +1319,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             `SELECT 1 FROM jobs WHERE id = $1`, [entry.payload.entity_id],
           );
           if (!jobRows[0]) {
-            conflicts.push({ id: entry.id, error: 'Forbidden: target job does not exist' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: target job does not exist', code: 'VALIDATION' });
             continue;
           }
         }
@@ -1334,12 +1343,12 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       // rejected here; the only client-writable column is read_at (SENSITIVE_DENY).
       if (entry.table_name === 'notifications') {
         if (entry.operation !== 'UPDATE') {
-          conflicts.push({ id: entry.id, error: 'Forbidden: notifications are read-only except marking read' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: notifications are read-only except marking read', code: 'NOT_ALLOWED' });
           continue;
         }
         const targetUser = entry.payload.user_id;
         if (targetUser != null && String(targetUser) !== userId) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: cannot modify another user\'s notification' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: cannot modify another user\'s notification', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1360,7 +1369,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, conversationId: convId },
             'sync push message denied (not a participant)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1384,7 +1393,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, messageId: entry.payload.id },
             'sync push message update denied (not the sender)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: only the sender can edit a message' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: only the sender can edit a message', code: 'FORBIDDEN' });
           continue;
         }
         // Soft-delete (#29): a deleted message must never retain its content —
@@ -1412,7 +1421,18 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, conversationId: entry.payload.conversation_id, targetUser, operation: entry.operation },
             'sync push participant write denied',
           );
-          conflicts.push({ id: entry.id, error: verdict.error });
+          // #235: participantWriteAllowed (lib/chatPolicy.ts, off-limits to this
+          // change) returns one of two strings and doesn't carry a code of its
+          // own — classify from the text instead of touching that module. The
+          // UPDATE-of-another's-row denial ("cannot modify...") is a genuine
+          // authorization failure; the membership/existence denial ("not a
+          // participant...") is deliberately transient wording (see that
+          // module's comment) so it must NOT resolve to a permanent code.
+          conflicts.push({
+            id: entry.id,
+            error: verdict.error,
+            code: verdict.error.startsWith('Forbidden:') ? 'FORBIDDEN' : 'CONFLICT',
+          });
           continue;
         }
       }
@@ -1428,7 +1448,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, conversationId: entry.payload.id },
             'sync push conversation update denied (not a participant)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: not a participant of this conversation', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1459,7 +1479,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           parentType = pRows[0] ? String((pRows[0] as { type: string | null }).type ?? '') : null;
         } catch { parentType = null; }
         if (parentType === 'Vehicle' || parentType === 'Locker') {
-          conflicts.push({ id: entry.id, error: 'Forbidden: vehicles and lockers cannot contain sub-areas' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: vehicles and lockers cannot contain sub-areas', code: 'NOT_ALLOWED' });
           continue;
         }
       }
@@ -1508,7 +1528,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           } catch { teamId = null; }
         }
         if (teamId == null) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: subteam team could not be resolved' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: subteam team could not be resolved', code: 'VALIDATION' });
           continue;
         }
         const auth = await resolveTeamAuthority(fastify.pg, userId, teamId);
@@ -1517,7 +1537,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, role: caller.role, teamId, operation: entry.operation },
             'sync push subteams denied (not a manager of this team)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: you do not manage this team' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: you do not manage this team', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1540,7 +1560,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           }
         } catch { locExists = false; }
         if (!locExists) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist', code: 'VALIDATION' });
           continue;
         }
         if (!isOrgAuthority(caller.role) && (ownerId == null || String(ownerId) !== userId)) {
@@ -1548,7 +1568,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
             'sync push locker_access denied (not the owner)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: only the unit owner can manage access' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: only the unit owner can manage access', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1576,7 +1596,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           uaFacts = uaRows[0] as typeof uaFacts;
         } catch { uaFacts = undefined; }
         if (!uaFacts) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: unit location does not exist', code: 'VALIDATION' });
           continue;
         }
         const allowed = canManageUnitAccess({
@@ -1591,7 +1611,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
             { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
             'sync push unit_access denied (not owner/team-manager/PM)',
           );
-          conflicts.push({ id: entry.id, error: 'Forbidden: you cannot manage access to this unit' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: you cannot manage access to this unit', code: 'FORBIDDEN' });
           continue;
         }
       }
@@ -1640,7 +1660,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           };
         } catch { vFacts = undefined; }
         if (!vFacts) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: vehicle location does not exist' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: vehicle location does not exist', code: 'VALIDATION' });
           continue;
         }
         const asBool = (v: unknown) => v === true || v === 1;
@@ -1666,7 +1686,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, locationId: entry.payload.location_id, operation: entry.operation },
               'sync push vehicles lock/share denied',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: you cannot change this vehicle\'s lock/share settings' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: you cannot change this vehicle\'s lock/share settings', code: 'FORBIDDEN' });
             continue;
           }
         }
@@ -1699,7 +1719,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           vcRow = vcRows[0] as { user_id: string | null; checked_in_at: string | null } | undefined;
         } catch { vcRow = undefined; }
         if (!vcRow) {
-          conflicts.push({ id: entry.id, error: 'Forbidden: vehicle checkout session does not exist' });
+          conflicts.push({ id: entry.id, error: 'Forbidden: vehicle checkout session does not exist', code: 'VALIDATION' });
           continue;
         }
         const ownRow = vcRow.user_id != null && String(vcRow.user_id) === userId;
@@ -1715,7 +1735,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
               { userId, role: caller.role, checkoutId: entry.payload.id },
               'sync push vehicle_checkouts update denied (not the holder)',
             );
-            conflicts.push({ id: entry.id, error: 'Forbidden: cannot modify another user\'s vehicle checkout' });
+            conflicts.push({ id: entry.id, error: 'Forbidden: cannot modify another user\'s vehicle checkout', code: 'FORBIDDEN' });
             continue;
           }
         }
@@ -1849,9 +1869,16 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         // allowed/i) so the entry dead-letters instead of retry-looping
         // forever. Every other error stays the generic (transient) wording.
         const isFkViolation = (err as { code?: string }).code === '23503';
+        // #235: an FK-orphan is permanent (matches the mobile regex above via
+        // "cannot") — VALIDATION keeps that classification under the new code
+        // field too. The generic fallback ('write rejected') covers everything
+        // else caught here, including ForbiddenColumnsError — it has never
+        // matched the permanent-rejection regex, so CONFLICT (transient,
+        // retried/dead-lettered by attempt count) preserves existing behavior.
         conflicts.push({
           id: entry.id,
           error: isFkViolation ? 'cannot apply: referenced row missing' : 'write rejected',
+          code: isFkViolation ? 'VALIDATION' : 'CONFLICT',
         });
       }
     }
