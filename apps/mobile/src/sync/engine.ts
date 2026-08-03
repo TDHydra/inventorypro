@@ -5,6 +5,7 @@ import { shouldEmitHeartbeat } from './heartbeat';
 import { denialMessage } from './denialMessages';
 import { isPermanentRejection } from './rejectionClassify';
 import { pullChanges } from './pull';
+import { noteServerReachable } from './connectivityStore';
 import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
 import { reconcileChat } from './chatPurge';
@@ -280,6 +281,9 @@ async function runDrainAndPull(): Promise<void> {
   try {
     await drainOutbox();
     await pullChanges();
+    // A pull round-tripped the server — tell the connectivity store we are
+    // definitely online (NetInfo false-negatives on some networks; #215).
+    noteServerReachable();
     // Incremental pull is upsert-only and never deletes. Once teams are scoped
     // server-side, a team the user was REMOVED from simply stops being returned —
     // nothing tells this device to forget it. Reconcile every sync, not once.

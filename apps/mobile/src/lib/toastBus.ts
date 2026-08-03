@@ -26,16 +26,25 @@ export interface ToastAction {
   onPress: () => void;
 }
 
+/**
+ * Visual weight of the toast. 'default' is the quiet dark strip; 'success' is
+ * a bold green confirmation (#218 feedback: "Saved — will sync" was too easy
+ * to miss as a default toast). Purely presentational — the host maps it to
+ * styles; the bus just carries it.
+ */
+export type ToastTone = 'default' | 'success';
+
 export interface ToastRequest {
   id: number;
   message: string;
   /** Auto-dismiss delay in ms. Defaults to 3000 in the host (6000 when `action` is set — see ToastHost). */
   durationMs?: number;
   action?: ToastAction;
+  tone?: ToastTone;
 }
 
 export interface ToastBus {
-  push(req: { message: string; durationMs?: number; action?: ToastAction }): void;
+  push(req: { message: string; durationMs?: number; action?: ToastAction; tone?: ToastTone }): void;
   /** The host registers here on mount (null on unmount); queued requests drain immediately. */
   setListener(fn: ((req: ToastRequest | null) => void) | null): void;
   /** The host calls this once its auto-dismiss timer (or a tap) closes the toast. */
@@ -55,8 +64,8 @@ export function createToastBus(): ToastBus {
   }
 
   return {
-    push({ message, durationMs, action }): void {
-      queue.push({ id: nextId++, message, durationMs, action });
+    push({ message, durationMs, action, tone }): void {
+      queue.push({ id: nextId++, message, durationMs, action, tone });
       pump();
     },
     setListener(fn): void {

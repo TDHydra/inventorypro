@@ -1,8 +1,8 @@
-import NetInfo from './netinfo';
 import { subscribeTables } from './dataVersion';
 import { appToastBus } from '../lib/toastBus';
 import { appSyncSheetBus } from '../components/syncSheetBus';
 import { createOfflineSaveToaster } from './offlineSaveToast';
+import { isDefinitelyOffline } from './connectivityStore';
 
 // #218: glue between the pure toaster (offlineSaveToast.ts) and the app —
 // installed once at the root layout next to startSyncEngine, lives for the
@@ -14,16 +14,13 @@ export function installOfflineSaveToast(): void {
   if (installed) return;
   installed = true;
 
-  // Same tri-state rule as OfflineBanner: only a definite `false` counts as
-  // offline (NetInfo false-negatives on some Android networks — engine.ts).
-  let offline = false;
-  NetInfo.addEventListener(state => {
-    offline = state.isConnected === false;
-  });
-
   const toaster = createOfflineSaveToaster({
-    isOffline: () => offline,
-    toast: (message, action) => appToastBus.push({ message, action }),
+    // connectivityStore keeps the "only a definite false" tri-state rule this
+    // used to enforce with its own NetInfo listener.
+    isOffline: isDefinitelyOffline,
+    // tone: the on-device feedback on #218 was that the default dark strip is
+    // easy to miss — the success tone renders it as a bold green banner.
+    toast: (message, action) => appToastBus.push({ message, action, tone: 'success' }),
     onView: () => appSyncSheetBus.requestOpen(),
   });
 

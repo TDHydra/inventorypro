@@ -63,3 +63,12 @@ test('a push with no action leaves it undefined, not a stale value from a prior 
   bus.push({ message: 'second' });
   assert.equal(delivered[1]?.action, undefined);
 });
+
+test('an optional tone rides along, and absence stays undefined (#218 feedback)', () => {
+  const { bus, delivered } = harness();
+  bus.push({ message: 'Saved — will sync when back online', tone: 'success' });
+  assert.equal(delivered[0]?.tone, 'success');
+  bus.notifyDismissed();
+  bus.push({ message: 'plain' });
+  assert.equal(delivered[1]?.tone, undefined);
+});
