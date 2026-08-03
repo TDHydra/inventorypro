@@ -26,6 +26,12 @@ module.exports = ({ config }) => ({
   //    android/app/build.gradle (sourced from gitignored android/keystore.properties,
   //    debug fallback when absent).
   //  - withReleaseFlagSecure: sets app-wide Android FLAG_SECURE on release builds.
+  //  - @sentry/react-native/expo (#213): native crash-reporting init + the
+  //    Sentry Gradle/Xcode source-map hooks, pointed at our self-hosted
+  //    GlitchTip instance (speaks the Sentry protocol). No authToken here —
+  //    this file is committed; v1 ships without source-map upload, so the
+  //    plugin's upload hooks no-op until a gitignored auth-token file is
+  //    added later (see .gitignore).
   plugins: [
     ...(config.plugins ?? []),
     [
@@ -43,5 +49,13 @@ module.exports = ({ config }) => ({
     ],
     './plugins/withReleaseSigning',
     './plugins/withReleaseFlagSecure',
+    [
+      '@sentry/react-native/expo',
+      {
+        organization: 'inventorypro',
+        project: 'mobile',
+        url: 'https://errors.invenpro.app',
+      },
+    ],
   ],
 });

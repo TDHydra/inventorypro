@@ -34,6 +34,7 @@ import { Rajdhani_600SemiBold, Rajdhani_700Bold } from '@expo-google-fonts/rajdh
 import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-google-fonts/nunito';
 import { useScreenTracking } from '../src/telemetry/useScreenTracking';
 import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
+import { initSentry } from '../src/telemetry/sentry';
 import { useNotificationObservers } from '../src/push/handlers';
 import { registerForPush, unregisterPush } from '../src/push/register';
 import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
@@ -127,6 +128,11 @@ export default function RootLayout() {
     installGlobalErrorTracking();
     initDb()
       .then(async () => {
+        // #213: called after initDb() resolves (not at module load) so the
+        // remote kill switch (beforeSend → isTelemetryEnabled(), which reads
+        // app_config via the DB) is always backed by a ready DB — trading a
+        // sub-100ms startup-crash blind spot for correctness of that switch.
+        initSentry();
         // A test/demo session that was killed mid-run never reached the logout
         // wipe — its throwaway edits are still in the DB. Wipe before anything
         // reads it; the empty DB then behaves like a fresh install.

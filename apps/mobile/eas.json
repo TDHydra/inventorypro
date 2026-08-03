@@ -17,7 +17,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.invenpro.app"
+        "EXPO_PUBLIC_API_URL": "https://api.invenpro.app",
+        "EXPO_PUBLIC_SENTRY_DSN": ""
       }
     },
     "production": {
@@ -26,7 +27,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.invenpro.app"
+        "EXPO_PUBLIC_API_URL": "https://api.invenpro.app",
+        "EXPO_PUBLIC_SENTRY_DSN": ""
       }
     }
   },
