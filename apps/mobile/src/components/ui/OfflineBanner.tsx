@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import NetInfo from '../../sync/netinfo';
+import { subscribeConnectivity, getConnectivity } from '../../sync/connectivityStore';
 import { getOutboxCounts } from '../../sync/outbox';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
@@ -13,23 +13,20 @@ import { evaluateOfflineBanner } from './offlineBannerState';
  * offline signal. Self-contained: renders nothing while connected, so the
  * shell mounts it unconditionally.
  *
- * Connectivity comes from the same NetInfo source sync/engine.ts trusts, and
- * only a definite `false` shows the banner (see offlineBannerState.ts). The
- * queued count polls getOutboxCounts on the SyncIndicator's 5s cadence —
- * outbox writes don't fire reactive table notifications, so polling is the
- * house precedent here, and only while offline (no cost in the normal case).
+ * Connectivity comes from connectivityStore (NetInfo events + the fast poll
+ * installConnectivityMonitor runs — added after on-device feedback that the
+ * event alone lagged the banner by seconds), and only a definite `false`
+ * shows the banner (see offlineBannerState.ts). The queued count polls
+ * getOutboxCounts on the SyncIndicator's 5s cadence — outbox writes don't
+ * fire reactive table notifications, so polling is the house precedent here,
+ * and only while offline (no cost in the normal case).
  */
 export function OfflineBanner() {
   const s = useThemedStyles(makeStyles);
-  const [isConnected, setIsConnected] = useState<boolean | null>(null);
+  // Third arg: expo-router statically renders web at build time — without a
+  // server snapshot, useSyncExternalStore throws during that render.
+  const isConnected = useSyncExternalStore(subscribeConnectivity, getConnectivity, getConnectivity);
   const [queued, setQueued] = useState(0);
-
-  useEffect(() => {
-    const unsub = NetInfo.addEventListener(state => {
-      setIsConnected(state.isConnected);
-    });
-    return unsub;
-  }, []);
 
   useEffect(() => {
     if (isConnected !== false) return;

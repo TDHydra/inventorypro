@@ -90,11 +90,13 @@ export function ToastHost() {
   // nothing intercepts touches meant for whatever's underneath). With an
   // action, the CONTAINER still lets touches pass through (`box-none`) — only
   // the action button itself (default pointerEvents) is tappable.
+  const success = req.tone === 'success';
   return (
     <Animated.View
       pointerEvents={req.action ? 'box-none' : 'none'}
       style={[
         s.wrap,
+        success && s.wrapSuccess,
         {
           bottom: insets.bottom + t.spacing.lg,
           opacity: driver,
@@ -102,7 +104,13 @@ export function ToastHost() {
         },
       ]}
     >
-      <Text style={[s.text, req.action && s.textWithAction]} numberOfLines={2}>{req.message}</Text>
+      {success && <Text style={s.successGlyph} accessibilityElementsHidden>✓</Text>}
+      <Text
+        style={[s.text, success && s.textSuccess, req.action && s.textWithAction]}
+        numberOfLines={2}
+      >
+        {req.message}
+      </Text>
       {req.action && (
         <Pressable
           onPress={runAction}
@@ -111,7 +119,7 @@ export function ToastHost() {
           accessibilityRole="button"
           accessibilityLabel={req.action.label}
         >
-          <Text style={s.actionText}>{req.action.label}</Text>
+          <Text style={[s.actionText, success && s.actionTextSuccess]}>{req.action.label}</Text>
         </Pressable>
       )}
     </Animated.View>
@@ -155,5 +163,26 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     fontSize: t.typography.fontSizes.body,
     fontWeight: t.typography.weights.bold,
     textTransform: 'uppercase',
+  },
+  // tone: 'success' (#218 feedback) — a bold green confirmation strip, harder
+  // to miss than the default dark toast. Text/action go surface-on-strong-color
+  // (the PrimaryButton pattern) since the accent color can vanish on green.
+  wrapSuccess: {
+    backgroundColor: t.colors.success,
+    paddingVertical: t.spacing.lg,
+  },
+  successGlyph: {
+    color: t.colors.surface,
+    fontSize: t.typography.fontSizes.lg,
+    fontWeight: t.typography.weights.bold,
+  },
+  textSuccess: {
+    color: t.colors.surface,
+    fontSize: t.typography.fontSizes.base,
+    fontWeight: t.typography.weights.bold,
+  },
+  actionTextSuccess: {
+    color: t.colors.surface,
+    textDecorationLine: 'underline',
   },
 });
