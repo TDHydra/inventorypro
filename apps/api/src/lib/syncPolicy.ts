@@ -540,7 +540,10 @@ const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
 // pull is scoped to the caller's own conversations in sync.ts.
 const CONVERSATIONS_COLS = 'id, kind, title, created_by, created_at, updated_at';
 const CONVERSATION_PARTICIPANTS_COLS = 'conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at';
-const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at';
+// mentioned_user_ids (#241): JSON array of @mentioned user UUIDs, mirrors
+// media.audience_user_ids. Mentioned participants bypass notify_pref (mute
+// included) — see lib/push.ts messageRecipients().
+const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at, mentioned_user_ids';
 // Field-crew tables (#122): explicit synced column lists (never '*').
 // vehicle_service_records.cost is financial (gated behind view_financial_data,
 // the maintenance_events pattern); the other five carry no financial columns.

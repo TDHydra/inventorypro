@@ -69,7 +69,7 @@ before(async () => {
       id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_id TEXT,
       body TEXT NOT NULL, urgency TEXT NOT NULL DEFAULT 'urgent',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      edited_at TEXT, deleted_at TEXT
+      edited_at TEXT, deleted_at TEXT, mentioned_user_ids TEXT
     );
     CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL);
     CREATE TABLE app_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
@@ -128,6 +128,28 @@ test('#203: a write-blocked createDmConversation leaves zero local rows and thro
   const newConvId = chat.createDmConversation(ALICE, CAROL);
   assert.ok(newConvId);
   assert.equal(chat.findDmConversation(ALICE, CAROL), newConvId);
+});
+
+test('sendMessage with no mentions stores NULL, not an empty array', () => {
+  const msg = chat.sendMessage(convId, ALICE, 'no mentions here', 'regular');
+  const row = exec(`SELECT mentioned_user_ids FROM messages WHERE id = ?`, [msg.id]).rows[0] as
+    { mentioned_user_ids: string | null };
+  assert.equal(row.mentioned_user_ids, null);
+  assert.equal(msg.mentioned_user_ids, null);
+  const ops = outboxEntries();
+  assert.equal(ops[ops.length - 1].payload.mentioned_user_ids, null);
+});
+
+test('sendMessage threads mentioned_user_ids through the local row and the outbox payload', () => {
+  const msg = chat.sendMessage(convId, ALICE, '@Bob check this out', 'regular', [BOB]);
+  const row = exec(`SELECT mentioned_user_ids FROM messages WHERE id = ?`, [msg.id]).rows[0] as
+    { mentioned_user_ids: string | null };
+  assert.deepEqual(JSON.parse(row.mentioned_user_ids!), [BOB]);
+  assert.deepEqual(JSON.parse(msg.mentioned_user_ids!), [BOB]);
+  const ops = outboxEntries();
+  const last = ops[ops.length - 1];
+  assert.equal(last.table_name, 'messages');
+  assert.deepEqual(JSON.parse(last.payload.mentioned_user_ids as string), [BOB]);
 });
 
 test('editMessage sets body + edited_at locally and queues an outbox UPDATE op', () => {

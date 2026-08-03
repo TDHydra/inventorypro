@@ -27,6 +27,56 @@ test('messageRecipients: sender is always excluded even with pref all', () => {
   assert.deepEqual(messageRecipients(parts, 'sender', 'urgent'), []);
 });
 
+// #241: @mentions bypass notify_pref (mute included).
+test('messageRecipients: a mentioned muted participant is still notified', () => {
+  const parts = [
+    { user_id: 'sender', notify_pref: 'all' },
+    { user_id: 'muted-mention', notify_pref: 'muted' },
+    { user_id: 'muted-other', notify_pref: 'muted' },
+  ];
+  assert.deepEqual(
+    messageRecipients(parts, 'sender', 'urgent', ['muted-mention']),
+    ['muted-mention'],
+  );
+});
+
+test('messageRecipients: a mentioned "urgent"-pref participant is notified even for a regular message', () => {
+  const parts = [
+    { user_id: 'sender', notify_pref: 'all' },
+    { user_id: 'urgent-only-mention', notify_pref: 'urgent' },
+  ];
+  assert.deepEqual(
+    messageRecipients(parts, 'sender', 'regular', ['urgent-only-mention']),
+    ['urgent-only-mention'],
+  );
+});
+
+test('messageRecipients: mentions add to, not replace, the normal notify_pref recipients', () => {
+  const parts = [
+    { user_id: 'sender', notify_pref: 'all' },
+    { user_id: 'a', notify_pref: 'all' },
+    { user_id: 'muted-mention', notify_pref: 'muted' },
+  ];
+  assert.deepEqual(
+    messageRecipients(parts, 'sender', 'urgent', ['muted-mention']),
+    ['a', 'muted-mention'],
+  );
+});
+
+test('messageRecipients: the sender is excluded even if listed in mentionedUserIds', () => {
+  const parts = [{ user_id: 'sender', notify_pref: 'muted' }];
+  assert.deepEqual(messageRecipients(parts, 'sender', 'urgent', ['sender']), []);
+});
+
+test('messageRecipients: no mentionedUserIds (default) behaves exactly as before', () => {
+  const parts = [
+    { user_id: 'sender', notify_pref: 'all' },
+    { user_id: 'a', notify_pref: 'all' },
+    { user_id: 'c', notify_pref: 'muted' },
+  ];
+  assert.deepEqual(messageRecipients(parts, 'sender', 'urgent'), ['a']);
+});
+
 test('chunk splits into batches of size', () => {
   assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
 });

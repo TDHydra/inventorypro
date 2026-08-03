@@ -1794,6 +1794,15 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           const convId = entry.payload.conversation_id;
           const urgency = entry.payload.urgency === 'regular' ? 'regular' : 'urgent';
           const body = String(entry.payload.body ?? '');
+          // #241: @mentions (JSON array of user ids, mirrors media.audience_user_ids).
+          // messageRecipients only ever notifies ids that are ALSO in `parts` below,
+          // so a crafted/garbage list here can't reach anyone outside the
+          // conversation — no extra validation needed beyond safe JSON parsing.
+          let mentionedUserIds: string[] = [];
+          try {
+            const parsed: unknown = JSON.parse(String(entry.payload.mentioned_user_ids ?? '[]'));
+            if (Array.isArray(parsed)) mentionedUserIds = parsed.filter((v): v is string => typeof v === 'string');
+          } catch { /* malformed — treat as no mentions */ }
           void (async () => {
             try {
               const { rows: parts } = await fastify.pg.query(
@@ -1804,6 +1813,7 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
                 parts as { user_id: string; notify_pref: string }[],
                 userId,
                 urgency,
+                mentionedUserIds,
               );
               if (!recipients.length) return;
               // Best-effort title: group title, else the sender's name.

@@ -30,6 +30,7 @@ import { ModalSheet } from '../../../src/components/ui/ModalSheet';
 import { PrimaryButton } from '../../../src/components/ui/PrimaryButton';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { syncNow } from '../../../src/sync/engine';
+import { parseMentions } from '../../../src/chat/mentions';
 import { useDbQuery } from '../../../src/hooks/useDbQuery';
 import { useSession } from '../../../src/hooks/useSession';
 import { useRouter } from 'expo-router';
@@ -149,12 +150,17 @@ export default function ChatThreadScreen() {
       setDraft(prevDraft);
       setPrevDraft('');
     } else {
-      sendMessage(conversationId, userId, body, urgency);
+      // #241: @mentions matched against the CURRENT conversation participants,
+      // excluding the sender — mentioned participants bypass their notify_pref
+      // server-side (mute included).
+      const candidates = participants.map(p => ({ id: p.user_id, name: p.name ?? '' }));
+      const mentioned = parseMentions(body, candidates, userId);
+      sendMessage(conversationId, userId, body, urgency, mentioned);
       setDraft('');
     }
     reload();
     void syncNow().catch(() => { /* offline — outbox syncs later */ });
-  }, [draft, userId, conversationId, urgency, editingId, prevDraft, reload]);
+  }, [draft, userId, conversationId, urgency, editingId, prevDraft, reload, participants]);
 
   // ── image attachments (#29-H) ───────────────────────────────────────────────
   // Pick an image → create the message row first (draft as optional caption) →
