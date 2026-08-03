@@ -59,6 +59,13 @@ export const ACTION_ICONS: Record<string, string> = {
 
   // ---- item actions ----
   item_created: '🆕',
+
+  // ---- #199 preview-as-role sessions (#233 audit) ----
+  preview_started: '🕶️',
+  preview_ended: '🚪',
+
+  // ---- #203 request-access funnel (#234 audit) ----
+  access_requested: '🙋',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

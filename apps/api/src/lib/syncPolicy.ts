@@ -468,12 +468,19 @@ export const ACTIVITY_ACTIONS = new Set([
   // both job- and manager-kind slots). Kind/day/times/job_id/manager_id ride in
   // metadata (activity_log.entity_id is a UUID column, never a free string).
   'schedule_assigned', 'schedule_updated', 'schedule_cleared',
+  // Preview-as-role audit (#233): logged against entity_type 'session' with
+  // entity_id null (no session table row — the role being previewed rides in
+  // metadata). Access-request funnel (#234): entity_type 'access_request',
+  // entity_id null, {table, grantor_id} in metadata.
+  'preview_started', 'preview_ended', 'access_requested',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
   // db/hiddenFields.ts logs form-field show/hide against the app_config row that
   // stores them. Missing here, every such row was rejected and retried to death (#56).
   'app_config',
+  // #233/#234: descriptive-only entity types (no backing table; entity_id null).
+  'session', 'access_request',
 ]);
 export function isAllowedActivity(action: unknown, entityType: unknown): boolean {
   return typeof action === 'string' && ACTIVITY_ACTIONS.has(action)
