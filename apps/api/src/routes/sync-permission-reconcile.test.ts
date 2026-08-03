@@ -25,6 +25,13 @@ const COLUMNS: Record<string, string[]> = {
   ],
   jobs: ['id', 'name', 'status', 'created_by', 'created_at', 'updated_at', 'team_id'],
   rooms: ['id', 'name', 'active', 'created_at', 'updated_at'],
+  // #204: the two permission_overrides writers reachable through the generic
+  // sync outbox (see touchTeamsAndLocationsIfViewPermsChanged's call site).
+  role_settings: ['role', 'min_pin_length', 'permission_overrides', 'color', 'dashboard_preset_id', 'updated_at', 'idle_reauth_minutes'],
+  users: [
+    'id', 'name', 'role', 'pin_hash', 'pin_length_required', 'permission_overrides',
+    'active', 'expires_at', 'created_at', 'updated_at', 'pin_set', 'email',
+  ],
 };
 
 interface FakePgOpts {
@@ -33,6 +40,10 @@ interface FakePgOpts {
   callerOverrides?: Record<string, boolean> | null;
   /** One entry per team_members row the caller belongs to. */
   teamOverrides?: Array<Record<string, boolean> | null>;
+  // #204: users writes (sync.ts's target-role/tier guard) pre-read the target
+  // row via `SELECT role, active FROM users WHERE id = $1` — keyed by id so a
+  // test can stand up a target distinct from CALLER.
+  targetUsers?: Record<string, { role: string; active?: boolean }>;
 }
 
 function fakePg(opts: FakePgOpts = {}) {
@@ -59,6 +70,11 @@ function fakePg(opts: FakePgOpts = {}) {
             team_overrides: opts.teamOverrides ?? [],
           }],
         };
+      }
+      // #204: users write target-role/tier guard pre-read.
+      if (sql.includes('SELECT role, active FROM users WHERE id = $1')) {
+        const u = opts.targetUsers?.[String(params[0])];
+        return { rows: u ? [{ role: u.role, active: u.active ?? true }] : [] };
       }
       if (sql.includes(`key = 'maintenance_mode'`)) return { rows: [] };
       return { rows: [] };
@@ -393,5 +409,139 @@ test('push: rooms DELETE is NOT covered by the carve-out — falls through to th
   assert.deepEqual(body.ok, []);
   assert.equal(body.conflicts.length, 1);
   assert.match(body.conflicts[0].error, /not permitted via sync/);
+  await app.close();
+});
+
+// ── #204: watermark fix — bulk touch fires from the sync outbox writers ─────
+// touchTeamsAndLocationsIfViewPermsChanged unit tests (syncPolicy.test.ts) cover
+// the helper's own presence-check logic in isolation. These integration tests
+// confirm the two real call sites in routes/sync.ts (role_settings outbox path,
+// users outbox path) actually reach it end-to-end through /sync/push — using
+// callerRole: 'full_admin' throughout so the tier guard, the destructive-grant
+// guard (role_settings), and the target-role/tier guard (users) all clear
+// without extra fixture plumbing, isolating the assertions to the touch itself.
+
+test('push: role_settings UPDATE mentioning view_teams touches teams/team_members/locations', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'role_settings',
+      payload: { role: 'office_manager', permission_overrides: { view_teams: false }, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE teams SET updated_at = NOW()')), 'teams touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE team_members SET updated_at = NOW()')), 'team_members touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE locations SET updated_at = NOW()')), 'locations touched');
+  await app.close();
+});
+
+test('push: role_settings UPDATE mentioning view_locations touches teams/team_members/locations', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'role_settings',
+      payload: { role: 'office_manager', permission_overrides: { view_locations: true }, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE teams SET updated_at = NOW()')), 'teams touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE team_members SET updated_at = NOW()')), 'team_members touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE locations SET updated_at = NOW()')), 'locations touched');
+  await app.close();
+});
+
+test('push: role_settings UPDATE touching an UNRELATED permission does NOT touch teams/team_members/locations', async () => {
+  const pg = fakePg({ callerRole: 'full_admin' });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'role_settings',
+      payload: { role: 'office_manager', permission_overrides: { edit_inventory: true }, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(!pg.queries.some(q => q.sql.includes('UPDATE teams SET updated_at = NOW()')), 'teams NOT touched');
+  assert.ok(!pg.queries.some(q => q.sql.includes('UPDATE team_members SET updated_at = NOW()')), 'team_members NOT touched');
+  assert.ok(!pg.queries.some(q => q.sql.includes('UPDATE locations SET updated_at = NOW()')), 'locations NOT touched');
+  await app.close();
+});
+
+test('push: users UPDATE mentioning view_teams in permission_overrides touches teams/team_members/locations', async () => {
+  const pg = fakePg({
+    callerRole: 'full_admin',
+    targetUsers: { 'target-user-1': { role: 'construction_crew', active: true } },
+  });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'users',
+      payload: { id: 'target-user-1', permission_overrides: { view_teams: true }, updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE teams SET updated_at = NOW()')), 'teams touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE team_members SET updated_at = NOW()')), 'team_members touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE locations SET updated_at = NOW()')), 'locations touched');
+  await app.close();
+});
+
+test('push: users UPDATE mentioning view_locations (JSON-string form) touches teams/team_members/locations', async () => {
+  // The mobile outbox stores permission_overrides as a stringified JSON blob —
+  // touchTeamsAndLocationsIfViewPermsChanged must parse it, not just object-check.
+  const pg = fakePg({
+    callerRole: 'full_admin',
+    targetUsers: { 'target-user-2': { role: 'construction_crew', active: true } },
+  });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'users',
+      payload: { id: 'target-user-2', permission_overrides: JSON.stringify({ view_locations: false }), updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE teams SET updated_at = NOW()')), 'teams touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE team_members SET updated_at = NOW()')), 'team_members touched');
+  assert.ok(pg.queries.some(q => q.sql.includes('UPDATE locations SET updated_at = NOW()')), 'locations touched');
+  await app.close();
+});
+
+test('push: users UPDATE with no permission_overrides key at all does NOT touch teams/team_members/locations', async () => {
+  const pg = fakePg({
+    callerRole: 'full_admin',
+    targetUsers: { 'target-user-3': { role: 'construction_crew', active: true } },
+  });
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: pushBody([{
+      operation: 'UPDATE', table_name: 'users',
+      payload: { id: 'target-user-3', name: 'Renamed', updated_at: NOW },
+    }]),
+  });
+  const body = res.json() as { ok: string[]; conflicts: unknown[] };
+  assert.deepEqual(body.conflicts, []);
+  assert.deepEqual(body.ok, ['e1']);
+  assert.ok(!pg.queries.some(q => q.sql.includes('UPDATE teams SET updated_at = NOW()')), 'teams NOT touched');
+  assert.ok(!pg.queries.some(q => q.sql.includes('UPDATE team_members SET updated_at = NOW()')), 'team_members NOT touched');
+  assert.ok(!pg.queries.some(q => q.sql.includes('UPDATE locations SET updated_at = NOW()')), 'locations NOT touched');
   await app.close();
 });

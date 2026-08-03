@@ -21,6 +21,8 @@ import { getOutboxCounts } from '../sync/outbox';
 import { evaluateSyncStuckAlert, SYNC_STUCK_KEY } from './syncStuckAlert';
 import { listNotifications } from '../db/queries/notifications';
 import { evaluateInboxAlerts, INBOX_SEEN_KEY } from './inboxAlerts';
+import { getQuietHours } from '../db/userPrefs';
+import { isQuietHoursNow, utcMinutesNow } from './quietHours';
 
 const LOWSTOCK_PREFIX = 'alert:lowstock:';
 const EXPIRY_PREFIX = 'alert:expiry:';
@@ -97,6 +99,12 @@ export async function runLocalAlertChecks(): Promise<void> {
     const session = buildUserSession(userId);
     if (!session) return;
 
+    // #242: per-user quiet hours — same gate as the native twin (localAlerts.ts).
+    // Covers low stock/expiry/overdue-repairs/service-due only, not sync-stuck
+    // or the inbox parity alert (#232) above/below.
+    const quiet = getQuietHours(userId);
+    const inQuiet = quiet ? isQuietHoursNow(quiet.start, quiet.end, utcMinutesNow()) : false;
+
     // ── Sync stuck (#205) ────────────────────────────────────────────────────
     // Not permission-scoped: the outbox is this device's own unsynced work.
     // Single aggregate alert — fires when the failed (retry-exhausted) bucket
@@ -136,7 +144,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canSeeStock) {
       for (const item of lowItems) {
         const key = `${LOWSTOCK_PREFIX}${item.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           notify('Low stock', `${item.name} — ${item.total_stock} left`);
           setAppSetting(key, '1');
         }
@@ -156,7 +164,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canManageUsers) {
       for (const u of expiring) {
         const key = `${EXPIRY_PREFIX}${u.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           const when = u.expires_at
             ? new Date(u.expires_at).toLocaleDateString()
             : '';
@@ -185,7 +193,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canSeeRepairs) {
       for (const r of overdueRepairs) {
         const key = `${REPAIR_OVERDUE_PREFIX}${r.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           notify('Repair overdue', `${r.entity_label ?? 'Repair'} was due ${new Date(r.due_at as string).toLocaleDateString()}`);
           setAppSetting(key, '1');
         }
@@ -208,7 +216,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canSeeService) {
       for (const u of dueUnits) {
         const key = `${SERVICE_DUE_PREFIX}${u.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           notify('Service due', `${u.asset_tag} was due ${new Date(u.next_service_at).toLocaleDateString()}`);
           setAppSetting(key, '1');
         }

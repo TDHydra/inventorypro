@@ -93,7 +93,7 @@ services:
         mc cors set local/${MINIO_BUCKET:-inventorypro-media} /tmp/cors.xml
     restart: "no"
 
-  api:
+  api: &api-common
     image: ${API_IMAGE:-inventorypro-api:latest}
     # If you don't have a prebuilt image, uncomment `build:` and run with --build
     # from a checkout of the monorepo on the host.
@@ -134,6 +134,34 @@ services:
       HOST: "0.0.0.0"
     ports:
       - "${API_PORT:-3000}:3000"             # NPM -> api.<domain>
+    # #238: log rotation lever. The API's pino logger writes to stdout (no file
+    # transport — adding one would be a new dependency, and this container has
+    # no writable log volume anyway), so stdout capture is entirely docker's
+    # json-file driver. Left at its own defaults that driver never rotates —
+    # one long-running container can grow an unbounded log file on the host.
+    # Capping size/count here is the correct place for that, not the app: it
+    # applies uniformly to whatever writes to stdout (pino now, anything else
+    # later) without every service needing its own rotation logic.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # #247: second API color for blue-green deploys. `<<: *api-common` shares
+  # every key from `api` (image/build/env/depends_on/logging) except `ports`,
+  # which we override below so the two colors never collide. Gated behind the
+  # `blue-green` compose profile so it stays INERT on the Unraid/self-host path
+  # (infra/DEPLOY-UNRAID.md, infra/DEPLOY-SELFHOST.md — plain `docker compose
+  # up -d`, no --profile flag, no COMPOSE_PROFILES set → api2 is never
+  # created there). The VPS installer (infra/vps/install.sh) is the only
+  # consumer that activates this profile, via COMPOSE_PROFILES=blue-green in
+  # the generated .env, and rebinds this to 127.0.0.1 in compose.vps.yml.
+  api2:
+    <<: *api-common
+    profiles: ["blue-green"]
+    ports:
+      - "${API2_PORT:-3001}:3000"
 
   web:
     # Expo Web static build served by nginx. The API URL is baked at build time,

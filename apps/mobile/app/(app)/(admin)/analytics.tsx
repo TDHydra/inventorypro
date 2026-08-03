@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, RefreshControl,
+  View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { usePermission } from '../../../src/hooks/usePermission';
@@ -9,6 +9,7 @@ import type { Theme } from '../../../src/themes/types';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
+import { ErrorView } from '../../../src/components/ui/ErrorView';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -96,12 +97,9 @@ export default function AnalyticsScreen() {
         {loading && !data ? (
           <View style={s.center}><ActivityIndicator color={t.colors.primary} /></View>
         ) : error ? (
-          <View style={s.card}>
-            <Text style={s.errorText}>{error}</Text>
-            <TouchableOpacity style={s.retryBtn} onPress={load}>
-              <Text style={s.retryText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
+          // #237: was a hand-rolled Text + TouchableOpacity card — swap for the
+          // kit's ErrorView so the retry affordance matches the rest of the app.
+          <ErrorView message={error} onRetry={load} />
         ) : data ? (
           <>
             <View style={s.tileRow}>
@@ -267,8 +265,5 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   trendPeakSpacer: { height: t.typography.fontSizes.xs + 2 },
   trendAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing.xs },
   trendAxisLabel: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
-  errorText: { color: t.colors.textSecondary, fontSize: t.typography.fontSizes.body },
-  retryBtn: { marginTop: t.spacing.sm, alignSelf: 'flex-start', paddingVertical: t.spacing.xs, paddingHorizontal: t.spacing.base, borderRadius: t.radii.sm, backgroundColor: t.colors.primaryBg },
-  retryText: { color: t.colors.primaryText, fontWeight: '700' },
   footnote: { marginTop: t.spacing.base, fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, lineHeight: 18 },
 });

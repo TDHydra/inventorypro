@@ -38,7 +38,7 @@ import { useThemedStyles } from '../../../src/hooks/useThemedStyles';
 import { ErrorView } from '../../../src/components/ui/ErrorView';
 import { useTheme } from '../../../src/hooks/useTheme';
 import { themeList } from '../../../src/themes/registry';
-import { chooseTheme } from '../../../src/db/userPrefs';
+import { chooseTheme, getQuietHours, setQuietHours } from '../../../src/db/userPrefs';
 import { getOrgDefaultThemeId, setOrgDefaultTheme } from '../../../src/db/orgTheme';
 
 // ── Idle-timeout options ─────────────────────────────────────────────────────
@@ -49,6 +49,29 @@ const IDLE_OPTIONS: { label: string; value: number }[] = [
   { label: '15 min', value: 15 },
   { label: '30 min', value: 30 },
 ];
+
+// ── Quiet hours (#242) ───────────────────────────────────────────────────────
+// Fixed presets rather than a free-form time picker: this app has no existing
+// time-of-day picker component to reuse (reuse-first mandate), and "M"-sized
+// scope doesn't justify building one just for this. Hours are LOCAL wall-clock
+// — converted to the UTC-minutes-since-midnight the server understands at
+// press time (localHourToUtcMin below).
+const QUIET_HOURS_PRESETS: { label: string; startHour: number; endHour: number }[] = [
+  { label: '9 PM – 7 AM', startHour: 21, endHour: 7 },
+  { label: '10 PM – 6 AM', startHour: 22, endHour: 6 },
+  { label: '11 PM – 6 AM', startHour: 23, endHour: 6 },
+];
+
+// Converts a LOCAL wall-clock hour (0-23) to UTC-minutes-since-midnight using
+// the device's CURRENT UTC offset. Computed at press time, not stored — the
+// documented tradeoff (no timezone column exists anywhere in this schema, see
+// migration 064 / db/userPrefs.ts's setQuietHours) is that a later DST shift
+// or travel silently leaves this OLD offset baked into the saved window until
+// the user reselects a preset here.
+function localHourToUtcMin(hour: number): number {
+  const offsetMin = new Date().getTimezoneOffset(); // e.g. UTC-5 (EST) -> +300
+  return (((hour * 60 + offsetMin) % 1440) + 1440) % 1440;
+}
 
 const FORM_MODE_OPTIONS: { label: string; value: FormMode }[] = [
   { label: 'Simple', value: 'simple' },
@@ -128,6 +151,8 @@ export default function SettingsScreen() {
   const [idleMinutes, setIdleMinutes] = useState(0);
   // Default ON when the pref is unset.
   const [notifEnabled, setNotifEnabled] = useState<boolean>(() => getAppSetting('notifications_enabled') !== 'false');
+  // Per-user quiet hours (#242, synced) — null/null means disabled.
+  const [quietHours, setQuietHoursState] = useState<{ start: number; end: number } | null>(() => (user ? getQuietHours(user.id) : null));
   const [maintOn, setMaintOn] = useState<boolean>(() => isMaintenanceActive());
   // Demo accounts master switch (server-side, live): null until GET /audit/demo-mode resolves.
   const [demoOn, setDemoOn] = useState<boolean | null>(null);
@@ -224,13 +249,14 @@ export default function SettingsScreen() {
     setPending(p);
     setIdleMinutes(getIdleTimeoutMinutes());
     setNotifEnabled(getAppSetting('notifications_enabled') !== 'false');
+    setQuietHoursState(user ? getQuietHours(user.id) : null);
     setFormDefaultState(getFormModeDefault());
     setFormOverrideState(getFormModeOverride());
     setFormResolvedState(getFormMode());
     const st = resolveLocationShelf(getMainStorageLocationId());
     setStorageLoc(st.location);
     setStorageShelf(st.shelf);
-  }, []);
+  }, [user]);
 
   // Re-read live while the screen is open: refreshKey bumps on refocus AND on
   // data-version ticks, so synced app_config/app_settings changes show without
@@ -291,6 +317,27 @@ export default function SettingsScreen() {
       }
     } catch (err) {
       if (__DEV__) console.warn('[Settings] Failed to toggle notifications:', err);
+    }
+  };
+
+  // Selecting a preset (or the same one again) toggles it off; picking a
+  // different preset overwrites the window outright — mirrors handleSetIdle's
+  // shape. Converts the preset's LOCAL hours to UTC-minutes at press time
+  // (localHourToUtcMin) and persists via the column-scoped userPrefs upsert.
+  const handleSetQuietHours = (preset: { startHour: number; endHour: number } | null) => {
+    try {
+      if (!user) return;
+      if (!preset) {
+        setQuietHours(user.id, null, null);
+        setQuietHoursState(null);
+        return;
+      }
+      const start = localHourToUtcMin(preset.startHour);
+      const end = localHourToUtcMin(preset.endHour);
+      setQuietHours(user.id, start, end);
+      setQuietHoursState({ start, end });
+    } catch (err) {
+      if (__DEV__) console.warn('[Settings] Failed to save quiet hours:', err);
     }
   };
 
@@ -527,6 +574,31 @@ export default function SettingsScreen() {
                 value={notifEnabled}
                 onValueChange={(v) => { void handleToggleNotifications(v); }}
               />
+            </View>
+            <View style={s.divider} />
+            <View style={{ padding: t.spacing.md, gap: 4 }}>
+              <Text style={s.rowLabel}>Quiet hours</Text>
+              <Text style={s.rowSub}>
+                Pause push notifications (including chat) during this window. Your in-app inbox still fills up as normal.
+              </Text>
+            </View>
+            <View style={s.idleRow}>
+              {[{ label: 'Off', startHour: null, endHour: null } as { label: string; startHour: number | null; endHour: number | null }, ...QUIET_HOURS_PRESETS].map(opt => {
+                const active = opt.startHour == null
+                  ? quietHours == null
+                  : quietHours != null
+                    && quietHours.start === localHourToUtcMin(opt.startHour)
+                    && quietHours.end === localHourToUtcMin(opt.endHour as number);
+                return (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[s.idleChip, active && s.idleChipActive]}
+                    onPress={() => handleSetQuietHours(opt.startHour == null ? null : { startHour: opt.startHour, endHour: opt.endHour as number })}
+                  >
+                    <Text style={[s.idleChipText, active && s.idleChipTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         </View>

@@ -182,6 +182,20 @@ two-minute token flow and the token can only see the backup folder it
 creates. Restore procedures (single table to full-server disaster):
 **[docs/BACKUPS.md](docs/BACKUPS.md)**.
 
+### Error tracking (GlitchTip, self-hosted, #213)
+
+```bash
+scp infra/vps/setup-glitchtip.sh root@<vps-ip>:
+ssh root@<vps-ip> bash setup-glitchtip.sh   # asks only for the subdomain
+```
+
+Sets up a self-hosted, Sentry-protocol-compatible error backend (web +
+worker + Valkey + a **dedicated** Postgres, its own cert, its own nginx
+vhost) so #213's mobile crash client stays off third-party SaaS. After it
+finishes: sign up in the web UI, create an org/project, and paste the DSN
+into `apps/mobile/eas.json` as `EXPO_PUBLIC_SENTRY_DSN`. Full runbook,
+afternoon checklist and removal steps: **[docs/GLITCHTIP.md](docs/GLITCHTIP.md)**.
+
 ---
 
 ## Android release builds
@@ -208,6 +222,7 @@ EAS file env var in the cloud). Credential state lives in
 | `docs/STATUS.md` | Living build log — current state of every feature |
 | `docs/SYNC-MIGRATION-CHECKLIST.md` | **Read before adding any synced table/column** |
 | `docs/BACKUPS.md` | Backup system + restore procedures |
+| `docs/GLITCHTIP.md` | Self-hosted error tracking (#213) — install, DSN capture, removal |
 | `docs/SECURITY-HARDENING.md` | Threat model + hardening applied |
 | `docs/push-setup.md` | Push/Play credential state + rotation recipes |
 | `docs/telemetry-queries.md` | Useful SQL against the telemetry tables |

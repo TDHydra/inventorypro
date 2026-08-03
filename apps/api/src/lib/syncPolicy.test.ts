@@ -11,6 +11,7 @@ import {
   TEAM_OVERRIDABLE_PERMISSIONS,
   validateMediaWrite,
   MEDIA_ENTITY_TYPES,
+  touchTeamsAndLocationsIfViewPermsChanged,
 } from './syncPolicy';
 
 const real = new Map([['jobs', new Set(['id', 'name', 'status'])]]);
@@ -110,6 +111,37 @@ test('users never exposes pin_hash or enrollment_code_hash', () => {
 
 test('app_config only exposes non-secret keys via projection marker', () => {
   assert.equal(selectColumnsFor('app_config', false), 'key, value, updated_at');
+});
+
+// ── #204: locations BASE/SENSITIVE split gated on view_locations ────────────
+
+test('locations hides coordinates/subareas_require_owner without view_locations', () => {
+  const restricted = selectColumnsFor('locations', false, false);
+  assert.ok(!/latitude|longitude|subareas_require_owner/.test(restricted));
+  const full = selectColumnsFor('locations', false, true);
+  assert.ok(/latitude/.test(full) && /longitude/.test(full) && /subareas_require_owner/.test(full));
+});
+
+test('locations defaults to the restricted projection when canViewLocations is omitted', () => {
+  assert.equal(selectColumnsFor('locations', false), selectColumnsFor('locations', false, false));
+});
+
+test('locations ALWAYS exposes operationally-required columns regardless of view_locations (guards against a future edit moving a required column into SENSITIVE)', () => {
+  // owner_user_id included: verified via mobile grep (access.ts, unitAccessPolicy.ts,
+  // vehicleSessionLogic.ts, LockerPanel/VehiclePanel/UnitContentsPanel) that it drives
+  // foreign-team-unit/locker/vehicle access decisions for EVERY user, independent of
+  // view_locations — omitting it would silently null owned lockers/vehicles to
+  // "ownerless", unlocking access rather than restricting it.
+  for (const canViewLocations of [false, true]) {
+    const cols = selectColumnsFor('locations', false, canViewLocations);
+    for (const required of ['id', 'name', 'parent_id', 'color', 'icon', 'active', 'has_shelves', 'type', 'type_id', 'updated_at', 'owner_user_id']) {
+      assert.ok(new RegExp(`\\b${required}\\b`).test(cols), `${required} must always be present (canViewLocations=${canViewLocations})`);
+    }
+  }
+});
+
+test('locations financial-permission argument is irrelevant to the split (canViewFinancial does not leak coords)', () => {
+  assert.equal(selectColumnsFor('locations', true, false), selectColumnsFor('locations', false, false));
 });
 
 test('requiresRolesPermForTarget flags privileged roles, mirroring users.ts PRIVILEGED_ROLES', () => {
@@ -578,6 +610,10 @@ test('role_settings projection carries dashboard_preset_id (role assignment sync
   assert.match(selectColumnsFor('role_settings', false), /dashboard_preset_id/);
 });
 
+test('role_settings projection carries idle_reauth_minutes (#244 — every device must see the policy)', () => {
+  assert.match(selectColumnsFor('role_settings', false), /idle_reauth_minutes/);
+});
+
 // ── #122 Phase C: on_call_coverage sync policy ───────────────────────────────
 
 test('on_call_coverage: all ops gated on manage_teams', () => {
@@ -679,7 +715,7 @@ test('schedule_assignments strips created_by reassignment on UPDATE', () => {
 test('user_prefs projection carries the split dashboard_layout/starred_widgets columns', () => {
   assert.equal(
     selectColumnsFor('user_prefs', false),
-    'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at',
+    'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end, notification_prefs, onboarding_checklist',
   );
   // No financial gate on personal prefs — canViewFinancial must not change it.
   assert.equal(selectColumnsFor('user_prefs', false), selectColumnsFor('user_prefs', true));
@@ -718,4 +754,49 @@ test('user_prefs: a layout-only push does not touch starred_widgets (or vice ver
 
 test('user_prefs: INSERT stays permission-free (any authed user sets their own prefs)', () => {
   assert.equal(requiredOperationPerm('user_prefs', 'INSERT'), null);
+});
+
+// ── #204: watermark fix — bulk touch on view_teams/view_locations changes ───
+
+function fakeTouchPg() {
+  const queries: string[] = [];
+  return { queries, query: async (sql: string) => { queries.push(sql); return { rows: [] }; } };
+}
+
+test('touchTeamsAndLocationsIfViewPermsChanged is a no-op when the overrides payload does not mention either key', async () => {
+  const pg = fakeTouchPg();
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, { edit_inventory: true, view_financial_data: false });
+  assert.deepEqual(pg.queries, []);
+});
+
+test('touchTeamsAndLocationsIfViewPermsChanged is a no-op for null/undefined/unparseable overrides', async () => {
+  const pg = fakeTouchPg();
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, null);
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, undefined);
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, '{not json');
+  assert.deepEqual(pg.queries, []);
+});
+
+test('touchTeamsAndLocationsIfViewPermsChanged bumps teams/team_members/locations when view_teams is present (object form)', async () => {
+  const pg = fakeTouchPg();
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, { view_teams: false });
+  assert.equal(pg.queries.length, 3);
+  assert.ok(pg.queries.some(s => /UPDATE teams SET updated_at = NOW\(\)/.test(s)));
+  assert.ok(pg.queries.some(s => /UPDATE team_members SET updated_at = NOW\(\)/.test(s)));
+  assert.ok(pg.queries.some(s => /UPDATE locations SET updated_at = NOW\(\)/.test(s)));
+});
+
+test('touchTeamsAndLocationsIfViewPermsChanged bumps the same three tables when view_locations is present (JSON-string form)', async () => {
+  // mobile stores permission_overrides as TEXT — the outbox path can hand this
+  // helper a JSON string rather than a parsed object (same shape sanitizeTeamOverrides
+  // already handles for team_permission_overrides).
+  const pg = fakeTouchPg();
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, JSON.stringify({ view_locations: true }));
+  assert.equal(pg.queries.length, 3);
+});
+
+test('touchTeamsAndLocationsIfViewPermsChanged fires on a presence check, not a value diff (false → false still touches)', async () => {
+  const pg = fakeTouchPg();
+  await touchTeamsAndLocationsIfViewPermsChanged(pg, { view_teams: false });
+  assert.equal(pg.queries.length, 3);
 });

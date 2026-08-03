@@ -16,6 +16,8 @@ import { hasPermission } from '../auth/permissions';
 import { isOverdueRepair } from '../dashboard/quickActions';
 import { getOutboxCounts } from '../sync/outbox';
 import { evaluateSyncStuckAlert, SYNC_STUCK_KEY } from './syncStuckAlert';
+import { getQuietHours } from '../db/userPrefs';
+import { isQuietHoursNow, utcMinutesNow } from './quietHours';
 
 // ── Foreground handler (set once at module load) ─────────────────────────────
 // Show an alert + play a sound when a notification arrives while the app is in
@@ -97,6 +99,20 @@ export async function runLocalAlertChecks(): Promise<void> {
     const session = buildUserSession(userId);
     if (!session) return;
 
+    // #242: per-user quiet hours (user_prefs.quiet_hours_start/_end, UTC
+    // minutes). Gates the four permission-scoped alerts below (low stock,
+    // expiry, overdue repairs, service due) — NOT the sync-stuck alert
+    // immediately below, which predates quiet hours and is about THIS
+    // device's own unsynced work becoming un-syncable (arguably always
+    // time-sensitive; left as-is per explicit decision, not silently changed
+    // as a side effect of adding quiet hours). Dedup-key bookkeeping for the
+    // gated alerts still runs regardless of inQuiet, so a suppressed alert
+    // doesn't vanish forever nor double-fire the moment quiet hours end — it
+    // simply resurfaces on the next natural sync cycle after the window
+    // closes, same as every other dedup gate in this function.
+    const quiet = getQuietHours(userId);
+    const inQuiet = quiet ? isQuietHoursNow(quiet.start, quiet.end, utcMinutesNow()) : false;
+
     // ── Sync stuck (#205) ────────────────────────────────────────────────────
     // Not permission-scoped: the outbox is this device's own unsynced work.
     // Single aggregate alert (one dedup key, no per-entity suffix): fires when
@@ -132,7 +148,14 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canSeeStock) {
       for (const item of lowItems) {
         const key = `${LOWSTOCK_PREFIX}${item.id}`;
-        if (getAppSetting(key) === null) {
+        // #242: while inQuiet, skip WITHOUT setting the dedup key — the key is
+        // this alert's "already notified" marker, so leaving it unset means the
+        // very next check (whether that's still mid-quiet-hours, harmlessly
+        // re-skipped, or the first check after the window closes) still sees
+        // this item as not-yet-notified and fires normally. Setting the key
+        // while suppressed would make the alert vanish until the item recovers
+        // and goes low again, which is not the intent.
+        if (getAppSetting(key) === null && !inQuiet) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: 'Low stock',
@@ -158,7 +181,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canManageUsers) {
       for (const u of expiring) {
         const key = `${EXPIRY_PREFIX}${u.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           const when = u.expires_at
             ? new Date(u.expires_at).toLocaleDateString()
             : '';
@@ -193,7 +216,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canSeeRepairs) {
       for (const r of overdueRepairs) {
         const key = `${REPAIR_OVERDUE_PREFIX}${r.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: 'Repair overdue',
@@ -222,7 +245,7 @@ export async function runLocalAlertChecks(): Promise<void> {
     if (canSeeService) {
       for (const u of dueUnits) {
         const key = `${SERVICE_DUE_PREFIX}${u.id}`;
-        if (getAppSetting(key) === null) {
+        if (getAppSetting(key) === null && !inQuiet) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: 'Service due',

@@ -51,7 +51,8 @@ function outboxEntries(): OutboxRow[] {
 before(async () => {
   await testDb.initTestDb(); // locations/taxonomy_types/outbox
   // Mirrors mobile migrations 040 (user_prefs) + 060 (dashboard_prefs) + 062
-  // (dashboard_layout/starred_widgets split) + app_config (010)/app_settings.
+  // (dashboard_layout/starred_widgets split) + 065 (notification_prefs/
+  // onboarding_checklist) + app_config (010)/app_settings.
   exec(`
     CREATE TABLE app_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     CREATE TABLE user_prefs (
@@ -60,7 +61,9 @@ before(async () => {
       dashboard_prefs TEXT,
       dashboard_layout TEXT,
       starred_widgets TEXT,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      notification_prefs TEXT,
+      onboarding_checklist TEXT
     );
     CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
@@ -115,7 +118,7 @@ test('setStarredWidgets writes ONLY starred_widgets locally and in the outbox pa
   assert.ok(!('theme' in ops[0].payload), 'starred write must not push theme');
 });
 
-test('setDashboardLayout(null) clears the override (writes NULL) without touching starred_widgets', () => {
+test('setDashboardLayout(null) clears the override (writes \'[]\', not NULL — #240) without touching starred_widgets', () => {
   exec(`INSERT INTO user_prefs (user_id, dashboard_layout, starred_widgets, updated_at) VALUES (?, ?, ?, '2026-07-01T00:00:00.000Z')`,
     [ALICE, JSON.stringify([{ widget: 'quick-add', width: 'full' }]), JSON.stringify(['chat'])]);
 
@@ -123,7 +126,9 @@ test('setDashboardLayout(null) clears the override (writes NULL) without touchin
 
   const row = exec(`SELECT dashboard_layout, starred_widgets FROM user_prefs WHERE user_id = ?`, [ALICE]).rows[0] as
     { dashboard_layout: string | null; starred_widgets: string };
-  assert.equal(row.dashboard_layout, null);
+  // '[]', not NULL: NULL would mean "un-backfilled row" and reactivate the
+  // legacy dashboard_prefs blob fallback, resurrecting the layout just cleared.
+  assert.equal(row.dashboard_layout, '[]');
   assert.deepEqual(JSON.parse(row.starred_widgets), ['chat']);
 });
 
@@ -162,4 +167,105 @@ test('getDashboardPrefs falls back to the legacy dashboard_prefs blob when the s
 test('getDashboardPrefs returns null when nothing has been customized', () => {
   exec(`INSERT INTO user_prefs (user_id, theme, updated_at) VALUES (?, 'modern', '2026-07-01T00:00:00.000Z')`, [ALICE]);
   assert.equal(userPrefs.getDashboardPrefs(ALICE), null);
+});
+
+// ── #240: "Reset to default" vs the legacy-blob fallback ─────────────────────
+// A row can carry BOTH a legacy dashboard_prefs blob (pre-062 write) and the
+// split columns. Clearing a split column must not drop the field back into the
+// blob fallback — that resurrected the old layout after an in-app reset (the
+// reset synced fine but the dashboard never changed, even across cold starts).
+
+test('setDashboardLayout(null) on a row with a legacy blob: the blob layout must not resurrect', () => {
+  exec(`INSERT INTO user_prefs (user_id, dashboard_prefs, dashboard_layout, updated_at) VALUES (?, ?, ?, '2026-07-01T00:00:00.000Z')`,
+    [ALICE,
+      JSON.stringify({ layout: [{ widget: 'low-stock', width: 'half' }], starred: ['on-call'] }),
+      JSON.stringify([{ widget: 'quick-add', width: 'full' }])]);
+
+  userPrefs.setDashboardLayout(ALICE, null);
+
+  const prefs = userPrefs.getDashboardPrefs(ALICE);
+  assert.equal(prefs?.layout, undefined, 'a cleared layout must stay cleared, not fall back to the blob');
+  // Per-field fallback is preserved: starred_widgets is still NULL (never
+  // written on this row), so the blob's starred set remains visible.
+  assert.deepEqual(prefs?.starred, ['on-call']);
+});
+
+test('setStarredWidgets([]) on a row with a legacy blob: the blob stars must not resurrect', () => {
+  exec(`INSERT INTO user_prefs (user_id, dashboard_prefs, starred_widgets, updated_at) VALUES (?, ?, ?, '2026-07-01T00:00:00.000Z')`,
+    [ALICE,
+      JSON.stringify({ layout: [{ widget: 'low-stock', width: 'half' }], starred: ['on-call'] }),
+      JSON.stringify(['chat'])]);
+
+  userPrefs.setStarredWidgets(ALICE, []);
+
+  const prefs = userPrefs.getDashboardPrefs(ALICE);
+  assert.equal(prefs?.starred, undefined, 'a cleared star set must stay cleared, not fall back to the blob');
+  assert.deepEqual(prefs?.layout, [{ widget: 'low-stock', width: 'half' }]);
+});
+
+// ── #245: "My Notifications" self-service push category mute ────────────────
+
+test('getNotificationPrefs returns {} for a user with no row', () => {
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), {});
+});
+
+test('setNotificationCategoryPref writes ONLY notification_prefs locally and in the outbox payload', () => {
+  exec(`INSERT INTO user_prefs (user_id, theme, dashboard_layout, updated_at) VALUES (?, 'modern', ?, '2026-07-01T00:00:00.000Z')`,
+    [ALICE, JSON.stringify([{ widget: 'chat', width: 'full' }])]);
+
+  userPrefs.setNotificationCategoryPref(ALICE, 'chat', false);
+
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), { chat: false });
+  const row = exec(`SELECT theme, dashboard_layout FROM user_prefs WHERE user_id = ?`, [ALICE]).rows[0] as
+    { theme: string; dashboard_layout: string };
+  assert.equal(row.theme, 'modern', 'theme must be untouched by a notification-pref write');
+  assert.equal(row.dashboard_layout, JSON.stringify([{ widget: 'chat', width: 'full' }]));
+
+  const entries = outboxEntries();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].table_name, 'user_prefs');
+  assert.deepEqual(Object.keys(entries[0].payload).sort(), ['notification_prefs', 'updated_at', 'user_id']);
+});
+
+test('setNotificationCategoryPref preserves other categories already set (read-merge-write on the ONE column)', () => {
+  userPrefs.setNotificationCategoryPref(ALICE, 'chat', false);
+  userPrefs.setNotificationCategoryPref(ALICE, 'broadcast', false);
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), { chat: false, broadcast: false });
+  userPrefs.setNotificationCategoryPref(ALICE, 'chat', true);
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), { chat: true, broadcast: false });
+});
+
+test('getNotificationPrefs tolerates malformed JSON, returning {}', () => {
+  exec(`INSERT INTO user_prefs (user_id, notification_prefs, updated_at) VALUES (?, 'not-json', '2026-07-01T00:00:00.000Z')`, [ALICE]);
+  assert.deepEqual(userPrefs.getNotificationPrefs(ALICE), {});
+});
+
+// ── #246: first-login onboarding checklist ───────────────────────────────────
+
+test('getOnboardingChecklist returns null for a user with no row (pre-existing account, never shows the checklist)', () => {
+  assert.equal(userPrefs.getOnboardingChecklist(ALICE), null);
+});
+
+test('startOnboardingChecklist writes {status:"pending"} and ONLY the onboarding_checklist column', () => {
+  exec(`INSERT INTO user_prefs (user_id, theme, updated_at) VALUES (?, 'modern', '2026-07-01T00:00:00.000Z')`, [ALICE]);
+
+  userPrefs.startOnboardingChecklist(ALICE);
+
+  assert.deepEqual(userPrefs.getOnboardingChecklist(ALICE), { status: 'pending' });
+  const row = exec(`SELECT theme FROM user_prefs WHERE user_id = ?`, [ALICE]).rows[0] as { theme: string };
+  assert.equal(row.theme, 'modern');
+  const entries = outboxEntries();
+  assert.equal(entries.length, 1);
+  assert.deepEqual(Object.keys(entries[0].payload).sort(), ['onboarding_checklist', 'updated_at', 'user_id']);
+});
+
+test('dismissOnboardingChecklist flips status to "dismissed" and it never returns to pending', () => {
+  userPrefs.startOnboardingChecklist(ALICE);
+  userPrefs.dismissOnboardingChecklist(ALICE);
+  assert.deepEqual(userPrefs.getOnboardingChecklist(ALICE), { status: 'dismissed' });
+});
+
+test('getOnboardingChecklist tolerates malformed JSON, returning null (fail-open: never blocks the app on garbage)', () => {
+  exec(`INSERT INTO user_prefs (user_id, onboarding_checklist, updated_at) VALUES (?, 'not-json', '2026-07-01T00:00:00.000Z')`, [ALICE]);
+  assert.equal(userPrefs.getOnboardingChecklist(ALICE), null);
 });

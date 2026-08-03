@@ -32,6 +32,9 @@ export interface MessageRow {
   edited_at?: string | null;
   deleted_at?: string | null;
   sender_name?: string | null;
+  // #241: JSON array of @mentioned user ids (mirrors media.audience_user_ids).
+  // Mentioned participants get pushed regardless of notify_pref server-side.
+  mentioned_user_ids?: string | null;
 }
 
 export interface ParticipantRow {
@@ -155,9 +158,15 @@ export function sendMessage(
   senderId: string,
   body: string,
   urgency: MessageUrgency = 'urgent',
+  mentionedUserIds?: string[],
 ): MessageRow {
   const db = getDb();
   const now = new Date().toISOString();
+  // #241: sender-excluded, deduped ids of @mentioned participants — NULL (not
+  // '[]') when there are none, matching the media.audience_user_ids "no value"
+  // convention.
+  const mentionedJson = mentionedUserIds && mentionedUserIds.length > 0
+    ? JSON.stringify(mentionedUserIds) : null;
   const row: MessageRow = {
     id: generateUUID(),
     conversation_id: conversationId,
@@ -166,16 +175,17 @@ export function sendMessage(
     urgency,
     created_at: now,
     updated_at: now,
+    mentioned_user_ids: mentionedJson,
   };
   db.executeSync(
-    `INSERT INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    bindParams([row.id, row.conversation_id, row.sender_id, row.body, row.urgency, row.created_at, row.updated_at]),
+    `INSERT INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at, mentioned_user_ids)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    bindParams([row.id, row.conversation_id, row.sender_id, row.body, row.urgency, row.created_at, row.updated_at, mentionedJson]),
   );
   db.executeSync(`UPDATE conversations SET updated_at = ? WHERE id = ?`, [now, conversationId]);
   appendOutbox('INSERT', 'messages', {
     id: row.id, conversation_id: conversationId, sender_id: senderId,
-    body, urgency, created_at: now, updated_at: now,
+    body, urgency, created_at: now, updated_at: now, mentioned_user_ids: mentionedJson,
   });
   return row;
 }

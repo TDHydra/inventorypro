@@ -10,6 +10,7 @@
     "@op-engineering/op-sqlite": "^17.0.0",
     "@quidone/react-native-wheel-picker": "^1.7.1",
     "@react-native-community/netinfo": "12.0.1",
+    "@sentry/react-native": "~7.11.0",
     "@zxing/browser": "^0.2.0",
     "expo": "~56.0.12",
     "expo-build-properties": "~56.0.22",

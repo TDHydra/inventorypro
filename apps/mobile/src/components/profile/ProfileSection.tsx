@@ -6,6 +6,7 @@ import { getUserById } from '../../db/queries/users';
 import { ChangePinSheet } from './ChangePinSheet';
 import { ChangeEmailSheet } from './ChangeEmailSheet';
 import { ChangePhoneSheet } from './ChangePhoneSheet';
+import { NotificationPrefsSheet } from './NotificationPrefsSheet';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 
@@ -32,6 +33,7 @@ export function ProfileSection() {
   const [showPin, setShowPin] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
   const [showPhone, setShowPhone] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   if (!user) return null;
 
@@ -62,11 +64,20 @@ export function ProfileSection() {
           </View>
           <Text style={s.chevron}>›</Text>
         </TouchableOpacity>
+        <View style={s.divider} />
+        <TouchableOpacity style={s.row} onPress={() => setShowNotifications(true)}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.rowLabel}>🔔 My Notifications</Text>
+            <Text style={s.rowSub}>Choose which push nudges reach this account.</Text>
+          </View>
+          <Text style={s.chevron}>›</Text>
+        </TouchableOpacity>
       </View>
 
       <ChangePinSheet visible={showPin} onClose={() => setShowPin(false)} />
       <ChangeEmailSheet visible={showEmail} onClose={() => setShowEmail(false)} />
       <ChangePhoneSheet visible={showPhone} onClose={() => setShowPhone(false)} currentPhone={row?.phone ?? null} />
+      <NotificationPrefsSheet visible={showNotifications} onClose={() => setShowNotifications(false)} />
     </View>
   );
 }

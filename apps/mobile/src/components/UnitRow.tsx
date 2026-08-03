@@ -3,6 +3,7 @@ import { EquipmentUnit } from '../db/queries/equipmentUnits';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
 import { useThemedStyles } from '../hooks/useThemedStyles';
+import { StatusPill } from './ui/StatusPill';
 
 type Props = {
   unit: EquipmentUnit;
@@ -43,6 +44,11 @@ export function UnitRow({ unit, locationName, onRepairOut, onRepairIn }: Props) 
         <Text style={s.tag}>{unit.asset_tag}</Text>
         {!!unit.serial_number && <Text style={s.serial}>S/N: {unit.serial_number}</Text>}
         {!!locationName && <Text style={s.location}>{locationName}</Text>}
+        {unit.cleanliness === 'dirty' && (
+          <View style={{ marginTop: 2, alignSelf: 'flex-start' }}>
+            <StatusPill label="Needs cleaning" tone="warning" />
+          </View>
+        )}
       </View>
       <View style={s.right}>
         <View style={[s.badge, { backgroundColor: statusClr.bg }]}>

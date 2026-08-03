@@ -12,7 +12,7 @@ const STAT_SOURCES: StatSource[] = [
   'vehicles-available', 'shared-media', 'scheduled-today',
 ];
 const WORK_LIST_SOURCES: WorkListSource[] = [
-  'my-equipment', 'my-jobs', 'my-schedule-today', 'stranded-equipment', 'unread-chats', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles',
+  'my-equipment', 'my-jobs', 'my-schedule-today', 'stranded-equipment', 'unread-chats', 'open-jobs', 'open-repairs', 'units-due-service', 'low-stock', 'vehicles', 'needs-cleaning',
 ];
 
 // --- §3: every one of the 14 roles ships a starter layout --------------------

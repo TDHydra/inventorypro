@@ -7,10 +7,15 @@ import { Alert } from '../lib/themedAlert';
 import { getDb } from '../db/schema';
 import { getOutboxCounts, getFailedOutbox, retryFailedOutbox, discardFailedOutbox, getDeniedOutbox, discardDeniedEntry, OutboxEntry } from '../sync/outbox';
 import { syncNow } from '../sync/engine';
-import { entityLabel } from '../sync/denialMessages';
+import { entityLabel, readableFailureReason } from '../sync/denialMessages';
+import { splitRequestRef } from '../sync/requestRef';
 import { useSession } from '../hooks/useSession';
 import { pickAccessGrantor } from '../auth/pickAccessGrantor';
+import { pickFallbackFullAdmin } from '../auth/fallbackGrantor';
+import type { CandidateRef } from '../auth/requestAccess';
+import { getAllActiveUsers } from '../db/queries/users';
 import { createDmConversation } from '../db/queries/chat';
+import { appendLog } from '../db/queries/log';
 import { isWriteBlocked } from '../db/maintenance';
 import type { Theme } from '../themes/types';
 import { useTheme } from '../hooks/useTheme';
@@ -32,6 +37,10 @@ export function SyncIndicator() {
   const [active, setActive] = useState(0);
   const [failed, setFailed] = useState(0);
   const [firstError, setFirstError] = useState<string | null>(null);
+  // #235: the request id engine.ts appended to last_error (' [ref <id>]'),
+  // split out so it renders as its own subtle line instead of trailing off
+  // the end of the (numberOfLines-clamped) error text.
+  const [firstErrorRef, setFirstErrorRef] = useState<string | null>(null);
   const [denied, setDenied] = useState<OutboxEntry[]>([]);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [showSheet, setShowSheet] = useState(false);
@@ -62,9 +71,20 @@ export function SyncIndicator() {
       setFailed(f);
       if (f > 0) {
         const first = getFailedOutbox(1)[0];
-        setFirstError(first ? `${first.operation} ${first.table_name}: ${first.last_error ?? 'rejected'}` : null);
+        if (first) {
+          // #235: strip the '[ref <id>]' suffix out to its own line, then map
+          // a raw 'HTTP <status>' string (a transport/proxy failure, never
+          // classified by the server) to plain language.
+          const { text, ref } = splitRequestRef(first.last_error ?? 'rejected');
+          setFirstError(`${first.operation} ${first.table_name}: ${readableFailureReason(text)}`);
+          setFirstErrorRef(ref);
+        } else {
+          setFirstError(null);
+          setFirstErrorRef(null);
+        }
       } else {
         setFirstError(null);
+        setFirstErrorRef(null);
       }
 
       // Denied (#202): permanently rejected by the server (an authorization
@@ -131,7 +151,16 @@ export function SyncIndicator() {
   // so the ask is still concrete even though the exact permission isn't known.
   function handleRequestAccess(entry: OutboxEntry) {
     if (!user) return;
-    const grantor = pickAccessGrantor('manage_roles_permissions', user);
+    let grantor = pickAccessGrantor('manage_roles_permissions', user);
+    if (!grantor) {
+      // #234: nobody's EFFECTIVE permissions currently include
+      // manage_roles_permissions — rather than dead-ending, fall back to any
+      // other active full_admin (see fallbackGrantor.ts for why this checks
+      // role, not effective permissions). Only the two calls together
+      // exhaust the roster; the Alert below is now the true no-one-at-all case.
+      const candidates: CandidateRef[] = getAllActiveUsers().map(u => ({ id: u.id, name: u.name, role: u.role }));
+      grantor = pickFallbackFullAdmin(candidates, user.id);
+    }
     if (!grantor) {
       Alert.alert('No one found', 'Could not find anyone else who can grant permissions right now.');
       return;
@@ -141,6 +170,29 @@ export function SyncIndicator() {
     // letting an uncaught MaintenanceLockedError escape this handler.
     if (isWriteBlocked()) return;
     const conversationId = createDmConversation(user.id, grantor.id);
+    // #234: audit trail for the access-request funnel itself (distinct from
+    // the write it's asking about, which is already a 'denied' outbox entry)
+    // — best-effort like every other appendLog call site, never blocks the
+    // DM draft below.
+    try {
+      appendLog({
+        user_id: user.id,
+        team_id: null,
+        action: 'access_requested',
+        entity_type: 'access_request',
+        entity_id: null,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        job_id: null,
+        note: null,
+        metadata: JSON.stringify({ table: entry.table_name, grantor_id: grantor.id }),
+        device_id: null,
+      });
+    } catch {
+      /* logging is non-critical */
+    }
     setShowSheet(false);
     router.push({
       pathname: '/(app)/(chat)/[id]',
@@ -194,6 +246,7 @@ export function SyncIndicator() {
                   {failed} change{failed !== 1 ? 's' : ''} failed to sync after several tries.
                 </Text>
                 {firstError && <Text style={s.sheetErr} numberOfLines={3}>{firstError}</Text>}
+                {firstErrorRef && <Text style={s.sheetRef}>Ref: {firstErrorRef}</Text>}
                 <View style={s.btnRow}>
                   <TouchableOpacity
                     style={[s.btn, s.btnPrimary, busy && s.btnDisabled]}
@@ -217,9 +270,16 @@ export function SyncIndicator() {
                 <Text style={s.sheetFailed}>
                   {denied.length} change{denied.length !== 1 ? 's' : ''} could not be saved.
                 </Text>
-                {denied.map(entry => (
+                {denied.map(entry => {
+                  // #235: same ref split as the failed bucket above — markOutboxDenied
+                  // appends it to the friendly denial message too.
+                  const { text: deniedText, ref: deniedRef } = splitRequestRef(
+                    entry.last_error ?? "Your account can't make this change — it wasn't saved."
+                  );
+                  return (
                   <View key={entry.id} style={s.deniedRow}>
-                    <Text style={s.deniedMsg}>{entry.last_error ?? "Your account can't make this change — it wasn't saved."}</Text>
+                    <Text style={s.deniedMsg}>{deniedText}</Text>
+                    {deniedRef && <Text style={s.sheetRef}>Ref: {deniedRef}</Text>}
                     <View style={s.deniedBtnRow}>
                       <TouchableOpacity
                         style={s.deniedRequestBtn}
@@ -235,7 +295,8 @@ export function SyncIndicator() {
                       </TouchableOpacity>
                     </View>
                   </View>
-                ))}
+                  );
+                })}
               </>
             )}
             {status === 'offline' && (
@@ -267,6 +328,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   sheetSub: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary },
   sheetFailed: { fontSize: t.typography.fontSizes.body, color: t.colors.danger, textAlign: 'center', marginTop: 4, fontWeight: '600' },
   sheetErr: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, textAlign: 'center', fontStyle: 'italic' },
+  // #235: deliberately smaller/quieter than sheetErr — a correlation id for a
+  // support conversation, not something most users need to read.
+  sheetRef: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, textAlign: 'center' },
   sheetOffline: { fontSize: t.typography.fontSizes.body2, color: t.colors.danger, textAlign: 'center', marginTop: 4 },
   btnRow: { flexDirection: 'row', gap: t.spacing.md, marginTop: t.spacing.md },
   btn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: t.radii.md, minWidth: 110, alignItems: 'center' },

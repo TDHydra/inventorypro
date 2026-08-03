@@ -41,3 +41,11 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Sentry (#213) — auth-token file for source-map/ProGuard upload, opt-in
+# later; v1 ships without it. sentry.properties would already fall under the
+# /ios and /android ignores above once those dirs exist, but listed
+# explicitly in case either path is ever tracked outside a generated folder.
+.env.sentry-build-plugin
+android/sentry.properties
+ios/sentry.properties

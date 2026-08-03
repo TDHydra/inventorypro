@@ -27,15 +27,24 @@ export interface ChatParticipant { user_id: string; notify_pref: string }
 //   urgency 'urgent'  → notify prefs 'all' AND 'urgent'
 //   urgency 'regular' → notify pref 'all' only
 //   pref 'muted'      → never notified
-// Exported + DB-free so it stays unit-testable (see push.test.ts).
+// #241: `mentionedUserIds` (from messages.mentioned_user_ids) is a mute-BYPASS
+// list — an @mentioned participant is always notified regardless of their
+// notify_pref (including 'muted'), the same way media pool-share audiences
+// bypass nothing but chat mute specifically needed an escape hatch. The sender
+// is still excluded even if they somehow appear in mentionedUserIds (can't
+// mention/push yourself). Exported + DB-free so it stays unit-testable (see
+// push.test.ts).
 export function messageRecipients(
   participants: ChatParticipant[],
   senderId: string,
   urgency: 'urgent' | 'regular',
+  mentionedUserIds: string[] = [],
 ): string[] {
+  const mentioned = new Set(mentionedUserIds);
   return participants
     .filter(p => p.user_id !== senderId)
     .filter(p => {
+      if (mentioned.has(p.user_id)) return true; // mute bypass
       if (p.notify_pref === 'muted') return false;
       if (p.notify_pref === 'urgent') return urgency === 'urgent';
       return true; // 'all' (and any unknown/default) → notify for both urgencies

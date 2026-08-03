@@ -48,6 +48,16 @@ const API_VERSION: string = (() => {
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
+    // #238: defense-in-depth, not an active leak — Fastify's default req
+    // serializer never includes headers, and nothing in this codebase logs
+    // request.headers today (lib/audit.ts documents the same invariant). This
+    // guard exists so that if a future change ever logs a req with headers
+    // attached, the live JWT in Authorization gets censored instead of landing
+    // verbatim in the log.
+    redact: {
+      paths: ['req.headers.authorization'],
+      censor: '[redacted]',
+    },
   },
   // A real correlation id instead of Fastify's process-local integer reqId
   // (req-1, req-2… which resets every restart and means nothing to a client).
@@ -108,6 +118,15 @@ async function build() {
   // Postgres
   await fastify.register(fastifyPostgres, {
     connectionString: process.env.DATABASE_URL,
+    // #238: explicit cap, not pg's default (unbounded per-Pool, effectively
+    // 10 in practice but undocumented as a guarantee). Prerequisite for
+    // running two api containers side-by-side (rolling deploy / blue-green):
+    // Postgres itself defaults to max_connections=100, and each container
+    // gets its own pool — two uncapped pools plus the dedicated migration
+    // client (db/migrate.ts) can exhaust that well before other consumers
+    // (psql, the restore-test timer) get a slot. 10 per container leaves
+    // headroom for a second container at this size.
+    max: 10,
   });
 
   // JWT — refuse to boot on a missing/weak secret (HS256 needs real entropy, else
@@ -289,9 +308,39 @@ function startLimiterSweepTimer(): NodeJS.Timeout {
   return t;
 }
 
+// #238: drain in-flight requests instead of dropping them on deploy/restart.
+// `docker compose stop` (and `docker stop`) sends SIGTERM and then waits —
+// SIGKILL only after its default 10s grace period — so app.close() (which
+// runs fastify's onClose hooks and waits for in-flight requests/pg pool
+// clients to finish) has a real window to complete cleanly before that
+// SIGKILL would otherwise cut a mid-flight /sync/push transaction. The 10s
+// process.exit fallback here matches docker's own default grace period, so
+// on a slow drain we exit on our own terms (a clean log line, exit code 1)
+// right as docker's SIGKILL would otherwise land anyway, rather than racing it.
+function setupGracefulShutdown(app: Awaited<ReturnType<typeof build>>): void {
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return; // a second signal during drain — ignore, let the timer win
+    shuttingDown = true;
+    app.log.info({ signal }, 'shutting down');
+    const hardExit = setTimeout(() => {
+      app.log.error('graceful shutdown timed out after 10s, forcing exit');
+      process.exit(1);
+    }, 10_000);
+    hardExit.unref();
+    app.close(() => {
+      clearTimeout(hardExit);
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
 runMigrations()
   .then(() => build())
   .then(app => {
+    setupGracefulShutdown(app);
     app.listen({ port: PORT, host: HOST }, (err) => {
       if (err) {
         app.log.error(err);

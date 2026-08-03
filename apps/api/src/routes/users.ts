@@ -4,6 +4,7 @@ import { randomInt } from 'node:crypto';
 import { requirePermission, userHasPermission, canActOnTarget, canAssignRole } from '../lib/permissions';
 import { sendEnrollmentCodeEmail } from '../lib/mail';
 import { EMAIL_SCHEMA } from '../lib/schemaShapes';
+import { touchTeamsAndLocationsIfViewPermsChanged } from '../lib/syncPolicy';
 
 // Resolve the caller's effective permissions (role default + role/user overrides),
 // same source requirePermission uses. Returns null when the caller is unknown.
@@ -265,6 +266,16 @@ const routes: FastifyPluginAsync = async (fastify) => {
       values
     );
     if (!rows[0]) return reply.status(404).send({ error: 'User not found' });
+
+    // #204: this REST path is a SECOND writer of users.permission_overrides
+    // (the generic sync outbox in routes/sync.ts is the first) — without this,
+    // an admin editing permissions through the REST-backed user editor (rather
+    // than the sync outbox) would silently create the exact stale/stub-cache
+    // bug this fix exists to prevent. See touchTeamsAndLocationsIfViewPermsChanged's
+    // doc comment for the full rationale.
+    if (permission_overrides !== undefined) {
+      await touchTeamsAndLocationsIfViewPermsChanged(fastify.pg, permission_overrides);
+    }
 
     // Server-authoritative audit row (#172) for an EXPLICIT admin-initiated PIN
     // reset only — a role change that implicitly resets the PIN (pinLengthMismatch)

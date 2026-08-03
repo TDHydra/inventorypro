@@ -5,11 +5,19 @@ import { bumpTablesVersion } from './dataVersion';
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 const TABLE_UPSERT_SQL: Record<string, string> = {
-  role_settings: `INSERT OR REPLACE INTO role_settings (role, min_pin_length, permission_overrides, color, updated_at, dashboard_preset_id) VALUES (?, ?, ?, ?, ?, ?)`,
+  // idle_reauth_minutes (#244, migration 066): per-role idle re-auth policy,
+  // 0 = disabled. Column-scoped upsert like every other role_settings field
+  // (see db/queries/users.ts's setRoleIdleReauthMinutes).
+  role_settings: `INSERT OR REPLACE INTO role_settings (role, min_pin_length, permission_overrides, color, updated_at, dashboard_preset_id, idle_reauth_minutes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   users: `INSERT OR REPLACE INTO users (id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, dashboard_preset_id, is_test, enrollment_code_public, phone) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   locations: `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, latitude, longitude, subareas_require_owner, type, has_shelves, type_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, category, returnable, unit_tracked, tag_prefix, unit_category, unit, min_qty_alert, reorder_to, active, updated_at, home_location_id, pack_size, category_id, type, type_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  equipment_units: `INSERT OR REPLACE INTO equipment_units (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  // needs_cleaning/clean_after_jobs (#248, migration 067): cleanliness state
+  // for bulk items — see src/equipment/cleanliness.ts.
+  inventory_items: `INSERT OR REPLACE INTO inventory_items (id, name, barcode, description, sku, supplier, model, kind, category, returnable, unit_tracked, tag_prefix, unit_category, unit, min_qty_alert, reorder_to, active, updated_at, home_location_id, pack_size, category_id, type, type_id, needs_cleaning, clean_after_jobs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  // cleanliness/jobs_since_clean (#248, migration 067): per-unit cleanliness
+  // state, incremented client-side at job check-in (offline-first, no server
+  // trigger) — see src/equipment/cleanliness.ts.
+  equipment_units: `INSERT OR REPLACE INTO equipment_units (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months, cleanliness, jobs_since_clean) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   stock_by_location: `INSERT OR REPLACE INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES (?,?,?,?)`,
   jobs: `INSERT OR REPLACE INTO jobs (id, name, status, created_by, created_at, updated_at, job_number, customer_name, site_address, site_location_id, description, type, reference_number, insurance_carrier, type_id, team_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   teams: `INSERT OR REPLACE INTO teams (id, name, type, updated_at, type_id) VALUES (?,?,?,?,?)`,
@@ -21,7 +29,13 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   // its own column-scoped upsert (see db/userPrefs.ts). dashboard_prefs is
   // kept in the pulled row too — the old column is never dropped, only dead —
   // purely so a full-row REPLACE here can't wipe it as a rollback safety net.
-  user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+  // quiet_hours_start/_end (#242, migration 064): UTC-minutes-since-midnight,
+  // NULL/NULL = disabled. Column-scoped upsert same as every other user_prefs
+  // field (see db/userPrefs.ts's setQuietHours).
+  // notification_prefs/onboarding_checklist (#245/#246, migration 065): JSON
+  // columns, same column-scoped-upsert discipline (see db/userPrefs.ts's
+  // setNotificationCategoryPref / startOnboardingChecklist / dismissOnboardingChecklist).
+  user_prefs: `INSERT OR REPLACE INTO user_prefs (user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end, notification_prefs, onboarding_checklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   taxonomy_types: `INSERT OR REPLACE INTO taxonomy_types (id, category, label, icon, sort_order, active, updated_at, meta) VALUES (?,?,?,?,?,?,?,?)`,
   repairs: `INSERT OR REPLACE INTO repairs (id, entity_type, entity_id, entity_label, notes, parts_needed, status, created_by, created_at, updated_at, completed_at, assignee_id, cost, due_at, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   repair_parts: `INSERT OR REPLACE INTO repair_parts (id, repair_id, item_id, qty, unit, created_by, created_at, updated_at, step_id) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -33,7 +47,10 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
   dashboard_presets: `INSERT OR REPLACE INTO dashboard_presets (id, name, layout, active, updated_at) VALUES (?,?,?,?,?)`,
   conversations: `INSERT OR REPLACE INTO conversations (id, kind, title, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
   conversation_participants: `INSERT OR REPLACE INTO conversation_participants (conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at) VALUES (?,?,?,?,?,?)`,
-  messages: `INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+  // mentioned_user_ids (#241, migration 063): JSON array of @mentioned user
+  // UUIDs, mirrors media.audience_user_ids. Mentioned participants bypass
+  // notify_pref server-side (lib/push.ts messageRecipients).
+  messages: `INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at, mentioned_user_ids) VALUES (?,?,?,?,?,?,?,?,?,?)`,
   subteams: `INSERT OR REPLACE INTO subteams (id, team_id, name, active, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
   vehicles: `INSERT OR REPLACE INTO vehicles (location_id, truck_mount, water_state, model, model_id, notes, updated_at, water_tank, waste_tank, checkout_locked, debris_option, debris_level, open_checkout, locked_by, fuel_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   vehicle_service_records: `INSERT OR REPLACE INTO vehicle_service_records (id, vehicle_location_id, target, event_date, type, notes, odometer, cost, created_by, created_at, updated_at, payer, job_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -50,18 +67,18 @@ const TABLE_UPSERT_SQL: Record<string, string> = {
 
 function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
   switch (table) {
-    case 'role_settings': return [row.role, row.min_pin_length, JSON.stringify(row.permission_overrides ?? {}), row.color ?? null, row.updated_at, row.dashboard_preset_id ?? null];
+    case 'role_settings': return [row.role, row.min_pin_length, JSON.stringify(row.permission_overrides ?? {}), row.color ?? null, row.updated_at, row.dashboard_preset_id ?? null, row.idle_reauth_minutes ?? 0];
     case 'users': return [row.id, row.name, row.role, row.pin_length_required, row.pin_set ? 1 : 0, JSON.stringify(row.permission_overrides ?? {}), row.active ? 1 : 0, row.expires_at ?? null, row.created_at, row.updated_at, row.email ?? null, row.dashboard_preset_id ?? null, row.is_test ? 1 : 0, row.enrollment_code_public ?? null, row.phone ?? null];
     case 'locations': return [row.id, row.name, row.parent_id ?? null, row.color ?? null, row.icon ?? null, row.owner_user_id ?? null, row.active ? 1 : 0, row.updated_at, row.latitude ?? null, row.longitude ?? null, row.subareas_require_owner ? 1 : 0, row.type ?? null, row.has_shelves ? 1 : 0, row.type_id ?? null];
-    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.category ?? null, row.returnable ? 1 : 0, row.unit_tracked ? 1 : 0, row.tag_prefix ?? null, row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at, row.home_location_id ?? null, row.pack_size ?? null, row.category_id ?? null, row.type ?? null, row.type_id ?? null];
-    case 'equipment_units': return [row.id, row.item_id, row.asset_tag, row.serial_number ?? null, row.status, row.current_location_id ?? null, row.current_job_id ?? null, row.notes ?? null, row.created_at, row.updated_at, row.purchase_price ?? null, row.acquired_at ?? null, row.useful_life_months ?? null, row.salvage_value ?? null, row.depreciation_method ?? null, row.next_service_at ?? null, row.service_interval_months ?? null];
+    case 'inventory_items': return [row.id, row.name, row.barcode ?? null, row.description ?? null, row.sku ?? null, row.supplier ?? null, row.model ?? null, row.kind ?? 'product', row.category ?? null, row.returnable ? 1 : 0, row.unit_tracked ? 1 : 0, row.tag_prefix ?? null, row.unit_category, row.unit, row.min_qty_alert, row.reorder_to ?? null, row.active ? 1 : 0, row.updated_at, row.home_location_id ?? null, row.pack_size ?? null, row.category_id ?? null, row.type ?? null, row.type_id ?? null, row.needs_cleaning ? 1 : 0, row.clean_after_jobs ?? null];
+    case 'equipment_units': return [row.id, row.item_id, row.asset_tag, row.serial_number ?? null, row.status, row.current_location_id ?? null, row.current_job_id ?? null, row.notes ?? null, row.created_at, row.updated_at, row.purchase_price ?? null, row.acquired_at ?? null, row.useful_life_months ?? null, row.salvage_value ?? null, row.depreciation_method ?? null, row.next_service_at ?? null, row.service_interval_months ?? null, row.cleanliness ?? 'clean', row.jobs_since_clean ?? 0];
     case 'stock_by_location': return [row.item_id, row.location_id, row.quantity, row.updated_at];
     case 'jobs': return [row.id, row.name, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.job_number ?? null, row.customer_name ?? null, row.site_address ?? null, row.site_location_id ?? null, row.description ?? null, row.type ?? null, row.reference_number ?? null, row.insurance_carrier ?? null, row.type_id ?? null, row.team_id ?? null];
     case 'teams': return [row.id, row.name, row.type, row.updated_at, row.type_id ?? null];
     case 'team_members': return [row.team_id, row.user_id, JSON.stringify(row.team_permission_overrides ?? {}), row.added_by ?? null, row.joined_at, row.is_manager ? 1 : 0, row.updated_at, row.subteam_id ?? null, row.subteam_role ?? null];
     case 'media': return [row.id, row.entity_type, row.entity_id, row.media_type, row.url, row.thumbnail_url ?? null, row.caption ?? null, row.is_primary ? 1 : 0, row.uploaded_by ?? null, row.created_at, row.location_note ?? null, row.updated_at ?? row.created_at, row.audience ?? null, row.audience_user_ids ?? null, row.room_id ?? null];
     case 'app_config': return [row.key, row.value, row.updated_at];
-    case 'user_prefs': return [row.user_id, row.theme ?? null, row.dashboard_prefs ?? null, row.dashboard_layout ?? null, row.starred_widgets ?? null, row.updated_at];
+    case 'user_prefs': return [row.user_id, row.theme ?? null, row.dashboard_prefs ?? null, row.dashboard_layout ?? null, row.starred_widgets ?? null, row.updated_at, row.quiet_hours_start ?? null, row.quiet_hours_end ?? null, row.notification_prefs ?? null, row.onboarding_checklist ?? null];
     case 'taxonomy_types': return [row.id, row.category, row.label, row.icon ?? null, row.sort_order, row.active ? 1 : 0, row.updated_at, row.meta ?? null];
     case 'repairs': return [row.id, row.entity_type, row.entity_id, row.entity_label ?? null, row.notes ?? null, row.parts_needed ?? null, row.status, row.created_by ?? null, row.created_at, row.updated_at, row.completed_at ?? null, row.assignee_id ?? null, row.cost ?? null, row.due_at ?? null, row.status_id ?? null];
     case 'repair_parts': return [row.id, row.repair_id, row.item_id, row.qty, row.unit, row.created_by ?? null, row.created_at, row.updated_at, row.step_id ?? null];
@@ -73,7 +90,7 @@ function rowToValues(table: string, row: Record<string, unknown>): unknown[] {
     case 'dashboard_presets': return [row.id, row.name, row.layout ?? '[]', row.active ? 1 : 0, row.updated_at];
     case 'conversations': return [row.id, row.kind ?? 'dm', row.title ?? null, row.created_by ?? null, row.created_at, row.updated_at];
     case 'conversation_participants': return [row.conversation_id, row.user_id, row.notify_pref ?? 'all', row.last_read_at ?? null, row.added_at, row.updated_at];
-    case 'messages': return [row.id, row.conversation_id, row.sender_id ?? null, row.body, row.urgency ?? 'urgent', row.created_at, row.updated_at, row.edited_at ?? null, row.deleted_at ?? null];
+    case 'messages': return [row.id, row.conversation_id, row.sender_id ?? null, row.body, row.urgency ?? 'urgent', row.created_at, row.updated_at, row.edited_at ?? null, row.deleted_at ?? null, row.mentioned_user_ids ?? null];
     case 'subteams': return [row.id, row.team_id, row.name, row.active ? 1 : 0, row.created_at, row.updated_at];
     case 'vehicles': return [row.location_id, row.truck_mount ? 1 : 0, row.water_state ?? null, row.model ?? null, row.model_id ?? null, row.notes ?? null, row.updated_at, row.water_tank ?? 'empty', row.waste_tank ?? 'clean', row.checkout_locked ? 1 : 0, row.debris_option ? 1 : 0, row.debris_level ?? 0, row.open_checkout ? 1 : 0, row.locked_by ?? null, row.fuel_level ?? 0];
     // cost is financial: the server omits it for callers without

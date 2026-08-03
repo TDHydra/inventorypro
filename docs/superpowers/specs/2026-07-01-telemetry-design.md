@@ -103,3 +103,26 @@ Batching + a per-name **rate cap / sampling** so a hot screen can't flood the pi
 ## Out of scope (v1)
 Metabase deploy (follow-on); session replay; heatmaps; raw click-with-content
 capture; funnels UI in-app; per-event user consent (internal company devices).
+
+## Addendum (2026-08-03) — #213 crash reporting via self-hosted GlitchTip
+
+This spec's original decision explicitly rejected SaaS Sentry ("not PostHog/
+Sentry/Cloudflare") on privacy/offline-first grounds. #213 adds
+`@sentry/react-native` as a second, narrowly-scoped **crash-symbolication**
+channel layered on top of this first-party pipeline — not a replacement for
+it, and not a reversal of the original intent. The determining factor is the
+backend: crash reports go to **GlitchTip, self-hosted on our own VPS**
+(`errors.invenpro.app`), which speaks the Sentry client protocol but keeps
+crash data first-party, under our control, and off any third-party SaaS —
+honoring this spec's "self-hosted, privacy-controlled, we own it end-to-end"
+intent rather than contradicting it.
+
+Scope stays deliberately narrow: no tracing, session replay, screenshots, or
+view-hierarchy capture are enabled. The channel reuses this pipeline's
+existing kill switch (`isTelemetryEnabled()` / `app_config.telemetry_enabled`
+/ `EXPO_PUBLIC_TELEMETRY`) and prop allowlist/redaction (`telemetry/redact.ts`)
+rather than inventing parallel privacy controls — a telemetry-off device is a
+Sentry-off device too, both at build time (no DSN / `EXPO_PUBLIC_TELEMETRY=0`
+→ `Sentry.init()` is never called) and at runtime (`beforeSend` re-checks the
+remote switch on every event, including a previous session's native crash
+re-surfaced through the JS layer). See `apps/mobile/src/telemetry/sentry.ts`.

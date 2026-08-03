@@ -65,6 +65,89 @@ test('ingestEvents never aborts the batch when one INSERT throws', async () => {
   assert.equal(accepted, 1);
 });
 
+// ── #243: outbox_heartbeat → stuck-outbox server nudge ──────────────────────
+//
+// notifySyncStuck (lib/notifications.ts) is exercised in full elsewhere
+// (notifications.test.ts); these tests only prove ingestEvents' HOOK fires
+// under the right conditions, by asserting on the notification_dedup claim
+// query it triggers (its first DB call) — a query that fires only if
+// notifySyncStuck actually ran with failed>0.
+function pgRecording() {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('INSERT INTO telemetry_events')) return { rows: [] };
+      if (sql.includes('INSERT INTO notification_dedup')) return { rows: [{ event_key: params[0] }] }; // fresh claim
+      if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+        return { rows: (params[0] as string[]).map(id => ({ id })) };
+      }
+      return { rows: [] };
+    },
+  };
+  return { pg, calls };
+}
+
+test('ingestEvents: outbox_heartbeat with failed>0 + authenticated user triggers exactly one notify claim', async () => {
+  const { pg, calls } = pgRecording();
+  const authedCtx = { ...ctx, userId: 'u1' };
+  await ingestEvents(pg as any, [
+    { type: 'audit', name: 'outbox_heartbeat', props: { pending: 2, failed: 3, denied: 0 } },
+  ], authedCtx);
+  // notifySyncStuck runs fire-and-forget (void .catch) — give its microtasks a tick.
+  await new Promise(r => setTimeout(r, 0));
+  const claims = calls.filter(c => c.sql.includes('INSERT INTO notification_dedup'));
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0].params[0], 'sync_stuck:user:u1');
+});
+
+test('ingestEvents: outbox_heartbeat with failed=0 does not claim/notify', async () => {
+  const { pg, calls } = pgRecording();
+  const authedCtx = { ...ctx, userId: 'u1' };
+  await ingestEvents(pg as any, [
+    { type: 'audit', name: 'outbox_heartbeat', props: { pending: 1, failed: 0, denied: 0 } },
+  ], authedCtx);
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notification_dedup')).length, 0);
+});
+
+test('ingestEvents: outbox_heartbeat with no authenticated user never triggers a notify claim', async () => {
+  const { pg, calls } = pgRecording();
+  await ingestEvents(pg as any, [
+    { type: 'audit', name: 'outbox_heartbeat', props: { pending: 1, failed: 5, denied: 0 } },
+  ], ctx); // ctx.userId is null
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(calls.filter(c => c.sql.includes('INSERT INTO notification_dedup')).length, 0);
+});
+
+test('ingestEvents: two consecutive failed>0 heartbeats in the same episode claim only once', async () => {
+  const claimed = new Set<string>();
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const pg = {
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      if (sql.includes('INSERT INTO telemetry_events')) return { rows: [] };
+      if (sql.includes('INSERT INTO notification_dedup')) {
+        const key = params[0] as string;
+        if (claimed.has(key)) return { rows: [] };
+        claimed.add(key);
+        return { rows: [{ event_key: key }] };
+      }
+      if (sql.includes('id = ANY') && sql.includes('active = TRUE')) {
+        return { rows: (params[0] as string[]).map(id => ({ id })) };
+      }
+      return { rows: [] };
+    },
+  };
+  const authedCtx = { ...ctx, userId: 'u1' };
+  await ingestEvents(pg as any, [{ type: 'audit', name: 'outbox_heartbeat', props: { pending: 0, failed: 2, denied: 0 } }], authedCtx);
+  await new Promise(r => setTimeout(r, 0));
+  await ingestEvents(pg as any, [{ type: 'audit', name: 'outbox_heartbeat', props: { pending: 0, failed: 2, denied: 0 } }], authedCtx);
+  await new Promise(r => setTimeout(r, 0));
+  const inboxInserts = calls.filter(c => c.sql.includes('INSERT INTO notifications'));
+  assert.equal(inboxInserts.length, 1); // second heartbeat's claim is suppressed → no second notify
+});
+
 // The full aggregate now comes back as a SINGLE row (one CTE round-trip): each
 // list is a json_agg column and the mock stands in for what pg/json_agg returns.
 const SUMMARY_ROW = {

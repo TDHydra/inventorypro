@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,6 +8,8 @@ import { SessionContext, SessionContextValue, deriveEffectiveUser } from '../src
 import { UserSession } from '../src/auth/permissions';
 import { UserRole } from '../src/constants/roles';
 import { setPreviewWriteBlock } from '../src/db/maintenance';
+import { derivePreviewAuditEvents } from '../src/auth/previewAudit';
+import { appendLog } from '../src/db/queries/log';
 import { clearSession, getSavedUserId } from '../src/auth/session';
 import { loadChatCache } from '../src/chat/store';
 import { TEST_SESSION_FLAG } from '../src/auth/finishLogin';
@@ -32,6 +34,7 @@ import { Rajdhani_600SemiBold, Rajdhani_700Bold } from '@expo-google-fonts/rajdh
 import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-google-fonts/nunito';
 import { useScreenTracking } from '../src/telemetry/useScreenTracking';
 import { installGlobalErrorTracking, TelemetryErrorBoundary } from '../src/telemetry/capture';
+import { initSentry } from '../src/telemetry/sentry';
 import { useNotificationObservers } from '../src/push/handlers';
 import { registerForPush, unregisterPush } from '../src/push/register';
 import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
@@ -46,6 +49,11 @@ export default function RootLayout() {
   // no separate reactive cache — so gated UI re-renders through the normal
   // React path when previewRole changes.
   const [previewRole, setPreviewRole] = useState<UserRole | null>(null);
+  // #233: tracks previewRole's PREVIOUS value across renders (for the audit
+  // effect's diff) and which real user is attributed to the currently-active
+  // preview (survives a logout that nulls `user` before the ended log fires).
+  const prevPreviewRoleRef = useRef<UserRole | null>(null);
+  const previewAuditUserRef = useRef<string | null>(null);
   const effectiveUser = useMemo(() => deriveEffectiveUser(user, previewRole), [user, previewRole]);
   const theme = useTheme();
 
@@ -58,6 +66,42 @@ export default function RootLayout() {
   useEffect(() => {
     setPreviewWriteBlock(previewRole != null);
     return () => setPreviewWriteBlock(false);
+  }, [previewRole]);
+
+  // #233: audit trail for #199 preview sessions. This is the ONE choke point
+  // every previewRole change funnels through (direct picks in roles.tsx, the
+  // banner's exit button, AND the logout-forced reset just below) — logging
+  // here instead of at each call site can't be missed by a future caller of
+  // setPreviewRole. `previewAuditUserRef` — not the live `user` —
+  // is who gets attributed: on a logout-triggered reset, `user` has already
+  // flipped to null by the time this effect re-runs with previewRole back at
+  // null, but the preview_ended row must still say WHO was previewing.
+  useEffect(() => {
+    for (const event of derivePreviewAuditEvents(prevPreviewRoleRef.current, previewRole)) {
+      const actorId = event.type === 'preview_started' ? (user?.id ?? null) : previewAuditUserRef.current;
+      if (event.type === 'preview_started') previewAuditUserRef.current = actorId;
+      try {
+        appendLog({
+          user_id: actorId,
+          team_id: null,
+          action: event.type,
+          entity_type: 'session',
+          entity_id: null,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: null,
+          metadata: JSON.stringify({ role: event.role }),
+          device_id: null,
+        });
+      } catch {
+        /* best-effort, same as every other audit call site */
+      }
+      if (event.type === 'preview_ended') previewAuditUserRef.current = null;
+    }
+    prevPreviewRoleRef.current = previewRole;
   }, [previewRole]);
 
   // Previewing must never survive a real identity change (logout, or
@@ -84,6 +128,11 @@ export default function RootLayout() {
     installGlobalErrorTracking();
     initDb()
       .then(async () => {
+        // #213: called after initDb() resolves (not at module load) so the
+        // remote kill switch (beforeSend → isTelemetryEnabled(), which reads
+        // app_config via the DB) is always backed by a ready DB — trading a
+        // sub-100ms startup-crash blind spot for correctness of that switch.
+        initSentry();
         // A test/demo session that was killed mid-run never reached the logout
         // wipe — its throwaway edits are still in the DB. Wipe before anything
         // reads it; the empty DB then behaves like a fresh install.

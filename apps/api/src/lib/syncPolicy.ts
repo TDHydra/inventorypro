@@ -468,12 +468,24 @@ export const ACTIVITY_ACTIONS = new Set([
   // both job- and manager-kind slots). Kind/day/times/job_id/manager_id ride in
   // metadata (activity_log.entity_id is a UUID column, never a free string).
   'schedule_assigned', 'schedule_updated', 'schedule_cleared',
+  // Preview-as-role audit (#233): logged against entity_type 'session' with
+  // entity_id null (no session table row — the role being previewed rides in
+  // metadata). Access-request funnel (#234): entity_type 'access_request',
+  // entity_id null, {table, grantor_id} in metadata.
+  'preview_started', 'preview_ended', 'access_requested',
+  // Equipment/item cleanliness state (#248): logged against entity_type
+  // 'equipment_unit' (unit_marked_clean/dirty/auto_dirty) or 'item'
+  // (item_marked_needs_cleaning/clean).
+  'unit_marked_clean', 'unit_marked_dirty', 'unit_auto_dirty',
+  'item_marked_needs_cleaning', 'item_marked_clean',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
   // db/hiddenFields.ts logs form-field show/hide against the app_config row that
   // stores them. Missing here, every such row was rejected and retried to death (#56).
   'app_config',
+  // #233/#234: descriptive-only entity types (no backing table; entity_id null).
+  'session', 'access_request',
 ]);
 export function isAllowedActivity(action: unknown, entityType: unknown): boolean {
   return typeof action === 'string' && ACTIVITY_ACTIONS.has(action)
@@ -484,6 +496,26 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
 // columns on jobs are gated behind view_financial_data.
 const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
 const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_carrier';
+// #204: locations gated behind view_locations — mirrors JOBS_BASE/SENSITIVE.
+// BASE is every column pull.ts's rowToValues() binds WITHOUT a `?? null` /
+// falsy-safe fallback (name/active/has_shelves/type would violate NOT NULL or
+// silently disable the location if nulled), PLUS owner_user_id: a mobile-wide
+// grep (access.ts, unitAccessPolicy.ts, vehicleSessionLogic.ts, LockerPanel,
+// VehiclePanel, UnitContentsPanel, MemberPermissionsSheet) showed owner_user_id
+// drives foreign-team-unit/locker/vehicle access decisions for EVERY user,
+// completely independent of view_locations (that permission only gates the
+// Locations directory SCREEN, per #197/#198) — omitting it would silently
+// null a denied user's owned lockers/vehicles to "ownerless", which UNLOCKS
+// access rather than restricting it. That's the opposite of this issue's
+// intent, so owner_user_id must stay in BASE despite being named like a
+// privacy-sensitive column. SENSITIVE is the actually-gateable set: lat/long
+// (nullable coords — proximity sort in DestinationPicker/LocationShelfPicker
+// already treats missing coords as "can't rank" via `?? null`, a safe
+// degrade) and subareas_require_owner (nullable-safe bool, only read by
+// VehicleEditSheet's own config panel — no checkout/transfer gate depends on
+// it client-side).
+const LOCATIONS_BASE = 'id, name, parent_id, color, icon, active, has_shelves, type, type_id, updated_at, owner_user_id';
+const LOCATIONS_SENSITIVE = ', latitude, longitude, subareas_require_owner';
 // enrollment_code_public is public BY DESIGN, but only for demo rows — the CASE
 // guarantees a real user's row can never carry a code even if one were planted.
 const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, phone, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
@@ -492,8 +524,10 @@ const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_ove
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
 const REPAIRS_SENSITIVE = ', cost';
 // equipment_units: purchase_price + salvage_value are financial (gated behind
-// view_financial_data — mirrors repairs.cost). Base is every other real column.
-const EQUIPMENT_UNITS_BASE = 'id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, acquired_at, useful_life_months, depreciation_method, next_service_at, service_interval_months';
+// view_financial_data — mirrors repairs.cost). Base is every other real
+// column, including cleanliness/jobs_since_clean (#248, migration 081 — not
+// financial, so BASE not SENSITIVE).
+const EQUIPMENT_UNITS_BASE = 'id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, acquired_at, useful_life_months, depreciation_method, next_service_at, service_interval_months, cleanliness, jobs_since_clean';
 const EQUIPMENT_UNITS_SENSITIVE = ', purchase_price, salvage_value';
 // maintenance_events: cost is financial (gated, mirrors repairs.cost). Base is
 // every other synced column.
@@ -504,8 +538,10 @@ const MAINTENANCE_EVENTS_SENSITIVE = ', cost';
 const NOTIFICATIONS_COLS = 'id, user_id, type, title, body, data, read_at, created_by, created_at, updated_at';
 const APPROVAL_REQUESTS_COLS = 'id, requester_id, kind, title, detail, status, decided_by, decided_at, decision_note, entity_type, entity_id, metadata, created_at, updated_at';
 // role_settings: full synced column set (explicit, never '*') — carries the new
-// dashboard_preset_id assignment (migration 039) alongside the pin/perm/color config.
-const ROLE_SETTINGS_COLS = 'role, min_pin_length, permission_overrides, color, dashboard_preset_id, updated_at';
+// dashboard_preset_id assignment (migration 039) alongside the pin/perm/color
+// config, plus idle_reauth_minutes (#244, migration 080) — no financial/secret
+// columns, so every synced device reads the full row.
+const ROLE_SETTINGS_COLS = 'role, min_pin_length, permission_overrides, color, dashboard_preset_id, updated_at, idle_reauth_minutes';
 // dashboard_presets: org-shared dashboard layouts. No financial/secret columns —
 // every synced device reads the full row to render its hub.
 const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
@@ -513,7 +549,10 @@ const DASHBOARD_PRESETS_COLS = 'id, name, layout, active, updated_at';
 // pull is scoped to the caller's own conversations in sync.ts.
 const CONVERSATIONS_COLS = 'id, kind, title, created_by, created_at, updated_at';
 const CONVERSATION_PARTICIPANTS_COLS = 'conversation_id, user_id, notify_pref, last_read_at, added_at, updated_at';
-const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at';
+// mentioned_user_ids (#241): JSON array of @mentioned user UUIDs, mirrors
+// media.audience_user_ids. Mentioned participants bypass notify_pref (mute
+// included) — see lib/push.ts messageRecipients().
+const MESSAGES_COLS = 'id, conversation_id, sender_id, body, urgency, created_at, updated_at, edited_at, deleted_at, mentioned_user_ids';
 // Field-crew tables (#122): explicit synced column lists (never '*').
 // vehicle_service_records.cost is financial (gated behind view_financial_data,
 // the maintenance_events pattern); the other five carry no financial columns.
@@ -531,9 +570,10 @@ const JOB_ASSIGNMENTS_COLS = 'id, job_id, assignee_kind, assignee_id, assigned_b
 // schedule_assignments (#184): no financial/secret columns — full synced set.
 const SCHEDULE_ASSIGNMENTS_COLS = 'id, employee_id, day, start_minute, end_minute, assignment_kind, job_id, manager_id, note, created_by, active, created_at, updated_at';
 
-export function selectColumnsFor(table: string, canViewFinancial: boolean): string {
+export function selectColumnsFor(table: string, canViewFinancial: boolean, canViewLocations = false): string {
   if (table === 'users') return USERS_COLS;
   if (table === 'jobs') return canViewFinancial ? JOBS_BASE + JOBS_SENSITIVE : JOBS_BASE;
+  if (table === 'locations') return canViewLocations ? LOCATIONS_BASE + LOCATIONS_SENSITIVE : LOCATIONS_BASE;
   if (table === 'repairs') return canViewFinancial ? REPAIRS_BASE + REPAIRS_SENSITIVE : REPAIRS_BASE;
   if (table === 'equipment_units') return canViewFinancial ? EQUIPMENT_UNITS_BASE + EQUIPMENT_UNITS_SENSITIVE : EQUIPMENT_UNITS_BASE;
   if (table === 'maintenance_events') return canViewFinancial ? MAINTENANCE_EVENTS_BASE + MAINTENANCE_EVENTS_SENSITIVE : MAINTENANCE_EVENTS_BASE;
@@ -545,7 +585,12 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   // dashboard_prefs stays in the projection too — the column is dead, never
   // dropped, kept here only so a client's full-row REPLACE on pull can't wipe
   // it as a rollback safety net. Same self-scoped projection as theme.
-  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at'; // scoped to the caller in sync.ts; explicit projection regardless
+  // quiet_hours_start/_end (#242, migration 078): UTC-minutes-since-midnight,
+  // same column-scoped-upsert discipline as dashboard_layout/starred_widgets.
+  // notification_prefs/onboarding_checklist (#245/#246, migration 079): same
+  // column-scoped-upsert discipline; see notifications.ts's filterMuted for
+  // the server-side enforcement of notification_prefs.
+  if (table === 'user_prefs') return 'user_id, theme, dashboard_prefs, dashboard_layout, starred_widgets, updated_at, quiet_hours_start, quiet_hours_end, notification_prefs, onboarding_checklist'; // scoped to the caller in sync.ts; explicit projection regardless
   if (table === 'notifications') return NOTIFICATIONS_COLS;
   if (table === 'approval_requests') return APPROVAL_REQUESTS_COLS;
   if (table === 'role_settings') return ROLE_SETTINGS_COLS;
@@ -564,4 +609,52 @@ export function selectColumnsFor(table: string, canViewFinancial: boolean): stri
   if (table === 'job_assignments') return JOB_ASSIGNMENTS_COLS;
   if (table === 'schedule_assignments') return SCHEDULE_ASSIGNMENTS_COLS;
   return '*';
+}
+
+// Parse a client-supplied permission_overrides value that may already be a
+// parsed object (server-authored REST paths, e.g. routes/users.ts's request
+// body) or a JSON string (mobile stores this column as TEXT — same shape
+// sanitizeTeamOverrides above already handles for team_permission_overrides).
+// Never throws; an unparseable/absent value resolves to {} (no keys ⇒ no touch).
+function parsePermissionOverrides(v: unknown): Record<string, unknown> {
+  if (v == null) return {};
+  if (typeof v === 'string') {
+    try { return JSON.parse(v) as Record<string, unknown>; } catch { return {}; }
+  }
+  return typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+// #204: view_teams/view_locations gate a READ-time projection/row-filter
+// (selectColumnsFor's locations BASE/SENSITIVE split + team_members's
+// self-row carve-out in sync.ts), not a write-time check — so unlike every
+// other permission_overrides key, flipping one of these two never changes
+// what SQL the writer just ran, only what a future reader's projection will
+// contain. Because permission_overrides lives on users/role_settings — never
+// on the teams/team_members/locations rows themselves — flipping either key
+// never bumps THOSE rows' updated_at. Incremental /sync/pull filters
+// `WHERE updated_at > since`, so a newly-GRANTED caller would stay
+// stub-only and a newly-REVOKED caller would stay stale-cached, indefinitely,
+// until something unrelated happens to touch those tables. This is symmetric
+// (grant AND revoke) and applies to role-level AND per-user overrides alike.
+//
+// Fix: a simple, deliberately blunt server-side bulk touch — no per-device
+// targeted refetch — bump updated_at on all three tables whenever an
+// incoming permission_overrides payload even MENTIONS either key (presence
+// check only; no need to diff old vs new value — this is a rare admin
+// action, and a false-positive touch is harmless/bounded, just forces every
+// device's next incremental pull to re-download these three tables once).
+// Call after EVERY write that can change these two keys — verified to be
+// exactly three: routes/sync.ts's role_settings outbox path, routes/sync.ts's
+// users outbox path, and routes/users.ts's PATCH /users/:id (a second,
+// REST-backed writer of the same users.permission_overrides column that the
+// sync outbox path can't see).
+export async function touchTeamsAndLocationsIfViewPermsChanged(
+  pg: Pg,
+  incomingOverrides: unknown,
+): Promise<void> {
+  const parsed = parsePermissionOverrides(incomingOverrides);
+  if (!('view_teams' in parsed) && !('view_locations' in parsed)) return;
+  await pg.query('UPDATE teams SET updated_at = NOW()', []);
+  await pg.query('UPDATE team_members SET updated_at = NOW()', []);
+  await pg.query('UPDATE locations SET updated_at = NOW()', []);
 }

@@ -10,6 +10,7 @@ import { useThemedStyles } from '../../src/hooks/useThemedStyles';
 import { FormScreen } from '../../src/components/ui/FormScreen';
 import { PINPad } from '../../src/components/PINPad';
 import { getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings } from '../../src/db/queries/users';
+import { startOnboardingChecklist } from '../../src/db/userPrefs';
 import { useSession } from '../../src/hooks/useSession';
 import { verifyPinOnline, validatePinFormat, setPinFirstTime, isWeakPin } from '../../src/auth/pin';
 import { saveSession } from '../../src/auth/session';
@@ -241,7 +242,16 @@ export default function LoginScreen() {
       // Test accounts self-reset: the server never persists their PIN, so the
       // local pin_set must stay 0 too — otherwise the NEXT visitor on this
       // device lands on the PIN screen and dead-ends against a 409.
-      if (!selectedUser.is_test) markUserPinSet(selectedUser.id, pinValue.length);
+      if (!selectedUser.is_test) {
+        markUserPinSet(selectedUser.id, pinValue.length);
+        // #246: the ONE unambiguous "this account just did first-ever PIN
+        // setup" event — deliberately NOT the first-launch/full-download path
+        // below (proceedAfterAuth), since a re-enrolled veteran on a
+        // replacement device also takes that path and must never see the
+        // onboarding checklist again. If a future auth path also flips
+        // pin_set (e.g. an admin-triggered reset), it must call this too.
+        startOnboardingChecklist(selectedUser.id);
+      }
       proceedAfterAuth(result.userId);
     } catch (err) {
       const msg = (err as Error).message || 'Could not set your PIN. Check your connection.';

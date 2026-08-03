@@ -79,3 +79,17 @@ test('066: receipt fields are nullable TEXT/UUID adds, never enum, no backfill',
   assert.doesNotMatch(sql, /NOT NULL/);
   assert.doesNotMatch(sql, /UPDATE vehicle_service_records/i);
 });
+
+// ── #244 / idea 31: per-role idle re-auth ────────────────────────────────────
+
+test('080: idle_reauth_minutes is a bounded INT, defaulting to disabled, never an enum', () => {
+  const sql = read('080_role_idle_reauth.sql');
+  assert.match(sql, /ALTER TABLE role_settings ADD COLUMN IF NOT EXISTS idle_reauth_minutes INT NOT NULL DEFAULT 0/);
+  assert.match(sql, /CHECK \(idle_reauth_minutes BETWEEN 0 AND 480\)/);
+  assert.doesNotMatch(sql, /CREATE TYPE/i);
+});
+
+test('080: no backfill — every role starts disabled, no watermark bump wanted', () => {
+  const sql = read('080_role_idle_reauth.sql');
+  assert.doesNotMatch(sql, /UPDATE role_settings/i);
+});

@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Pressable, View, Text, StyleSheet, type GestureResponderEvent, type PressableProps } from 'react-native';
 import { track } from './index';
+import { captureException } from './sentry';
 import { colors, spacing, fontSizes, radii } from '../theme';
 
 // ── Error boundary ───────────────────────────────────────────────────────
@@ -24,6 +25,7 @@ export class TelemetryErrorBoundary extends Component<ErrorBoundaryProps, ErrorB
 
   componentDidCatch(error: Error, _info: ErrorInfo): void {
     track('error', 'render_crash', { props: { reason: error?.name || 'Error' } });
+    captureException(error);
   }
 
   reset = (): void => this.setState({ hasError: false });
@@ -79,6 +81,7 @@ export function installGlobalErrorTracking(): void {
       const prevHandler = errorUtils.getGlobalHandler();
       errorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
         track('error', 'unhandled', { props: { reason: error?.name || 'Error' } });
+        captureException(error);
         prevHandler?.(error, isFatal);
       });
     }
@@ -91,6 +94,7 @@ export function installGlobalErrorTracking(): void {
       const reason = event?.reason;
       const name = reason instanceof Error ? reason.name : (typeof reason === 'string' ? 'string' : 'unknown');
       track('error', 'unhandled', { props: { reason: name } });
+      captureException(reason instanceof Error ? reason : new Error(String(reason)));
     });
   } catch {
     // Environment doesn't support addEventListener('unhandledrejection', ...) — skip.

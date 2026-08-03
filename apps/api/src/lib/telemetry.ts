@@ -2,6 +2,8 @@
 // (apps/mobile/src/telemetry/redact.ts) — the two allowlists MUST stay
 // identical, since a prop that's meaningless on one side but present on the
 // other is a sign the contract has drifted.
+import { notifySyncStuck } from './notifications';
+
 const TYPES = new Set(['screen', 'action', 'error', 'audit']);
 
 // Safe, non-PII prop keys. Names/ids/metrics only — never field contents.
@@ -12,6 +14,9 @@ export const TELEMETRY_PROP_ALLOWLIST = new Set([
   // validation_reject metadata: the FIELD PATH and RULE NAME only — never the
   // entered value (which must not appear anywhere in telemetry).
   'field', 'rule',
+  // outbox_heartbeat (#236): fleet sync-health counts — three independent
+  // buckets, so 'count' alone can't carry them.
+  'pending', 'failed', 'denied',
 ]);
 
 export interface CleanEvent {
@@ -60,6 +65,20 @@ export async function ingestEvents(
         [ctx.sessionId, ctx.userId, ctx.deviceId, ctx.platform, ctx.appVersion, e.type, e.name, e.screen, JSON.stringify(e.props), e.client_ts],
       );
       accepted++;
+      // #243: the first write-time reaction to an ingested telemetry event.
+      // #236's outbox_heartbeat (pending/failed/denied) is the mobile client's
+      // periodic sync-health beat — react to a nonzero `failed` (permanent,
+      // retry-exhausted) bucket by nudging the OWNING user, dedup'd per episode
+      // inside notifySyncStuck. Guarded on ctx.userId: anonymous telemetry
+      // senders have no push token / user row, so resolveRecipients would
+      // return empty anyway — skip the query round-trip for that common case.
+      // Fire-and-forget + wrapped: a notify failure must never fail telemetry
+      // ingestion (same "telemetry loss is acceptable, a failed business
+      // request is not" contract as the INSERT above).
+      if (e.type === 'audit' && e.name === 'outbox_heartbeat' && ctx.userId) {
+        const failed = Number((e.props as { failed?: unknown }).failed) || 0;
+        void notifySyncStuck(pg as any, ctx.userId, failed).catch(() => { /* never fail ingestion */ });
+      }
     } catch { /* fire-and-forget: never fail the batch on one bad row */ }
   }
   return accepted;

@@ -4,6 +4,7 @@
 // that actually sends goes through sendPush (lib/push), which is fire-and-forget.
 import { randomUUID } from 'node:crypto';
 import { sendPush } from './push';
+import { isQuietHoursNow, utcMinutesNow } from './quietHours';
 
 type Pg = { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> };
 
@@ -25,6 +26,9 @@ export const dedupKeys = {
   canary: (bucket: string) => `canary:5xx:${bucket}`,
   // #230: one schedule-change notification per source outbox entry (retry-proof)
   sched: (entryId: string) => `sched:entry:${entryId}`,
+  // #243: one stuck-outbox nudge per user per episode — re-armed by
+  // notifySyncStuck's own release once the failed bucket returns to zero.
+  syncStuck: (userId: string) => `sync_stuck:user:${userId}`,
 };
 
 // Returns true only if this key was newly inserted (i.e. the caller "won" the
@@ -111,15 +115,107 @@ export async function getNotifyConfig(pg: Pg): Promise<{ enabled: boolean; pollM
   };
 }
 
+// #242: splits `ids` into who gets pushed NOW vs who's in their own quiet
+// hours right now (deferred — no push, but they still got their inbox row
+// from the caller). `bypassIds` (e.g. @mention targets) always push,
+// regardless of their quiet-hours window — same escape-hatch rationale as
+// the chat mute bypass. One batch query against user_prefs; a user with no
+// row (or NULL/NULL, i.e. never set) is fail-open — always pushed — so a
+// missing pref can never silently suppress every push forever. Exported so
+// the direct chat sendPush in routes/sync.ts (which bypasses deliver()
+// entirely) can apply the same gate.
+export async function filterQuietHours(
+  pg: Pg,
+  ids: string[],
+  bypassIds: Set<string> = new Set(),
+): Promise<string[]> {
+  if (!ids.length) return ids;
+  const toCheck = ids.filter(id => !bypassIds.has(id));
+  if (!toCheck.length) return ids;
+  try {
+    const { rows } = await pg.query(
+      `SELECT user_id, quiet_hours_start, quiet_hours_end FROM user_prefs WHERE user_id = ANY($1)`,
+      [toCheck],
+    );
+    const prefs = new Map<string, { start: number | null; end: number | null }>(
+      rows.map(r => [r.user_id as string, { start: r.quiet_hours_start, end: r.quiet_hours_end }]),
+    );
+    const now = utcMinutesNow();
+    return ids.filter(id => {
+      if (bypassIds.has(id)) return true;
+      const pref = prefs.get(id);
+      if (!pref) return true; // no row → never set → fail-open
+      return !isQuietHoursNow(pref.start, pref.end, now);
+    });
+  } catch {
+    return ids; // never suppress a push over a quiet-hours lookup hiccup
+  }
+}
+
+// #245: maps a deliver() call's `p.type` to one of the 7 "My Notifications"
+// self-service categories (see mobile db/userPrefs.ts's NOTIFICATION_CATEGORIES).
+// low_stock and server_error_spike are deliberately ABSENT — an individual
+// can't silence a production/inventory-health alert for themselves alone, so
+// they're never looked up and never suppressed. Types with no entry here
+// (including sync_stuck, media_share) are likewise never personally mutable.
+const TYPE_TO_CATEGORY: Record<string, string> = {
+  assignment: 'assignment',
+  approval_request: 'approvals',
+  approval_decision: 'approvals',
+  on_call: 'on_call',
+  schedule: 'schedule',
+  checkout_idle: 'checkout_idle',
+  broadcast: 'broadcast',
+};
+
+// #245: filters `ids` down to those who have NOT muted `category` in their
+// personal "My Notifications" prefs (user_prefs.notification_prefs, a JSON
+// { category: boolean } map). Missing row / missing key / malformed JSON is
+// fail-open — always included — so a missing pref can never silently suppress
+// every push forever (same fail-open contract as filterQuietHours). Exported
+// so the direct chat sendPush in routes/sync.ts (which bypasses deliver()
+// entirely) can apply the same gate for the 'chat' category.
+export async function filterMuted(pg: Pg, ids: string[], category: string): Promise<string[]> {
+  if (!ids.length) return ids;
+  try {
+    const { rows } = await pg.query(
+      `SELECT user_id, notification_prefs FROM user_prefs WHERE user_id = ANY($1)`,
+      [ids],
+    );
+    const prefs = new Map<string, string | null>(rows.map(r => [r.user_id as string, r.notification_prefs]));
+    return ids.filter(id => {
+      const raw = prefs.get(id);
+      if (!raw) return true; // no row / never set → fail-open
+      try {
+        const parsed = JSON.parse(raw) as Record<string, boolean>;
+        return parsed[category] !== false;
+      } catch {
+        return true; // malformed JSON → fail-open
+      }
+    });
+  } catch {
+    return ids; // never suppress a push over a mute-pref lookup hiccup
+  }
+}
+
 // The single delivery funnel: writes one durable per-user `notifications` inbox
 // row per recipient AND fires sendPush as a nudge. Every notification trigger
 // (assignment, low-stock, checkout-idle, broadcast, approvals) routes through
 // here so the in-app inbox stays authoritative and push is best-effort. userIds
 // are deduped; empty → no-op. Never throws into callers.
+//
+// #242: quiet hours suppress the PUSH nudge ONLY — the inbox INSERT loop below
+// still runs for every id regardless (same precedent as the #87 'everyone'
+// push:false pool-share case: inbox-only, no blast). Pass bypassQuietHours to
+// skip the gate entirely (e.g. the user's own actionable stuck-outbox nudge).
+//
+// #245: a personally-muted category is filtered the same way — inbox-only,
+// push suppressed — applied AFTER the quiet-hours gate (order doesn't matter,
+// both only ever narrow the push-recipient set).
 export async function deliver(
   pg: Pg,
   userIds: string[],
-  p: { type: string; title: string; body: string; data?: Record<string, unknown>; createdBy?: string; push?: boolean },
+  p: { type: string; title: string; body: string; data?: Record<string, unknown>; createdBy?: string; push?: boolean; bypassQuietHours?: boolean },
 ): Promise<void> {
   try {
     const ids = [...new Set(userIds)].filter(Boolean);
@@ -133,7 +229,11 @@ export async function deliver(
     }
     // #87: inbox-only channels (e.g. an 'everyone' pool share) pass push:false —
     // the inbox row above still lands, only the device push nudge is skipped.
-    if (p.push !== false) await sendPush(pg, ids, { title: p.title, body: p.body, data: p.data });
+    if (p.push === false) return;
+    let pushTo = p.bypassQuietHours ? ids : await filterQuietHours(pg, ids);
+    const category = TYPE_TO_CATEGORY[p.type];
+    if (category) pushTo = await filterMuted(pg, pushTo, category);
+    if (pushTo.length) await sendPush(pg, pushTo, { title: p.title, body: p.body, data: p.data });
   } catch { /* never disrupt callers */ }
 }
 
@@ -177,6 +277,9 @@ const INTRINSIC: Record<string, (pg: Pg, ctx: RecipientCtx) => Promise<string[]>
   // OPERATION_PERM, and the board is org-wide — a scheduler legitimately moves
   // people outside their own team. notify_route_schedule unions on top.
   schedule:      async (_pg, ctx) => ctx.userId ? [ctx.userId] : [],
+  // #243: stuck-outbox nudge is always self-targeted (a device's own unsynced
+  // backlog) — no sharesTeam gate needed, same shape as `schedule`.
+  sync_stuck:    async (_pg, ctx) => ctx.userId ? [ctx.userId] : [],
   checkout_idle: async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   approvals:     async (pg, ctx) => ctx.userId ? resolveTeamManagers(pg, ctx.userId) : [],
   // Coverage saves concern the PM bench: every other active production_manager
@@ -259,4 +362,40 @@ export async function notifyLowStock(pg: Pg, itemId: string): Promise<void> {
       await releaseEvent(pg, key); // back above threshold → re-arm
     }
   } catch { /* never disrupt sync */ }
+}
+
+// #243: reacts to a device's `outbox_heartbeat` telemetry beat (ingested via
+// telemetry.ts's ingestEvents) by nudging the OWNING user when their outbox has
+// permanently-failed (retry-exhausted) entries — the server-side twin of the
+// mobile-local #205 alert (evaluateSyncStuckAlert), same wording + same
+// `data: { screen: 'sync' }` deep-link contract so a tap lands on the identical
+// SyncIndicator sheet whether the nudge fired locally or from the server.
+// Dedup'd per user per episode via claimEvent/releaseEvent (notifyLowStock
+// precedent): the first heartbeat with failed>0 claims and notifies; every
+// later heartbeat while still stuck is a no-op; a heartbeat reporting the
+// bucket cleared releases the key so a later relapse can re-fire. Respects
+// quiet hours like every other deliver()-routed channel (no bypass) — this is
+// the user's own actionable backlog, not urgent enough to override a window
+// they set themself. Never throws into the caller (telemetry ingestion must
+// never fail over a notify hiccup).
+export async function notifySyncStuck(pg: Pg, userId: string, failedCount: number): Promise<void> {
+  try {
+    const key = dedupKeys.syncStuck(userId);
+    if (failedCount > 0) {
+      if (await claimEvent(pg, key)) {
+        const to = await resolveRecipients(pg, 'sync_stuck', { userId });
+        if (to.length) {
+          const noun = failedCount === 1 ? 'change' : 'changes';
+          await deliver(pg, to, {
+            type: 'sync_stuck',
+            title: 'Sync needs attention',
+            body: `${failedCount} ${noun} couldn't sync — tap to review`,
+            data: { screen: 'sync' },
+          });
+        }
+      }
+    } else {
+      await releaseEvent(pg, key); // recovered → re-arm for a future relapse
+    }
+  } catch { /* never disrupt telemetry ingestion */ }
 }

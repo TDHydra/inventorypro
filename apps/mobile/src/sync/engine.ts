@@ -1,7 +1,9 @@
 import NetInfo from './netinfo';
 import { AppState, AppStateStatus } from 'react-native';
-import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, markOutboxDenied, dropOutboxEntry, retryFailedOutbox, getPendingLogCount, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
+import { getPendingOutbox, markOutboxSynced, incrementOutboxAttempt, markOutboxDenied, dropOutboxEntry, retryFailedOutbox, getPendingLogCount, getOutboxCounts, getDeniedCount, OutboxEntry, MAX_OUTBOX_ATTEMPTS } from './outbox';
+import { shouldEmitHeartbeat } from './heartbeat';
 import { denialMessage } from './denialMessages';
+import { isPermanentRejection } from './rejectionClassify';
 import { pullChanges } from './pull';
 import { isSandboxActive } from './sandbox';
 import { reconcileTeams } from './teamPurge';
@@ -59,18 +61,47 @@ function trackIfNewlyDead(e: OutboxEntry): void {
   }
 }
 
-// A server conflict is PERMANENT when retrying can never make it succeed: an
-// authorization denial. The /sync/push handler surfaces these as conflict
-// messages containing 'Forbidden' / 'cannot' / 'not allowed' (apps/api/src/routes/
-// sync.ts — e.g. 'Forbidden: teams requires manage_teams', 'Table not allowed').
-// Everything else — the generic 'write rejected' (masks a bad column or an FK to a
-// not-yet-synced row) and 'Maintenance mode: writes are frozen' (succeeds once the
-// freeze lifts) — is treated as TRANSIENT and retried, bounded by MAX_ATTEMPTS.
-// Deliberately conservative: only these three phrases classify as permanent, so an
-// unrecognized rejection defaults to today's retry-then-dead-letter behavior.
-const PERMANENT_REJECTION = /forbidden|cannot|not allowed/i;
-function isPermanentRejection(error?: string): boolean {
-  return !!error && PERMANENT_REJECTION.test(error);
+// #236: fleet sync-health heartbeat state. Module-level (not persisted) —
+// a cold start just re-emits once, which is fine since the throttle only
+// exists to stop a chatty stuck-outbox from spamming every ~10s fast-retry
+// cycle, not to dedupe across app restarts.
+let lastHeartbeatAt: number | null = null;
+let lastHeartbeatCountsNonzero = false;
+
+// Emits at most one 'outbox_heartbeat' telemetry event per completed sync
+// cycle, gated by shouldEmitHeartbeat's throttle/transition rules (see
+// heartbeat.ts). `denied` comes from getDeniedCount() separately —
+// getOutboxCounts() only covers the active/failed buckets (denied = 1 rows
+// are excluded there by design, see outbox.ts).
+function emitOutboxHeartbeat(): void {
+  // Demo/test sessions never push or pull (see runDrainAndPull) — their
+  // throwaway outbox state must not reach fleet telemetry either.
+  if (isSandboxActive()) return;
+  const { active, failed } = getOutboxCounts();
+  const denied = getDeniedCount();
+  const counts = { pending: active, failed, denied };
+  const now = Date.now();
+  if (!shouldEmitHeartbeat(now, lastHeartbeatAt, counts, lastHeartbeatCountsNonzero)) return;
+  track('audit', 'outbox_heartbeat', { props: counts });
+  lastHeartbeatAt = now;
+  lastHeartbeatCountsNonzero = counts.pending > 0 || counts.failed > 0 || counts.denied > 0;
+}
+
+// #235: the permanent-vs-transient classification itself now lives in
+// rejectionClassify.ts (pure, node:test-able — engine.ts pulls in react-native/
+// expo modules that block plain node:test). It prefers the server's `code`
+// field when present (apps/api/src/routes/sync.ts's conflicts.push sites) and
+// falls back to the legacy 'forbidden'/'cannot'/'not allowed' wording match
+// for servers that predate it.
+
+// #235: the server sets X-Request-Id on every response (see apps/api/src/
+// index.ts's onRequest hook) — fetch's Headers is case-insensitive, so this
+// reads it regardless of casing. Appended to a stored error so a support
+// ticket quoting "Ref: <id>" can be traced straight to the request server-side
+// (and its audit_log row), without adding an outbox schema column.
+function withRequestRef(message: string, res: Response): string {
+  const reqId = res.headers.get('x-request-id');
+  return reqId ? `${message} [ref ${reqId}]` : message;
 }
 
 // POSTs one batch and applies the server's verdict to the outbox. Shared by the
@@ -90,7 +121,7 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
   if (!res.ok) {
     const errText = await res.text();
     entries.forEach(e => {
-      incrementOutboxAttempt(e.id, `HTTP ${res.status}: ${errText}`);
+      incrementOutboxAttempt(e.id, withRequestRef(`HTTP ${res.status}: ${errText}`, res));
       trackIfNewlyDead(e);
     });
     return 0;
@@ -98,7 +129,7 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
 
   const result = await res.json() as {
     ok: string[];
-    conflicts: Array<{ id: string; error?: string }>;
+    conflicts: Array<{ id: string; error?: string; code?: string }>;
   };
 
   markOutboxSynced(result.ok);
@@ -121,9 +152,12 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
   const entryById = new Map(entries.map(e => [e.id, e]));
   for (const c of result.conflicts ?? []) {
     const e = entryById.get(c.id);
-    if (isPermanentRejection(c.error)) {
+    if (isPermanentRejection(c.error, c.code)) {
       if (e) {
-        markOutboxDenied(c.id, denialMessage({ table_name: e.table_name, operation: e.operation }));
+        // #235: the ref is appended even to the friendly denial message — it's
+        // just a correlation id, not the raw server reason denialMessage()
+        // deliberately withholds from the user.
+        markOutboxDenied(c.id, withRequestRef(denialMessage({ table_name: e.table_name, operation: e.operation }), res));
         track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server', permanent: true } });
       } else {
         // Shouldn't happen — c.id came from the batch we just posted — but
@@ -134,7 +168,7 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
       }
       continue;
     }
-    incrementOutboxAttempt(c.id, c.error ? `Rejected: ${c.error}` : 'Rejected by server');
+    incrementOutboxAttempt(c.id, withRequestRef(c.error ? `Rejected: ${c.error}` : 'Rejected by server', res));
     if (e) {
       track('error', 'push_conflict', { props: { table: e.table_name, reason: c.error ?? 'Rejected by server' } });
       trackIfNewlyDead(e);
@@ -227,6 +261,11 @@ async function syncCycle(): Promise<void> {
   // a push error, or leftover entries — retry in ~10s instead of waiting for
   // the 60s heartbeat. Once the outbox drains, this stops arming itself.
   if (hasDeliverableWork()) scheduleFastRetry();
+
+  // #236: one telemetry heartbeat per completed cycle (throttled/gated —
+  // see emitOutboxHeartbeat), after the drain/pull attempt so it reflects
+  // this cycle's outcome rather than the pre-cycle state.
+  emitOutboxHeartbeat();
 }
 
 // The actual network work: drain the outbox, then pull. Errors are caught so a
