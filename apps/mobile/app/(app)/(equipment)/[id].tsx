@@ -18,8 +18,9 @@ import { HidableField } from '../../../src/components/ui/HidableField';
 import { FilterChip } from '../../../src/components/ui/FilterChip';
 import {
   getUnitByTag, upsertUnit, getUnitsForItem, countUnitsByStatus,
-  setUnitStatus, EquipmentUnit,
+  setUnitStatus, markUnitClean, markUnitDirty, EquipmentUnit,
 } from '../../../src/db/queries/equipmentUnits';
+import { StatusPill } from '../../../src/components/ui/StatusPill';
 import { appendLog } from '../../../src/db/queries/log';
 import {
   createMaintenanceEvent, getMaintenanceEventsForUnit, MaintenanceEvent,
@@ -376,6 +377,9 @@ export default function EquipmentModelDetailScreen() {
         depreciation_method: null,
         next_service_at: null,
         service_interval_months: null,
+        // #248: new units always start clean with a zeroed cadence counter.
+        cleanliness: 'clean',
+        jobs_since_clean: 0,
         created_at: now,
         updated_at: now,
         synced_at: null,
@@ -390,6 +394,8 @@ export default function EquipmentModelDetailScreen() {
         current_location_id: locationId,
         current_job_id: null,
         notes: null,
+        cleanliness: 'clean',
+        jobs_since_clean: 0,
         created_at: now,
         updated_at: now,
         // synced_at intentionally omitted from outbox payload
@@ -518,6 +524,29 @@ export default function EquipmentModelDetailScreen() {
       metadata: null, device_id: null,
     });
     setEditUnit(null);
+  }
+
+  // #248: manual mark clean/dirty — no confirm (per decision), disabled while
+  // maintenance-locked. markUnitClean resets the cadence counter; markUnitDirty
+  // leaves it untouched (only a reset-worthy "clean" event zeroes it).
+  function toggleUnitCleanliness(unit: EquipmentUnit) {
+    if (!realUser) return;
+    if (isWriteBlocked()) return;
+    const wasDirty = unit.cleanliness === 'dirty';
+    const updated = wasDirty ? markUnitClean(unit.id) : markUnitDirty(unit.id);
+    appendOutbox('UPDATE', 'equipment_units', {
+      id: updated.id, cleanliness: updated.cleanliness, jobs_since_clean: updated.jobs_since_clean, updated_at: updated.updated_at,
+    });
+    appendLog({
+      user_id: realUser.id, team_id: null,
+      action: wasDirty ? 'unit_marked_clean' : 'unit_marked_dirty',
+      entity_type: 'equipment_unit', entity_id: unit.id,
+      from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+      note: unit.asset_tag,
+      metadata: null, device_id: null,
+    });
+    // Keep the open Edit Unit modal's snapshot in sync so the pill flips immediately.
+    setEditUnit(updated);
   }
 
   function doRetireUnit(unit: EquipmentUnit) {
@@ -830,6 +859,20 @@ export default function EquipmentModelDetailScreen() {
             autoCorrect={false}
           />
         </View>
+        {/* #248: manual mark clean/dirty — no confirm, disabled while locked. */}
+        {editUnit && (
+          <TouchableOpacity
+            style={[s.row, { marginTop: 10, alignItems: 'center', justifyContent: 'space-between' }]}
+            onPress={() => toggleUnitCleanliness(editUnit)}
+            disabled={locked}
+          >
+            <StatusPill
+              label={editUnit.cleanliness === 'dirty' ? 'Needs cleaning' : 'Clean'}
+              tone={editUnit.cleanliness === 'dirty' ? 'warning' : 'success'}
+            />
+            <Text style={s.btnGhostText}>{editUnit.cleanliness === 'dirty' ? 'Mark clean' : 'Mark dirty'}</Text>
+          </TouchableOpacity>
+        )}
         <AdvancedFields>
           <HidableField fieldId="equipment.serial_number">
             <View style={{ marginTop: 10 }}>

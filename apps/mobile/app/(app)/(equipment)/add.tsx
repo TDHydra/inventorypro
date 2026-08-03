@@ -186,6 +186,9 @@ export default function AddEquipmentScreen() {
             depreciation_method: null,
             next_service_at: null,
             service_interval_months: null,
+            // #248: new units always start clean with a zeroed cadence counter.
+            cleanliness: 'clean',
+            jobs_since_clean: 0,
             created_at: now,
             updated_at: now,
             synced_at: null,

@@ -13,10 +13,10 @@ import type { Permission } from '../../constants/roles';
 import type { WidgetConfig, WorkListSource } from '../../dashboard/widgets';
 import { getOpenJobs } from '../../db/queries/jobs';
 import { getMyAssignedJobs } from '../../db/queries/jobAssignments';
-import { getDeployedUnitsForUser, getUnitsStrandedOnClosedJobs } from '../../db/queries/equipmentUnits';
+import { getDeployedUnitsForUser, getUnitsStrandedOnClosedJobs, getUnitsNeedingCleaning } from '../../db/queries/equipmentUnits';
 import { getRepairs } from '../../db/queries/repairs';
 import { getUnitsDueForService } from '../../db/queries/maintenance';
-import { getLowStockItems } from '../../db/queries/items';
+import { getLowStockItems, getItemsNeedingCleaning } from '../../db/queries/items';
 import { getUnitLocations } from '../../db/queries/locations';
 import { isVehicleAvailableForCheckout } from '../../db/queries/vehicles';
 import { getScheduleAssignmentsForEmployee } from '../../db/queries/schedule';
@@ -196,6 +196,29 @@ const WORK_LIST_DEFS: Record<WorkListSource, WorkListDef> = {
       updated_at: l.updated_at,
     })),
     tables: ['locations', 'vehicles', 'vehicle_checkouts'],
+  },
+  // #248: dirty units (auto-flipped by check-in cadence, or hand-marked) plus
+  // items hand-flagged needs_cleaning. Mixes unit and item ids, so no
+  // rowRoute — same permission as the equipment tile it taps through to.
+  // Collapses when the org has nothing dirty (WorkListCard renders null).
+  'needs-cleaning': {
+    title: 'Needs Cleaning', icon: '🧼', emptyTitle: 'Nothing needs cleaning',
+    viewAllRoute: '/(app)/(equipment)', requiredPermission: 'add_inventory',
+    read: () => [
+      ...getUnitsNeedingCleaning().map(u => ({
+        id: u.id,
+        primary: `${u.item_name} · ${u.asset_tag}`,
+        secondary: 'Unit needs cleaning',
+        updated_at: u.updated_at ?? null,
+      })),
+      ...getItemsNeedingCleaning().map(i => ({
+        id: i.id,
+        primary: i.name,
+        secondary: 'Item needs cleaning',
+        updated_at: i.updated_at ?? null,
+      })),
+    ],
+    tables: ['equipment_units', 'inventory_items'],
   },
 };
 

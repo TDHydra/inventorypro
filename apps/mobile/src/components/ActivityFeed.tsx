@@ -57,8 +57,15 @@ export const ACTION_ICONS: Record<string, string> = {
   unit_edited: '🛠',
   unit_retired: '⛔',
 
+  // ---- #248 equipment/item cleanliness ("filth") state ----
+  unit_marked_clean: '🧼',
+  unit_marked_dirty: '🧽',
+  unit_auto_dirty: '🧽',
+
   // ---- item actions ----
   item_created: '🆕',
+  item_marked_needs_cleaning: '🧽',
+  item_marked_clean: '🧼',
 
   // ---- #199 preview-as-role sessions (#233 audit) ----
   preview_started: '🕶️',

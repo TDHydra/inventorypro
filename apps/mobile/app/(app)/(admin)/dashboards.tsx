@@ -111,6 +111,7 @@ const WORK_LIST_SOURCE_LABELS: Record<WorkListSource, string> = {
   'units-due-service': 'Due for Service',
   'low-stock': 'Low Stock',
   vehicles: 'Vehicles',
+  'needs-cleaning': 'Needs Cleaning',
 };
 const WORK_LIST_SOURCES = Object.keys(WORK_LIST_SOURCE_LABELS) as WorkListSource[];
 

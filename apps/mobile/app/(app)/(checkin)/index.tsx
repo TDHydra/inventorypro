@@ -21,7 +21,7 @@ import { formatQuantity } from '../../../src/constants/units';
 import { PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
-import { getDeployedUnitsForUser, getUnitByTag, setUnitStatus } from '../../../src/db/queries/equipmentUnits';
+import { getDeployedUnitsForUser, getUnitByTag, checkInUnitFromJob } from '../../../src/db/queries/equipmentUnits';
 import { useCurrentPosition } from '../../../src/hooks/useCurrentPosition';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { sortByProximity } from '../../../src/location/proximity';
@@ -296,13 +296,13 @@ export default function CheckinScreen() {
       runInTransaction(() => {
         let primaryUnitCheckinLogged = false;
         for (const unit of toReturn) {
-          // Capture job_id before setUnitStatus clears it
+          // Capture job_id before checkInUnitFromJob clears it
           const jobIdForLog = unit.current_job_id;
-          const u = setUnitStatus(unit.id, {
-            status: 'available',
-            current_location_id: unitReturnLocId,
-            current_job_id: null,
-          });
+          // #248: routes status/location/job-clear through the same cadence
+          // logic the hub's commitReturnBatch uses — re-reads the item's
+          // clean_after_jobs at commit time, applies the counter, and flags
+          // whether THIS check-in is what flipped the unit dirty.
+          const { unit: u, autoDirtied } = checkInUnitFromJob(unit.id, unitReturnLocId);
           // Full upsert by id; no synced_at
           appendOutbox('INSERT', 'equipment_units', {
             id: u.id,
@@ -313,6 +313,8 @@ export default function CheckinScreen() {
             current_location_id: unitReturnLocId,
             current_job_id: null,
             notes: u.notes,
+            cleanliness: u.cleanliness,
+            jobs_since_clean: u.jobs_since_clean,
             created_at: u.created_at,
             updated_at: u.updated_at,
           });
@@ -337,6 +339,26 @@ export default function CheckinScreen() {
             ...(!primaryUnitCheckinLogged && { id: unitCheckinEventId }),
           });
           primaryUnitCheckinLogged = true;
+          // #248: a separate, conditional log entry — only when this check-in
+          // is what flipped the unit dirty (autoDirtied guards against
+          // re-logging an already-dirty unit on subsequent check-ins).
+          if (autoDirtied) {
+            appendLog({
+              user_id: realUser!.id,
+              team_id: null,
+              action: 'unit_auto_dirty',
+              entity_type: 'equipment_unit',
+              entity_id: u.id,
+              from_location_id: null,
+              to_location_id: null,
+              quantity: null,
+              unit: null,
+              job_id: jobIdForLog,
+              note: u.asset_tag,
+              metadata: null,
+              device_id: null,
+            });
+          }
         }
       });
     } catch (err) {

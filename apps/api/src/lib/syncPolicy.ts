@@ -473,6 +473,11 @@ export const ACTIVITY_ACTIONS = new Set([
   // metadata). Access-request funnel (#234): entity_type 'access_request',
   // entity_id null, {table, grantor_id} in metadata.
   'preview_started', 'preview_ended', 'access_requested',
+  // Equipment/item cleanliness state (#248): logged against entity_type
+  // 'equipment_unit' (unit_marked_clean/dirty/auto_dirty) or 'item'
+  // (item_marked_needs_cleaning/clean).
+  'unit_marked_clean', 'unit_marked_dirty', 'unit_auto_dirty',
+  'item_marked_needs_cleaning', 'item_marked_clean',
 ]);
 export const ACTIVITY_ENTITY_TYPES = new Set([
   'user', 'item', 'equipment_unit', 'location', 'job', 'team', 'role_settings', 'repair', 'media',
@@ -519,8 +524,10 @@ const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_ove
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
 const REPAIRS_SENSITIVE = ', cost';
 // equipment_units: purchase_price + salvage_value are financial (gated behind
-// view_financial_data — mirrors repairs.cost). Base is every other real column.
-const EQUIPMENT_UNITS_BASE = 'id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, acquired_at, useful_life_months, depreciation_method, next_service_at, service_interval_months';
+// view_financial_data — mirrors repairs.cost). Base is every other real
+// column, including cleanliness/jobs_since_clean (#248, migration 081 — not
+// financial, so BASE not SENSITIVE).
+const EQUIPMENT_UNITS_BASE = 'id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, acquired_at, useful_life_months, depreciation_method, next_service_at, service_interval_months, cleanliness, jobs_since_clean';
 const EQUIPMENT_UNITS_SENSITIVE = ', purchase_price, salvage_value';
 // maintenance_events: cost is financial (gated, mirrors repairs.cost). Base is
 // every other synced column.

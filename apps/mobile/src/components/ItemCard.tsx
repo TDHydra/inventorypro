@@ -11,6 +11,7 @@ import { isRepairableCategory } from '../constants/repairable';
 import { usePermission } from '../hooks/usePermission';
 import { resolveTypeColor } from '../constants/typeColors';
 import { MediaThumbnail } from './MediaThumbnail';
+import { StatusPill } from './ui/StatusPill';
 
 interface ItemRow {
   id: string;
@@ -21,6 +22,8 @@ interface ItemRow {
   total_stock: number;
   // Present on search rows (SELECT i.*) — the item-type label drives the color.
   category?: string | null;
+  // #248: present on search rows (SELECT i.*) — flags a bulk item as dirty.
+  needs_cleaning?: number | boolean;
 }
 
 interface StockRow {
@@ -97,6 +100,11 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
         <View style={styles.headerLeft}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
           {item.barcode && <Text style={styles.barcode}>{item.barcode}</Text>}
+          {!!item.needs_cleaning && (
+            <View style={{ marginTop: 2, alignSelf: 'flex-start' }}>
+              <StatusPill label="Needs cleaning" tone="warning" />
+            </View>
+          )}
         </View>
         <View style={styles.headerRight}>
           <Text style={[styles.stock, lowStock && styles.stockLow]}>{totalDisplay}</Text>

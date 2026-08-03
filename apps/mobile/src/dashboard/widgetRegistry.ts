@@ -58,7 +58,8 @@ export type WorkListSource =
   | 'open-repairs'
   | 'units-due-service'
   | 'low-stock'
-  | 'vehicles';          // #177: vehicle locations with availability
+  | 'vehicles'           // #177: vehicle locations with availability
+  | 'needs-cleaning';    // #248: getUnitsNeedingCleaning + getItemsNeedingCleaning — dirty units/items
 
 export type WidgetConfig = {
   // Tile/section overrides (pre-existing).

@@ -35,7 +35,7 @@ import {
 import { getLocationById, getStockAtLocation } from '../../../src/db/queries/locations';
 import { getUnitInventoryLock } from '../../../src/db/queries/access';
 import { getEquipmentModels, type EquipmentModel } from '../../../src/db/queries/equipment';
-import { setUnitStatus, type EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
+import { setUnitStatus, checkInUnitFromJob, type EquipmentUnit } from '../../../src/db/queries/equipmentUnits';
 import { appendOutbox } from '../../../src/sync/outbox';
 import { appendLog } from '../../../src/db/queries/log';
 import { generateUUID } from '../../../src/utils/uuid';
@@ -212,12 +212,16 @@ export default function HubScreen() {
   }
 
   // Outbox a full equipment_units row (mirrors checkout's outboxUnit; synced_at omitted).
+  // cleanliness/jobs_since_clean (#248) ride along on every call — a no-op
+  // round-trip for the checkout paths (unchanged value), but load-bearing for
+  // commitReturnBatch's checkInUnitFromJob-updated units below.
   function outboxUnit(u: EquipmentUnit) {
     appendOutbox('INSERT', 'equipment_units', {
       id: u.id, item_id: u.item_id, asset_tag: u.asset_tag,
       serial_number: u.serial_number, status: u.status,
       current_location_id: u.current_location_id, current_job_id: u.current_job_id,
-      notes: u.notes, created_at: u.created_at, updated_at: u.updated_at,
+      notes: u.notes, cleanliness: u.cleanliness, jobs_since_clean: u.jobs_since_clean,
+      created_at: u.created_at, updated_at: u.updated_at,
       // synced_at intentionally omitted from outbox payload
     });
   }
@@ -675,11 +679,18 @@ export default function HubScreen() {
       runInTransaction(() => {
         returnBatch.forEach((u, i) => {
           failedUnit = u.asset_tag;
-          const updated = setUnitStatus(u.id, {
-            status: 'available', current_location_id: toLocationId, current_job_id: null,
-          });
+          // #248: routes through the same cadence logic (checkin)/index.tsx's
+          // handleUnitCheckin uses — re-reads the item's clean_after_jobs at
+          // commit time, applies the counter, flags an auto-dirty flip.
+          const { unit: updated, autoDirtied } = checkInUnitFromJob(u.id, toLocationId);
           outboxUnit(updated);
           appendLog({ ...baseLog, ...logRows[i] });
+          if (autoDirtied) {
+            appendLog({
+              ...baseLog, action: 'unit_auto_dirty', entity_type: 'equipment_unit', entity_id: updated.id,
+              from_location_id: null, to_location_id: null, job_id: u.current_job_id, quantity: null, note: u.asset_tag,
+            });
+          }
         });
       });
     } catch (err) {

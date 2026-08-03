@@ -1,4 +1,6 @@
 import { getDb, rowsAs, bindParams } from '../schema';
+import { getItemById } from './items';
+import { applyCheckIn, markClean, type CleanlinessState } from '../../equipment/cleanliness';
 
 export interface EquipmentUnit {
   id: string;
@@ -21,6 +23,11 @@ export interface EquipmentUnit {
   depreciation_method: string | null;
   next_service_at: string | null;
   service_interval_months: number | null;
+  // Cleanliness state (#248, migration 067). cleanliness is free-form TEXT
+  // ('clean' | 'dirty' today); jobs_since_clean is the auto-dirty cadence
+  // counter — see src/equipment/cleanliness.ts.
+  cleanliness: string;
+  jobs_since_clean: number;
   synced_at: string | null;
 }
 
@@ -104,10 +111,11 @@ export function upsertUnit(u: EquipmentUnit): void {
   const db = getDb();
   db.executeSync(
     `INSERT OR REPLACE INTO equipment_units
-       (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, item_id, asset_tag, serial_number, status, current_location_id, current_job_id, notes, created_at, updated_at, purchase_price, acquired_at, useful_life_months, salvage_value, depreciation_method, next_service_at, service_interval_months, cleanliness, jobs_since_clean, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([u.id, u.item_id, u.asset_tag, u.serial_number, u.status, u.current_location_id, u.current_job_id, u.notes, u.created_at, u.updated_at,
       u.purchase_price ?? null, u.acquired_at ?? null, u.useful_life_months ?? null, u.salvage_value ?? null, u.depreciation_method ?? null, u.next_service_at ?? null, u.service_interval_months ?? null,
+      u.cleanliness ?? 'clean', u.jobs_since_clean ?? 0,
       u.synced_at]));
 }
 
@@ -127,6 +135,76 @@ export function setUnitStatus(
   };
   upsertUnit(next);
   return next;
+}
+
+// #248: the ONLY two real job check-in sites — (checkin)/index.tsx's
+// handleUnitCheckin and (hub)/index.tsx's commitReturnBatch — route a unit's
+// job check-in through here so the cleanliness cadence is applied exactly
+// once per unit, in the same place. Re-reads the OWNING ITEM's
+// clean_after_jobs at commit time (not scan/select time) — an admin editing
+// the cadence mid-checkout takes effect on this very check-in. Returns the
+// fully-updated unit (status/location/job cleared, same as before) plus
+// autoDirtied so the caller can conditionally log a single 'unit_auto_dirty'
+// activity entry (never more than once per flip).
+export function checkInUnitFromJob(
+  unitId: string,
+  toLocationId: string,
+): { unit: EquipmentUnit; autoDirtied: boolean } {
+  const db = getDb();
+  const cur = db.executeSync(`SELECT * FROM equipment_units WHERE id = ?`, [unitId]).rows[0] as unknown as EquipmentUnit;
+  const item = getItemById(cur.item_id);
+  const cadence = item?.clean_after_jobs ?? null;
+  const cleanlinessIn: CleanlinessState = { cleanliness: cur.cleanliness ?? 'clean', jobs_since_clean: cur.jobs_since_clean ?? 0 };
+  const { cleanliness, jobs_since_clean, autoDirtied } = applyCheckIn(cleanlinessIn, cadence);
+  const now = new Date().toISOString();
+  const next: EquipmentUnit = {
+    ...cur,
+    status: 'available',
+    current_location_id: toLocationId,
+    current_job_id: null,
+    cleanliness,
+    jobs_since_clean,
+    updated_at: now,
+    synced_at: null,
+  };
+  upsertUnit(next);
+  return { unit: next, autoDirtied };
+}
+
+// #248: manual "mark clean" — resets the cadence counter. No confirm (per
+// decision); disabled={locked} is the caller's job (useMaintenanceMode gate).
+export function markUnitClean(unitId: string): EquipmentUnit {
+  const db = getDb();
+  const cur = db.executeSync(`SELECT * FROM equipment_units WHERE id = ?`, [unitId]).rows[0] as unknown as EquipmentUnit;
+  const { cleanliness, jobs_since_clean } = markClean();
+  const next: EquipmentUnit = { ...cur, cleanliness, jobs_since_clean, updated_at: new Date().toISOString(), synced_at: null };
+  upsertUnit(next);
+  return next;
+}
+
+// #248: manual "mark dirty" — the counter is left untouched (only markUnitClean
+// resets it); this just flips the visible state for a unit that got dirty
+// off-cadence (e.g. an unusually messy job).
+export function markUnitDirty(unitId: string): EquipmentUnit {
+  const db = getDb();
+  const cur = db.executeSync(`SELECT * FROM equipment_units WHERE id = ?`, [unitId]).rows[0] as unknown as EquipmentUnit;
+  const next: EquipmentUnit = { ...cur, cleanliness: 'dirty', updated_at: new Date().toISOString(), synced_at: null };
+  upsertUnit(next);
+  return next;
+}
+
+// #248: dirty, non-retired units — half of the "Needs cleaning" dashboard
+// work-list (the other half is items.ts's getItemsNeedingCleaning). A retired
+// unit's grime doesn't need action, so it's excluded.
+export function getUnitsNeedingCleaning(): (EquipmentUnit & { item_name: string })[] {
+  const db = getDb();
+  return db.executeSync(
+    `SELECT eu.*, i.name AS item_name
+     FROM equipment_units eu
+     JOIN inventory_items i ON i.id = eu.item_id
+     WHERE eu.cleanliness = 'dirty' AND eu.status != 'retired'
+     ORDER BY eu.asset_tag`
+  ).rows as any[];
 }
 
 // #212 close-out guard: what would be stranded if these jobs were closed right

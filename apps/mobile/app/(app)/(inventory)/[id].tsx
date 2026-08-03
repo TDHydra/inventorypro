@@ -11,7 +11,11 @@ import {
 } from '../../../src/db/queries/items';
 import { getLocationPath, resolveLocationShelfSelection } from '../../../src/db/queries/locations';
 import { appendOutbox } from '../../../src/sync/outbox';
+import { appendLog } from '../../../src/db/queries/log';
 import { usePermission } from '../../../src/hooks/usePermission';
+import { useSession } from '../../../src/hooks/useSession';
+import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
+import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { UnitCategory, formatQuantity, PRODUCT_CLASS_IDS, getUnitsForClass } from '../../../src/constants/units';
 import { getProductClassById, getProductClasses, getItemTypes, parseItemTypeMeta, TaxonomyType, getItemTypeColorMap } from '../../../src/db/queries/taxonomy';
@@ -36,6 +40,7 @@ import { FormScreen } from '../../../src/components/ui/FormScreen';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import { ModalSheet } from '../../../src/components/ui/ModalSheet';
+import { StatusPill } from '../../../src/components/ui/StatusPill';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -48,6 +53,8 @@ export default function ItemDetailScreen() {
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canUpload = usePermission('upload_media');
+  const { realUser } = useSession();
+  const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
 
   const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -67,6 +74,10 @@ export default function ItemDetailScreen() {
   const [editUnit, setEditUnit] = useState('');
   // 0 = off (QuantityStepper has no blank state; mirrors the add-screen convention).
   const [editMinAlert, setEditMinAlert] = useState(0);
+  // #248: auto-dirty cadence for this item's units. 0 = off in the UI
+  // (QuantityStepper convention, same as editMinAlert) but writes NULL at the
+  // save boundary — clean_after_jobs is nullable, unlike min_qty_alert.
+  const [editCleanAfterJobs, setEditCleanAfterJobs] = useState(0);
   // Optional "home" location (where the item belongs). Nullable. The two-stage
   // LocationShelfPicker holds the parent location and its optional shelf
   // separately; both are resolved to a single id at submit.
@@ -146,6 +157,7 @@ export default function ItemDetailScreen() {
       pack_size: item.pack_size != null ? String(item.pack_size) : '',
     });
     setEditMinAlert(item.min_qty_alert ?? 0);
+    setEditCleanAfterJobs(item.clean_after_jobs ?? 0);
     setEditCategory(item.category ?? '');
     setEditReturnable(item.returnable === 1);
     // Seed units from the item as-is (data safety: never destroy an existing
@@ -249,6 +261,9 @@ export default function ItemDetailScreen() {
       supplier: form.supplier.trim() || null,
       min_qty_alert: editMinAlert,
       reorder_to: reorder.value,
+      // 0 -> NULL at the write boundary (min_qty_alert convention, but
+      // clean_after_jobs is nullable so NULL, not 0, is the canonical "off").
+      clean_after_jobs: editCleanAfterJobs > 0 ? editCleanAfterJobs : null,
       category: editCategory.trim() || null,
       returnable: (editReturnable ? 1 : 0) as number,
       // Keep unit_category a real product_class id so formatQuantity decimals
@@ -262,6 +277,33 @@ export default function ItemDetailScreen() {
     // Outbox: send returnable as real boolean (Postgres column is BOOLEAN)
     appendOutbox('UPDATE', 'inventory_items', { ...synced, returnable: editReturnable });
     setEditing(false);
+    reload();
+  }
+
+  // #248: standalone item-level "needs cleaning" toggle — no confirm (mirrors
+  // the equipment unit's mark clean/dirty toggle), logged against its own two
+  // activity actions (not folded into the generic 'item_updated' save above).
+  function toggleNeedsCleaning() {
+    if (!item) return;
+    if (isWriteBlocked()) return;
+    const next = !item.needs_cleaning;
+    const synced = updateItemFields(item.id, { needs_cleaning: (next ? 1 : 0) as number });
+    appendOutbox('UPDATE', 'inventory_items', { ...synced, needs_cleaning: next });
+    appendLog({
+      user_id: realUser?.id ?? null,
+      team_id: null,
+      action: next ? 'item_marked_needs_cleaning' : 'item_marked_clean',
+      entity_type: 'item',
+      entity_id: item.id,
+      from_location_id: null,
+      to_location_id: null,
+      quantity: null,
+      unit: null,
+      job_id: null,
+      note: null,
+      metadata: null,
+      device_id: null,
+    });
     reload();
   }
 
@@ -379,6 +421,10 @@ export default function ItemDetailScreen() {
                 <Switch value={editReturnable} onValueChange={setEditReturnable} />
               </View>
               <QuantityStepper label="Low-stock alert (0 = off)" value={editMinAlert} onChange={setEditMinAlert} min={0} max={MAX_QUANTITY} />
+              {/* #248: auto-dirty cadence — every Nth job check-in flips a clean
+                  unit of this item to dirty. 0 = off, same convention as the
+                  low-stock alert above. */}
+              <QuantityStepper label="Clean after N jobs (0 = off)" value={editCleanAfterJobs} onChange={setEditCleanAfterJobs} min={0} max={MAX_QUANTITY} />
               {/* Reorder up to / Pack size stay plain text fields (not
                   QuantityStepper): blank vs 0 is a meaningful distinction for
                   both (0 is a real, if unusual, reorder-to-zero value; a pack
@@ -398,6 +444,11 @@ export default function ItemDetailScreen() {
             <>
               <View style={s.card}>
                 <Text style={s.name}>{item.name}</Text>
+                {!!item.needs_cleaning && (
+                  <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+                    <StatusPill label="Needs cleaning" tone="warning" />
+                  </View>
+                )}
                 {!!item.model && <Text style={s.model}>{item.model}</Text>}
                 {!!item.description && <Text style={s.desc}>{item.description}</Text>}
                 {!!item.home_location_id && (() => {
@@ -429,6 +480,7 @@ export default function ItemDetailScreen() {
                 <Row k="Supplier" v={item.supplier ?? '—'} />
                 <Row k="Low-stock alert" v={item.min_qty_alert > 0 ? String(item.min_qty_alert) : 'Off'} />
                 <Row k="Reorder up to" v={item.reorder_to != null ? String(item.reorder_to) : '—'} />
+                <Row k="Clean after N jobs" v={item.clean_after_jobs != null && item.clean_after_jobs > 0 ? `${item.clean_after_jobs}` : 'Off'} />
                 <View style={s.attrRow}>
                   <Text style={s.attrKey}>Returnable</Text>
                   <View style={[s.badge, item.returnable ? s.badgeReturn : s.badgeConsume]}>
@@ -438,6 +490,20 @@ export default function ItemDetailScreen() {
                   </View>
                 </View>
               </View>
+
+              {canEdit && (
+                <TouchableOpacity
+                  style={[s.card, s.attrRow]}
+                  onPress={toggleNeedsCleaning}
+                  disabled={locked}
+                >
+                  <Text style={s.attrKey}>{item.needs_cleaning ? 'Mark clean' : 'Mark needs cleaning'}</Text>
+                  <StatusPill
+                    label={item.needs_cleaning ? 'Needs cleaning' : 'Clean'}
+                    tone={item.needs_cleaning ? 'warning' : 'success'}
+                  />
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setPrintItemSheet(true)}>
                 <Text style={s.attrKey}>🏷 Print QR Label</Text>

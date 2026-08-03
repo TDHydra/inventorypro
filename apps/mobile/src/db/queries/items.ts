@@ -63,6 +63,14 @@ export interface InventoryItem {
   home_location_id?: string | null;
   // How many BASE units come in one pack (migration 018). null = no pack concept.
   pack_size?: number | null;
+  // Cleanliness state (#248, migration 067): opt-in item-level flag for bulk
+  // (non-unit-tracked) items, mirroring the `returnable` precedent. Optional so
+  // existing literals stay valid; writers coalesce undefined → false/null.
+  needs_cleaning?: number;
+  // Auto-dirty cadence for this item's units — every Nth job check-in flips a
+  // clean unit to dirty (see src/equipment/cleanliness.ts). NULL/0 = off
+  // (min_qty_alert's 0→NULL write-boundary convention).
+  clean_after_jobs?: number | null;
 }
 
 export interface ItemWithTotalStock extends InventoryItem {
@@ -212,13 +220,14 @@ export function upsertItem(item: InventoryItem): void {
     `INSERT OR REPLACE INTO inventory_items
        (id, name, barcode, description, sku, supplier, model, kind,
         category, returnable, unit_tracked, tag_prefix,
-        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size, category_id, type, type_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        unit_category, unit, min_qty_alert, reorder_to, active, updated_at, synced_at, home_location_id, pack_size, category_id, type, type_id, needs_cleaning, clean_after_jobs)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     bindParams([item.id, item.name, item.barcode, item.description,
      item.sku, item.supplier, item.model, item.kind,
      item.category, item.returnable, item.unit_tracked, item.tag_prefix,
      item.unit_category, item.unit, item.min_qty_alert, item.reorder_to,
-     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null, categoryId, item.type ?? null, typeId])
+     item.active, item.updated_at, item.synced_at, item.home_location_id ?? null, item.pack_size ?? null, categoryId, item.type ?? null, typeId,
+     item.needs_cleaning ? 1 : 0, item.clean_after_jobs ?? null])
   );
 }
 
@@ -230,7 +239,7 @@ const ALLOWED_ITEM_UPDATE_COLUMNS = new Set<string>([
   'name', 'barcode', 'description', 'sku', 'supplier', 'model',
   'category', 'returnable', 'unit_tracked', 'tag_prefix',
   'unit_category', 'unit', 'min_qty_alert', 'reorder_to', 'home_location_id', 'pack_size',
-  'type',
+  'type', 'needs_cleaning', 'clean_after_jobs',
 ]);
 
 // Partial edit of catalog fields (not stock). Returns the column/value map that
@@ -240,7 +249,8 @@ export function updateItemFields(
   fields: Partial<Pick<InventoryItem,
     'name' | 'barcode' | 'description' | 'sku' | 'supplier' | 'model' |
     'category' | 'returnable' | 'unit_tracked' | 'tag_prefix' |
-    'unit_category' | 'unit' | 'min_qty_alert' | 'reorder_to' | 'home_location_id' | 'pack_size' | 'type'>>
+    'unit_category' | 'unit' | 'min_qty_alert' | 'reorder_to' | 'home_location_id' | 'pack_size' | 'type' |
+    'needs_cleaning' | 'clean_after_jobs'>>
 ): Record<string, unknown> {
   const db = getDb();
   const now = new Date().toISOString();
@@ -381,4 +391,16 @@ export function getLowStockItems(): ItemWithTotalStock[] {
      ORDER BY total_stock ASC`
   );
   return resolveLabels(rowsAs<ItemWithTotalStock>(result.rows), 'category_id', 'category');
+}
+
+// #248: active items explicitly flagged needs_cleaning=1 (independent of any
+// unit-level cadence tracking, which lives on equipment_units instead).
+export function getItemsNeedingCleaning(): InventoryItem[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM inventory_items
+     WHERE active = 1 AND needs_cleaning = 1
+     ORDER BY name ASC`
+  );
+  return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category');
 }
