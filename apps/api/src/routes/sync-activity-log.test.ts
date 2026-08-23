@@ -39,7 +39,7 @@ const COLUMNS: Record<string, string[]> = {
   ],
 };
 
-function fakePg() {
+function fakePg(opts: { callerRole?: string; callerOverrides?: Record<string, boolean> | null } = {}) {
   const queries: Array<{ sql: string; params: unknown[] }> = [];
   return {
     queries,
@@ -53,8 +53,12 @@ function fakePg() {
         return { rows };
       }
       if (sql.includes('u.is_test')) {
-        // A low-permission caller: exactly the user this bug strands.
-        return { rows: [{ role: 'mitigation_technician', permission_overrides: null, role_overrides: null, is_test: false }] };
+        // A low-permission caller by default: exactly the user this bug strands.
+        // H3: privileged activity_log actions (role_permission_changed, …) are
+        // now gated on the matching permission, so a test exercising one of those
+        // actions must grant it via callerOverrides (that action is legitimately
+        // only performed by a privileged user; a low-priv one is forgery).
+        return { rows: [{ role: opts.callerRole ?? 'mitigation_technician', permission_overrides: opts.callerOverrides ?? null, role_overrides: null, is_test: false }] };
       }
       if (sql.includes(`key = 'maintenance_mode'`)) return { rows: [] };
       // The FK existence probe: EXISTS(...) AS "<col>" per checked column.
@@ -164,6 +168,35 @@ test('#56 references that DO exist are preserved untouched', async () => {
   await app.close();
 });
 
+test('H3: a low-priv caller forging a privileged action (role_permission_changed) is rejected, no row', async () => {
+  const pg = fakePg(); // default mitigation_technician: no manage_roles_permissions
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: logEntry({ action: 'role_permission_changed', entity_type: 'role_settings' }),
+  });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ id: string; error: string; code: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts[0].code, 'FORBIDDEN');
+  assert.match(body.conflicts[0].error, /manage_roles_permissions/);
+  assert.equal(insertedRow(pg), null, 'the forged audit row must never be INSERTed');
+  await app.close();
+});
+
+test('H3: a server-only action (login) can never be written by a client, no row', async () => {
+  const pg = fakePg();
+  const app = await buildApp(pg);
+  const res = await app.inject({
+    method: 'POST', url: '/sync/push',
+    payload: logEntry({ action: 'login', entity_type: 'user' }),
+  });
+  const body = res.json() as { ok: string[]; conflicts: Array<{ id: string; error: string; code: string }> };
+  assert.deepEqual(body.ok, []);
+  assert.equal(body.conflicts[0].code, 'NOT_ALLOWED');
+  assert.equal(insertedRow(pg), null, 'a server-side-only action must never be client-written');
+  await app.close();
+});
+
 test('#56 a dangling team_id degrades too (every FK column, not just job_id)', async () => {
   const pg = fakePg();
   const app = await buildApp(pg);
@@ -179,7 +212,10 @@ test('#56 a dangling team_id degrades too (every FK column, not just job_id)', a
 });
 
 test('#56 a malformed (non-uuid) entity_id does not abort the audit row (22P02 trap)', async () => {
-  const pg = fakePg();
+  // role_permission_changed is H3-gated to manage_roles_permissions — the caller
+  // who legitimately logs it holds that grant; the non-uuid entity_id degradation
+  // is what this test pins.
+  const pg = fakePg({ callerOverrides: { manage_roles_permissions: true } });
   const app = await buildApp(pg);
   const res = await app.inject({
     method: 'POST', url: '/sync/push',

@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { requirePermission } from '../lib/permissions';
+import { canSeeAllTeams, resolveCaller, teamScopeSql } from '../lib/scoping';
 
 interface JobBody {
   name: string;
@@ -40,14 +41,27 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { status, includeArchived } = request.query;
+      const userId = (request.user as { sub: string }).sub;
       const params: unknown[] = [];
-      let where = '';
+      const clauses: string[] = [];
       if (status) {
-        where = 'WHERE status = $1';
         params.push(status);
+        clauses.push(`status = $${params.length}`);
       } else if (includeArchived !== 'true') {
-        where = "WHERE status != 'archived'";
+        clauses.push("status != 'archived'");
       }
+      // H7 (2026-08-09 audit): mirror the sync pull's team scoping so REST list
+      // cannot leak other teams' jobs (customer PII / insurance detail). Org
+      // authorities (tier 3+) see everything, same as their sync pull. Fail
+      // CLOSED: an unresolvable caller (deleted user, stale token) is scoped like
+      // a member of no team, not handed the whole table.
+      const caller = await resolveCaller(fastify.pg, userId);
+      if (!caller || !canSeeAllTeams(caller)) {
+        params.push(userId);
+        const scope = teamScopeSql('jobs', `$${params.length}`);
+        if (scope) clauses.push(scope);
+      }
+      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const { rows } = await fastify.pg.query(
         `SELECT * FROM jobs ${where} ORDER BY updated_at DESC`, params
       );
@@ -69,8 +83,21 @@ const routes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const params: unknown[] = [request.params.id];
+      let scopeClause = '';
+      // H7: a non-authority caller may only read a job on one of their teams
+      // (or an unassigned/org-wide job) — the same predicate the sync pull uses.
+      // A hidden job returns 404, not 403, so ids can't be probed for existence.
+      // Fail CLOSED: an unresolvable caller is scoped, never handed every job.
+      const caller = await resolveCaller(fastify.pg, userId);
+      if (!caller || !canSeeAllTeams(caller)) {
+        params.push(userId);
+        const scope = teamScopeSql('jobs', `$${params.length}`);
+        if (scope) scopeClause = ` AND ${scope}`;
+      }
       const { rows } = await fastify.pg.query(
-        `SELECT * FROM jobs WHERE id = $1`, [request.params.id]
+        `SELECT * FROM jobs WHERE id = $1${scopeClause}`, params
       );
       if (!rows[0]) return reply.status(404).send({ error: 'Job not found' });
       return rows[0];

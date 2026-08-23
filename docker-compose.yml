@@ -34,8 +34,14 @@ services:
     volumes:
       - miniodata:/data
     ports:
+      # S3 data API — clients fetch presigned media URLs from here, so it stays
+      # reachable (put TLS in front for internet-facing deploys).
       - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      # H8 (2026-08-09 audit): the admin console is bound to loopback only.
+      # Previously "${PORT}:9001" published it on 0.0.0.0, exposing the MinIO
+      # admin login (root creds → full object store) to the whole network on a
+      # plain `docker compose up`. Reach it via an SSH tunnel for admin.
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s

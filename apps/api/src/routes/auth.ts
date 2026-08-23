@@ -259,9 +259,21 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       return reply.status(409).send({ error: 'PIN not set. Complete first-login setup.' });
     }
 
+    // H1: reserve this credential attempt BEFORE the bcrypt await. The isLocked()
+    // gate at the top of the handler is a check-then-act TOCTOU — a burst of
+    // concurrent requests for one user_id all observe "not locked" and each run a
+    // full bcrypt compare before any recordFail lands, defeating the ≈3-guess
+    // backoff. Counting here (synchronous, pre-await) makes the Nth concurrent
+    // request observe the lock the (N-1)th just set. The attempt that trips the
+    // threshold still gets its 401 (wasLocked was false); later ones get 429.
+    const wasLocked = isLocked(lockKey);
+    recordFail(lockKey);
+    if (wasLocked) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
+
     const pinMatch = await bcrypt.compare(pin, user.pin_hash);
     if (!pinMatch) {
-      recordFail(lockKey);
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
     recordSuccess(lockKey);
@@ -398,9 +410,18 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       recordFail(lockKey);
       return reply.status(403).send({ error: 'Enrollment code expired' });
     }
+    // H1: reserve the enrollment-code guess BEFORE the bcrypt await (same TOCTOU
+    // as /auth/token). Without this, concurrent guesses against a brand-new
+    // account's one-time code each get a full compare before the counter moves —
+    // an account-takeover brute-force vector. Count synchronously; the tripping
+    // attempt still gets its 401, later concurrent ones get 429.
+    const wasLocked = isLocked(lockKey);
+    recordFail(lockKey);
+    if (wasLocked) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
     const codeOk = await bcrypt.compare(request.body.enrollment_code, user.enrollment_code_hash);
     if (!codeOk) {
-      recordFail(lockKey);
       return reply.status(401).send({ error: 'Invalid enrollment code' });
     }
 

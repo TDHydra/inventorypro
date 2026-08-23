@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import { requirePermission } from '../lib/permissions';
+import { requirePermission, userHasPermission } from '../lib/permissions';
 import { overLimit } from '../lib/rateLimit';
 
 interface CreateItemBody {
@@ -223,6 +223,25 @@ const routes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const fields = request.body;
+      // M2 (2026-08-09 audit): deactivating an item (active:false) is a soft-delete
+      // and must require delete_inventory, not merely edit_inventory — otherwise an
+      // editor can retire any item, the same outcome delete_inventory gates on the
+      // sync path (OPERATION_PERM). Only the delete direction is gated; re-activating
+      // (active:true) is an ordinary edit.
+      if (fields.active === false) {
+        const callerId = (request.user as { sub: string }).sub;
+        const { rows: cr } = await fastify.pg.query(
+          `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
+             FROM users u LEFT JOIN role_settings rs ON rs.role = u.role WHERE u.id = $1`,
+          [callerId],
+        );
+        const caller = cr[0] as
+          | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
+          | undefined;
+        if (!caller || !userHasPermission(caller.role, caller.permission_overrides, 'delete_inventory', caller.role_overrides)) {
+          return reply.status(403).send({ error: 'Forbidden: deactivating an item requires delete_inventory' });
+        }
+      }
       const allowed = ['name','barcode','description','sku','supplier','model','kind','category',
         'returnable','unit_category','unit','min_qty_alert','reorder_to','unit_tracked','tag_prefix','active'];
       const updates = Object.entries(fields)

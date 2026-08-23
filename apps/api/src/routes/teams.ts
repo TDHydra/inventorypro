@@ -330,6 +330,21 @@ const routes: FastifyPluginAsync = async (fastify) => {
       // orphan the team). /sync/push enforces the same rule via the same
       // resolveTeamAuthority helper — keep both paths on it so neither drifts.
       const callerId = (request.user as { sub: string }).sub;
+      // M1 (2026-08-09 audit): tier guard — you may not remove a member whose own
+      // role sits ABOVE your tier (mirrors the add/PATCH-member guards above and
+      // the /sync/push team_members path). Without this, a manage_teams holder
+      // could evict a higher-tier user from a team. Self-removal is exempt from
+      // the tier check (a manager removing themselves) but still subject to the
+      // orphan-team rule below. Fails closed on unknown caller/target.
+      if (request.params.uid !== callerId) {
+        const { rows: callerRows } = await fastify.pg.query(
+          `SELECT role FROM users WHERE id = $1`, [callerId]);
+        const { rows: memberRows } = await fastify.pg.query(
+          `SELECT role FROM users WHERE id = $1`, [request.params.uid]);
+        if (!canActOnTarget(callerRows[0]?.role ?? null, memberRows[0]?.role ?? null)) {
+          return reply.status(403).send({ error: 'You cannot remove a team member at or above your own level.' });
+        }
+      }
       if (request.params.uid === callerId) {
         const authority = await resolveTeamAuthority(fastify.pg, callerId, request.params.id);
         if (managerActionBlocked(authority, 'remove_self')) {
