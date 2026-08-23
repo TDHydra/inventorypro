@@ -17,9 +17,6 @@ import { sanitizeErrorMessage } from './lib/audit';
 
 import authRoutes, { isRefreshToken, sweepAttempts } from './routes/auth';
 import syncRoutes from './routes/sync';
-import itemRoutes from './routes/items';
-import locationRoutes from './routes/locations';
-import jobRoutes from './routes/jobs';
 import teamRoutes from './routes/teams';
 import userRoutes from './routes/users';
 import meRoutes from './routes/me';
@@ -232,12 +229,41 @@ async function build() {
     }
   });
 
+  // Global error handler — never leak internal error detail (stack traces,
+  // SQL errors, etc.) on 5xx. Intentional 4xx messages (validation, auth) are
+  // preserved since routes rely on those being visible to the client.
+  //
+  // H4: registered BEFORE the route plugins. In Fastify 5 each route snapshots
+  // the error handler active at registration time, so a setErrorHandler placed
+  // after the plugins never reaches them — they keep the built-in default that
+  // serialises the raw Error (leaking pg driver / SQL text on 5xx). Registering
+  // here means every business route inherits this handler, and the vreject
+  // fuzzing throttle + validation-reject audit tagging it drives actually fire.
+  fastify.setErrorHandler((err: FastifyError, request, reply) => {
+    request.log.error({ err }, 'request error');
+    const status = (err as any).statusCode ?? 500;
+    // Schema-validation rejects are flagged for the audit trail (outcome
+    // 'validation_reject' — a boolean, never the offending body) and counted
+    // per-IP: a burst of malformed requests is fuzzing, and the preHandler
+    // peek 429s the IP once this bucket is over.
+    if ((err as any).validation) {
+      (request as any).auditValidationReject = true;
+      overLimit(`vreject:${request.ip}`, 30);
+    }
+    // Stash a sanitized reason for the onResponse audit hook. For 5xx this is
+    // the error's class name only — never the message, stack, or SQL/driver
+    // text, matching what we refuse to send the client below. sanitizeErrorMessage
+    // also drops /auth 4xx messages, which can echo submitted field context.
+    (request as any).auditError = status >= 500
+      ? (err.name || 'Error')
+      : sanitizeErrorMessage(request.url, status, err.message);
+    if (status >= 500) return reply.status(status).send({ error: 'Internal Server Error' });
+    return reply.status(status).send({ error: err.message });
+  });
+
   // Routes
   await fastify.register(authRoutes, { prefix: '/auth', demoGate });
   await fastify.register(syncRoutes, { prefix: '/sync' });
-  await fastify.register(itemRoutes, { prefix: '/items' });
-  await fastify.register(locationRoutes, { prefix: '/locations' });
-  await fastify.register(jobRoutes, { prefix: '/jobs' });
   await fastify.register(teamRoutes, { prefix: '/teams' });
   await fastify.register(userRoutes, { prefix: '/users' });
   await fastify.register(meRoutes, { prefix: '/me' });
@@ -262,31 +288,6 @@ async function build() {
     version: API_VERSION,
     uptime: Math.floor(process.uptime()),
   }));
-
-  // Global error handler — never leak internal error detail (stack traces,
-  // SQL errors, etc.) on 5xx. Intentional 4xx messages (validation, auth) are
-  // preserved since routes rely on those being visible to the client.
-  fastify.setErrorHandler((err: FastifyError, request, reply) => {
-    request.log.error({ err }, 'request error');
-    const status = (err as any).statusCode ?? 500;
-    // Schema-validation rejects are flagged for the audit trail (outcome
-    // 'validation_reject' — a boolean, never the offending body) and counted
-    // per-IP: a burst of malformed requests is fuzzing, and the preHandler
-    // peek 429s the IP once this bucket is over.
-    if ((err as any).validation) {
-      (request as any).auditValidationReject = true;
-      overLimit(`vreject:${request.ip}`, 30);
-    }
-    // Stash a sanitized reason for the onResponse audit hook. For 5xx this is
-    // the error's class name only — never the message, stack, or SQL/driver
-    // text, matching what we refuse to send the client below. sanitizeErrorMessage
-    // also drops /auth 4xx messages, which can echo submitted field context.
-    (request as any).auditError = status >= 500
-      ? (err.name || 'Error')
-      : sanitizeErrorMessage(request.url, status, err.message);
-    if (status >= 500) return reply.status(status).send({ error: 'Internal Server Error' });
-    return reply.status(status).send({ error: err.message });
-  });
 
   return fastify;
 }

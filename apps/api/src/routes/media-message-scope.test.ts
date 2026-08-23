@@ -67,7 +67,7 @@ test('upload-url for a foreign message is 403 (non-participant cannot presign)',
   const app = await buildApp(pg);
   const res = await app.inject({
     method: 'POST', url: '/media/upload-url',
-    payload: { entity_type: 'message', entity_id: 'msg-foreign', media_type: 'image', file_extension: 'jpg' },
+    payload: { entity_type: 'message', entity_id: 'msg-foreign', media_type: 'image', file_extension: 'jpg', content_length: 1024 },
   });
   assert.equal(res.statusCode, 403);
   assert.match((res.json() as { error: string }).error, /participant/i);
@@ -78,7 +78,7 @@ test('upload-url for a message in the caller\'s own conversation presigns', asyn
   const app = await buildApp(fakePg());
   const res = await app.inject({
     method: 'POST', url: '/media/upload-url',
-    payload: { entity_type: 'message', entity_id: 'msg-mine', media_type: 'image', file_extension: 'jpg' },
+    payload: { entity_type: 'message', entity_id: 'msg-mine', media_type: 'image', file_extension: 'jpg', content_length: 1024 },
   });
   assert.equal(res.statusCode, 200);
   const body = res.json() as { key: string; uploadUrl: string };

@@ -9,11 +9,13 @@ import {
   applyWritePolicy,
   requiredOperationPerm,
   isAllowedActivity,
+  activityActionPolicy,
   selectColumnsFor,
   requiresRolesPermForTarget,
   validateMediaWrite,
   touchTeamsAndLocationsIfViewPermsChanged,
 } from '../lib/syncPolicy';
+import { teamScopeSql, mediaScopeSql, canSeeAllTeams, resolveCaller } from '../lib/scoping';
 import { cleanupMediaObjects } from '../lib/mediaCleanup';
 import { resolvePrimaryClaim, isPrimaryConflict } from '../lib/mediaPrimary';
 import { resolveActivityRefs, buildActivityMetadata } from '../lib/activityLog';
@@ -152,20 +154,9 @@ function chatScopeSql(table: string, callerParam: string): string | null {
   }
 }
 
-// Media pull scoping. #29-H: message attachments are private to the message's
-// conversation. #87/#148: pool shares are visible to the uploader, 'everyone'
-// shares, the uploader's teammates ('team'), and listed users ('users' — the
-// JSON-array LIKE is exact enough: UUIDs are fixed-form and quoted in the
-// array, so no substring false positives). Other entity media stays unscoped.
-function mediaScopeSql(callerParam: string): string {
-  const mine = `SELECT conversation_id FROM conversation_participants WHERE user_id = ${callerParam}`;
-  const myTeams = `SELECT team_id FROM team_members WHERE user_id = ${callerParam}`;
-  const msg = `(entity_type != 'message' OR entity_id IN (SELECT id FROM messages WHERE conversation_id IN (${mine})))`;
-  const pool = `(entity_type != 'pool' OR uploaded_by = ${callerParam} OR audience = 'everyone'
-    OR (audience = 'team' AND uploaded_by IN (SELECT user_id FROM team_members WHERE team_id IN (${myTeams})))
-    OR (audience = 'users' AND audience_user_ids LIKE '%' || ${callerParam} || '%'))`;
-  return `(${msg} AND ${pool})`;
-}
+// mediaScopeSql, teamScopeSql, canSeeAllTeams, resolveCaller and the Caller type
+// now live in ../lib/scoping (H7: shared with the REST read routes so team
+// compartmentalisation is one choke point both read layers call).
 
 // #84: may a caller WITHOUT manage_locations INSERT this locations row? Only
 // when the org has opted in (app_config crew_add_vehicle_enabled = '1' —
@@ -223,6 +214,45 @@ async function crewShelfInsertAllowed(
   }
 }
 
+// H2: true when this locations payload would CREATE a new row (no id, or an id
+// that does not yet exist), false when it would upsert over an existing one.
+// `locations` isn't in INSERT_NO_UPSERT, so the generic writer runs
+// `INSERT ... ON CONFLICT (id) DO UPDATE` — an "INSERT" carrying an EXISTING id
+// is a full-row overwrite. The crew vehicle/shelf carve-outs only ever justify
+// CREATING a row, never editing an existing location, so gate them on this.
+// Fails CLOSED (false) on a non-string id or lookup error so a hostile payload
+// can't masquerade as "new".
+async function locationIdIsNew(
+  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const id = payload?.id;
+  if (id == null) return true; // no id supplied → a genuine create, not an overwrite
+  if (typeof id !== 'string') return false;
+  try {
+    const { rows } = await pg.query(`SELECT 1 FROM locations WHERE id = $1`, [id]);
+    return rows.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+// H3: normalise a client-supplied activity_log created_at. Past timestamps are
+// preserved (offline events carry their real, earlier time — the whole point of
+// client-supplied created_at). A timestamp beyond a small future skew tolerance,
+// or one that doesn't parse, is stamped NOW: forging a plausible time is how a
+// fabricated audit entry hides in the trail, and a real device never logs the
+// future. Returns an ISO string (bound as the created_at param).
+function clampActivityCreatedAt(raw: unknown): string {
+  const now = Date.now();
+  const SKEW_MS = 5 * 60_000;
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const t = new Date(raw).getTime();
+    if (!Number.isNaN(t) && t <= now + SKEW_MS) return new Date(t).toISOString();
+  }
+  return new Date(now).toISOString();
+}
+
 // Resolve the caller's relationship to a conversation for the chat write guards
 // (lib/chatPolicy.ts decides; this only gathers facts). Fails closed: a missing
 // row, a null id, or a malformed uuid (the cast throws) all come back as
@@ -248,43 +278,11 @@ async function conversationFacts(
   }
 }
 
-// Team tables are scoped to the teams the caller belongs to. Like the chat tables,
-// this cannot be expressed by the single-column SCOPED_TABLES map: scoping
-// team_members on `user_id` would show a device only its OWN membership row rather
-// than its teammates' — the same trap chatScopeSql exists to avoid for
-// conversation_participants. So it is a subquery, keyed on the caller's memberships.
-//
-//   teams        → the teams I belong to
-//   team_members → every member of the teams I belong to (my teammates, not just me)
-//   jobs         → my teams' jobs, PLUS every unassigned job (team_id IS NULL is
-//                  "org-wide"; every job predates migration 043 and is NULL, so this
-//                  returns exactly today's set until jobs are actually assigned)
-//
-// Only applied when the caller may NOT see all teams — see canSeeAllTeams below.
-function teamScopeSql(table: string, callerParam: string): string | null {
-  const mine = `SELECT team_id FROM team_members WHERE user_id = ${callerParam}`;
-  switch (table) {
-    case 'teams': return `id IN (${mine})`;
-    case 'team_members': return `team_id IN (${mine})`;
-    case 'jobs': return `(team_id IS NULL OR team_id IN (${mine}))`;
-    // Crews of my teams (mirrors team_members). vehicles/service records/
-    // checkouts/locker_access/on_call stay UNSCOPED deliberately: fast checkout
-    // needs teammates' assets locally, and none of those rows are secret.
-    case 'subteams': return `team_id IN (${mine})`;
-    default: return null;
-  }
-}
-
-// May this caller see every team's data? Tier 3+ (office_manager, hr_manager,
-// franchise_manager) and full_admin (apex, tier 5) — see lib/teamAuthority.
-//
-// NOT gated on view_all_logs/manage_teams: tier 2 (production_manager,
-// head_of_construction, …) holds BOTH, so that gate would scope only tier-1 crew
-// and still hand every crew lead the whole org's rosters and permission overrides.
-// A tier check also cannot be re-opened by a stray runtime permission override.
-function canSeeAllTeams(caller: { role: string }): boolean {
-  return isOrgAuthority(caller.role);
-}
+// teamScopeSql / canSeeAllTeams moved to ../lib/scoping (H7: shared with the
+// REST read routes). Behaviour is unchanged — team tables are scoped to the
+// caller's memberships via a subquery (team_members keyed on team_id, not the
+// caller's own user_id, so a device sees its teammates too), and the gate is a
+// tier check that a stray runtime override cannot re-open.
 
 function conflictTarget(table: string): string {
   return CONFLICT_TARGETS[table] ?? 'id';
@@ -354,6 +352,22 @@ async function applyEntry(
     if (!isAllowedActivity(payload.action, payload.entity_type)) {
       throw new Error('Invalid activity_log action/entity_type');
     }
+    // H3: the caller's PERMISSION to push a privileged/forgeable action is gated
+    // in the batch loop (see the activity_log block there) — done there, not here,
+    // so a forged action is a permanent FORBIDDEN/NOT_ALLOWED conflict rather than
+    // the generic retryable error this function's catch would produce. Here we
+    // only normalise how the row is stored.
+    const actionPolicy = activityActionPolicy(payload.action as string);
+    // H3: clamp created_at — a legit offline event carries its real (earlier)
+    // time, but a future or unparseable timestamp is how a forged row blends in.
+    // Future (beyond a small clock-skew tolerance) or garbage → stamp NOW.
+    const createdAt = clampActivityCreatedAt(payload.created_at);
+    // H3: privileged actions carry no device geo — an admin console change isn't
+    // a field event and client-supplied coordinates on one are never trustworthy.
+    const isPrivileged = actionPolicy.requiredPerm != null;
+    const geoLat = isPrivileged ? null : (payload.latitude ?? null);
+    const geoLong = isPrivileged ? null : (payload.longitude ?? null);
+    const geoAcc = isPrivileged ? null : (payload.location_accuracy ?? null);
     // Attribute to the AUTHENTICATED caller, not the client-supplied user_id —
     // otherwise any token could forge audit entries blaming another user.
     // (created_at stays client-supplied: offline events carry their real time.)
@@ -387,8 +401,8 @@ async function applyEntry(
         payload.quantity ?? null, payload.unit ?? null,
         refs.job_id, payload.note ?? null,
         buildActivityMetadata(payload.metadata, orphaned),
-        payload.device_id ?? null, payload.created_at,
-        payload.latitude ?? null, payload.longitude ?? null, payload.location_accuracy ?? null,
+        payload.device_id ?? null, createdAt,
+        geoLat, geoLong, geoAcc,
       ]
     );
     return;
@@ -698,48 +712,11 @@ async function applyEntry(
   }
 }
 
-// Resolve the caller's *current* role + permission overrides from the DB — not
-// the JWT role claim, which can be stale or forged-stale within the 15m token
-// window. Shared by /full, /pull, and /push so all three authorize identically.
-type Caller = {
-  role: string;
-  permission_overrides: Record<string, boolean> | null;
-  role_overrides: Record<string, boolean> | null;
-  is_test: boolean;
-  // #76: team_permission_overrides from every team_members row the caller
-  // belongs to — fed to userHasPermission's positive-grants team-override
-  // union (see lib/permissions.ts). Empty array when the caller is on no team.
-  team_overrides: Array<Record<string, boolean>>;
-};
-
-async function resolveCaller(
-  pg: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
-  userId: string,
-): Promise<Caller | undefined> {
-  const { rows } = await pg.query(
-    `SELECT u.role, u.permission_overrides, u.is_test, rs.permission_overrides AS role_overrides,
-            COALESCE(
-              (SELECT jsonb_agg(tm.team_permission_overrides)
-                 FROM team_members tm WHERE tm.user_id = u.id),
-              '[]'::jsonb
-            ) AS team_overrides
-       FROM users u
-       LEFT JOIN role_settings rs ON rs.role = u.role
-      WHERE u.id = $1`,
-    [userId],
-  );
-  const row = rows[0] as
-    | {
-        role: string;
-        permission_overrides: Record<string, boolean> | null;
-        role_overrides: Record<string, boolean> | null;
-        is_test: boolean;
-        team_overrides?: Array<Record<string, boolean> | null> | null;
-      }
-    | undefined;
-  if (!row) return undefined;
-  return { ...row, team_overrides: (row.team_overrides ?? []).filter((t): t is Record<string, boolean> => t != null) };
-}
+// Caller type + resolveCaller() moved to ../lib/scoping (H7). It resolves the
+// caller's *current* role + permission overrides from the DB — not the JWT role
+// claim, which can be stale or forged-stale within the 15m token window — and is
+// shared by /full, /pull, /push AND the REST read routes so all authorize
+// identically.
 
 export interface SyncRoutesOpts {
   // Test seam (the me.ts:51-56 injected-sendCode pattern): production omits
@@ -796,6 +773,10 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
     // /sync/pull so full-download and incremental pull never diverge.
     const canViewTeams = userHasPermission(caller.role, caller.permission_overrides, 'view_teams', caller.role_overrides, caller.team_overrides);
     const canViewLocations = userHasPermission(caller.role, caller.permission_overrides, 'view_locations', caller.role_overrides, caller.team_overrides);
+    // H5: only manage_users holders receive other employees' email/phone and the
+    // full permission_overrides map; everyone else gets a minimal users projection
+    // plus their own overrides (selectColumnsFor caller-scopes it).
+    const canManageUsers = userHasPermission(caller.role, caller.permission_overrides, 'manage_users', caller.role_overrides, caller.team_overrides);
 
     // Scoped tables (e.g. notifications) only ever return the caller's own rows;
     // chat tables are scoped to the caller's own conversations (chatScopeSql); team
@@ -818,9 +799,13 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
       : mediaScope ? ` WHERE ${mediaScope}`
       : teamScope ? ` WHERE ${teamScope}` : '';
     const scoped = !!scopeCol || !!chatScope || !!mediaScope || !!teamScope;
+    // H5: the users table isn't in any scope set, but a non-privileged caller's
+    // projection references the caller id ($3) in its permission_overrides CASE,
+    // so bind userId for that case too.
+    const needsCaller = scoped || (table === 'users' && !canManageUsers);
     const { rows } = await fastify.pg.query(
-      `SELECT ${selectColumnsFor(table, canViewFinancial, canViewLocations)} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
-      scoped ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
+      `SELECT ${selectColumnsFor(table, canViewFinancial, canViewLocations, { canManageUsers, callerParam: '$3' })} FROM ${table}${scopeSql} ORDER BY 1 LIMIT $1 OFFSET $2`,
+      needsCaller ? [limitNum + 1, offset, userId] : [limitNum + 1, offset]
     );
 
     const hasMore = rows.length > limitNum;
@@ -858,6 +843,8 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
     // #204: computed identically to /sync/full above — see the comment there.
     const canViewTeams = userHasPermission(caller.role, caller.permission_overrides, 'view_teams', caller.role_overrides, caller.team_overrides);
     const canViewLocations = userHasPermission(caller.role, caller.permission_overrides, 'view_locations', caller.role_overrides, caller.team_overrides);
+    // H5: see /sync/full — gate the sensitive users columns behind manage_users.
+    const canManageUsers = userHasPermission(caller.role, caller.permission_overrides, 'manage_users', caller.role_overrides, caller.team_overrides);
 
     for (const table of FULL_TABLES) {
       // media used created_at here until migration 044 added updated_at (backfilled
@@ -880,9 +867,12 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         : mediaScope ? ` AND ${mediaScope}`
         : teamScope ? ` AND ${teamScope}` : '';
       const scoped = !!scopeCol || !!chatScope || !!mediaScope || !!teamScope;
+      // H5: bind userId ($2) for the users table too — the non-privileged
+      // projection caller-scopes permission_overrides on it.
+      const needsCaller = scoped || (table === 'users' && !canManageUsers);
       const { rows } = await fastify.pg.query(
-        `SELECT ${selectColumnsFor(table, canViewFinancial, canViewLocations)} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
-        scoped ? [since, userId] : [since]
+        `SELECT ${selectColumnsFor(table, canViewFinancial, canViewLocations, { canManageUsers, callerParam: '$2' })} FROM ${table} WHERE ${dateCol} > $1${scopeSql}`,
+        needsCaller ? [since, userId] : [since]
       );
       results[table] = { rows };
     }
@@ -941,6 +931,39 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
         );
         conflicts.push({ id: entry.id, error: 'Table not allowed', code: 'NOT_ALLOWED' });
         continue;
+      }
+
+      // M3: the route schema validates only `entries: array<object>`, never the
+      // shape of `payload`. Every guard below dereferences entry.payload.<field>
+      // before any coercion, so a null / array / scalar payload would throw an
+      // uncaught TypeError and 500 the WHOLE 100-entry batch (H4 would then leak
+      // the raw error). Reject just this malformed entry — VALIDATION is a
+      // permanent code, so the client drops it instead of retrying forever.
+      if (entry.payload == null || typeof entry.payload !== 'object' || Array.isArray(entry.payload)) {
+        conflicts.push({ id: entry.id, error: 'cannot apply: malformed payload', code: 'VALIDATION' });
+        continue;
+      }
+
+      // H3: gate privileged/forgeable audit actions BEFORE applyEntry writes them.
+      // activity_log rows are immutable (Postgres no_update/no_delete RULEs) so a
+      // forged entry is permanent, and isAllowedActivity only checks the action is
+      // a known string — not that the caller may perform it. Checked here (not in
+      // applyEntry) so a rejection is a permanent conflict, not the generic
+      // retryable one applyEntry's catch would produce.
+      if (entry.table_name === 'activity_log' && entry.operation === 'INSERT') {
+        const ap = activityActionPolicy(String(entry.payload.action ?? ''));
+        if (ap.serverOnly) {
+          conflicts.push({ id: entry.id, error: 'Forbidden: activity_log action is written server-side only', code: 'NOT_ALLOWED' });
+          continue;
+        }
+        if (ap.requiredPerm && !can(ap.requiredPerm)) {
+          request.log.warn(
+            { userId, role: caller.role, action: entry.payload.action, requiredPerm: ap.requiredPerm },
+            'sync push activity_log action denied (authz)',
+          );
+          conflicts.push({ id: entry.id, error: `Forbidden: activity_log action '${entry.payload.action}' requires ${ap.requiredPerm}`, code: 'FORBIDDEN' });
+          continue;
+        }
       }
 
       // Test/demo accounts are sandbox-only. This sits ABOVE every other branch
@@ -1160,13 +1183,20 @@ const routes: FastifyPluginAsync<SyncRoutesOpts> = async (fastify, opts) => {
           // location when the org flag is on AND the row is a Vehicle ("add a
           // vehicle" from the fast-checkout source picker). Everything else
           // stays gated exactly as before.
-          const crewVehicleOk = entry.table_name === 'locations' && entry.operation === 'INSERT'
+          // H2: the crew carve-outs may only CREATE a new location — never
+          // upsert over an existing row via ON CONFLICT DO UPDATE. Require the
+          // target id to be new; otherwise the write stays gated behind
+          // manage_locations (falls through to the FORBIDDEN branch below).
+          const crewLocationCreate = entry.table_name === 'locations'
+            && entry.operation === 'INSERT'
+            && await locationIdIsNew(fastify.pg, entry.payload);
+          const crewVehicleOk = crewLocationCreate
             && await crewVehicleInsertAllowed(fastify.pg, entry.payload);
           // A stock-mover (checkin/checkout) may INSERT the auto-created Shelf
           // a recount/add lands on — see crewShelfInsertAllowed. Everything
           // else stays gated exactly as before.
           const crewShelfOk = !crewVehicleOk
-            && entry.table_name === 'locations' && entry.operation === 'INSERT'
+            && crewLocationCreate
             && (can('checkin_inventory') || can('checkout_inventory'))
             && await crewShelfInsertAllowed(fastify.pg, entry.payload);
           if (!crewVehicleOk && !crewShelfOk) {

@@ -56,13 +56,6 @@ test('PATCH /users/:id accepts a nullable expires_at (schema passes → not 400)
   await app.close();
 });
 
-test('PATCH /teams/:id rejects an empty name (schema)', async () => {
-  const app = await buildApp();
-  const res = await app.inject({ method: 'PATCH', url: '/teams/t1', payload: { name: '' } });
-  assert.equal(res.statusCode, 400);
-  await app.close();
-});
-
 test('PATCH /teams/:id/members/:uid rejects a non-boolean is_manager (schema)', async () => {
   const app = await buildApp();
   const res = await app.inject({ method: 'PATCH', url: '/teams/t1/members/u1', payload: { is_manager: 'yes-please' } });

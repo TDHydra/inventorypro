@@ -142,6 +142,10 @@ interface FakePgOpts {
   failOn?: string;
   /** Postgres error code stamped on the injected failure (e.g. '23503'). */
   failCode?: string;
+  /** H2: location ids that already exist — the crew vehicle/shelf carve-out's
+   *  locationIdIsNew() existence check returns "exists" (→ overwrite, denied) for
+   *  these. Default empty: a fresh id is a genuine create. */
+  existingLocationIds?: string[];
 }
 
 // Dispatching fake pg (auth-demo.test.ts pattern). Records every query so the
@@ -212,6 +216,12 @@ function fakePg(opts: FakePgOpts = {}) {
       // no-sub-areas guard parent lookup.
       if (sql.includes('SELECT type FROM locations')) {
         return { rows: opts.parentType ? [{ type: opts.parentType }] : [] };
+      }
+      // H2: locationIdIsNew existence check for the crew vehicle/shelf carve-out.
+      // Empty (a genuinely new id) unless the test seeds existingLocationIds.
+      if (/SELECT 1 FROM locations WHERE id = \$1/.test(sql)) {
+        const existing = opts.existingLocationIds ?? [];
+        return { rows: existing.includes(String(params[0])) ? [{ exists: 1 }] : [] };
       }
       // #176 vehicles lock/share guard fact query.
       if (sql.includes('shares_owner_team')) {
@@ -940,6 +950,29 @@ test('locations INSERT by a crew role: allowed when crew_add_vehicle_enabled=1 A
   ]);
   assert.deepEqual(body.ok, ['e1']);
   assert.ok(pg.queries.some(q => q.sql.includes('INSERT INTO locations')));
+});
+
+test('H2: crew Vehicle carve-out does NOT overwrite an EXISTING location (INSERT reusing a real id)', async () => {
+  // The generic writer upserts locations ON CONFLICT (id), so an "INSERT" that
+  // carries an existing id is a full-row overwrite. A crew role must not be able
+  // to use the vehicle carve-out to hijack another location by reusing its id.
+  const pg = fakePg({ callerRole: 'construction_crew', crewAddVehicle: true, existingLocationIds: ['loc-warehouse'] });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'loc-warehouse', name: 'My Van', type: 'Vehicle', active: true } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')), 'must not overwrite the existing row');
+});
+
+test('H2: crew Shelf carve-out does NOT overwrite an EXISTING location (INSERT reusing a real id)', async () => {
+  const pg = fakePg({ callerRole: 'construction_crew', existingLocationIds: ['loc-warehouse'] });
+  const body = await push(pg, [
+    { operation: 'INSERT', table_name: 'locations', payload: { id: 'loc-warehouse', name: 'Shelf A', type: 'Shelf', active: true, updated_at: NOW } },
+  ]);
+  assert.deepEqual(body.ok, []);
+  assert.match(body.conflicts[0].error, PERMANENT);
+  assert.ok(!pg.queries.some(q => q.sql.includes('INSERT INTO locations')), 'must not overwrite the existing row');
 });
 
 test('locations INSERT by a crew role: the flag does NOT open non-Vehicle locations', async () => {

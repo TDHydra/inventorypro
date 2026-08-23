@@ -492,6 +492,39 @@ export function isAllowedActivity(action: unknown, entityType: unknown): boolean
       && typeof entityType === 'string' && ACTIVITY_ENTITY_TYPES.has(entityType);
 }
 
+// H3: activity_log rows are pushed by clients (offline field events) and are
+// IMMUTABLE once written (Postgres no_update/no_delete RULEs), so a forged entry
+// is permanent. isAllowedActivity only checks the action is a KNOWN string — it
+// never checks the caller may perform it. Identity/role/permission actions are
+// legitimately pushed by admin-on-device flows (UserQuickAdd logs user_created,
+// etc.), so we can't blanket-reject; instead the caller must actually hold the
+// matching permission, exactly as the underlying REST/admin action requires.
+// A tier-1 crew member holds none of these, so their forged user_role_changed /
+// role_permission_changed / user_pin_reset is rejected while a real admin's is
+// accepted. Actions NOT listed here are ordinary field events — no extra gate.
+const ACTIVITY_ACTION_REQUIRED_PERM: Record<string, string> = {
+  user_created:             'manage_users',
+  user_updated:             'manage_users',
+  user_role_changed:        'manage_users',
+  user_permission_changed:  'manage_users',
+  user_pin_reset:           'manage_users',
+  role_permission_changed:  'manage_roles_permissions',
+  role_color_changed:       'manage_roles_permissions',
+  role_min_pin_changed:     'manage_roles_permissions',
+};
+// Written ONLY by the API itself (auth.ts /token, /set-pin; #172 change-pin) —
+// never a legitimate client push. Reject outright regardless of permission.
+const ACTIVITY_SERVER_ONLY_ACTIONS = new Set(['login', 'pin_set', 'pin_change']);
+
+// H3 policy resolver: given a (known, isAllowedActivity-passing) action, report
+// whether it may only be written server-side, and which permission — if any —
+// a client caller must hold to push it. The caller resolves the permission via
+// its own can() (see routes/sync.ts).
+export function activityActionPolicy(action: string): { serverOnly: boolean; requiredPerm: string | null } {
+  if (ACTIVITY_SERVER_ONLY_ACTIONS.has(action)) return { serverOnly: true, requiredPerm: null };
+  return { serverOnly: false, requiredPerm: ACTIVITY_ACTION_REQUIRED_PERM[action] ?? null };
+}
+
 // Server-defined SELECT lists (never '*', never client-influenced). PII/financial
 // columns on jobs are gated behind view_financial_data.
 const JOBS_BASE = 'id, name, status, type, type_id, job_number, reference_number, site_location_id, created_by, created_at, updated_at';
@@ -518,7 +551,18 @@ const LOCATIONS_BASE = 'id, name, parent_id, color, icon, active, has_shelves, t
 const LOCATIONS_SENSITIVE = ', latitude, longitude, subareas_require_owner';
 // enrollment_code_public is public BY DESIGN, but only for demo rows — the CASE
 // guarantees a real user's row can never carry a code even if one were planted.
+// H5: full projection — only returned to callers with manage_users. It carries
+// every employee's email/phone (PII) and permission_overrides (the org's whole
+// permission map), which the lowest tier must not be able to pull for everyone.
 const USERS_COLS = 'id, name, role, pin_length_required, pin_set, permission_overrides, active, expires_at, created_at, updated_at, email, phone, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
+// H5: what a NON-privileged caller sees — no other employee's email/phone or
+// permission_overrides. name/role are needed for attribution UI; pin/enrollment
+// state for the login picker. permission_overrides is added back per-caller for
+// the caller's OWN row only (see selectColumnsFor): the mobile client resolves
+// the signed-in user's effective permissions from its local users row
+// (auth/session.ts buildUserSession), so dropping the self row would silently
+// strip individually-granted permissions.
+const USERS_BASE = 'id, name, role, pin_length_required, pin_set, active, expires_at, created_at, updated_at, dashboard_preset_id, is_test, CASE WHEN is_test THEN enrollment_code_public END AS enrollment_code_public';
 // Real repairs columns per migrations 021_repairs.sql + 028_repair_fields_parts.sql,
 // excluding `cost` (financial data, gated behind view_financial_data — mirrors jobs).
 const REPAIRS_BASE = 'id, entity_type, entity_id, entity_label, notes, parts_needed, status, status_id, created_by, created_at, updated_at, completed_at, assignee_id, due_at';
@@ -570,14 +614,40 @@ const JOB_ASSIGNMENTS_COLS = 'id, job_id, assignee_kind, assignee_id, assigned_b
 // schedule_assignments (#184): no financial/secret columns — full synced set.
 const SCHEDULE_ASSIGNMENTS_COLS = 'id, employee_id, day, start_minute, end_minute, assignment_kind, job_id, manager_id, note, created_by, active, created_at, updated_at';
 
-export function selectColumnsFor(table: string, canViewFinancial: boolean, canViewLocations = false): string {
-  if (table === 'users') return USERS_COLS;
+export function selectColumnsFor(
+  table: string,
+  canViewFinancial: boolean,
+  canViewLocations = false,
+  opts: { canManageUsers?: boolean; callerParam?: string } = {},
+): string {
+  if (table === 'users') {
+    // H5: only manage_users holders receive the full users projection (all
+    // employees' email/phone/permission_overrides). Everyone else gets USERS_BASE
+    // plus their OWN permission_overrides via a caller-scoped CASE — callerParam
+    // is the SQL placeholder ($2 in /sync/pull, $3 in /sync/full) already bound to
+    // the caller's id. Other users' permission_overrides come back NULL (mobile
+    // maps that to {}); the caller's own row keeps its real overrides so
+    // self-permission resolution on device is unaffected.
+    if (opts.canManageUsers) return USERS_COLS;
+    const cp = opts.callerParam ?? '$1';
+    return `${USERS_BASE}, CASE WHEN id = ${cp} THEN permission_overrides END AS permission_overrides`;
+  }
   if (table === 'jobs') return canViewFinancial ? JOBS_BASE + JOBS_SENSITIVE : JOBS_BASE;
   if (table === 'locations') return canViewLocations ? LOCATIONS_BASE + LOCATIONS_SENSITIVE : LOCATIONS_BASE;
   if (table === 'repairs') return canViewFinancial ? REPAIRS_BASE + REPAIRS_SENSITIVE : REPAIRS_BASE;
   if (table === 'equipment_units') return canViewFinancial ? EQUIPMENT_UNITS_BASE + EQUIPMENT_UNITS_SENSITIVE : EQUIPMENT_UNITS_BASE;
   if (table === 'maintenance_events') return canViewFinancial ? MAINTENANCE_EVENTS_BASE + MAINTENANCE_EVENTS_SENSITIVE : MAINTENANCE_EVENTS_BASE;
-  if (table === 'app_config') return 'key, value, updated_at'; // no secret columns exist today; explicit projection prevents future leakage
+  // H6: this projects COLUMNS, not rows — and app_config stores secrets as ROWS
+  // (key='qr_signing_secret'), so `value` still carries the org QR HMAC secret to
+  // every device. That is intentional today: the mobile scanner signs AND verifies
+  // QR labels offline with the shared secret (apps/mobile/src/scan/qrSign.ts),
+  // which the code documents as tamper-evidence against outsiders, NOT
+  // forgery-proofing against app users who can extract the key. Truly closing H6
+  // means asymmetric signing (server-private key, device-public key) so devices
+  // can verify but not forge — a design change, not a projection tweak. Until
+  // then the secret must keep syncing or offline scanning breaks. DO NOT add a
+  // new secret ROW to app_config expecting this projection to hide it.
+  if (table === 'app_config') return 'key, value, updated_at';
   // dashboard_layout/starred_widgets (#193/#196, migration 076): split out of
   // the single dashboard_prefs blob (migration 075) so each field syncs via
   // its own column-scoped upsert instead of a read-merge-write of one JSON

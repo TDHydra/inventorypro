@@ -6,6 +6,8 @@ import { requirePermission, userHasPermission } from '../lib/permissions';
 import { MEDIA_ENTITY_TYPES } from '../lib/syncPolicy';
 import { s3Public, BUCKET } from '../lib/s3';
 import { KEY_RE, cleanupMediaObjects, deriveKey } from '../lib/mediaCleanup';
+import { canSeeAllTeams, resolveCaller, teamScopeSql } from '../lib/scoping';
+import { overLimit } from '../lib/rateLimit';
 
 // #180 v1: external share (Android share sheet) hands the OS a LINK, not a
 // file — RN core Share.share({ message: url }) only takes text. File sharing
@@ -35,7 +37,7 @@ interface UploadUrlBody {
   entity_id: string;
   media_type: 'image' | 'video';
   file_extension: string;
-  content_length?: number;
+  content_length: number; // M4: required — see /upload-url schema
 }
 
 interface SaveMediaBody {
@@ -81,20 +83,29 @@ const routes: FastifyPluginAsync = async (fastify) => {
     schema: {
       body: {
         type: 'object',
-        required: ['entity_type', 'entity_id', 'media_type', 'file_extension'],
+        required: ['entity_type', 'entity_id', 'media_type', 'file_extension', 'content_length'],
         properties: {
           entity_type: { type: 'string' },
           entity_id: { type: 'string' },
           media_type: { type: 'string', enum: ['image', 'video'] },
           file_extension: { type: 'string' },
-          // Optional: when the client declares a size we bind + cap it (25MB).
-          // Omitted (e.g. current mobile client) → unbounded PUT, as before.
+          // M4 (2026-08-09 audit): now REQUIRED. A presigned PUT can only be
+          // size-capped by binding an exact ContentLength into the signature, so
+          // the client must declare the size — omitting it previously left the
+          // PUT unbounded (a 60MB upload succeeded in the repro). Bound 1..25MB.
           content_length: { type: 'integer', minimum: 1, maximum: MAX_UPLOAD_BYTES },
         },
       },
     },
   }, async (request, reply) => {
     const { entity_type, entity_id, media_type, file_extension, content_length } = request.body;
+    // M4: per-user media-upload throttle (in addition to the global mutation
+    // limiter) — 60 presign requests / minute / user. In-memory, single-container
+    // (same caveat as lib/rateLimit); a DoS-volume guard, not UX friction.
+    const throttleId = (request.user as { sub: string }).sub;
+    if (overLimit(`media-upload:${throttleId}`, 60)) {
+      return reply.status(429).send({ error: 'Too many upload requests. Try again in a minute.' });
+    }
     const ext = file_extension.toLowerCase();
     if (!MEDIA_ENTITY_TYPES.has(entity_type)) {
       return reply.status(400).send({ error: 'Invalid entity_type' });
@@ -111,22 +122,22 @@ const routes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'Forbidden: not a participant of this conversation' });
       }
     }
-    // Only validate the size when the client declared one (optional field).
-    if (content_length !== undefined &&
-        (!Number.isInteger(content_length) || content_length < 1 || content_length > MAX_UPLOAD_BYTES)) {
+    // Defensive re-check (the schema already bounds it, but never presign an
+    // unbounded/oversized PUT).
+    if (!Number.isInteger(content_length) || content_length < 1 || content_length > MAX_UPLOAD_BYTES) {
       return reply.status(400).send({ error: 'Invalid content_length' });
     }
     const key = `${entity_type}/${entity_id}/${uuid()}.${ext}`;
     // ContentType is bound into the presigned signature (device must echo it or
-    // MinIO returns SignatureDoesNotMatch). When a content_length was declared we
-    // also bind ContentLength, capping the PUT at exactly that size.
+    // MinIO returns SignatureDoesNotMatch). ContentLength is now always bound,
+    // capping the PUT at exactly the declared size.
     const contentType = media_type === 'image' ? `image/${ext}` : `video/${ext}`;
 
     const command = new PutObjectCommand({
       Bucket: BUCKET,
       Key: key,
       ContentType: contentType,
-      ...(content_length !== undefined ? { ContentLength: content_length } : {}),
+      ContentLength: content_length,
     });
 
     const uploadUrl = await getSignedUrl(s3Public, command, { expiresIn: 300 });
@@ -242,6 +253,27 @@ const routes: FastifyPluginAsync = async (fastify) => {
         const callerId = (request.user as { sub: string }).sub;
         if (entityId !== callerId) {
           return reply.status(403).send({ error: 'Forbidden: pool media is uploader-only via REST' });
+        }
+      }
+      // H7 (2026-08-09 audit): job media follows the parent job's team scope —
+      // the sync pull scopes `jobs` by team, so this REST read must too or a
+      // caller who knows a job id reads another team's damage photos. Other
+      // entity types (item/location/repair/equipment_unit/service_record) map
+      // to sync tables that are org-wide readable by design, so their media
+      // stays unscoped here — consistent with the sync model.
+      if (entityType === 'job') {
+        const callerId = (request.user as { sub: string }).sub;
+        const caller = await resolveCaller(fastify.pg, callerId);
+        // Fail CLOSED: an unresolvable caller is scoped, never handed the media.
+        if (!caller || !canSeeAllTeams(caller)) {
+          const scope = teamScopeSql('jobs', '$2');
+          const { rows: j } = await fastify.pg.query(
+            `SELECT 1 FROM jobs WHERE id = $1 AND ${scope}`,
+            [entityId, callerId]
+          );
+          if (!j[0]) {
+            return reply.status(403).send({ error: 'Forbidden: job not in your teams' });
+          }
         }
       }
       const { rows } = await fastify.pg.query(
