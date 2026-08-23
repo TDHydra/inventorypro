@@ -1,7 +1,7 @@
 import { isOrgAuthority } from './teamAuthority';
 
 // Team / media read-scoping predicates, shared by the generic sync path
-// (routes/sync.ts) and the REST read routes (routes/jobs.ts, routes/media.ts).
+// (routes/sync.ts) and the REST read route routes/media.ts.
 //
 // H7 (2026-08-09 audit): team compartmentalisation was previously enforced ONLY
 // in the sync pull. The REST reads (`GET /jobs/:id`, `GET /jobs`,
@@ -9,6 +9,10 @@ import { isOrgAuthority } from './teamAuthority';
 // could read another team's job (customer PII, insurance detail) and its media.
 // Centralising the predicates here makes "team is a security boundary" one
 // choke point both read layers call, so the two can't drift apart again.
+//
+// The /jobs REST routes were deleted 2026-08-23 (no client ever called them),
+// so the job predicates below now serve the sync path only — they are kept
+// because sync pull relies on the same team_scope subquery.
 
 // team_scope subquery keyed on the caller's memberships. A subquery (not a join
 // on user_id) so a caller sees every member of their teams, not just their own

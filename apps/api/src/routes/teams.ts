@@ -3,15 +3,15 @@ import { requirePermission, userHasPermission, canActOnTarget } from '../lib/per
 import { sanitizeTeamOverrides } from '../lib/syncPolicy';
 import { resolveTeamAuthority, managerActionBlocked } from '../lib/teamAuthority';
 
-interface TeamBody {
-  name: string;
-  type: string;
-}
-
-interface MemberBody {
-  user_id: string;
-  team_permission_overrides?: Record<string, boolean>;
-}
+// Team CRUD and member add/remove used to live here as REST endpoints, but no
+// client ever called them — teams, team_members and their permission overrides
+// all travel over the generic /sync push/pull path. They were removed
+// 2026-08-23 rather than kept hardened; see docs/security/2026-08-09-security-audit.md.
+//
+// The one endpoint that survives is the member PATCH below: is_manager is
+// server-controlled (the sync push ignores client writes to it, since accepting
+// them was a self-promotion vector), so promotion/demotion needs a gated online
+// round-trip that sync alone cannot provide.
 
 interface MemberPatchBody {
   is_manager?: boolean;
@@ -21,188 +21,6 @@ interface MemberPatchBody {
 const routes: FastifyPluginAsync = async (fastify) => {
   const auth = [(fastify as any).authenticate];
 
-  // GET /teams — list teams with member counts. Managers are per-member
-  // (team_members.is_manager), not a single teams.manager_id — no client reads
-  // a manager field off this list today, so it's just dropped rather than
-  // replaced with an is_manager aggregate.
-  fastify.get('/', { preHandler: auth }, async () => {
-    const { rows } = await fastify.pg.query(
-      `SELECT t.*, COALESCE(m.cnt, 0) AS member_count
-       FROM teams t
-       LEFT JOIN (SELECT team_id, COUNT(*) AS cnt FROM team_members GROUP BY team_id) m
-              ON m.team_id = t.id
-       ORDER BY t.name`
-    );
-    return { teams: rows };
-  });
-
-  // GET /teams/:id — team detail with roster
-  fastify.get<{ Params: { id: string } }>(
-    '/:id', {
-      preHandler: auth,
-      schema: {
-        params: {
-          type: 'object', required: ['id'],
-          properties: {
-            id: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const { rows: teamRows } = await fastify.pg.query(
-        `SELECT * FROM teams WHERE id = $1`, [id]
-      );
-      if (!teamRows[0]) return reply.status(404).send({ error: 'Team not found' });
-      const { rows: members } = await fastify.pg.query(
-        `SELECT tm.user_id, tm.team_permission_overrides, tm.joined_at,
-                u.name, u.role
-         FROM team_members tm JOIN users u ON u.id = tm.user_id
-         WHERE tm.team_id = $1 ORDER BY u.name`,
-        [id]
-      );
-      return { ...teamRows[0], members };
-    }
-  );
-
-  // POST /teams — create
-  fastify.post<{ Body: TeamBody }>(
-    '/', {
-      preHandler: [...auth, requirePermission('manage_teams')],
-      schema: {
-        body: {
-          type: 'object', required: ['name', 'type'],
-          properties: {
-            name: { type: 'string', minLength: 1 },
-            type: { type: 'string', minLength: 1 },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const { name, type } = request.body;
-      // Dual-write the taxonomy FK (#74): resolve type_id from the label so
-      // REST-created teams anchor to the taxonomy id like synced ones do.
-      const { rows } = await fastify.pg.query(
-        `INSERT INTO teams (name, type, type_id) VALUES ($1, $2,
-           (SELECT id FROM taxonomy_types WHERE category = 'team' AND label = $2
-            ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1))
-         RETURNING *`,
-        [name, type]
-      );
-      return rows[0];
-    }
-  );
-
-  // PATCH /teams/:id
-  fastify.patch<{ Params: { id: string }; Body: Partial<TeamBody> }>(
-    '/:id', {
-      preHandler: [...auth, requirePermission('manage_teams')],
-      schema: {
-        params: {
-          type: 'object', required: ['id'],
-          properties: {
-            id: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-        },
-        body: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', minLength: 1, maxLength: 200 },
-            type: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const { name, type } = request.body;
-      // Renaming is manager-restricted. /sync/push enforces the same rule via the
-      // same resolveTeamAuthority helper — keep both paths on it so neither drifts.
-      if (name !== undefined) {
-        const callerId = (request.user as { sub: string }).sub;
-        const authority = await resolveTeamAuthority(fastify.pg, callerId, request.params.id);
-        if (managerActionBlocked(authority, 'rename_team')) {
-          return reply.status(403).send({ error: 'A team manager cannot rename their own team.' });
-        }
-      }
-      const sets: string[] = [];
-      const params: unknown[] = [];
-      if (name !== undefined) { params.push(name); sets.push(`name = $${params.length}`); }
-      if (type !== undefined) { params.push(type); sets.push(`type = $${params.length}`); }
-      if (sets.length === 0) return reply.status(400).send({ error: 'No fields to update' });
-      sets.push(`updated_at = NOW()`);
-      params.push(request.params.id);
-      const { rows } = await fastify.pg.query(
-        `UPDATE teams SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`, params
-      );
-      if (!rows[0]) return reply.status(404).send({ error: 'Team not found' });
-      return rows[0];
-    }
-  );
-
-  // POST /teams/:id/members — add a member
-  fastify.post<{ Params: { id: string }; Body: MemberBody }>(
-    '/:id/members', {
-      preHandler: [...auth, requirePermission('manage_teams')],
-      schema: {
-        params: {
-          type: 'object', required: ['id'],
-          properties: {
-            id: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-        },
-        body: {
-          type: 'object', required: ['user_id'],
-          properties: {
-            user_id: { type: 'string', minLength: 1, maxLength: 64 },
-            team_permission_overrides: { type: 'object' },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const { user_id, team_permission_overrides = {} } = request.body;
-      const addedBy = (request.user as { sub: string }).sub;
-      // Same server-side allowlist + can't-grant-beyond-own-authority guard as the
-      // PATCH path — add-member also accepts overrides, so it must sanitize too
-      // (else a manage_teams holder could seed admin keys at insert time).
-      const { rows: callerRows } = await fastify.pg.query(
-        `SELECT u.role, u.permission_overrides, rs.permission_overrides AS role_overrides
-           FROM users u LEFT JOIN role_settings rs ON rs.role = u.role WHERE u.id = $1`,
-        [addedBy],
-      );
-      const caller = callerRows[0] as
-        | { role: string; permission_overrides: Record<string, boolean> | null; role_overrides: Record<string, boolean> | null }
-        | undefined;
-      // Tier guard (security-critical): you may not seed team overrides / manager
-      // authority onto a member whose own role sits ABOVE your tier (apex full_admin
-      // only touchable by a full_admin). Fails closed on unknown caller/target.
-      const { rows: memberRows } = await fastify.pg.query(
-        `SELECT role FROM users WHERE id = $1`, [user_id]);
-      const memberRole = memberRows[0]?.role ?? null;
-      if (!canActOnTarget(caller?.role ?? null, memberRole)) {
-        return reply.status(403).send({ error: 'You cannot manage a team member at or above your own level.' });
-      }
-      const can = (perm: string): boolean =>
-        !!caller && userHasPermission(caller.role, caller.permission_overrides, perm, caller.role_overrides);
-      const { clean, rejected } = sanitizeTeamOverrides(team_permission_overrides, can);
-      if (rejected.length) {
-        return reply.status(400).send({ error: `Disallowed permission override key(s): ${rejected.join(', ')}` });
-      }
-      const { rows } = await fastify.pg.query(
-        `INSERT INTO team_members (team_id, user_id, team_permission_overrides, added_by)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (team_id, user_id)
-         DO UPDATE SET team_permission_overrides = EXCLUDED.team_permission_overrides
-         RETURNING *`,
-        [request.params.id, user_id, JSON.stringify(clean), addedBy]
-      );
-      return rows[0];
-    }
-  );
-
-  // PATCH /teams/:id/members/:uid — set a member's manager flag and/or their
   // per-team permission overrides. is_manager is server-controlled (sync ignores
   // client writes to it), so this gated endpoint is the ONLY way to promote/
   // demote — closing the self-promotion hole while keeping the feature (and
@@ -308,54 +126,6 @@ const routes: FastifyPluginAsync = async (fastify) => {
       );
       if (!rows[0]) return reply.status(404).send({ error: 'Member not found' });
       return rows[0];
-    }
-  );
-
-  // DELETE /teams/:id/members/:uid
-  fastify.delete<{ Params: { id: string; uid: string } }>(
-    '/:id/members/:uid', {
-      preHandler: [...auth, requirePermission('manage_teams')],
-      schema: {
-        params: {
-          type: 'object', required: ['id', 'uid'],
-          properties: {
-            id: { type: 'string', minLength: 1, maxLength: 64 },
-            uid: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      // Removing yourself from a team you manage is manager-restricted (it would
-      // orphan the team). /sync/push enforces the same rule via the same
-      // resolveTeamAuthority helper — keep both paths on it so neither drifts.
-      const callerId = (request.user as { sub: string }).sub;
-      // M1 (2026-08-09 audit): tier guard — you may not remove a member whose own
-      // role sits ABOVE your tier (mirrors the add/PATCH-member guards above and
-      // the /sync/push team_members path). Without this, a manage_teams holder
-      // could evict a higher-tier user from a team. Self-removal is exempt from
-      // the tier check (a manager removing themselves) but still subject to the
-      // orphan-team rule below. Fails closed on unknown caller/target.
-      if (request.params.uid !== callerId) {
-        const { rows: callerRows } = await fastify.pg.query(
-          `SELECT role FROM users WHERE id = $1`, [callerId]);
-        const { rows: memberRows } = await fastify.pg.query(
-          `SELECT role FROM users WHERE id = $1`, [request.params.uid]);
-        if (!canActOnTarget(callerRows[0]?.role ?? null, memberRows[0]?.role ?? null)) {
-          return reply.status(403).send({ error: 'You cannot remove a team member at or above your own level.' });
-        }
-      }
-      if (request.params.uid === callerId) {
-        const authority = await resolveTeamAuthority(fastify.pg, callerId, request.params.id);
-        if (managerActionBlocked(authority, 'remove_self')) {
-          return reply.status(403).send({ error: 'A team manager cannot remove themselves from their own team.' });
-        }
-      }
-      await fastify.pg.query(
-        `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`,
-        [request.params.id, request.params.uid]
-      );
-      return { ok: true };
     }
   );
 };

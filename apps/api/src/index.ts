@@ -17,9 +17,6 @@ import { sanitizeErrorMessage } from './lib/audit';
 
 import authRoutes, { isRefreshToken, sweepAttempts } from './routes/auth';
 import syncRoutes from './routes/sync';
-import itemRoutes from './routes/items';
-import locationRoutes from './routes/locations';
-import jobRoutes from './routes/jobs';
 import teamRoutes from './routes/teams';
 import userRoutes from './routes/users';
 import meRoutes from './routes/me';
@@ -267,9 +264,6 @@ async function build() {
   // Routes
   await fastify.register(authRoutes, { prefix: '/auth', demoGate });
   await fastify.register(syncRoutes, { prefix: '/sync' });
-  await fastify.register(itemRoutes, { prefix: '/items' });
-  await fastify.register(locationRoutes, { prefix: '/locations' });
-  await fastify.register(jobRoutes, { prefix: '/jobs' });
   await fastify.register(teamRoutes, { prefix: '/teams' });
   await fastify.register(userRoutes, { prefix: '/users' });
   await fastify.register(meRoutes, { prefix: '/me' });
