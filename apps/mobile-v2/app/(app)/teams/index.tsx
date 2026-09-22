@@ -1,0 +1,292 @@
+// Ported from apps/mobile/app/(app)/(teams)/index.tsx (plain route, was a
+// parenthesized group).
+//
+// Import mapping applied (docs/REBUILD-PORTING.md):
+//   '../../../src/db/queries/teams' → '../../../src/repos/teams'
+//   '../../../src/sync/outbox' (appendOutbox) → dropped; createTeam() self-
+//     mirrors via repos/teams.ts (createRepository('teams')).
+//   '../../../src/db/tx' (runInTransaction) → '@invenpro/core'
+//   '../../../src/hooks/useDataVersion' (useDbQuery/useDataVersion),
+//     '../../../src/sync/engine' (syncNow) → '@invenpro/core'
+//   '../../../src/lib/themedAlert' (Alert), ui/* components, useThemedStyles →
+//     '@invenpro/ui'
+//
+// No cuts this station — the list screen has no chat/access/locker
+// dependencies. isOrgAuthority stays an inline tier check (mirrors the
+// server's isOrgAuthority + teams/[id].tsx) rather than a new lib/
+// teamAuthority.ts file — old app never had one either.
+import { useState, useMemo, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import type { Theme } from '@invenpro/ui';
+import {
+  Alert, useTheme, useThemedStyles, Card, EmptyState, ModalSheet, PrimaryButton, AppInput,
+} from '@invenpro/ui';
+import { useDbQuery, useDataVersion, runInTransaction, syncNow } from '@invenpro/core';
+import { getAllTeams, getTeamMembers, createTeam, type Team } from '../../../src/repos/teams';
+import { getTaxonomyTypes, getTaxonomyTypesWithFallback, getTypeIcon } from '../../../src/repos/taxonomy';
+import { appendLog } from '../../../src/db/queries/log';
+import { useSession } from '../../../src/hooks/useSession';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { PermissionGate } from '../../../src/components/PermissionGate';
+import { ROLE_TIER } from '../../../src/constants/roles';
+import { TaxonomyChips } from '../../../src/components/pickers';
+import { TooltipHint } from '../../../src/components/TooltipHint';
+import { validateName } from '../../../src/lib/validation';
+
+export default function TeamsScreen() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const router = useRouter();
+  const { user, realUser } = useSession();
+  const canManage = usePermission('manage_teams');
+  // #197/#198: previously only the dashboard's "Teams" tile was locked by
+  // view_teams — the screen itself, search results, and deep links all
+  // routed straight in regardless. Gate the whole screen here so every entry
+  // point is covered by construction.
+  const canView = usePermission('view_teams');
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const dataVersion = useDataVersion();
+
+  // Re-runs whenever a local write OR a background sync pull touches teams
+  // (#60/#63) — no manual reload needed.
+  const teams = useDbQuery(() => getAllTeams(), [], ['teams', 'taxonomy_types']);
+
+  // Client mirror of the server's isOrgAuthority (effectiveTier(role) >= 3, tiers
+  // office_manager/hr_manager/franchise_manager/full_admin). Deliberately keyed on
+  // ROLE_TIER, NOT the manage_teams permission — tier-2 leads hold manage_teams but
+  // are not org authority. Unknown roles fail closed.
+  const isOrgAuthority = !!user && (ROLE_TIER[user.role] ?? 0) >= 3;
+
+  // "My Teams" = teams whose local team_members row names the authenticated user,
+  // with the manager flag for the badge. Filtering here from getAllTeams/getTeamMembers
+  // is safe because the device no longer holds foreign teams (sync scopes them away);
+  // the server is the enforcement of record, this split is only presentation.
+  const myTeams = useMemo(() => {
+    if (!user) return [];
+    return teams
+      .map(team => {
+        const mine = getTeamMembers(team.id).find(m => m.user_id === user.id);
+        return mine ? { team, isManager: mine.is_manager === 1 } : null;
+      })
+      .filter((m): m is { team: Team; isManager: boolean } => m !== null);
+    // dataVersion: getTeamMembers reads team_members, which a pull can change
+    // (e.g. an is_manager flip) without touching the teams rows this is keyed on.
+  }, [teams, user, dataVersion]);
+
+  // Create form state. Seeded synchronously, not via TaxonomyChips' defaultToFirst:
+  // ModalSheet's <Modal> unmounts its children while hidden, so the chip row
+  // remounts on every open and a mount effect would paint one frame with nothing
+  // selected before highlighting the default.
+  const [name, setName] = useState('');
+  const [type, setType] = useState(() => getTaxonomyTypes('team')[0]?.label ?? '');
+
+  const teamTypes = useMemo(() => getTaxonomyTypesWithFallback('team'), [dataVersion]);
+
+  function resetForm() {
+    setName('');
+    setType(teamTypes[0]?.label ?? '');
+  }
+
+  const onRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    // No explicit local reload needed after this: the pull's own table bumps
+    // drive the useDbQuery(['teams','taxonomy_types']) read above (#60/#63).
+    try { await syncNow(); } catch { /* offline — nothing to sync */ }
+    setRefreshing(false);
+  }, [refreshing]);
+
+  function handleCreate() {
+    const trimmed = name.trim();
+    const nameResult = validateName(trimmed, { label: 'Team name' });
+    if (!nameResult.ok) {
+      Alert.alert('Invalid name', nameResult.error);
+      return;
+    }
+    try {
+      runInTransaction(() => {
+        const { id } = createTeam(trimmed, type);
+        appendLog({
+          user_id: realUser?.id ?? null,
+          team_id: id,
+          action: 'team_created',
+          entity_type: 'team',
+          entity_id: id,
+          from_location_id: null,
+          to_location_id: null,
+          quantity: null,
+          unit: null,
+          job_id: null,
+          note: trimmed,
+          metadata: null,
+          device_id: null,
+        });
+      });
+    } catch (e) {
+      Alert.alert('Could not create team', `"${trimmed}" was not created. Please try again.`);
+      return;
+    }
+
+    // Success side-effects only after the write committed — no explicit reload:
+    // the transaction's own table bump drives the useDbQuery(['teams','taxonomy_types']) read above.
+    setShowCreate(false);
+    resetForm(); // clear only after successful submit
+  }
+
+  function renderTeamCard(team: Team, isManager: boolean) {
+    const typeIcon = getTypeIcon('team', team.type);
+    return (
+      <TouchableOpacity
+        key={team.id}
+        onPress={() => router.push({ pathname: '/(app)/teams/[id]', params: { id: team.id } })}
+      >
+        <Card variant="list">
+          <View style={s.cardRow}>
+            <View style={s.cardText}>
+              <Text style={s.name}>{team.name}</Text>
+              <Text style={s.type}>{typeIcon ? `${typeIcon} ${team.type}` : team.type}</Text>
+            </View>
+            {isManager ? <Text style={s.managerBadge}>Manager</Text> : null}
+          </View>
+        </Card>
+      </TouchableOpacity>
+    );
+  }
+
+  // #197/#198: view_teams gates the whole screen, not just the dashboard
+  // tile — checked before any team content renders. Defaults true for every
+  // role tier, so no existing user loses access.
+  if (!canView) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Teams', headerShown: true }} />
+        <PermissionGate permission="view_teams" mode="screen" />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Stack.Screen options={{ title: 'Teams', headerShown: true }} />
+      <View style={s.container}>
+        <TooltipHint screenKey="teams" />
+
+        {canManage && (
+          <View style={s.topBar}>
+            <Text style={s.subtitle}>
+              {teams.length} team{teams.length === 1 ? '' : 's'}
+            </Text>
+            <TouchableOpacity style={s.addBtn} onPress={() => setShowCreate(true)}>
+              <Text style={s.addBtnText}>+ New</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <ScrollView
+          contentContainerStyle={s.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={t.colors.primary}
+              colors={[t.colors.primary]}
+            />
+          }
+        >
+          {isOrgAuthority ? (
+            <>
+              <Text style={s.sectionHeader}>My Teams</Text>
+              {myTeams.length
+                ? myTeams.map(m => renderTeamCard(m.team, m.isManager))
+                : <Text style={s.sectionEmpty}>You're not on a team yet.</Text>}
+
+              <Text style={s.sectionHeader}>All Teams</Text>
+              {teams.length
+                ? teams.map(team => renderTeamCard(team, false))
+                : <Text style={s.sectionEmpty}>
+                    No teams set up yet{canManage ? '. Tap "+ New" to create one.' : '.'}
+                  </Text>}
+            </>
+          ) : myTeams.length ? (
+            myTeams.map(m => renderTeamCard(m.team, m.isManager))
+          ) : (
+            <EmptyState
+              icon="👥"
+              title="You're not on a team yet"
+              subtitle="Ask an admin to add you to a team to see it here."
+            />
+          )}
+        </ScrollView>
+
+        {/* Create team modal — onClose only hides; inputs are preserved on outside-tap dismiss */}
+        <ModalSheet visible={showCreate} onClose={() => setShowCreate(false)}>
+            <Text style={s.modalTitle}>New Team</Text>
+            <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
+              <AppInput
+                placeholder="Team name *"
+                value={name}
+                onChangeText={setName}
+                autoFocus
+              />
+
+              <TaxonomyChips
+                category="team"
+                label="Type"
+                withFallback
+                valueLabel={type}
+                onChange={v => setType(v.label ?? '')}
+              />
+
+              <PrimaryButton label="Create Team" onPress={handleCreate} style={{ marginTop: 8 }} />
+              <View style={s.secondaryRow}>
+                <TouchableOpacity style={s.linkBtn} onPress={resetForm}>
+                  <Text style={s.linkText}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.linkBtn}
+                  onPress={() => setShowCreate(false)}
+                >
+                  <Text style={[s.linkText, s.cancelText]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+        </ModalSheet>
+      </View>
+    </>
+  );
+}
+
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  topBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  subtitle: { fontSize: 13, color: t.colors.textSecondary, fontWeight: '600' },
+  addBtn: { backgroundColor: t.colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
+  addBtnText: { color: t.colors.primaryText, fontWeight: '700', fontSize: 14 },
+  list: { padding: 12, gap: 8, paddingBottom: 48 },
+  sectionHeader: {
+    fontSize: 12, fontWeight: '700', color: t.colors.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 2, paddingHorizontal: 4,
+  },
+  sectionEmpty: { fontSize: 13, color: t.colors.textMuted, paddingHorizontal: 4, paddingVertical: 8 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  cardText: { flex: 1 },
+  managerBadge: {
+    fontSize: 11, fontWeight: '700', color: t.colors.primary,
+    backgroundColor: t.colors.primaryBg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+    overflow: 'hidden',
+  },
+  name: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
+  type: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2, textTransform: 'capitalize' },
+
+  modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 14 },
+  secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: 8 },
+  linkBtn: { paddingVertical: 8, paddingHorizontal: 16 },
+  linkText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
+  cancelText: { color: t.colors.textMuted },
+});

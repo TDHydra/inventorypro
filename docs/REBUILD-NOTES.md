@@ -237,6 +237,104 @@ Screens landed (all six Wave A surfaces; typecheck clean, 40/40 + 181/181):
   close, not a regression: no existing test exercises `db/queries/users.ts`'s
   successor either). `git status --short apps/mobile` empty throughout.
 
+### Station B2 — Teams + Subteams + My Team + Crew (2026-09-22)
+
+- `src/repos/teams.ts` (new, ~420 lines): one repo file for `teams` +
+  `team_members` + `subteams` (old app split these across
+  `db/queries/teams.ts` + `db/queries/subteams.ts`), built on
+  `createRepository('teams' | 'team_members' | 'subteams')`.
+  - `SqlDb.executeSync` (`packages/core/src/db/provider.ts`) has no
+    `rowsAffected` field, unlike old app's op-sqlite wrapper. Every old-app
+    `res.rowsAffected < 1` check (dedup on `addTeamMember`, membership
+    existence in `setSubteamMembership`/`clearSubteamMembership`) is adapted
+    to a `SELECT ... LIMIT 1` existence check performed BEFORE the write —
+    documented in a top-of-file comment.
+  - `createTeam`/`updateTeam` dual-write the `type_id` taxonomy FK (resolved
+    via `resolveTypeId`) locally but exclude it from the outbox payload,
+    exactly mirroring `locations.ts`'s `upsertLocation` precedent — the
+    server resolves/owns `type_id` from the pushed label.
+  - `TEAM_OVERRIDABLE_PERMISSIONS` is NOT redefined here — it was pre-staged
+    in `src/auth/teamPerms.ts` ahead of this station and is already consumed
+    by `auth/session.ts`'s `buildTeamContexts`; `repos/teams.ts` imports and
+    re-exports it. `TEAM_PERMISSION_LABELS` (the display-label map) is new.
+  - Subteam functions (`createSubteam`/`renameSubteam`/`setSubteamMembership`/
+    `clearSubteamMembership`/`deleteSubteam`) do **not** call `appendLog`
+    internally — unlike old app's `db/queries/subteams.ts`, which logged
+    inside the query layer. This follows the repo-layer convention set in B1
+    (repos never call `appendLog`; callers wrap
+    `runInTransaction(() => { repoFn(...); appendLog({...}); })`). Every
+    screen that calls a subteam function (`teams/[id].tsx`, `myteam.tsx`) now
+    owns those `appendLog` calls itself, using the `{team_id, name/oldName,
+    memberUserIds}` the repo functions return for exactly that purpose.
+  - `reconcileTeams()`: full port of `apps/mobile/src/sync/teamPurge.ts`,
+    using `@invenpro/core`'s existing `getAppSetting`/`setAppSetting`/
+    `deleteAppSetting` (not hand-rolled SQL against `app_settings` like the
+    old app's local `getFlag`/`setFlag`/`clearFlag`). Registered in
+    `src/boot.ts` via `registerAfterPull({ name: 'reconcileTeams', run: async
+    () => { await reconcileTeams(); } })` with no `tables` filter (must run
+    every pull cycle — own internal 60-min throttle — mirroring the old
+    engine's hardcoded per-pull call). Deliberately does NOT call
+    `resetLocalDb()` (would drop the outbox / unpushed offline edits).
+- Screens: `app/(app)/teams/index.tsx` (My Teams / All Teams list + create
+  modal, org-authority tier gate), `app/(app)/teams/[id].tsx` (roster,
+  promote/demote manager, per-member perms, full Crews CRUD inline), and
+  `app/(app)/myteam.tsx` (renamed from old app's `(myteam)/index.tsx` — no
+  group folder left to carry the name) — scoped to ONLY the "My Crews"
+  section. All three are straight ports of
+  `apps/mobile/app/(app)/(teams)/{index,[id]}.tsx` and
+  `apps/mobile/app/(app)/(myteam)/index.tsx`.
+- `src/components/crew/{CrewCard,CrewEditor}.tsx` ported ~verbatim (import
+  paths only). `src/components/crew/MemberPermissionsSheet.tsx` ported scoped
+  down to ONLY the team-permission-overrides section (see cuts below).
+- `src/components/quickadd/TeamQuickAdd.tsx` ported; wired into
+  `QuickCreateSheet.tsx` (`'team'` case, was a `TODO(wave-B)` stub) and the
+  quickadd hub/dynamic route (`quickadd/index.tsx`, `quickadd/[sheet].tsx`) —
+  un-deferred the "Team" tile.
+- `app/(app)/index.tsx` (hub stub) gained a `Teams` tile (gated on
+  `view_teams`, matching the screen's own `PermissionGate` — not
+  `manage_teams`) and a `My Team` tile (ungated, in the plain `TILES` list —
+  `myteam.tsx` has no permission gate of its own; crew membership IS the
+  gate, data-driven).
+- **Scope decision — flag to next station**: `apps/mobile/app/(app)/(crew)/index.tsx`
+  is **not** subteam/crew management — it's an unrelated "fast checkout
+  source picker" (#127) depending on unbuilt vehicle/locker/unit_access
+  systems. No `app/(app)/crew.tsx` was created. The "Crew" charter is instead
+  satisfied by Subteams promoted to a real surface inside `teams/[id].tsx`
+  (full CRUD) and `myteam.tsx`'s "My Crews" section — matching the brief's
+  own wording ("subteams promoted to a real surface... inside team detail").
+- **Cut this station** (unported domains / explicit cut-list, each with a
+  marker so the right later wave picks it up):
+  - `MemberPermissionsSheet`'s per-unit access grants section and personal
+    locker toggle — `TODO(gap)`, depends on the unported
+    `src/db/queries/access.ts` / `unitAccess.ts` / `access/unitGrants.ts` /
+    `access/personalLocker.ts` domain, same class as B1's/locations.ts's cuts.
+  - `myteam.tsx`'s "My Lockers" section — `TODO(gap)`, same access domain.
+  - `myteam.tsx`'s "My Vehicles" section — `TODO(wave-C)`, vehicles aren't
+    ported at all yet.
+  - Message-member button on `teams/[id].tsx`'s roster — `TODO(wave-chat)`,
+    chat isn't ported yet.
+- Swept two TODOs this station made obsolete:
+  - `users/index.tsx`'s bulk "Add to team" — was `TODO(wave-B-teams)`, now a
+    real `BulkAction` (team picker modal → `addTeamMember` per selected user,
+    one transaction, `team_member_added` log entries, skips already-members
+    with no outbox/log churn).
+  - `QuickCreateSheet.tsx`'s `'team'` case — was a `TODO(wave-B)` stub
+    (`return null`); now renders `TeamQuickAdd`. The sibling `vehicle`/`job`/
+    `repair` stubs were relabeled `TODO(wave-C)` (they were `TODO(wave-B)`
+    but are not this station's domain).
+- **Test debt closed** (flagged in B1): added `src/repos/users.test.ts` (11
+  tests), `src/repos/roleSettings.test.ts` (7 tests), and
+  `src/repos/teams.test.ts` (15 tests, incl. 3 `reconcileTeams` tests against
+  a mocked `globalThis.fetch`) using the existing `testDb.ts` harness
+  (`rooms.test.ts`/`locationsShelf.test.ts` precedent). Total suite: 72/72
+  passing (was 40/40 after B1).
+- `.expo/types/router.d.ts` regenerated twice via pty metro runs (per the
+  known trap) — once for `/(app)/teams` + `/(app)/teams/[id]`, again for
+  `/(app)/myteam`.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm --filter
+  mobile-v2 test` 72/72 green. `git status --short apps/mobile` empty
+  throughout.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

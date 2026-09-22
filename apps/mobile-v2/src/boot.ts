@@ -7,6 +7,7 @@ import { generateUUID } from './utils/uuid';
 import { getValidJwt, revalidateSession, getSavedUserId } from './auth/session';
 import { assertWritable } from './db/maintenance';
 import { loadRolePermissionCache } from './auth/permissions';
+import { reconcileTeams } from './repos/teams';
 import { track } from './telemetry';
 
 let booted = false;
@@ -30,5 +31,14 @@ export function bootCore(): void {
     name: 'rolePermissions',
     tables: ['role_settings'],
     run: () => loadRolePermissionCache(),
+  });
+
+  // No `tables` filter — must run every pull cycle (own internal 60-min
+  // throttle via app_settings), mirroring the old engine's hardcoded
+  // `await reconcileTeams()` on every runDrainAndPull(). See
+  // src/repos/teams.ts's reconcileTeams doc comment for why.
+  registerAfterPull({
+    name: 'reconcileTeams',
+    run: async () => { await reconcileTeams(); },
   });
 }

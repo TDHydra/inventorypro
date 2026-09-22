@@ -24,14 +24,22 @@ const TILES: Tile[] = [
   { label: 'Equipment', icon: '🛠', href: '/(app)/equipment' },
   { label: 'Manage Types', icon: '🏷', href: '/(app)/manage-types' },
   { label: 'Quick Add', icon: '➕', href: '/(app)/quickadd' },
+  // My Team (myteam.tsx) has no requiredPermission gate of its own — crew
+  // membership IS the gate (data-driven, EmptyState if you manage nothing) —
+  // so it stays in the ungated tile list, like Scan/Checkout/etc.
+  { label: 'My Team', icon: '🧰', href: '/(app)/myteam' },
 ];
 
-// Wave B: Users/Roles tiles, gated on their own manage_* permission (the only
-// entry point to those screens until the real role-based hub lands in Wave D).
+// Wave B: Users/Roles/Teams tiles, gated on their own manage_*/view_*
+// permission (the only entry point to those screens until the real
+// role-based hub lands in Wave D).
 interface GatedTile extends Tile { permission: Parameters<typeof usePermission>[0] }
 const ADMIN_TILES: GatedTile[] = [
   { label: 'Users', icon: '👤', href: '/(app)/users', permission: 'manage_users' },
   { label: 'Roles', icon: '🛡', href: '/(app)/roles', permission: 'manage_roles_permissions' },
+  // Teams gates on view_teams (the screen's own gate, defaults true for every
+  // tier) rather than manage_teams — matching teams/index.tsx's own PermissionGate.
+  { label: 'Teams', icon: '👥', href: '/(app)/teams', permission: 'view_teams' },
 ];
 
 export default function HubStub() {
@@ -40,9 +48,12 @@ export default function HubStub() {
   const { user } = useSession();
   const canManageUsers = usePermission('manage_users');
   const canManageRoles = usePermission('manage_roles_permissions');
-  const adminTiles = ADMIN_TILES.filter(tile => (
-    tile.permission === 'manage_users' ? canManageUsers : canManageRoles
-  ));
+  const canViewTeams = usePermission('view_teams');
+  const adminTiles = ADMIN_TILES.filter(tile => {
+    if (tile.permission === 'manage_users') return canManageUsers;
+    if (tile.permission === 'manage_roles_permissions') return canManageRoles;
+    return canViewTeams;
+  });
 
   const counts = useDbQuery(
     () => {

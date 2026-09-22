@@ -9,6 +9,7 @@ import LocationQuickAdd from '../../../src/components/quickadd/LocationQuickAdd'
 import StockQuickAdd from '../../../src/components/quickadd/StockQuickAdd';
 import EquipmentQuickAdd from '../../../src/components/quickadd/EquipmentQuickAdd';
 import UserQuickAdd from '../../../src/components/quickadd/UserQuickAdd';
+import TeamQuickAdd from '../../../src/components/quickadd/TeamQuickAdd';
 import CsvImport from '../../../src/components/CsvImport';
 
 /**
@@ -29,7 +30,6 @@ const KIND_TITLES: Record<string, string> = {
   equipment: 'Quick Add — Equipment',
   'csv-import': 'Quick Add — Import CSV',
   user: 'Quick Add — User',
-  // TODO(wave-B)
   team: 'Quick Add — Team',
   // TODO(wave-C)
   vehicle: 'Quick Add — Vehicle',
@@ -81,8 +81,12 @@ export default function QuickAddSheetScreen() {
           {onSaved => <UserQuickAdd onSaved={onSaved} />}
         </QuickAddScreenShell>
       );
-    // TODO(wave-B): TeamQuickAdd not ported this wave (a later Wave B station owns teams).
     case 'team':
+      return (
+        <QuickAddScreenShell title={title} wrapForm={false}>
+          {onSaved => <TeamQuickAdd onSaved={onSaved} />}
+        </QuickAddScreenShell>
+      );
     // TODO(wave-C): VehicleQuickAdd / RepairQuickAdd / GasReceiptQuickAdd /
     // JobQuickAdd not ported this wave.
     case 'vehicle':

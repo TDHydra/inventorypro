@@ -16,8 +16,9 @@
 //   - Personal locker toggle (depends on the unported src/access/unitGrants.ts
 //     domain — TODO(gap), same class as locations.ts's unported vehicle helpers).
 //   - Message button / DM (TODO(wave-chat) — chat isn't ported yet).
-//   - Bulk "Add to team" action (teams domain isn't ported this station;
-//     TODO(wave-B-teams) — a later Wave B station owns apps/mobile-v2/src/repos/teams.ts).
+//
+// Bulk "Add to team" (was TODO(wave-B-teams)) is now wired to
+// src/repos/teams.ts's addTeamMember (ported in Station B2).
 import { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, Switch,
@@ -36,6 +37,7 @@ import {
   setUserPermissionOverrides, type User,
 } from '../../../src/repos/users';
 import { getRoleSettings, getRolePermissionOverrides, getRoleColorMap, roleColor } from '../../../src/repos/roleSettings';
+import { getAllTeams, addTeamMember } from '../../../src/repos/teams';
 import {
   ROLE_DISPLAY_NAMES, UserRole, ROLE_TIER, PIN_LENGTH_BY_TIER, Permission,
   ROLE_DEFAULTS, canActOnTarget, canAssignRole,
@@ -102,9 +104,13 @@ export default function UsersScreen() {
   // this screen is open, but stay referentially stable across no-op bumps so
   // the list never re-renders mid-scroll. `refresh` re-reads after a local write.
   const [users, refresh] = useReactiveRows<User>(getAllUsers, ['users']);
+  // Bulk "Add to team" needs the team roster; kept reactive so a team created
+  // elsewhere while this screen is open shows up in the picker.
+  const [teams] = useReactiveRows(getAllTeams, ['teams']);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkRolePicker, setShowBulkRolePicker] = useState(false);
+  const [showBulkTeamPicker, setShowBulkTeamPicker] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -338,6 +344,55 @@ export default function UsersScreen() {
     [],
   );
 
+  const teamOptions = useMemo<PickerOption[]>(
+    () => teams.map(tm => ({ id: tm.id, label: tm.name, sublabel: tm.type })),
+    [teams],
+  );
+
+  // No PIN/role side effects — just a team_members join row per selected
+  // user. addTeamMember() no-ops (returns null) for users already on the
+  // team, so a bulk add over a mixed selection only logs the real adds.
+  async function bulkAddToTeam(teamId: string) {
+    setShowBulkTeamPicker(false);
+    if (isWriteBlocked()) return;
+    const ids = [...sel.selected];
+    if (ids.length === 0) return;
+    const team = teams.find(tm => tm.id === teamId);
+    const adminId = realUser?.id ?? null;
+    let added = 0;
+    try {
+      runInTransaction(() => {
+        for (const id of ids) {
+          const u = users.find(x => x.id === id);
+          try {
+            const result = addTeamMember(teamId, id, {}, adminId);
+            if (!result) continue; // already a member — no-op, no log churn
+            added++;
+            appendLog({
+              action: 'team_member_added', entity_type: 'team', entity_id: teamId, user_id: adminId,
+              note: `${u?.name ?? id} added to ${team?.name ?? teamId}`,
+              team_id: teamId, from_location_id: null, to_location_id: null,
+              quantity: null, unit: null, job_id: null, metadata: null, device_id: null,
+            });
+          } catch (err) {
+            throw new Error(`${u?.name ?? id}: ${(err as Error).message}`);
+          }
+        }
+      });
+    } catch (err) {
+      Alert.alert('Could not add to team', `${(err as Error).message}\n\nNo changes were made.`);
+      return;
+    }
+    refresh();
+    sel.exit();
+    Alert.alert(
+      added === 0 ? 'Already on team' : 'Added to team',
+      added === 0
+        ? `Everyone selected is already on ${team?.name ?? 'that team'}.`
+        : `${added} user${added === 1 ? '' : 's'} added to ${team?.name ?? 'the team'}.`,
+    );
+  }
+
   async function bulkSetActive(active: boolean) {
     if (isWriteBlocked()) return;
     const ids = [...sel.selected];
@@ -508,6 +563,7 @@ export default function UsersScreen() {
     { key: 'deactivate', label: 'Deactivate', destructive: true, onPress: () => bulkSetActive(false) },
     { key: 'reactivate', label: 'Reactivate', onPress: () => bulkSetActive(true) },
     { key: 'role', label: 'Change role', onPress: () => setShowBulkRolePicker(true) },
+    { key: 'team', label: 'Add to team', onPress: () => setShowBulkTeamPicker(true) },
     { key: 'pin', label: 'Reset PIN', destructive: true, onPress: bulkResetPin },
   ];
 
@@ -912,6 +968,24 @@ export default function UsersScreen() {
             onSelect={opt => bulkChangeRole(opt.id as UserRole)}
           />
           <TouchableOpacity style={s.cancel} onPress={() => setShowBulkRolePicker(false)}>
+            <Text style={[s.cancelText, s.cancelStrong]}>Cancel</Text>
+          </TouchableOpacity>
+        </ModalSheet>
+
+        {/* Bulk: add to team picker */}
+        <ModalSheet visible={showBulkTeamPicker} onClose={() => setShowBulkTeamPicker(false)}>
+          <Text style={s.modalTitle}>Add {sel.count} user{sel.count === 1 ? '' : 's'} to a team</Text>
+          {teamOptions.length === 0 ? (
+            <Text style={s.gateSub}>No teams yet. Create one from Quick Add first.</Text>
+          ) : (
+            <SearchablePicker
+              placeholder="Search teams..."
+              options={teamOptions}
+              value={null}
+              onSelect={opt => bulkAddToTeam(opt.id)}
+            />
+          )}
+          <TouchableOpacity style={s.cancel} onPress={() => setShowBulkTeamPicker(false)}>
             <Text style={[s.cancelText, s.cancelStrong]}>Cancel</Text>
           </TouchableOpacity>
         </ModalSheet>
