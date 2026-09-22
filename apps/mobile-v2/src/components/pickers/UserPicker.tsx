@@ -1,0 +1,57 @@
+import { useMemo } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { getAllActiveUsers, User } from '../../db/queries/users';
+import { useTableVersion } from '@invenpro/core';
+import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
+import { SearchablePicker, PickerOption } from '../SearchablePicker';
+import { Field } from '@invenpro/ui';
+
+// The getAllActiveUsers() → PickerOption[] wiring the user fields hand-roll,
+// extracted once. The active set is small, so it preloads like LocationPicker
+// rather than querying per-keystroke. Selection is held by the caller as a
+// PickerOption; re-tapping the selection clears it.
+export function UserPicker({
+  value,
+  onChange,
+  label,
+  placeholder,
+  filter,
+  disabled,
+}: {
+  value: PickerOption | null;
+  onChange: (opt: PickerOption | null) => void;
+  label?: string;
+  placeholder?: string;
+  filter?: (u: User) => boolean;
+  disabled?: boolean;
+}) {
+  const usersVersion = useTableVersion(['users']);
+  const options = useMemo<PickerOption[]>(() => {
+    const users = filter ? getAllActiveUsers().filter(filter) : getAllActiveUsers();
+    return users.map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] }));
+    // `filter` is expected stable (defined inline is fine — options recompute on
+    // mount and on users-table pulls only, so it's deliberately not a dep).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usersVersion]);
+
+  const picker = (
+    <SearchablePicker
+      placeholder={placeholder}
+      options={options}
+      value={value}
+      onSelect={opt => onChange(value && opt.id === value.id ? null : opt)}
+    />
+  );
+
+  const body = disabled ? (
+    <View pointerEvents="none" style={s.disabled}>{picker}</View>
+  ) : (
+    picker
+  );
+
+  return label ? <Field label={label}>{body}</Field> : body;
+}
+
+const s = StyleSheet.create({
+  disabled: { opacity: 0.5 },
+});

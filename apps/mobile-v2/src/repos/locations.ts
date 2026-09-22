@@ -1,0 +1,609 @@
+import { getDb, rowsAs, bindParams } from '../db/schema';
+import { createRepository } from '@invenpro/core';
+import { resolveTypeId, resolveLabels, LOCATION_TYPE } from './taxonomy';
+import { generateUUID } from '../utils/uuid';
+import { appendLog } from '../db/queries/log';
+
+// PORT NOTE: findOrCreateVehicleByName and retireVehicle are CUT from this
+// port. Both need the `vehicles` domain (ensureVehicleRow / getActiveCheckout
+// from the old app's src/db/queries/vehicles.ts), which itself pulls in
+// src/db/queries/access.ts (sharesTeamWithOwner) and
+// src/components/vehicles/vehicleSessionLogic.ts — none of which exist in
+// mobile-v2 yet. That's a separate, unported domain (~600 lines across the
+// two files, plus access.ts's own further deps on auth/permissions and
+// access/unitAccessPolicy), out of scope for this locations/rooms/taxonomy
+// port. reactivateVehicle is KEPT below — it never touches vehicles.ts.
+// Once vehicles.ts is ported to src/repos/vehicles.ts, re-add these two
+// functions verbatim (import mapping only) from apps/mobile/src/db/queries/locations.ts.
+
+const locationsRepo = createRepository('locations');
+
+export interface Location {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  color: string | null;
+  icon: string | null;
+  owner_user_id: string | null;
+  active: number;
+  updated_at: string;
+  synced_at: string | null;
+  // Coords (migration 009). Optional so existing Location literals stay valid;
+  // upsertLocation coalesces undefined → null. Set via "use my current spot".
+  latitude?: number | null;
+  longitude?: number | null;
+  // Per-parent gate (migration 012). When 1, child locations under this parent
+  // require an owner. INTEGER locally; optional so existing literals stay valid,
+  // upsertLocation coalesces undefined → 0.
+  subareas_require_owner?: number;
+  // location_type taxonomy label (migration 017): Shop, Vehicle, Locker, … Optional
+  // so existing literals stay valid; upsertLocation coalesces undefined → null.
+  type?: string | null;
+  // Durable taxonomy FK (migration 029, #74) — `type` is the label cache.
+  type_id?: string | null;
+  // When 1, add-stock offers a Shelf field (migration 020). INTEGER locally.
+  has_shelves?: number;
+}
+
+export interface LocationWithChildren extends Location {
+  children: LocationWithChildren[];
+  depth: number;
+}
+
+export function getAllLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 ORDER BY parent_id NULLS FIRST, name`
+  );
+  // Resolve `type` from type_id so a taxonomy rename shows immediately (#74 P2).
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
+}
+
+// Vehicles & lockers are UNITS (#122 A2 — their own system, not places). This is
+// THE central exclusion: every browse/tree/picker surface flows through
+// getBrowsableLocations/getNonShelfLocations, so filtering here removes units
+// from the Locations tab, parent pickers, and main-location pickers everywhere.
+export function isUnitLocation(l: Pick<Location, 'type'>): boolean {
+  return l.type === 'Vehicle' || l.type === 'Locker';
+}
+export function getUnitLocations(kind: 'Vehicle' | 'Locker'): Location[] {
+  return getAllLocations().filter(l => l.type === kind);
+}
+
+// "Real" browsable locations — everything EXCEPT shelves (type='Shelf'). Shelves
+// are a sub-level of a has_shelves location (created via findOrCreateShelf), not
+// first-class locations: they're excluded from the Locations browser tree/list
+// and from parent choices (a shelf can't itself contain sub-areas). The
+// item-assign pickers (LocationPicker, LocationShelfPicker) must NOT use
+// getAllLocations(): they build options from getNonShelfLocations() so shelves
+// only appear via the dedicated Shelf sub-field.
+export function getBrowsableLocations(): Location[] {
+  // Hide shelves that belong to a parent location (they're managed inside that
+  // location's detail). Keep TOP-LEVEL shelves (parent_id null) — e.g. ones a
+  // findOrCreateShelfByName home-location quick-create made — visible, or they'd
+  // become unreachable/unmanageable anywhere in the Locations UI.
+  return getAllLocations().filter(l => !(l.type === 'Shelf' && l.parent_id != null) && !isUnitLocation(l));
+}
+
+// Locations with NO shelves at all — stricter than getBrowsableLocations (which
+// deliberately keeps top-level shelves visible for the Locations browser). Backs
+// the item-assign / checkout pickers, where a shelf is only ever reached through
+// the Shelf sub-field of its has_shelves parent, never as a first-class option.
+// Also drops TYPE-LESS locations (no type_id, or one that no longer resolves):
+// these are malformed/legacy rows, and JS null-comparisons let them slip past a
+// bare `type !== 'Shelf'` test, so they'd otherwise pollute every picker. They
+// stay visible in getBrowsableLocations (the Locations browser) so they can be
+// given a type or retired — this only hides them from item/checkout selection.
+//
+// `includeTypeless` (#158): the fast/hub checkout DestinationPicker must offer
+// EVERY real place as a destination — including type-less rows, which are valid
+// stock holders even while malformed. Opt-in so the item-assign pickers keep
+// the strict default; shelves and units stay excluded either way (shelves are
+// reached via the has_shelves sub-picker, units via their own flows).
+export function getNonShelfLocations(opts: { includeTypeless?: boolean } = {}): Location[] {
+  return getAllLocations().filter(l =>
+    (opts.includeTypeless ? true : !!l.type) && l.type !== 'Shelf' && !isUnitLocation(l));
+}
+
+export interface LocationShelfPick {
+  location: { id: string; label: string } | null;
+  shelf: { id: string; label: string } | null;
+}
+
+/**
+ * Resolve a stored location id (which may be a shelf — a child of a shelf-bearing
+ * location) into a (location, shelf) pair for the two-stage picker. If the id is a
+ * shelf, returns its parent as the location and itself as the shelf; otherwise the
+ * location with no shelf. Unknown/null id → both null. Used to seed the main-storage
+ * default in Quick Add and the main-storage setting in admin.
+ */
+export function resolveLocationShelf(locationId: string | null): LocationShelfPick {
+  if (!locationId) return { location: null, shelf: null };
+  const byId = new Map(getAllLocations().map(l => [l.id, l]));
+  const loc = byId.get(locationId);
+  if (!loc) return { location: null, shelf: null };
+  const parent = loc.parent_id ? byId.get(loc.parent_id) : undefined;
+  if (parent && parent.has_shelves === 1) {
+    return {
+      location: { id: parent.id, label: parent.name },
+      shelf: { id: loc.id, label: loc.name },
+    };
+  }
+  return { location: { id: loc.id, label: loc.name }, shelf: null };
+}
+
+export function getTopLevelLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE parent_id IS NULL AND active = 1 ORDER BY name`
+  );
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
+}
+
+export function getSubAreas(parentId: string): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE parent_id = ? AND active = 1 ORDER BY name`,
+    [parentId]
+  );
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
+}
+
+// Non-shelf children of a location — the "rooms" of a building (Maintenance
+// Room, Product Room, Garage, …) for the detail screen's Sub-areas section.
+// Shelves are excluded: they have their own dedicated section + queries.
+export function getRoomsForParent(parentId: string): Location[] {
+  return getSubAreas(parentId).filter(l => l.type !== 'Shelf');
+}
+
+// Full recursive tree (arbitrary depth). `depth` is the 0-based nesting level,
+// for indentation. A visited set guards against any cyclic parent_id data so the
+// recursion can't loop forever.
+export function getLocationTree(): LocationWithChildren[] {
+  // Shelves are excluded so the Locations browser tree only shows real
+  // locations — see getBrowsableLocations(). Since nothing in the UI lets a
+  // shelf be chosen as a parent (the "Inside" pickers use getBrowsableLocations
+  // too), no non-shelf location is ever parented under a shelf, so this filter
+  // can't orphan a real sub-area out of the tree.
+  const all = getBrowsableLocations();
+  const byParent = new Map<string | null, Location[]>();
+  for (const loc of all) {
+    const key = loc.parent_id ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(loc);
+  }
+  const build = (loc: Location, depth: number, seen: Set<string>): LocationWithChildren => {
+    seen.add(loc.id);
+    const kids = (byParent.get(loc.id) ?? []).filter(c => !seen.has(c.id));
+    return { ...loc, depth, children: kids.map(c => build(c, depth + 1, seen)) };
+  };
+  return (byParent.get(null) ?? []).map(loc => build(loc, 0, new Set()));
+}
+
+// Ancestor path as "Top › Mid › Leaf" (the location itself last). Walks parent_id
+// up via the in-memory set; cycle-guarded.
+export function getLocationPath(id: string, sep = ' › '): string {
+  const all = getAllLocations();
+  const byId = new Map(all.map(l => [l.id, l]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let cur = byId.get(id) ?? null;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(cur.name);
+    cur = cur.parent_id ? byId.get(cur.parent_id) ?? null : null;
+  }
+  return names.join(sep);
+}
+
+// IDs of a location plus all its descendants — used to exclude invalid parent
+// choices (can't re-parent a location under itself or one of its descendants).
+export function getDescendantIds(id: string): Set<string> {
+  const all = getAllLocations();
+  const byParent = new Map<string | null, Location[]>();
+  for (const loc of all) {
+    const key = loc.parent_id ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(loc);
+  }
+  const out = new Set<string>([id]);
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const c of byParent.get(cur) ?? []) {
+      if (!out.has(c.id)) { out.add(c.id); stack.push(c.id); }
+    }
+  }
+  return out;
+}
+
+export function getLocationById(id: string): Location | null {
+  const db = getDb();
+  const result = db.executeSync(`SELECT * FROM locations WHERE id = ?`, [id]);
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type')[0] ?? null;
+}
+
+// Locations that belong to a user (a PM's locker/vehicle, etc.).
+export function getLocationsByOwner(ownerUserId: string): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE owner_user_id = ? AND active = 1 ORDER BY name`,
+    [ownerUserId]
+  );
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
+}
+
+export interface StockAtLocation {
+  item_id: string;
+  location_id: string;
+  quantity: number;
+  updated_at: string;
+  name: string;
+}
+
+export function getStockAtLocation(locationId: string): StockAtLocation[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT s.item_id, s.location_id, s.quantity, s.updated_at, i.name
+     FROM stock_by_location s
+     JOIN inventory_items i ON i.id = s.item_id
+     WHERE s.location_id = ? AND i.active = 1 AND s.quantity > 0
+     ORDER BY i.name`,
+    [locationId]
+  );
+  return rowsAs<StockAtLocation>(result.rows);
+}
+
+// NOTE (#74 Phase 2/3): the helpers below key STRUCTURAL behavior off hardcoded
+// type LABEL literals ('Shelf'/'Shop'/'Office'/'Vehicle'), not the FK id. This is
+// deliberately left as-is — renaming one of those system types in Manage Types
+// would break shelf/vehicle/office logic. Phase 3 should add a slug/system_key to
+// taxonomy_types (or guard system-type renames) and resolve these by it.
+
+// Active "Shelf"-type locations, for the item Home-location typeahead. Shelves
+// are entered with prefixes (e.g. WH-A1, SHOP-B3), so name order is enough.
+export function getShelfLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' ORDER BY name`,
+  );
+  return rowsAs<Location>(result.rows);
+}
+
+// Active locations whose name matches the query (case-insensitive), for global search.
+export function searchLocations(q: string, limit = 20): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND name LIKE ? ORDER BY name LIMIT ?`,
+    [`%${q}%`, limit],
+  );
+  return resolveLabels(rowsAs<Location>(result.rows), 'type_id', 'type');
+}
+
+// "Office" destinations — locations tagged Shop or Office (the franchise base).
+// Backs the scan check-out flow's Office quick-destination.
+/**
+ * #139: active, stock-holding MAIN locations usable as a fast-checkout source —
+ * the explicit Location half of the Location ∪ Vehicle ∪ Locker source union.
+ * NOT the A2 exclusion-filtered browse query: this is built directly, excluding
+ * only units (Vehicle/Locker, which have their own access path) and child
+ * shelves (roll up to their parent). A location with no positive stock is not a
+ * source. Access is role-only (checkout_inventory, gated at the screen) — main
+ * locations carry no per-object ACL.
+ */
+export function getStockHoldingSourceLocations(): Location[] {
+  const db = getDb();
+  return rowsAs<Location>(db.executeSync(
+    `SELECT DISTINCT l.* FROM locations l
+       JOIN stock_by_location s ON s.location_id = l.id
+       JOIN inventory_items i ON i.id = s.item_id AND i.active = 1
+      WHERE l.active = 1 AND s.quantity > 0
+        AND l.type NOT IN ('Vehicle', 'Locker')
+        AND NOT (l.type = 'Shelf' AND l.parent_id IS NOT NULL)
+      ORDER BY l.name`,
+  ).rows);
+}
+
+export function getOfficeLocations(): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type IN ('Shop', 'Office') ORDER BY name`,
+  );
+  return rowsAs<Location>(result.rows);
+}
+
+// Shelf child-locations of a given parent, for the add-stock Shelf typeahead.
+export function getShelvesForParent(parentId: string): Location[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ? ORDER BY name`,
+    [parentId],
+  );
+  return rowsAs<Location>(result.rows);
+}
+
+// Find (case-insensitive) or create a Shelf child of `parentId` named `name`,
+// returning its location id. Newly created shelves are written locally + queued
+// to the sync outbox (real boolean for active/has_shelves) atomically via
+// upsertLocation. Stock is then tracked against the returned shelf location id.
+//
+// CONTRACT: returns null if the shelf could NOT be created (upsertLocation's
+// local write + outbox mirror are one transaction and we swallow the error here
+// rather than throw). Callers MUST null-check and surface a "couldn't create
+// shelf" message instead of tracking stock against a missing location. (An
+// empty name returns the parent id unchanged, which is a valid location.)
+export function findOrCreateShelf(parentId: string, name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return parentId;
+  // Units (Vehicle/Locker) can't contain shelves/sub-areas (#122 A2). Mirrors the
+  // server-side rejection — the server rule alone leaves a hole: a legacy deep
+  // link, preset parent param, or future code path could still write a child
+  // under a unit locally, producing a permanent push rejection and a
+  // stuck-looking local row.
+  const parentLoc = getLocationById(parentId);
+  if (parentLoc && isUnitLocation(parentLoc)) return null;
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ?
+       AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [parentId, trimmed],
+  ).rows)[0];
+  if (existing) return existing.id;
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  const shelf: Location = {
+    id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
+    owner_user_id: null, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
+  };
+  try {
+    upsertLocation(shelf);
+  } catch (err) {
+    console.warn('findOrCreateShelf: failed to create shelf', err);
+    return null;
+  }
+  return id;
+}
+
+// Resolve the two-stage picker's (location, shelf) selection into the single
+// location id stock should be tracked against. Handles the '__new__' typed-in
+// shelf sentinel by creating the shelf via findOrCreateShelf.
+//
+// CONTRACT: never throws. Returns { ok: true, id } with the id to store —
+//   • null location → { ok: true, id: null } (nothing picked);
+//   • location without has_shelves (checked via getLocationById), or no shelf
+//     picked → { ok: true, id: location.id };
+//   • existing shelf → { ok: true, id: shelf.id }.
+// Returns { ok: false, shelfLabel } ONLY when a '__new__' shelf could not be
+// created (findOrCreateShelf returned null). Callers MUST check ok and surface
+// a "couldn't create shelf" message instead of tracking stock against a missing
+// location.
+export function resolveLocationShelfSelection(
+  location: { id: string; label: string } | null,
+  shelf: { id: string; label: string } | null,
+): { ok: true; id: string | null } | { ok: false; shelfLabel: string } {
+  if (!location) return { ok: true, id: null };
+  const full = getLocationById(location.id);
+  if (full?.has_shelves !== 1 || !shelf) return { ok: true, id: location.id };
+  if (shelf.id === '__new__') {
+    const createdId = findOrCreateShelf(location.id, shelf.label);
+    if (createdId === null) return { ok: false, shelfLabel: shelf.label };
+    return { ok: true, id: createdId };
+  }
+  return { ok: true, id: shelf.id };
+}
+
+// Set (or clear, with null) a shelf's optional display color — reuses the same
+// locations.color column a regular location's edit form writes, so a shelf can
+// carry a color without a schema change. Mirrors the location edit screen's
+// upsert + outbox + log pattern (kept as its own small setter rather than a full
+// upsertLocation call so callers touching just the color don't need every other
+// location field). No-ops on an unknown id or a non-Shelf location. Uses
+// locationsRepo.mirror() so the color UPDATE, its outbox mirror, and the
+// activity-log write commit atomically — mirroring the old app's
+// runInTransaction(update + outbox + appendLog).
+export function setShelfColor(shelfId: string, color: string | null, userId: string | null): void {
+  const shelf = getLocationById(shelfId);
+  if (!shelf || shelf.type !== 'Shelf') return;
+  const now = new Date().toISOString();
+  try {
+    locationsRepo.mirror('UPDATE', { id: shelfId, color, updated_at: now }, () => {
+      getDb().executeSync(
+        `UPDATE locations SET color = ?, updated_at = ? WHERE id = ?`,
+        [color, now, shelfId],
+      );
+      appendLog({
+        action: 'location_updated',
+        entity_type: 'location',
+        entity_id: shelfId,
+        user_id: userId,
+        team_id: null,
+        job_id: null,
+        note: shelf.name,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('setShelfColor: failed to set shelf color', err);
+  }
+}
+
+// Find (case-insensitive, across any parent) or create a Shelf location by name,
+// returning its id. Used by the item "Home location" typeahead where there's no
+// pre-selected parent — shelves are identified by their prefixed name (WH-A1),
+// so a new one is created top-level (parent_id null) and can be re-parented later.
+//
+// CONTRACT: returns null for an empty name OR if the create failed (upsertLocation's
+// local write + outbox mirror are one transaction and the error is swallowed here
+// rather than thrown). Callers MUST null-check before using the id.
+export function findOrCreateShelfByName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [trimmed],
+  ).rows)[0];
+  if (existing) return existing.id;
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  const shelf: Location = {
+    id, name: trimmed, parent_id: null, color: null, icon: '🗄️',
+    owner_user_id: null, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
+  };
+  try {
+    upsertLocation(shelf);
+  } catch (err) {
+    console.warn('findOrCreateShelfByName: failed to create shelf', err);
+    return null;
+  }
+  return id;
+}
+
+// Find (or reactivate) the Locker OWNED by `userId`, or create one named after
+// them, returning its id (#146 personal locker — follow-up to #130's untyped
+// sub-area lockers). Mirrors findOrCreateVehicleByName's structure (name-scoped
+// create), but keyed on owner_user_id rather than name: a user has at most one
+// personal locker, and a retired one (active=0 — locations are NEVER hard-deleted)
+// is reactivated instead of duplicated.
+//
+// CONTRACT: returns null if the locker could NOT be created/reactivated (the
+// local write + outbox enqueue are one transaction and the error is swallowed
+// here rather than thrown). Callers MUST null-check.
+export function findOrCreateLockerForUser(userId: string, userName: string): string | null {
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE type = 'Locker' AND owner_user_id = ?
+      ORDER BY active DESC LIMIT 1`,
+    [userId],
+  ).rows)[0];
+  if (existing?.active === 1) return existing.id;
+  const now = new Date().toISOString();
+  if (existing) {
+    // Retired personal locker — flip it back on rather than create a duplicate.
+    try {
+      locationsRepo.update({ id: existing.id, active: true, updated_at: now });
+    } catch (err) {
+      console.warn('findOrCreateLockerForUser: failed to reactivate locker', err);
+      return null;
+    }
+    return existing.id;
+  }
+
+  const id = generateUUID();
+  const trimmed = userName.trim();
+  const name = trimmed ? `${trimmed}'s Locker` : 'Personal Locker';
+  const locker: Location = {
+    id, name, parent_id: null, color: null, icon: '🔒',
+    owner_user_id: userId, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Locker', has_shelves: 0,
+  };
+  try {
+    upsertLocation(locker);
+  } catch (err) {
+    console.warn('findOrCreateLockerForUser: failed to create locker', err);
+    return null;
+  }
+  return id;
+}
+
+// Retire a Locker: active=FALSE (locations are NEVER hard-deleted) through the
+// same local UPDATE + outbox path, with a fresh updated_at watermark. Returns
+// false (no-op) on an unknown id, a non-Locker location, or a failed write.
+// Stock checks are the caller's job — see access/personalLocker.ts.
+export function retireLocker(lockerId: string): boolean {
+  const locker = getLocationById(lockerId);
+  if (!locker || locker.type !== 'Locker') return false;
+  const now = new Date().toISOString();
+  try {
+    locationsRepo.update({ id: lockerId, active: false, updated_at: now });
+  } catch (err) {
+    console.warn('retireLocker: failed to retire locker', err);
+    return false;
+  }
+  return true;
+}
+
+// #153: result shape for the Vehicle retire/reactivate pair — mirrors
+// PersonalLockerResult (access/personalLocker.ts) so the UI gets a
+// user-facing reason for a refusal instead of a bare boolean.
+export type RetireUnitResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Reactivate a retired Vehicle (active 0→1) — the vehicle counterpart of the
+ * inline reactivate branch in findOrCreateLockerForUser (lockers have no
+ * standalone reactivate helper to reuse; this mirrors that branch's write
+ * shape instead). Already-active vehicle → no-op success. Unlike retireVehicle
+ * (cut from this port — see the PORT NOTE at the top of the file), this needs
+ * no vehicles.ts lookup, so it's fully ported.
+ */
+export function reactivateVehicle(locationId: string, userId: string | null): RetireUnitResult {
+  const vehicle = getLocationById(locationId);
+  if (!vehicle || vehicle.type !== 'Vehicle') return { ok: false, reason: 'Not a vehicle.' };
+  if (vehicle.active === 1) return { ok: true };
+  const now = new Date().toISOString();
+  try {
+    locationsRepo.mirror('UPDATE', { id: locationId, active: true, updated_at: now }, () => {
+      getDb().executeSync(`UPDATE locations SET active = 1, updated_at = ? WHERE id = ?`, [now, locationId]);
+      appendLog({
+        action: 'location_restored', entity_type: 'location', entity_id: locationId,
+        user_id: userId, team_id: null, job_id: null, note: vehicle.name,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('reactivateVehicle: failed to reactivate vehicle', err);
+    return { ok: false, reason: 'Could not reactivate the vehicle. Please try again.' };
+  }
+  return { ok: true };
+}
+
+// THE write path for every location create/update in this file (shelves,
+// lockers, and the general edit-form case once ported). Uses
+// locationsRepo.mirror() rather than .insert() because the local write and the
+// outbox payload intentionally diverge in two ways the old app relied on:
+//   - type_id (the resolved taxonomy FK) is written locally for label
+//     resolution, but never pushed — the server does not expect/accept it from
+//     the client (see the #74 dual-write comment below).
+//   - synced_at is a local-only column, never mirrored.
+// insert()/update() mirror the SAME payload to both local + outbox, which
+// would leak type_id/synced_at into the outbox; mirror() keeps them separate,
+// exactly like the old hand-rolled upsertLocation + appendOutbox pair did.
+export function upsertLocation(location: Location): void {
+  // Dual-write the taxonomy FK (#74): prefer an explicit type_id (pulled rows),
+  // else resolve from the label so locally-created locations anchor to the id too.
+  const typeId = location.type_id ?? resolveTypeId(LOCATION_TYPE, location.type);
+  locationsRepo.mirror('INSERT', {
+    id: location.id,
+    name: location.name,
+    parent_id: location.parent_id,
+    color: location.color,
+    icon: location.icon,
+    owner_user_id: location.owner_user_id,
+    active: !!location.active,
+    updated_at: location.updated_at,
+    latitude: location.latitude ?? null,
+    longitude: location.longitude ?? null,
+    subareas_require_owner: !!(location.subareas_require_owner ?? 0),
+    type: location.type ?? null,
+    has_shelves: !!(location.has_shelves ?? 0),
+  }, () => {
+    getDb().executeSync(
+      `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type, has_shelves, type_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      bindParams([location.id, location.name, location.parent_id, location.color,
+       location.icon, location.owner_user_id, location.active, location.updated_at, location.synced_at,
+       location.latitude ?? null, location.longitude ?? null, location.subareas_require_owner ?? 0,
+       location.type ?? null, location.has_shelves ?? 0, typeId])
+    );
+  });
+}

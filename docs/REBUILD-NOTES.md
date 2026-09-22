@@ -89,6 +89,40 @@ Both targets green against the local dev API + prod-dump PG:
   — an "Open with" chooser appears (prod app shares the scheme); pick
   "InventoryPro Dev".
 
+## Wave A progress
+
+Foundation landed (repos + shared components; screens next):
+
+- `src/repos/`: items, search, suggestions, locations, rooms, taxonomy,
+  equipment, equipmentUnits, maintenance, labelResolve, jobs (READ-ONLY stub
+  for search/pickers — full jobs repo is Wave C), + testDb harness and tests.
+  Repos self-mirror to the outbox; components/screens must NOT call
+  `appendOutbox` after a repo write (double-write bug — already caught and
+  fixed once). Legit direct appendOutbox callers: `src/db/{formMode,
+  hiddenFields,mainStorage}.ts` (app_config, no repo) and one raw-SQL delete
+  path in QuickAddEditSheet.
+- `src/components/`: ItemCard, Barcode{Input,Scanner(+.web)}, USBScanner,
+  SearchablePicker, TooltipHint, PermissionGate, QuickAddBanner,
+  LocationSuggestionBanner, UnitRow, MoveStockModal, GpsAnchorField,
+  MapDisplay/MapPickerModal/leafletAssets, CsvImport, pickers/ (whole dir),
+  quickadd/ (shell + item/location/stock/equipment sheets + stockGates),
+  ui/{AdvancedFields,AutofillTextField,HidableField} + their hooks/constants.
+  SuggestInput/BulkActionBar/quickAddBanner-lib/typeColors NOT copied — they
+  live in `@invenpro/ui`.
+- TODO markers to honor in later waves: `TODO(wave-media)` (MediaThumbnail/
+  Gallery cut from ItemCard/ItemQuickAdd), `TODO(wave-chat)` (PermissionGate
+  request-access DM → toast), `TODO(wave-B)` (QuickCreateSheet vehicle/job/
+  repair/team/user kinds return null; typed-route casts to unbuilt screens),
+  `TODO(gap)` (queries/access.ts unit-inventory lock stubbed always-unlocked
+  at 4 call sites — server enforcement unaffected; 381-ln module to port with
+  the access surface in Wave B).
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; mobile-v2 unit tests
+  40/40; `@invenpro/core` 181/181.
+- A fork stray-edited `apps/mobile/src/components/BarcodeScanner.web.tsx`
+  (syntax-breaking garbage) — reverted via git checkout; v2 copy verified
+  clean. Old app is READ-ONLY: re-check `git status apps/mobile` after any
+  subagent wave.
+
 ## Unresolved / watch
 
 - expo-notifications absent from dev variant — Wave D notification work must

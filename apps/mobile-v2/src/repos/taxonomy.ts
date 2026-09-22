@@ -1,0 +1,558 @@
+import { getDb, rowsAs } from '../db/schema';
+import { createRepository } from '@invenpro/core';
+import { applyLabelMap } from './labelResolve';
+import { CATEGORY_DEFAULT_ICON } from '../constants/locationStyles';
+import { generateUUID } from '../utils/uuid';
+
+// Every write below is the same shape: read the existing row (or build a new
+// one), mutate one field, then INSERT OR REPLACE the full row — which is
+// exactly what `taxonomyRepo.insert()` does (local INSERT OR REPLACE +
+// mirrored outbox INSERT of the same payload). The old app's outbox payloads
+// always sent `active` as a real boolean while the local write used the raw
+// 0/1 from SQLite; passing a boolean into `insert()` here reproduces both —
+// `bindParams` (inside createRepository) coerces it to 0/1 for the local
+// write, and the outbox mirror gets the boolean untouched.
+const taxonomyRepo = createRepository('taxonomy_types');
+
+export type TaxonomyType = {
+  id: string;
+  category: string;
+  label: string;
+  icon: string | null;
+  sort_order: number;
+  active: number;
+  updated_at: string;
+  meta: string | null;
+};
+
+// A product_class taxonomy row with its `meta` JSON parsed into curated units +
+// decimals policy. `meta` is added by migration 012 (assumed present at runtime).
+export type ProductClass = {
+  id: string;
+  label: string;
+  icon: string | null;
+  units: string[];
+  allowDecimals: boolean;
+  active: number;
+  sort_order: number;
+};
+
+const PRODUCT_CLASS_CATEGORY = 'product_class';
+export const ITEM_CATEGORY = 'item_category';
+export const JOB_CATEGORY = 'job';
+export const TEAM_CATEGORY = 'team';
+export const EQUIPMENT_CATEGORY = 'equipment';
+// Fuel-receipt payers (Office, …) — the non-team, non-job "For" options
+// (migration 068 seeds 'Office'; the list is managed in Manage Types).
+export const PAYER_CATEGORY = 'payer';
+
+// Active payers for the gas receipt's "For" picker.
+export function getPayerTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(PAYER_CATEGORY, opts);
+}
+
+// Resolve a taxonomy row id from its (category, label) — the write-time bridge for
+// the label→FK cutover (#74). Deterministic when duplicate labels exist (active
+// first, then lowest sort_order, then id), matching migration 029's backfill.
+// Returns null when no match, so an entity keeps only its label (grace).
+export function resolveTypeId(category: string, label: string | null | undefined): string | null {
+  if (!label) return null;
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT id FROM taxonomy_types WHERE category = ? AND label = ?
+     ORDER BY active DESC, sort_order ASC, id ASC LIMIT 1`,
+    [category, label],
+  );
+  const row = result.rows[0] as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
+// Phase 2 of the label→FK cutover (#74): resolve an entity's DISPLAY label from
+// its taxonomy FK id at read time, so a rename (which only rewrites the
+// taxonomy_types row) shows immediately everywhere without touching entities.
+// applyLabelMap lives in ./labelResolve (DB-free) so it stays unit-testable.
+
+// id → current label for every taxonomy row (tiny table; one scan per read call).
+export function getTypeLabelMap(): Map<string, string> {
+  const db = getDb();
+  const rows = db.executeSync(`SELECT id, label FROM taxonomy_types`).rows as {
+    id: string;
+    label: string;
+  }[];
+  const map = new Map<string, string>();
+  for (const r of rows) map.set(r.id, r.label);
+  return map;
+}
+
+// Overwrite each row's label cache field with the current taxonomy label resolved
+// via its FK id. The entity read helpers wrap their return in this so every
+// list/detail/icon/color consumer transparently gets the fresh label in the
+// existing type/category field.
+export function resolveLabels<T>(
+  rows: T[],
+  idField: string,
+  labelField: string,
+): T[] {
+  if (rows.length === 0) return rows;
+  return applyLabelMap(rows, idField, labelField, getTypeLabelMap());
+}
+
+// item_category.meta shape (migration 018): the type's curated units + the
+// product_class it maps to (stored as the item's unit_category for formatting).
+export type ItemTypeMeta = { units: string[]; classId: string | null; color: string | null };
+
+export function parseItemTypeMeta(meta: string | null | undefined): ItemTypeMeta {
+  if (!meta) return { units: [], classId: null, color: null };
+  try {
+    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown; color?: unknown };
+    return {
+      units: Array.isArray(p.units) ? p.units.filter((u): u is string => typeof u === 'string') : [],
+      classId: typeof p.classId === 'string' ? p.classId : null,
+      color: typeof p.color === 'string' ? p.color : null,
+    };
+  } catch {
+    return { units: [], classId: null, color: null };
+  }
+}
+
+// Active item types (PPE, Filters, …) for the catalog forms.
+export function getItemTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(ITEM_CATEGORY, opts);
+}
+
+export const LOCATION_TYPE = 'location_type';
+export const LOCATION_SUBTYPE = 'location_subtype';
+
+// Active location types (Shop, Vehicle, Locker, Maintenance, …) for the location
+// forms + section filters.
+export function getLocationTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(LOCATION_TYPE, opts);
+}
+
+// Active sub-area types (Closet, Section, Storage, Shelf, Area, Bin, Rack) for a
+// child location's (parent_id != null) type picker.
+export function getLocationSubtypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(LOCATION_SUBTYPE, opts);
+}
+
+// Per-location-type form rules (migration 022). gps defaults TRUE (show the GPS
+// anchor) and requiresOwner FALSE for unflagged/custom types.
+export type LocationTypeRules = { gps: boolean; requiresOwner: boolean };
+export function parseLocationTypeMeta(meta: string | null | undefined): LocationTypeRules {
+  const rules: LocationTypeRules = { gps: true, requiresOwner: false };
+  if (!meta) return rules;
+  try {
+    const p = JSON.parse(meta) as { gps?: unknown; requiresOwner?: unknown };
+    if (typeof p.gps === 'boolean') rules.gps = p.gps;
+    if (typeof p.requiresOwner === 'boolean') rules.requiresOwner = p.requiresOwner;
+  } catch { /* keep defaults */ }
+  return rules;
+}
+// Rules for a location type by its label (for the location form).
+export function getLocationTypeRules(label: string | null | undefined): LocationTypeRules {
+  if (!label) return { gps: true, requiresOwner: false };
+  const row = getTaxonomyTypes(LOCATION_TYPE, { includeInactive: true }).find(t => t.label === label);
+  return parseLocationTypeMeta(row?.meta);
+}
+
+export const REPAIR_STATUS = 'repair_status';
+
+// Admin-editable repair statuses (Open, Awaiting Parts, In Progress, Repaired, …).
+export function getRepairStatuses(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(REPAIR_STATUS, opts);
+}
+
+// Whether a repair_status label "counts as completed" (meta.terminal). Unknown
+// labels are treated as non-terminal.
+export function isTerminalStatus(label: string): boolean {
+  const row = getTaxonomyTypes(REPAIR_STATUS, { includeInactive: true }).find(t => t.label === label);
+  if (!row?.meta) return false;
+  try { return (JSON.parse(row.meta) as { terminal?: unknown }).terminal === true; } catch { return false; }
+}
+
+// Set ONLY the terminal flag inside a repair_status row's meta (preserves any
+// other meta keys), + outbox — mirrors setTaxonomyClassId.
+export function setTaxonomyTerminal(id: string, terminal: boolean): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  meta.terminal = terminal;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  taxonomyRepo.insert({
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
+// Update ONLY the `units` array inside a taxonomy row's meta, preserving every
+// other meta key (e.g. item_category's classId). Used by the Manage Types units
+// editor for item types so editing units doesn't wipe the class mapping.
+export function setTaxonomyUnits(id: string, units: string[]): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  meta.units = units;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  taxonomyRepo.insert({
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
+// Parse a taxonomy_types.meta JSON blob into the units/allowDecimals shape.
+// Tolerant: null, empty, or malformed JSON falls back to {units:[], allowDecimals:true}.
+function parseClassMeta(meta: string | null | undefined): {
+  units: string[];
+  allowDecimals: boolean;
+} {
+  if (!meta) return { units: [], allowDecimals: true };
+  try {
+    const parsed = JSON.parse(meta) as { units?: unknown; allowDecimals?: unknown };
+    const units = Array.isArray(parsed.units)
+      ? parsed.units.filter((u): u is string => typeof u === 'string')
+      : [];
+    const allowDecimals =
+      typeof parsed.allowDecimals === 'boolean' ? parsed.allowDecimals : true;
+    return { units, allowDecimals };
+  } catch {
+    return { units: [], allowDecimals: true };
+  }
+}
+
+function toProductClass(row: TaxonomyType): ProductClass {
+  const { units, allowDecimals } = parseClassMeta(row.meta);
+  return {
+    id: row.id,
+    label: row.label,
+    icon: row.icon,
+    units,
+    allowDecimals,
+    active: row.active,
+    sort_order: row.sort_order,
+  };
+}
+
+export function getProductClasses(opts?: {
+  includeInactive?: boolean;
+}): ProductClass[] {
+  return getTaxonomyTypes(PRODUCT_CLASS_CATEGORY, opts).map(toProductClass);
+}
+
+export function getProductClassById(id: string): ProductClass | null {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE id = ? AND category = ? LIMIT 1`,
+    [id, PRODUCT_CLASS_CATEGORY],
+  );
+  const row = rowsAs<TaxonomyType>(result.rows)[0];
+  return row ? toProductClass(row) : null;
+}
+
+export function setClassMeta(
+  id: string,
+  { units, allowDecimals }: { units: string[]; allowDecimals: boolean },
+): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+
+  const existingResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  const existing = rowsAs<TaxonomyType>(existingResult.rows)[0];
+  if (!existing) return;
+
+  const meta = JSON.stringify({ units, allowDecimals });
+
+  taxonomyRepo.insert({
+    id: existing.id,
+    category: existing.category,
+    label: existing.label,
+    icon: existing.icon,
+    sort_order: existing.sort_order,
+    active: existing.active === 1,
+    updated_at,
+    meta,
+  });
+}
+
+// Update ONLY the classId inside an item_category row's meta, preserving the
+// units array. Lets admins remap which unit class a type uses (e.g. Chemicals →
+// liquid) from Manage Types.
+export function setTaxonomyClassId(id: string, classId: string): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  meta.classId = classId;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  taxonomyRepo.insert({
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
+// Admin override: pin an Item Type's color. Stored in meta.color (no schema
+// change; the existing upserts already round-trip meta). Pass null to clear back
+// to the auto color.
+export function setTaxonomyColor(id: string, color: string | null): void {
+  const db = getDb();
+  const existing = rowsAs<TaxonomyType>(
+    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
+  )[0];
+  if (!existing) return;
+  let meta: Record<string, unknown> = {};
+  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
+  if (color) meta.color = color; else delete meta.color;
+  const metaStr = JSON.stringify(meta);
+  const updated_at = new Date().toISOString();
+  taxonomyRepo.insert({
+    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
+    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+  });
+}
+
+// Label → admin-override color for active Item Types (only those with one set).
+// Callers merge this with the auto color via resolveTypeColor().
+export function getItemTypeColorMap(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const t of getItemTypes()) {
+    const c = parseItemTypeMeta(t.meta).color;
+    if (c) map[t.label] = c;
+  }
+  return map;
+}
+
+export function getTaxonomyTypes(
+  category: string,
+  opts?: { includeInactive?: boolean },
+): TaxonomyType[] {
+  const db = getDb();
+  const includeInactive = opts?.includeInactive ?? false;
+  const sql = includeInactive
+    ? `SELECT * FROM taxonomy_types WHERE category = ? ORDER BY sort_order ASC, label ASC`
+    : `SELECT * FROM taxonomy_types WHERE category = ? AND active = 1 ORDER BY sort_order ASC, label ASC`;
+  const result = db.executeSync(sql, [category]);
+  const rows = rowsAs<TaxonomyType>(result.rows);
+  // Defend against duplicate (category,label) rows (no UNIQUE constraint exists and
+  // pull is upsert-only): keep the first occurrence, which — given the ORDER BY
+  // sort_order ASC, label ASC above — is the lowest sort_order. This stops React
+  // duplicate-key warnings and double entries in every dropdown sourced from here.
+  const seen = new Set<string>();
+  return rows.filter(t => (seen.has(t.label) ? false : (seen.add(t.label), true)));
+}
+
+// Like getTaxonomyTypes but never returns an empty list when rows exist: if every
+// type in a category has been deactivated, fall back to showing the inactive ones
+// so pickers (team/job/location/repair-status) don't become silent dead-ends.
+export function getTaxonomyTypesWithFallback(
+  category: string,
+  opts?: { includeInactive?: boolean },
+): TaxonomyType[] {
+  const active = getTaxonomyTypes(category, opts);
+  if (active.length > 0) return active;
+  return getTaxonomyTypes(category, { includeInactive: true });
+}
+
+export function getLocationTypesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(LOCATION_TYPE);
+}
+
+// Active equipment types (Ladder, Dehumidifier, Air Mover, …) for the equipment
+// forms + section filters.
+export function getEquipmentTypes(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypes(EQUIPMENT_CATEGORY, opts);
+}
+
+export function getEquipmentTypesWithFallback(opts?: { includeInactive?: boolean }): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(EQUIPMENT_CATEGORY, opts);
+}
+
+export function getLocationSubtypesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(LOCATION_SUBTYPE);
+}
+
+export function getRepairStatusesWithFallback(): TaxonomyType[] {
+  return getTaxonomyTypesWithFallback(REPAIR_STATUS);
+}
+
+// The single chokepoint every screen (jobs/repairs/equipment/teams/locations/
+// manage-types) calls to render a type's icon. Prefer the row's own icon; when a
+// row carries none — or the label was free-typed and has no taxonomy row at all —
+// fall back to a per-category default (CATEGORY_DEFAULT_ICON) so each category
+// shows a distinct, meaningful glyph rather than the generic pin. Screens need no
+// changes to benefit. Returns null only for an unknown category with no icon.
+export function getTypeIcon(category: string, label: string): string | null {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT icon FROM taxonomy_types WHERE category = ? AND label = ? LIMIT 1`,
+    [category, label],
+  );
+  const row = result.rows[0] as { icon: string | null } | undefined;
+  const icon = row?.icon;
+  if (icon && icon.trim() !== '') return icon;
+  return CATEGORY_DEFAULT_ICON[category] ?? null;
+}
+
+export function addTaxonomyType({
+  category,
+  label,
+  icon,
+  meta,
+}: {
+  category: string;
+  label: string;
+  icon: string | null;
+  meta?: string | null;
+}): void {
+  const db = getDb();
+
+  // Guard against duplicate labels within a category (case-insensitive). If one
+  // already exists, reactivate it if inactive and return — never insert a second
+  // row with the same (category,label), which would cause duplicate React keys.
+  const dupResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE category = ? AND LOWER(label) = LOWER(?) LIMIT 1`,
+    [category, label],
+  );
+  const dup = dupResult.rows[0] as TaxonomyType | undefined;
+  if (dup) {
+    if (dup.active !== 1) {
+      const reactivatedAt = new Date().toISOString();
+      taxonomyRepo.insert({
+        id: dup.id, category: dup.category, label: dup.label, icon: dup.icon,
+        sort_order: dup.sort_order, active: true, updated_at: reactivatedAt,
+        meta: dup.meta ?? null,
+      });
+    }
+    return;
+  }
+
+  const id = generateUUID();
+  const updated_at = new Date().toISOString();
+  const metaValue = meta ?? null;
+
+  // Compute max sort_order for this category so new entry appends at the end
+  const maxResult = db.executeSync(
+    `SELECT MAX(sort_order) AS max_order FROM taxonomy_types WHERE category = ?`,
+    [category],
+  );
+  const maxRow = maxResult.rows[0] as { max_order: number | null } | undefined;
+  const sort_order = (maxRow?.max_order ?? 0) + 1;
+
+  taxonomyRepo.insert({
+    id,
+    category,
+    label,
+    icon,
+    sort_order,
+    active: true,
+    updated_at,
+    meta: metaValue,
+  });
+}
+
+export function renameTaxonomyType(id: string, label: string): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+
+  const existingResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  const existing = rowsAs<TaxonomyType>(existingResult.rows)[0];
+  if (!existing) return;
+
+  taxonomyRepo.insert({
+    id: existing.id,
+    category: existing.category,
+    label,
+    icon: existing.icon,
+    sort_order: existing.sort_order,
+    active: existing.active === 1,
+    updated_at,
+    meta: existing.meta ?? null,
+  });
+}
+
+export function setTaxonomyIcon(id: string, icon: string | null): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+
+  const existingResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  const existing = rowsAs<TaxonomyType>(existingResult.rows)[0];
+  if (!existing) return;
+
+  taxonomyRepo.insert({
+    id: existing.id,
+    category: existing.category,
+    label: existing.label,
+    icon,
+    sort_order: existing.sort_order,
+    active: existing.active === 1,
+    updated_at,
+    meta: existing.meta ?? null,
+  });
+}
+
+export function setTaxonomyActive(id: string, active: boolean): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+
+  const existingResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  const existing = rowsAs<TaxonomyType>(existingResult.rows)[0];
+  if (!existing) return;
+
+  taxonomyRepo.insert({
+    id: existing.id,
+    category: existing.category,
+    label: existing.label,
+    icon: existing.icon,
+    sort_order: existing.sort_order,
+    active,
+    updated_at,
+    meta: existing.meta ?? null,
+  });
+}
+
+export function reorderTaxonomyType(id: string, sort_order: number): void {
+  const db = getDb();
+  const updated_at = new Date().toISOString();
+
+  const existingResult = db.executeSync(
+    `SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  const existing = rowsAs<TaxonomyType>(existingResult.rows)[0];
+  if (!existing) return;
+
+  taxonomyRepo.insert({
+    id: existing.id,
+    category: existing.category,
+    label: existing.label,
+    icon: existing.icon,
+    sort_order,
+    active: existing.active === 1,
+    updated_at,
+    meta: existing.meta ?? null,
+  });
+}
