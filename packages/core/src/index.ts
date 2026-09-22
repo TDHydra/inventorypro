@@ -6,6 +6,8 @@ export * from './config';
 export * from './db/provider';
 export * from './db/tx';
 export * from './db/baseline';
+export * from './db/appSettings';
+export * from './db/appConfig';
 export * from './cache/createConfigCache';
 export * from './repo/createRepository';
 

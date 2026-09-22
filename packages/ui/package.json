@@ -1,0 +1,32 @@
+{
+  "name": "@invenpro/ui",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test $(find src -name '*.test.ts')",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@invenpro/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@quidone/react-native-wheel-picker": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-keyboard-controller": "*",
+    "react-native-safe-area-context": "*"
+  },
+  "devDependencies": {
+    "@quidone/react-native-wheel-picker": "^1.7.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "~19.2.2",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-keyboard-controller": "1.22.1",
+    "react-native-safe-area-context": "5.8.0",
+    "tsx": "^4.16.0",
+    "typescript": "~6.0.3"
+  }
+}
