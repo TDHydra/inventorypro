@@ -11,7 +11,7 @@ lands; reconcile, don't overwrite.
 |---|---|---|
 | 0 prep/guardrails | done | 661a93d |
 | 1 packages/ui + core + manifest | done | 5231e49, 9a6b03f, 54828d0 |
-| 2 mobile-v2 skeleton | in progress | 60ff9a3, 0399f3e |
+| 2 mobile-v2 skeleton | done | 60ff9a3, 0399f3e |
 | 3–10 | pending | — |
 
 ## Architecture facts (verified, don't re-derive)
@@ -67,16 +67,32 @@ lands; reconcile, don't overwrite.
   `expo prebuild --platform android` + `./gradlew assembleDebug`.
   USB device + `adb reverse` lets the device use localhost URLs.
 
-## Verified so far (Phase 2 web round trip, 2026-09-22)
+## Verified so far (Phase 2 exit, 2026-09-22)
 
-Fresh web client → roster → PIN login (bcrypt→JWT) → full download of all 37
-tables (counts match prod dump) → theme write → outbox push (row landed in
-dev PG) → pull watermark advanced. Denied bucket verified via the (since
-removed) client login log.
+Both targets green against the local dev API + prod-dump PG:
+
+- **Web**: fresh client → roster → PIN login (bcrypt→JWT) → full download of
+  all 37 tables (counts match prod dump) → theme write → outbox push (row
+  landed in dev PG) → pull watermark advanced. Denied bucket verified via the
+  (since removed) client login log.
+- **Device** (Galaxy S24 Ultra, debug dev-client APK installed alongside the
+  prod app): login → full download → live counts identical to web → theme
+  writes push to PG within seconds → server-pulled user theme applies at
+  login. Denied count 0 (finishLogin fix confirmed on-device).
+- **Hotload**: metro fast refresh works, BUT metro must NOT be started with
+  CI=1 — that silently disables file watching (no rebundle on edit). Start it
+  under a pty (`script -qefc "... npx expo start --port 8082" /dev/null`) or
+  a real terminal.
+- Device networking: `adb reverse tcp:8082 tcp:8082` + `tcp:3001 tcp:3001`,
+  launch dev client via
+  `inventorypro://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8082`
+  — an "Open with" chooser appears (prod app shares the scheme); pick
+  "InventoryPro Dev".
 
 ## Unresolved / watch
 
-- Device round-trip + hotload check pending (Phase 2 exit criterion).
 - expo-notifications absent from dev variant — Wave D notification work must
   test against a release-variant or EAS dev build that includes it.
 - Old app untouched and must stay runnable until Phase 10.
+- The "VPS" (10.8.0.1) is a QEMU VM `Ubuntu26-InvenPro-VPS` on the Unraid box
+  (192.168.1.239) — VM snapshots are an extra rollback lever for Phase 8.
