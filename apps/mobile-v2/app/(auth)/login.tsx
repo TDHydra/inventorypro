@@ -1,0 +1,503 @@
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
+  ActivityIndicator, Platform,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import {
+  verifyPinOnline, validatePinFormat, setPinFirstTime, isWeakPin,
+  fetchRoster, type RosterUser,
+  setAppConfigLocal, ORG_THEME_KEY,
+} from '@invenpro/core';
+import type { Theme } from '@invenpro/ui';
+import { useTheme, useThemedStyles, FormScreen } from '@invenpro/ui';
+import { PINPad } from '../../src/components/PINPad';
+import {
+  getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings,
+} from '../../src/db/queries/users';
+import { useSession } from '../../src/hooks/useSession';
+import { saveSession } from '../../src/auth/session';
+import { finishLogin } from '../../src/auth/finishLogin';
+import { applyOrgDefaultTheme } from '../../src/db/orgTheme';
+
+type Screen = 'pick' | 'pin' | 'setpin';
+// First-login runs as three sequential steps, one screen each: enrollment code,
+// then choose a PIN, then confirm it.
+type SetStep = 'code' | 'enter' | 'confirm';
+
+export default function LoginScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const router = useRouter();
+  const { setUser } = useSession();
+
+  const [screen, setScreen] = useState<Screen>('pick');
+  const [search, setSearch] = useState('');
+  const [selectedUser, setSelectedUser] = useState<RosterUser | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // First-login PIN setup (enter → confirm)
+  const [setStep, setSetStep] = useState<SetStep>('enter');
+  const [firstPin, setFirstPin] = useState('');
+  const [enrollmentCode, setEnrollmentCode] = useState('');
+
+  // Sign-in roster. Returning devices read it from the local DB (offline-capable);
+  // a brand-new device (empty local DB) fetches the minimal public /auth/roster.
+  // `needsFullSync` is true only in the latter case — that device has no business
+  // data yet, so after PIN sign-in we route it through the post-login download.
+  const [users, setUsers] = useState<RosterUser[]>([]);
+  const [needsFullSync, setNeedsFullSync] = useState(false);
+  const [rosterLoading, setRosterLoading] = useState(true);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+
+  const loadRoster = useCallback(() => {
+    setRosterLoading(true);
+    setRosterError(null);
+    // v2 has no demo/test-account flow — hide test rows unconditionally.
+    const hideDemo = (rows: RosterUser[]) => rows.filter(u => !u.is_test);
+    const local = getAllActiveUsers();
+    if (local.length > 0) {
+      // A user who hasn't set a PIN yet must be prompted for the role's MINIMUM
+      // length, not the placeholder stored on the row. The server roster applies
+      // this too, but a synced device uses this local path — mirror it via the
+      // synced role_settings map.
+      const roleMins = getRoleSettings();
+      setUsers(hideDemo(local.map(u => ({
+        ...u,
+        pin_length_required: u.pin_set === 0
+          ? Math.max(u.pin_length_required, roleMins[u.role] ?? 0)
+          : u.pin_length_required,
+        test_code: null,
+      }))));
+      setNeedsFullSync(false);
+      setRosterLoading(false);
+      return;
+    }
+    // Empty local DB → new device. Pull the public roster to populate the picker.
+    fetchRoster()
+      .then(({ users: fetched, default_theme_id }) => {
+        setUsers(hideDemo(fetched));
+        setNeedsFullSync(true);
+        // Fresh install: cache the org default in the local app_config table
+        // (the DB opens pre-auth) so later offline boots theme the sign-in
+        // screen, and apply it now — setThemeId notifies useTheme, so this
+        // very screen re-skins without a remount.
+        if (default_theme_id) {
+          try { setAppConfigLocal(ORG_THEME_KEY, default_theme_id); } catch { /* DB not ready */ }
+          applyOrgDefaultTheme(null);
+        }
+      })
+      .catch(e => setRosterError((e as Error).message || 'Could not reach the server. Connect to the internet to set up this device.'))
+      .finally(() => setRosterLoading(false));
+  }, []);
+
+  useEffect(() => { loadRoster(); }, [loadRoster]);
+
+  const roleColors = useMemo(() => getRoleColorMap(), []);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return users;
+    const q = search.toLowerCase();
+    return users.filter(u => u.name.toLowerCase().includes(q));
+  }, [search, users]);
+
+  function selectUser(user: RosterUser) {
+    setSelectedUser(user);
+    setPin('');
+    setFirstPin('');
+    setEnrollmentCode('');
+    setPinError(null);
+    if (user.pin_set === 0) {
+      // Brand-new account — enrollment code, then set & confirm a PIN.
+      setSetStep('code');
+      setScreen('setpin');
+    } else {
+      setScreen('pin');
+    }
+  }
+
+  // Finish a returning-user sign-in: build the session locally and enter the app.
+  // New devices (needsFullSync) take a different path — see proceedAfterAuth.
+  function enterApp(userId: string) {
+    if (!finishLogin(userId, setUser)) {
+      setPinError('User not found on this device');
+      setPin('');
+      return;
+    }
+    router.replace('/(app)');
+  }
+
+  // Called once the server has verified the PIN and the session is saved. A
+  // brand-new device has no local data yet, so it goes to the first-launch
+  // screen to download the full DB (authenticated) before entering the app.
+  function proceedAfterAuth(userId: string) {
+    if (needsFullSync) {
+      router.replace('/(auth)/first-launch');
+      return;
+    }
+    enterApp(userId);
+  }
+
+  async function submitPin(pinValue: string = pin) {
+    if (!selectedUser) return;
+
+    const formatError = validatePinFormat(pinValue, selectedUser.pin_length_required);
+    if (formatError) { setPinError(formatError); return; }
+
+    setLoading(true);
+    setPinError(null);
+
+    try {
+      // Online path: server verifies the PIN and returns JWT + 30-day refresh
+      // token, which the sync engine uses to keep pushing/pulling.
+      const result = await verifyPinOnline(selectedUser.id, pinValue);
+      await saveSession(result.jwt, result.refreshToken, result.userId);
+      proceedAfterAuth(result.userId);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes('Incorrect') || msg.includes('Invalid credentials') || msg.includes('expired') || msg.includes('inactive') || msg.includes('Too many')) {
+        // Definitive server rejection — wrong PIN, disabled/expired account, or
+        // rate-limited. Show the server's message.
+        setPinError(msg);
+      } else {
+        // First-time sign-in requires the server (PIN is never verified on-device).
+        setPinError('Connection required to sign in. Returning users can unlock with biometrics.');
+      }
+      setPin('');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Auto-submit when PIN is fully entered
+  const handlePinChange = (newPin: string) => {
+    setPin(newPin);
+    setPinError(null);
+    if (selectedUser && newPin.length === selectedUser.pin_length_required) {
+      // Small delay so user sees the last dot fill before submit.
+      // Pass newPin explicitly — `pin` state is one render behind here.
+      setTimeout(() => submitPin(newPin), 150);
+    }
+  };
+
+  // Step 1 → 2. The code is only format-checked here; the server is the real
+  // authority and rejects a wrong code at submitSetPin (401 → back to 'code').
+  function submitEnrollmentCode() {
+    if (validatePinFormat(enrollmentCode, 6)) {
+      setPinError('Enter the 6-digit enrollment code your admin gave you.');
+      return;
+    }
+    setPinError(null);
+    setPin('');
+    setFirstPin('');
+    setSetStep('enter');
+  }
+
+  // Step 3: PIN entered and confirmed — set it server-side.
+  async function submitSetPin(pinValue: string) {
+    if (!selectedUser) return;
+
+    setLoading(true);
+    setPinError(null);
+    try {
+      const result = await setPinFirstTime(selectedUser.id, pinValue, enrollmentCode);
+      await saveSession(result.jwt, result.refreshToken, result.userId);
+      markUserPinSet(selectedUser.id, pinValue.length);
+      proceedAfterAuth(result.userId);
+    } catch (err) {
+      const msg = (err as Error).message || 'Could not set your PIN. Check your connection.';
+      setPinError(msg);
+      setFirstPin('');
+      setPin('');
+      // A rejected code has to be re-entered on step 1 — landing on the PIN pad
+      // would hide the field the user actually needs to fix.
+      if (msg.includes('enrollment code')) {
+        setEnrollmentCode('');
+        setSetStep('code');
+      } else {
+        setSetStep('enter');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Back walks the wizard one step at a time; only step 1 leaves for the picker.
+  function stepBack() {
+    setPinError(null);
+    setPin('');
+    if (setStep === 'confirm') {
+      setFirstPin('');
+      setSetStep('enter');
+    } else if (setStep === 'enter') {
+      setFirstPin('');
+      setSetStep('code');
+    } else {
+      setScreen('pick');
+    }
+  }
+
+  const handleSetPinChange = (newPin: string) => {
+    setPin(newPin);
+    setPinError(null);
+    if (!selectedUser || newPin.length !== selectedUser.pin_length_required) return;
+
+    if (setStep === 'enter') {
+      // Reject trivially guessable PINs before advancing — instant feedback so
+      // the user isn't asked to confirm a PIN the server would reject at set-pin.
+      if (isWeakPin(newPin)) {
+        setPinError('That PIN is too easy to guess. Avoid repeats and sequences like 1234.');
+        setTimeout(() => setPin(''), 200);
+        return;
+      }
+      // First entry captured — advance to confirmation.
+      setFirstPin(newPin);
+      setTimeout(() => { setPin(''); setSetStep('confirm'); }, 200);
+    } else {
+      // Confirmation — must match the first entry.
+      if (newPin === firstPin) {
+        setTimeout(() => submitSetPin(newPin), 150);
+      } else {
+        setPinError("Those PINs didn't match — let's try again.");
+        setFirstPin('');
+        setTimeout(() => { setPin(''); setSetStep('enter'); }, 200);
+      }
+    }
+  };
+
+  if (screen === 'setpin' && selectedUser) {
+    return (
+      <FormScreen contentContainerStyle={styles.setpinContent}>
+        <TouchableOpacity style={styles.back} onPress={stepBack}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+
+        <View style={styles.firstBanner}>
+          <Text style={styles.firstBannerText}>
+            {setStep === 'code' ? '👋 First sign-in — enter your code' : '👋 First sign-in — set up your PIN'}
+          </Text>
+        </View>
+
+        <Text style={styles.greeting}>Welcome,</Text>
+        <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
+
+        {setStep === 'code' ? (
+          <View style={styles.enrollSection}>
+            <Text style={styles.pinLabel}>Enrollment code</Text>
+            <Text style={styles.pinSub}>Enter the 6-digit code your admin gave you.</Text>
+            <TextInput
+              style={styles.enrollInput}
+              placeholder="000000"
+              placeholderTextColor={t.colors.textMuted}
+              value={enrollmentCode}
+              onChangeText={v => { setEnrollmentCode(v.replace(/\D/g, '').slice(0, 6)); setPinError(null); }}
+              keyboardType="number-pad"
+              maxLength={6}
+              autoFocus
+              onSubmitEditing={submitEnrollmentCode}
+              returnKeyType="next"
+            />
+            {pinError && <Text style={styles.enrollError}>{pinError}</Text>}
+            <TouchableOpacity
+              style={[styles.continueBtn, enrollmentCode.length !== 6 && styles.continueBtnDisabled]}
+              onPress={submitEnrollmentCode}
+              disabled={enrollmentCode.length !== 6}
+            >
+              <Text style={styles.continueText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.pinSection}>
+            <Text style={styles.pinLabel}>
+              {setStep === 'enter' ? 'Create your PIN' : 'Re-enter to confirm'}
+            </Text>
+            <Text style={styles.pinSub}>
+              {setStep === 'enter'
+                ? `Choose a ${selectedUser.pin_length_required}-digit PIN you'll use to sign in.`
+                : 'Enter the same PIN again so we know it’s right.'}
+            </Text>
+            <PINPad
+              value={pin}
+              onChange={handleSetPinChange}
+              requiredLength={selectedUser.pin_length_required}
+              error={pinError}
+            />
+          </View>
+        )}
+
+        {loading && <Text style={styles.loading}>Setting up…</Text>}
+      </FormScreen>
+    );
+  }
+
+  if (screen === 'pin' && selectedUser) {
+    return (
+      <FormScreen contentContainerStyle={styles.pinContent}>
+        <TouchableOpacity style={styles.back} onPress={() => setScreen('pick')}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.greeting}>Welcome,</Text>
+        <Text style={[styles.userName, { color: roleColor(selectedUser.role, roleColors) }]}>{selectedUser.name}</Text>
+
+        <View style={styles.pinSection}>
+          <Text style={styles.pinLabel}>Enter your PIN</Text>
+          <PINPad
+            value={pin}
+            onChange={handlePinChange}
+            requiredLength={selectedUser.pin_length_required}
+            error={pinError}
+          />
+        </View>
+
+        {loading && <Text style={styles.loading}>Verifying...</Text>}
+      </FormScreen>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.appName}>InventoryPro</Text>
+      <Text style={styles.heading}>Who are you?</Text>
+
+      <View style={styles.searchBox}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search name..."
+          placeholderTextColor={t.colors.textMuted}
+          value={search}
+          onChangeText={setSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+          // Desktop flow: land in search on load, Enter picks the top match —
+          // name → Enter → PIN digits, no mouse. Native keeps the soft
+          // keyboard tucked away until the user taps.
+          autoFocus={Platform.OS === 'web'}
+          onSubmitEditing={() => { if (filtered.length > 0) selectUser(filtered[0]); }}
+        />
+      </View>
+
+      <FlatList
+        data={filtered}
+        keyExtractor={u => u.id}
+        style={styles.list}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.userRow} onPress={() => selectUser(item)}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
+            </View>
+            <View style={styles.userInfo}>
+              <Text style={[styles.userName2, { color: roleColor(item.role, roleColors) }]}>{item.name}</Text>
+              <Text style={styles.userRole}>{item.role.replace(/_/g, ' ')}</Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
+        )}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListEmptyComponent={
+          rosterLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={t.colors.primary} />
+              <Text style={styles.empty}>Loading sign-in list…</Text>
+            </View>
+          ) : rosterError ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.empty}>{rosterError}</Text>
+              <TouchableOpacity onPress={loadRoster} style={{ marginTop: 12 }}>
+                <Text style={styles.backText}>Tap to retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.empty}>No users found. Contact your admin.</Text>
+          )
+        }
+      />
+    </View>
+  );
+}
+
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: t.colors.background,
+    paddingTop: 60,
+    paddingHorizontal: 20,
+  },
+  // FormScreen paints the themed flex:1 background itself, so the padding the
+  // old KeyboardAvoidingView carried via `container` moves onto the scroll
+  // content here. setpin keeps the old ScrollView's flexGrow so the wizard
+  // fills the viewport; the PIN pad screen just needs top/side insets.
+  setpinContent: { flexGrow: 1, paddingTop: 60, paddingHorizontal: 20 },
+  pinContent: { paddingTop: 60, paddingHorizontal: 20 },
+  appName: { fontSize: 20, fontWeight: '700', color: t.colors.primaryText, marginBottom: 4 },
+  heading: { fontSize: 26, fontWeight: '700', color: t.colors.brand, marginBottom: 16 },
+  searchBox: {
+    backgroundColor: t.colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  searchInput: { height: 44, fontSize: 16, color: t.colors.textPrimary },
+  list: { flex: 1 },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: t.colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  avatar: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: t.colors.primaryBg,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: { fontSize: 16, fontWeight: '700', color: t.colors.primaryText },
+  userInfo: { flex: 1 },
+  userName2: { fontSize: 16, fontWeight: '600', color: t.colors.textPrimary },
+  userRole: { fontSize: 12, color: t.colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
+  chevron: { fontSize: 20, color: t.colors.textDisabled },
+  separator: { height: 1, backgroundColor: t.colors.borderDetail, marginLeft: 66 },
+  empty: { textAlign: 'center', color: t.colors.textMuted, marginTop: 12, fontSize: 15 },
+  emptyState: { alignItems: 'center', marginTop: 40 },
+  // PIN screen
+  back: { marginBottom: 32 },
+  backText: { fontSize: 16, color: t.colors.primaryText },
+  greeting: { fontSize: 16, color: t.colors.textSecondary },
+  userName: { fontSize: 28, fontWeight: '700', color: t.colors.brand, marginBottom: 40 },
+  pinSection: { alignItems: 'center', width: '100%' },
+  pinLabel: { fontSize: 18, fontWeight: '600', color: t.colors.textPrimary, marginBottom: 6 },
+  pinSub: { fontSize: 13, color: t.colors.textSecondary, textAlign: 'center', marginBottom: 22, paddingHorizontal: 24 },
+  enrollSection: { alignItems: 'center', width: '100%', marginBottom: 28 },
+  enrollInput: {
+    width: 160,
+    textAlign: 'center',
+    fontSize: 22,
+    letterSpacing: 6,
+    color: t.colors.textPrimary,
+    backgroundColor: t.colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    paddingVertical: 10,
+  },
+  enrollError: { marginTop: 12, fontSize: 13, color: t.colors.danger, textAlign: 'center' },
+  continueBtn: {
+    marginTop: 28,
+    backgroundColor: t.colors.primary,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  continueBtnDisabled: { opacity: 0.4 },
+  continueText: { color: t.colors.onPrimary, fontSize: 16, fontWeight: '700' },
+  loading: { marginTop: 20, color: t.colors.textSecondary },
+  firstBanner: { backgroundColor: t.colors.primaryBg, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 20, alignSelf: 'flex-start' },
+  firstBannerText: { color: t.colors.primaryText, fontSize: 13, fontWeight: '700' },
+});
