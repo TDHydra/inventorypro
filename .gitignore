@@ -15,6 +15,12 @@ apps/api/dist/
 *.tar.gz
 *.apk
 
+# Signing / credentials — never committed (previously only in .git/info/exclude
+# or apps/mobile/.gitignore, which don't cover new app packages)
+*.jks
+*.pass
+credentials.json
+
 # Env files (keep the *.example ones)
 **/.env
 **/.env.local
