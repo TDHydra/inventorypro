@@ -63,7 +63,16 @@ function coerceValue(c: PullColumnSpec, row: Record<string, unknown>): unknown {
 /** All DDL statements (table + indexes) for the generated baseline migration.
  *  Verbatim from the real migration chain — never reconstructed from specs. */
 export function tableDdl(spec: TableSpec): string[] {
-  return [spec.ddl, ...(spec.indexes ?? [])];
+  // IF NOT EXISTS: the migration runner bootstraps app_settings (for the
+  // schema_version watermark) BEFORE migration 001 runs, so the baseline must
+  // tolerate it already existing. app_settings' manifest DDL is byte-identical
+  // to the bootstrap; every other table can't pre-exist on a fresh install.
+  return [
+    spec.ddl.replace(/^CREATE TABLE /, 'CREATE TABLE IF NOT EXISTS '),
+    ...(spec.indexes ?? []).map(ix =>
+      ix.replace(/^CREATE (UNIQUE )?INDEX /, (_m, unique) => `CREATE ${unique ?? ''}INDEX IF NOT EXISTS `),
+    ),
+  ];
 }
 
 /** Every table the baseline creates on-device (synced + push-only + device-local). */
