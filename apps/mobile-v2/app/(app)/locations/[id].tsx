@@ -20,13 +20,14 @@
 //
 // Slimmed per the rulebook — cut, each with a TODO marker / repo-owned note:
 //   - MediaGallery (photos section): TODO(wave-media), matches ItemCard.
-//   - LabelPrintSheet ("Print QR Label" row + sheet): TODO(wave-B) — component
+//   - LabelPrintSheet ("Print QR Label" row + sheet): TODO(wave-D) — component
 //     not ported to src/components yet (168 ln in the old app); out of scope
 //     for this locations-only port (src/components/** is shared, not owned
 //     here). Reported to the coordinator as a shared-component gap.
-//   - ActivityFeed (Activity section): TODO(wave-B) — same reasoning, not
-//     ported to src/components yet (236 ln); reported as a shared-component gap.
-//   - VehiclePanel / LockerPanel (type-conditional embeds): TODO(wave-B) —
+//   - ActivityFeed (Activity section): ported Station B4 (src/components/
+//     ActivityFeed.tsx, media-thumbnail lightbox cut — see that file's header
+//     comment) — see the Activity section below.
+//   - VehiclePanel / LockerPanel (type-conditional embeds): TODO(wave-C) —
 //     both live under src/components/{vehicles,lockers}/, neither ported
 //     (498 + 208 ln); the vehicles/lockers domain itself isn't ported either
 //     (see the PORT NOTE atop repos/locations.ts). The header card's Type row
@@ -65,6 +66,7 @@ import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { UserPicker } from '../../../src/components/pickers';
 import MoveStockModal from '../../../src/components/MoveStockModal';
+import ActivityFeed from '../../../src/components/ActivityFeed';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/repos/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
@@ -405,7 +407,7 @@ export default function LocationDetailScreen() {
           {!!ownerName && <KeyValueRow label="Owner" value={ownerName} />}
         </Card>
 
-        {/* TODO(wave-B): VehiclePanel / LockerPanel embeds not ported yet —
+        {/* TODO(wave-C): VehiclePanel / LockerPanel embeds not ported yet —
             src/components/{vehicles,lockers}/ don't exist in mobile-v2, and the
             vehicles/lockers domain itself isn't ported (see the PORT NOTE atop
             repos/locations.ts). The header Type row above still shows
@@ -573,16 +575,18 @@ export default function LocationDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* TODO(wave-B): Print QR Label row/sheet not ported — LabelPrintSheet
+        {/* TODO(wave-D): Print QR Label row/sheet not ported — LabelPrintSheet
             (src/components/LabelPrintSheet.tsx in the old app, 168 ln) isn't in
             mobile-v2 yet. Reported as a shared-component gap. */}
 
         {/* TODO(wave-media): Photos section (MediaGallery) not ported yet,
             matches src/components/ItemCard.tsx's MediaThumbnail cut. */}
 
-        {/* TODO(wave-B): Activity section (ActivityFeed) not ported —
-            src/components/ActivityFeed.tsx in the old app (236 ln) isn't in
-            mobile-v2 yet. Reported as a shared-component gap. */}
+        {/* ── Activity ─────────────────────────────────────────────────────── */}
+        <Text style={s.sectionLabel}>Activity</Text>
+        <View style={s.card}>
+          <ActivityFeed entityType="location" entityId={id} />
+        </View>
 
         {/* ── Unarchive button ─────────────────────────────────────────────── */}
         {canManage && location.active === 0 && (

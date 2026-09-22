@@ -432,6 +432,105 @@ Screens landed (all six Wave A surfaces; typecheck clean, 40/40 + 181/181):
   mobile-v2 test` 95/95 green. `git status --short apps/mobile` empty
   throughout.
 
+### Station B4 — Notifications + Logs (2026-09-22)
+
+**This was the LAST porting station of Wave B.**
+
+- `src/repos/notifications.ts` (new): `createRepository('notifications')`,
+  ported from the notifications-inbox half of old app's
+  `db/queries/notifications.ts` (`listNotifications`/`countUnread`/
+  `markRead`/`markAllRead`/`NotificationRow`). The approvals half of that
+  same old file was already ported to `repos/approvals.ts` in B3 — not
+  re-ported here.
+  - `markRead` divergence handled byte-for-byte rather than accepted: the old
+    app's local UPDATE sets both `read_at` and `updated_at`, but its outbox
+    payload is a minimal `{ id, read_at }` diff ("the server stamps
+    `updated_at`"). Unlike B3's `decideApproval` (which accepted
+    `createRepository.update()`'s auto-touched `updated_at` as a harmless
+    divergence), here we used the repo's `.mirror()` escape hatch with a
+    hand-written local UPDATE + an exact `{ id, read_at }` outbox payload, so
+    the wire payload matches the old app exactly.
+  - `notifications` manifest: `sync: 'both'`, `scope: 'own-user'`,
+    `fullDownload: true` — already present in `packages/core/src/manifest/
+    tables.ts`, no manifest change needed.
+- `app/(app)/notifications/index.tsx` (new route, plain dir): ported from old
+  `(notifications)/index.tsx`. Imports `getApprovalRequestById`/
+  `decideApproval` from the EXISTING `repos/approvals.ts` rather than
+  re-porting them. `reloadKey`/`dataVersion` manual-refresh plumbing replaced
+  with `@invenpro/core`'s `useDbQuery` (matches B3's `approvals/index.tsx`
+  idiom). `navigateTo()`'s deep-link switch trimmed to only the `inventory`
+  case — `repairs`/`jobs`/`media` destinations aren't ported to mobile-v2 yet,
+  so those cases are cut (falls through to "stay on the inbox", same as the
+  old app's default case).
+- `NotificationBell` restored (`src/components/NotificationBell.tsx`, wired
+  into `app/(app)/_layout.tsx`'s `headerRight`, ahead of Switch/Sign out) —
+  this is "how the old app exposed it" (a header bell with an unread badge,
+  not a hub tile). `ChatBell`/`SyncIndicator`/quick-photo stay cut (their own
+  waves).
+- `ActivityFeed` restored (`src/components/ActivityFeed.tsx`) — ported from
+  the old 236-line component, SLIMMED: the trailing photo thumbnail + full-
+  screen lightbox (`getPrimaryMedia`/`getMediaForEntity`) is cut — `src/db/
+  queries/media.ts`/the media domain isn't ported to mobile-v2 yet
+  (`TODO(wave-media)`, matches the existing cut in `ItemCard.tsx` and
+  `locations/[id].tsx`'s Photos section). `ACTION_ICONS`/`actionLabel` are
+  exported as the single source of truth (same role as the old app), reused
+  by the new logs screen. Wired into `locations/[id].tsx`'s Activity section
+  (the only detail screen that had an explicit `TODO(wave-B)` Activity stub —
+  `inventory/[id].tsx`'s ActivityFeed is already tagged `TODO(wave-media)`
+  because the old screen paired it with `PriorRepairsCard` inside the same
+  History modal; `equipment/[id].tsx`'s ActivityFeed was a prior deliberate
+  CUT, not a deferred marker — neither was touched this station).
+- **LOGS — read-only, simplified by design** (`app/(app)/logs/index.tsx`,
+  new route): the old `(logs)/index.tsx` is 751 lines and, on inspection,
+  its "My Activity"/"Pending Sync" tabs are pure local reads but its "All
+  Activity"/"My Team" tabs required a live `GET /logs` server round-trip
+  with server-side joins, a `SearchablePicker` cascade, a map-detail modal
+  (`MapDisplay`), and photo thumbnails (`MovePhotoThumb`/
+  `ActivityLogDetail`) — none of that online/map/photo infra exists in
+  mobile-v2. Confirmed via the manifest that `activity_log`'s `sync` mode is
+  `push-only` (never pulled from the server), so the local table can in fact
+  ONLY ever hold rows this device itself wrote — the "All Activity"/"My Team"
+  tabs' premise (reading OTHER users' activity) is structurally impossible
+  without that server round-trip. Per the brief's explicit permission ("if
+  the old (logs) route IS the dropped audit viewer, build a minimal
+  read-only activity list instead and document the divergence"), this port
+  is a minimal list: "My Activity" (local `getLogFiltered`, scoped to the
+  signed-in user, with action/entity-type `SearchablePicker` filters + an
+  in-memory name/note search) and "Pending Sync" (`getUnsyncedLogs`) — the
+  two tabs that were always pure local reads. "All Activity"/"My Team" and
+  the map/photo affordances are CUT, not silently dropped. Confirmed
+  `src/db/queries/log.ts`'s read helpers (`getLogFiltered`, `getLogNameMaps`,
+  `resolveEntityName`, `getUnsyncedLogs`, etc.) were ALREADY fully present in
+  mobile-v2 (331 lines, identical to the old app) from an earlier station —
+  no read-helper porting needed, just the screen.
+- Hub wiring: added an ungated "Activity Log" tile to `app/(app)/index.tsx`'s
+  `TILES` (same tier as My Team — it only ever shows the signed-in user's own
+  rows, so no permission gate applies).
+- Marker sweep — retagged every remaining `TODO(wave-B)` marker (not mine to
+  resolve this station) per the coordinator's mapping:
+  - `src/repos/locations.ts:576` (vehicle Archive action) → `TODO(wave-C)`.
+  - `app/(app)/locations/[id].tsx`'s VehiclePanel/LockerPanel comment +
+    inline stub → `TODO(wave-C)`.
+  - `app/(app)/locations/[id].tsx`'s LabelPrintSheet comment + inline stub →
+    `TODO(wave-D)`.
+  - `app/(app)/equipment/[id].tsx`'s header-comment line + `doRepairIn`'s
+    inline comment (repair-ticket auto-complete) → `TODO(wave-C)`.
+  - `grep -rn "TODO(wave-B)" apps/mobile-v2` now returns ZERO hits — Wave B's
+    marker cleanup is complete.
+- Test debt closed: added `src/repos/notifications.test.ts` (5 tests,
+  including one that asserts the `markRead` outbox payload is EXACTLY
+  `{id, read_at}` — no `updated_at` leak). Total suite: 100/100 passing (was
+  95/95 after B3).
+- `.expo/types/router.d.ts` regenerated via a pty metro run for
+  `/(app)/notifications` + `/(app)/logs`.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm --filter
+  mobile-v2 test` 100/100 green. `git status --short apps/mobile` empty
+  throughout.
+
+**Wave B is now complete** (Stations B1 Users+Roles, B2 Teams+Crew, B3
+Access+Approvals, B4 Notifications+Logs) — zero `TODO(wave-B)` markers remain
+anywhere in `apps/mobile-v2`.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

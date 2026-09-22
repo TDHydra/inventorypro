@@ -573,7 +573,7 @@ export function reactivateVehicle(locationId: string, userId: string | null): Re
 // handleArchive. Vehicle-type locations do NOT use this: see the PORT NOTE at
 // the top of this file — retireVehicle needs the unported vehicles.ts domain
 // (open-checkout guard), so the location-detail screen hides the Archive
-// action for vehicles until that domain is ported (TODO(wave-B)).
+// action for vehicles until that domain is ported (TODO(wave-C)).
 export function archiveLocation(id: string, userId: string | null): void {
   const location = getLocationById(id);
   if (!location) return;

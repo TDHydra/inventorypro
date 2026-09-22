@@ -28,6 +28,10 @@ const TILES: Tile[] = [
   // membership IS the gate (data-driven, EmptyState if you manage nothing) —
   // so it stays in the ungated tile list, like Scan/Checkout/etc.
   { label: 'My Team', icon: '🧰', href: '/(app)/myteam' },
+  // Logs (Station B4) — a personal, device-local activity view (see
+  // app/(app)/logs/index.tsx's header comment for why it's scoped this way).
+  // Ungated like My Team: it only ever shows the signed-in user's own rows.
+  { label: 'Activity Log', icon: '🧾', href: '/(app)/logs' },
 ];
 
 // Wave B: Users/Roles/Teams tiles, gated on their own manage_*/view_*

@@ -49,7 +49,7 @@ import { RequestApprovalSheet } from '../../../src/components/RequestApprovalShe
 //     (src/labels/printLabel, LabelPrintSheet) not ported this wave — gap.
 //   - DiscussThisButton (chat)                                → TODO(wave-chat)
 //   RequestApprovalSheet restored Station B3 (repos/approvals.ts).
-//   - PriorRepairsCard, repair-ticket auto-complete on       → TODO(wave-B)
+//   - PriorRepairsCard, repair-ticket auto-complete on       → TODO(wave-C)
 //     "Return from repair" (src/db/queries/repairs.ts, taxonomy repair
 //     statuses not ported — the status/location change itself still works)
 //   - ActivityFeed (per-unit audit log view)                 → cut, not
@@ -369,7 +369,7 @@ export default function EquipmentModelDetailScreen() {
   }
 
   // ── Repair helpers ───────────────────────────────────────────────────────
-  // TODO(wave-B): the old app completed any open repair ticket for this unit
+  // TODO(wave-C): the old app completed any open repair ticket for this unit
   // here too (src/db/queries/repairs.ts getRepairsForEntity/updateRepairStatus
   // + taxonomy repair-status lookup) — repairs isn't ported this wave, so a
   // unit returned from repair no longer auto-closes its ticket. The status/
