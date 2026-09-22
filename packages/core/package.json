@@ -1,0 +1,15 @@
+{
+  "name": "@invenpro/core",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test $(find src -name '*.test.ts')",
+    "gen-baseline": "node --import tsx scripts/gen-baseline.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}
