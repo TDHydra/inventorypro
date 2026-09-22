@@ -5,11 +5,12 @@ import EquipmentQuickAdd from './EquipmentQuickAdd';
 import LocationQuickAdd from './LocationQuickAdd';
 import UserQuickAdd from './UserQuickAdd';
 import TeamQuickAdd from './TeamQuickAdd';
-// TODO(wave-C): VehicleQuickAdd, JobQuickAdd, RepairQuickAdd live under
-// excluded component dirs (vehicles/, jobs/, repairs/) and aren't ported this
-// wave. Their QuickCreateKind cases are stubbed below (return null) until
-// those waves land. TeamQuickAdd (crew/) was the wave-B stub — ported in
-// Station B2, see below.
+import JobQuickAdd from './JobQuickAdd';
+// TODO(wave-C): VehicleQuickAdd, RepairQuickAdd live under excluded component
+// dirs (vehicles/, repairs/) and aren't ported this wave. Their
+// QuickCreateKind cases are stubbed below (return null) until those waves
+// land. TeamQuickAdd (crew/) was the wave-B stub — ported in Station B2.
+// JobQuickAdd ported in Station C1, see below.
 
 export type QuickCreateKind =
   | 'item' | 'stock' | 'equipment' | 'location' | 'vehicle'
@@ -49,8 +50,7 @@ export function QuickCreateSheet({ visible, kind, initialName: _initialName, onC
         // TODO(wave-C): VehicleQuickAdd not ported (vehicles/ excluded this wave).
         return null;
       case 'job':
-        // TODO(wave-C): JobQuickAdd not ported (jobs/ excluded this wave).
-        return null;
+        return <JobQuickAdd onSaved={onSaved} />;
       case 'repair':
         // TODO(wave-C): RepairQuickAdd not ported (repairs/ excluded this wave).
         return null;

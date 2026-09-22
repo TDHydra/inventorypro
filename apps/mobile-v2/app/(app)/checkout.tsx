@@ -15,9 +15,11 @@
  *
  * Cuts this wave (see docs/REBUILD-NOTES.md "Wave A progress"):
  *   - MediaGallery / optional checkout-and-checkin photos — TODO(wave-media).
- *   - Inline "create a job" from the destination job picker — jobs.ts is a
- *     READ-ONLY stub this wave (no upsertJob); TODO(wave-C). The job picker is
- *     search-only over getOpenJobs.
+ *
+ * Station C1: the destination job picker's inline "create a job" is wired up
+ * now that repos/jobs.ts has real writes — mirrors teams/[id].tsx's inline
+ * create-user pattern (SearchablePicker's onCreate opens a QuickCreateSheet;
+ * onCreated selects the new job via the existing selectJob()).
  *
  * Route mapping: (app)/(checkout) → (app)/checkout; (app)/(checkin) absorbed
  * above; (app)/(inventory)/scan → (app)/scan; (app)/(dashboard) → (app)/ (hub).
@@ -52,6 +54,7 @@ import { generateUUID } from '../../src/utils/uuid';
 import { formatQuantity } from '../../src/constants/units';
 import { SearchablePicker, type PickerOption } from '../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../src/components/pickers';
+import { QuickCreateSheet } from '../../src/components/quickadd/QuickCreateSheet';
 import { BarcodeInput } from '../../src/components/BarcodeInput';
 import { useCurrentPosition } from '../../src/hooks/useCurrentPosition';
 import { sortByProximity } from '../../src/location/proximity';
@@ -100,6 +103,7 @@ export default function CheckoutScreen() {
   // Destination
   const [destType, setDestType] = useState<DestType | null>(null);
   const [selectedJob, setSelectedJob] = useState<{ id: string; name: string } | null>(null);
+  const [showJobCreate, setShowJobCreate] = useState(false);
   // Destination location is a two-stage (location, shelf) selection.
   const [destLoc, setDestLoc] = useState<PickerOption | null>(null);
   const [destShelf, setDestShelf] = useState<PickerOption | null>(null);
@@ -743,6 +747,7 @@ export default function CheckoutScreen() {
                 options={jobOptions}
                 value={jobValue}
                 onSelect={selectJob}
+                onCreate={() => setShowJobCreate(true)}
               />
             </>
           )}
@@ -848,6 +853,19 @@ export default function CheckoutScreen() {
             <Text style={s.btnSecondaryText}>← Go Back</Text>
           </TouchableOpacity>
         </FormScreen>
+
+        {/* Inline create-job from the destination job picker (mirrors
+            teams/[id].tsx's inline create-user pattern) — select the new job
+            just as picking an existing one would. */}
+        <QuickCreateSheet
+          visible={showJobCreate}
+          kind="job"
+          onClose={() => setShowJobCreate(false)}
+          onCreated={(entity) => {
+            selectJob({ id: entity.id, label: entity.label });
+            setShowJobCreate(false);
+          }}
+        />
       </>
     );
   }

@@ -27,8 +27,7 @@ const ACTIONS: { kind: string; icon: string; label: string; sub: string; deferre
   { kind: 'vehicle', icon: '🚐', label: 'Vehicle', sub: 'Coming soon', deferred: true },
   // TODO(wave-C): gas-receipt quick add not ported yet.
   { kind: 'gas-receipt', icon: '⛽', label: 'Gas Receipt', sub: 'Coming soon', deferred: true },
-  // TODO(wave-C): job quick add not ported yet.
-  { kind: 'job', icon: '🏗', label: 'Job', sub: 'Coming soon', deferred: true },
+  { kind: 'job', icon: '🏗', label: 'Job', sub: 'New job' },
   // TODO(wave-C): repair quick add not ported yet.
   { kind: 'repair', icon: '🔧', label: 'Repair', sub: 'Coming soon', deferred: true },
   { kind: 'team', icon: '👥', label: 'Team', sub: 'New team' },

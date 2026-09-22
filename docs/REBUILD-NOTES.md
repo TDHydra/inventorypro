@@ -554,6 +554,111 @@ anywhere in `apps/mobile-v2`.
   the main thread?) — screenshots/CDP time out transiently. Cosmetic-ish;
   keep an eye on it for the Phase 9 web hard pass.
 
+## Wave C progress
+
+### Station C1 — Jobs + job_assignments (2026-09-22)
+
+- `src/repos/jobs.ts` extended from the Wave-A read-only stub to the full
+  jobs + job_assignments domain (one file, per the brief's literal scope —
+  old app split these into `db/queries/jobs.ts` + `db/queries/
+  jobAssignments.ts`, this port keeps them together). New: `upsertJob`
+  (dual-writes `type_id` via `resolveTypeId(JOB_CATEGORY, ...)`, same
+  precedent as `items.ts`; **omits `job_number` entirely** from the insert —
+  the server's BEFORE INSERT trigger assigns it, and including even `null`
+  risks an at-least-once-redelivery upsert clobbering an already-assigned
+  number), `getAllJobs`, `archiveJob`/`updateJobFields` (both NO self-log —
+  caller-owned, matching B1/B2's convention), `getJobDeployments` (derives
+  "what's deployed to this job" from `equipment_units.current_job_id` +
+  `activity_log` `checkout_to_job` rows joined to count-based items — there
+  is NO checkouts table, confirmed no new table/write path was invented),
+  `getLatestJobByCustomer`/`getCustomersWithLatestJobDetails` (autofill
+  cross-fill support), and the job_assignments trio `getAssignmentsForJob`/
+  `getAssignableCrews`/`getMyAssignedJobs`.
+  - `assign`/`unassign` (private `assign()` + public `assignJobToCrew`/
+    `assignJobToUser`/`unassign`) **deliberately deviate from the no-self-log
+    convention** — they self-log inside `runInTransaction`, using raw
+    `db.executeSync` + `appendOutbox` instead of a caller-wrapped pattern.
+    Documented inline: the idempotency check (re-assigning an already-active
+    assignee is a no-op) must run in the same transaction as the insert, and
+    the log's `note` needs the resolved assignee display name before it can
+    be built. This mirrors old app's own `jobAssignments.ts`, whose
+    `jobAssignments.test.ts` documents the "activitylog_uuid trap":
+    `activity_log.entity_id` is a UUID column server-side holding the JOB id
+    (not the assignment id), with assignee kind/id riding in `metadata` JSON.
+    Crew membership resolves at READ time from `team_members.subteam_id`
+    (never copied at assignment time); unassign is a soft-delete (`active=0`,
+    rows persist for history).
+  - `src/repos/jobs.test.ts` (new, 12 tests) — covers upsert/omit-job_number,
+    all list/search/detail reads, customer-autofill, field-allowlist updates
+    + type_id dual-write, archive (no self-log), deployments derivation,
+    crew/user assignment (idempotent re-assign), assignment/crew listing,
+    `getMyAssignedJobs` resolving crew membership at read time, and unassign
+    (soft-delete + idempotent no-op on an already-inactive row + throws on an
+    unknown id).
+- `src/components/jobs/JobSummaryCard.tsx` (new) — straight port, no cuts
+  (`MapDisplay`/`expo-location` geocoding, dynamic open/closed/archived
+  status-badge coloring, all meta rows).
+- `src/components/quickadd/JobQuickAdd.tsx` (new) — the OLD app had two
+  creation surfaces (`JobQuickAdd.tsx` + a full-page `(jobs)/create.tsx` that
+  duplicated ~80% of the same form for an org-authority team picker). This
+  wave consolidates on ONE canonical create path (kit rule: grow/reuse, never
+  fork a surface) — reused both from the global Quick Add launcher
+  (`QuickCreateSheet`'s `'job'` case) and from `jobs/index.tsx`'s "+ New Job"
+  FAB (a `ModalSheet`, not a separate route). `create.tsx`'s org-authority
+  team picker is dropped without capability loss: `jobs/[id].tsx` still
+  offers "Change Team" post-creation for the same tier>=3 audience. Also
+  fixes a real bug carried in the old `JobQuickAdd`: its three writes
+  (upsert/outbox/log) were NOT wrapped in `runInTransaction` (unlike
+  `create.tsx`'s atomic version) — this port wraps them atomically like every
+  other Wave B/C quickadd form. Wired into `QuickCreateSheet.tsx`'s `'job'`
+  case and `app/(app)/quickadd/[sheet].tsx`'s `'job'` case (both previously
+  `return null` / a "coming soon" placeholder); `app/(app)/quickadd/
+  index.tsx`'s Job tile un-deferred.
+- `app/(app)/jobs/index.tsx` (new plain-dir route) — 'My Checkouts' /'All
+  Jobs' tabs (My Checkouts via `getActiveCheckoutsForUser`, unchanged from
+  old app — it's checkout-derived, not assignment-derived), search + open/
+  closed/all status filter chips + archived toggle, bulk multi-select
+  (Close with the #212 close-out guard via `getCloseoutBlockers`/
+  `describeCloseoutBlockers`; Archive; Reopen; Set type — all atomic
+  transactions with a rollback-on-failure message naming the offending job),
+  gated on `create_jobs`/`close_jobs` for actions only (list itself is
+  ungated — see hub tile note below). FAB uses `@invenpro/ui`'s `Fab`
+  (handles safe-area insets internally) opening `QuickCreateSheet kind="job"`
+  and navigating straight into the new job's detail screen on create,
+  replacing the old app's separate `create` route push.
+- `app/(app)/jobs/[id].tsx` (new plain-dir route) — `JobSummaryCard`, team
+  reassignment (org authority tier>=3 only, via `ROLE_TIER`), Assigned Crews
+  roster + assign/unassign sheet (`SegmentedControl` crew/individual, gated
+  on `create_jobs`), Deployed section (`getJobDeployments`), Activity
+  (`getLogForJob` — already existed in mobile-v2's `log.ts`, no porting
+  needed), edit form, Request Approval (`RequestApprovalSheet`), Archive.
+  Two cuts, both marked inline: Photos (`MediaGallery` doesn't exist in
+  mobile-v2 yet) → `TODO(wave-media)`; `DiscussThisButton` chat entry point
+  (#228) doesn't exist in mobile-v2 yet → `TODO(wave-chat)`.
+- **Hub tile**: no dedicated view/visibility permission exists for jobs in
+  the old app (only `create_jobs`/`close_jobs`, both action-specific gates
+  the screens apply themselves) — confirmed via `src/auth/permissions.ts`
+  and the old app's nav (Jobs had NO tab-bar or dashboard-tile entry at all;
+  only reachable via the cut dashboard-preset engine or the checkout job
+  picker). Added an UNGATED "Jobs" tile to `app/(app)/index.tsx`'s `TILES`
+  array (same tier as My Team/Activity Log — visibility is universal,
+  actions gate inside the screens).
+- **TODO(wave-C) touchpoint wired**: `checkout.tsx`'s destination job picker
+  had a `TODO(wave-C)` for inline job creation (jobs.ts was read-only before
+  this station). Added a "+ New Job" affordance via `SearchablePicker`'s
+  `onCreate` prop opening `QuickCreateSheet kind="job"`, mirroring `teams/
+  [id].tsx`'s inline create-user pattern exactly; `onCreated` calls the
+  existing `selectJob()`. Vehicles/repairs/lockers/on-call markers untouched
+  (later stations).
+- `.expo/types/router.d.ts` regeneration via the pty metro run hit a
+  pre-existing environment `ENOSPC` (file-watcher limit) on this machine —
+  the process crashed on Node's fs.watch, but not before Metro's file-map
+  walk had already regenerated the types file (confirmed by mtime); `/jobs`
+  and `/jobs/[id]` route types are present. No manual patch was needed.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm --filter
+  mobile-v2 test` 112/112 green (was 100/100 after B4, +12 new jobs.test.ts).
+  `git status --short apps/mobile` empty throughout.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

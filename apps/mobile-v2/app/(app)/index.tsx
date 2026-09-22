@@ -28,6 +28,12 @@ const TILES: Tile[] = [
   // membership IS the gate (data-driven, EmptyState if you manage nothing) —
   // so it stays in the ungated tile list, like Scan/Checkout/etc.
   { label: 'My Team', icon: '🧰', href: '/(app)/myteam' },
+  // Jobs (Station C1) — old app had no dedicated view/visibility permission
+  // (only create_jobs/close_jobs, both action-specific gates the list/detail
+  // screens apply themselves); it was only reachable via the cut dashboard
+  // preset engine or checkout's job picker. Ungated here like My Team/Activity
+  // Log — visibility is universal, actions gate inside the screens.
+  { label: 'Jobs', icon: '🏗', href: '/(app)/jobs' },
   // Logs (Station B4) — a personal, device-local activity view (see
   // app/(app)/logs/index.tsx's header comment for why it's scoped this way).
   // Ungated like My Team: it only ever shows the signed-in user's own rows.
