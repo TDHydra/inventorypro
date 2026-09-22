@@ -667,6 +667,62 @@ coordinator sends it one station (domain) at a time via follow-up messages so
 its context/porting patterns carry forward; verify + commit per station before
 feeding the next. No parallel fan-out for porting work.
 
+## PAUSE POINT (2026-09-22, ~07:00) — resume here
+
+Work was paused by the user mid-Wave-C. Exact state and how to continue:
+
+**Where we are**
+- Branch `lean-rebuild`, HEAD = e2806d2 `mobile-v2 Wave C Jobs (Station C1)`,
+  tree clean, `apps/mobile` untouched. C1 verified by the coordinator
+  (commit + clean tree + agent-reported 112/112 tests, typecheck clean).
+- Wave B fully checkpointed (see "Wave B checkpoint" above, commit dacbed1).
+- **Device pass is now DONE** (was carried over since Wave A): S24 Ultra
+  (R5CXA06AQQM) booted the dev client against metro, hub rendered signed-in
+  as Fixer Jon with all Wave A+B tiles + the C1 Jobs tile, live synced counts
+  matched web, and Fast Refresh was proven end-to-end (greeting edit appeared
+  on-device in seconds, then reverted). Nothing device-side is pending.
+
+**Wave C remaining stations (dispatch one at a time, verify+commit between)**
+- C2: schedule board + NEW on-call surface (week grid + coverage).
+- C3: vehicles (thin Panel; vehicle_service_records incl. gas receipts as
+  filterable surface; checkouts history; vehicle-coupled access fns from B3's
+  TODO(wave-C)) + lockers (LockerPanel; locations/[id] panel embeds).
+- C4: repairs (creation via quick-add only; sweep the three `/(app)/repairs/new`
+  `as never` casts in ItemCard.tsx, equipment/[id].tsx, locations/[id].tsx;
+  equipment repair auto-complete) + fast-checkout source picker (#127) +
+  unit-access-defaults admin template editor + full TODO(wave-C) sweep to zero.
+- Then the Wave C checkpoint: web export smoke (REMEMBER
+  `EXPO_PUBLIC_API_URL=http://localhost:3001` at export!), `pnpm -r test`,
+  device hotload spot-check.
+
+**Resume mechanics for a fresh session**
+- The Wave B/C porting agent dies with the session — spawn a NEW persistent
+  agent (assembly-line, per "Subagent strategy" below) and point it at
+  docs/REBUILD-PORTING.md + this file first.
+- Dev infra also dies with the session. Restart: docker `invenpro-dev-pg`
+  usually still runs; dev API = the command in "Dev environment" (§ above)
+  on :3001; web smoke serve = `npx expo serve dist --port 8081`; device metro:
+  `adb reverse tcp:8083 tcp:8083 && adb reverse tcp:3001 tcp:3001`, then
+  `EXPO_PUBLIC_API_URL=http://localhost:3001 APP_VARIANT=development npx expo
+  start --port 8083` in apps/mobile-v2, launch
+  `inventorypro://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8083`
+  (pkg com.inventorypro.app.v2; force-stop first if already running or the
+  intent is swallowed). Port 8083 (not 8082) keeps device metro clear of the
+  pty type-regen runs.
+- Hotload correction to the Phase-2 note: a plain background (non-pty) metro
+  DOES watch files fine as long as CI is unset — pty is only needed for the
+  type-regen trick. mtime-only `touch` does NOT trigger a rebundle; content
+  must change.
+- `apps/mobile/AGENTS.md` ("Expo HAS CHANGED...") is a LEGIT tracked file
+  (commit b704ccf, June) — porting agents keep flagging it as injected; it's
+  just an old instruction file. Ignore-and-continue is correct, don't burn
+  time re-investigating.
+- Cleanup debt from the Wave B smoke: test notification row
+  `11111111-2222-4333-8444-555566667777` still exists (read) in dev PG's
+  notifications table — harmless, delete whenever.
+- Task list: #6 (Wave C) in_progress; #7–#11 pending per plan
+  `~/.claude/plans/cd-projects-inventorypro-synchronous-hearth.md`.
+
 ## Unresolved / watch
 
 - expo-notifications absent from dev variant — Wave D notification work must
