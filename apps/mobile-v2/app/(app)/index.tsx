@@ -4,6 +4,7 @@ import type { Theme } from '@invenpro/ui';
 import { useThemedStyles } from '@invenpro/ui';
 import { useDbQuery, TABLES } from '@invenpro/core';
 import { useSession } from '../../src/hooks/useSession';
+import { usePermission } from '../../src/hooks/usePermission';
 import { ROLE_DISPLAY_NAMES } from '../../src/constants/roles';
 import { getDb } from '../../src/db/schema';
 
@@ -25,10 +26,23 @@ const TILES: Tile[] = [
   { label: 'Quick Add', icon: '➕', href: '/(app)/quickadd' },
 ];
 
+// Wave B: Users/Roles tiles, gated on their own manage_* permission (the only
+// entry point to those screens until the real role-based hub lands in Wave D).
+interface GatedTile extends Tile { permission: Parameters<typeof usePermission>[0] }
+const ADMIN_TILES: GatedTile[] = [
+  { label: 'Users', icon: '👤', href: '/(app)/users', permission: 'manage_users' },
+  { label: 'Roles', icon: '🛡', href: '/(app)/roles', permission: 'manage_roles_permissions' },
+];
+
 export default function HubStub() {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const { user } = useSession();
+  const canManageUsers = usePermission('manage_users');
+  const canManageRoles = usePermission('manage_roles_permissions');
+  const adminTiles = ADMIN_TILES.filter(tile => (
+    tile.permission === 'manage_users' ? canManageUsers : canManageRoles
+  ));
 
   const counts = useDbQuery(
     () => {
@@ -57,7 +71,7 @@ export default function HubStub() {
       <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role] ?? user.role}</Text>
 
       <View style={styles.tileGrid}>
-        {TILES.map(tile => (
+        {[...TILES, ...adminTiles].map(tile => (
           <TouchableOpacity
             key={tile.label}
             style={styles.tile}

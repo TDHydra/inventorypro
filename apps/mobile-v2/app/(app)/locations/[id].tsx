@@ -59,7 +59,7 @@ import {
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { getAllActiveUsers } from '../../../src/repos/users';
 import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';

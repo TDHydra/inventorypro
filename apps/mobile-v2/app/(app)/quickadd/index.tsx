@@ -31,10 +31,9 @@ const ACTIONS: { kind: string; icon: string; label: string; sub: string; deferre
   { kind: 'job', icon: '🏗', label: 'Job', sub: 'Coming soon', deferred: true },
   // TODO(wave-C): repair quick add not ported yet.
   { kind: 'repair', icon: '🔧', label: 'Repair', sub: 'Coming soon', deferred: true },
-  // TODO(wave-B): team quick add not ported yet.
+  // TODO(wave-B): team quick add not ported yet (a later Wave B station owns teams).
   { kind: 'team', icon: '👥', label: 'Team', sub: 'Coming soon', deferred: true },
-  // TODO(wave-B): user quick add not ported yet.
-  { kind: 'user', icon: '👤', label: 'User', sub: 'Coming soon', deferred: true },
+  { kind: 'user', icon: '👤', label: 'User', sub: 'New employee account' },
 ];
 
 export default function QuickAddLauncher() {

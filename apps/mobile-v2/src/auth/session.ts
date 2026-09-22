@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { UserSession, TeamContext, parsePermissionOverrides } from './permissions';
-import { getUserById } from '../db/queries/users';
+import { getUserById } from '../repos/users';
 import { getDb, rowsAs } from '../db/schema';
 import { TEAM_OVERRIDABLE_PERMISSIONS } from './teamPerms';
 import { noteSessionExpired } from '@invenpro/core';

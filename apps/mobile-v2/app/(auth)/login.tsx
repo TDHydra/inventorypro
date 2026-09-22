@@ -12,9 +12,8 @@ import {
 import type { Theme } from '@invenpro/ui';
 import { useTheme, useThemedStyles, FormScreen } from '@invenpro/ui';
 import { PINPad } from '../../src/components/PINPad';
-import {
-  getAllActiveUsers, markUserPinSet, roleColor, getRoleColorMap, getRoleSettings,
-} from '../../src/db/queries/users';
+import { getAllActiveUsers, markUserPinSet, roleColor } from '../../src/repos/users';
+import { getRoleColorMap, getRoleSettings } from '../../src/repos/roleSettings';
 import { useSession } from '../../src/hooks/useSession';
 import { saveSession } from '../../src/auth/session';
 import { finishLogin } from '../../src/auth/finishLogin';

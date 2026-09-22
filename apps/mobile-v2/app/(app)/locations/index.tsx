@@ -34,7 +34,7 @@ import { useSession } from '../../../src/hooks/useSession';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
-import { getAllActiveUsers } from '../../../src/db/queries/users';
+import { getAllActiveUsers } from '../../../src/repos/users';
 import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { UserPicker } from '../../../src/components/pickers';

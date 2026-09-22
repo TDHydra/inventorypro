@@ -3,10 +3,11 @@ import ItemQuickAdd from './ItemQuickAdd';
 import StockQuickAdd from './StockQuickAdd';
 import EquipmentQuickAdd from './EquipmentQuickAdd';
 import LocationQuickAdd from './LocationQuickAdd';
-// TODO(wave-B): VehicleQuickAdd, JobQuickAdd, RepairQuickAdd, TeamQuickAdd,
-// UserQuickAdd live under excluded component dirs (vehicles/, jobs/, repairs/,
-// crew/) and aren't ported this wave. Their QuickCreateKind cases are stubbed
-// below (return null) until those waves land.
+import UserQuickAdd from './UserQuickAdd';
+// TODO(wave-B): VehicleQuickAdd, JobQuickAdd, RepairQuickAdd, TeamQuickAdd
+// live under excluded component dirs (vehicles/, jobs/, repairs/, crew/) and
+// aren't ported this wave. Their QuickCreateKind cases are stubbed below
+// (return null) until those waves land.
 
 export type QuickCreateKind =
   | 'item' | 'stock' | 'equipment' | 'location' | 'vehicle'
@@ -55,8 +56,7 @@ export function QuickCreateSheet({ visible, kind, initialName: _initialName, onC
         // TODO(wave-B): TeamQuickAdd not ported (crew/ excluded this wave).
         return null;
       case 'user':
-        // TODO(wave-B): UserQuickAdd not ported this wave.
-        return null;
+        return <UserQuickAdd onSaved={onSaved} />;
       default:
         return null;
     }

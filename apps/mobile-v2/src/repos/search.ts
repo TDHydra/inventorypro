@@ -13,8 +13,8 @@ import { searchJobs } from './jobs';
 import type { Job } from './jobs';
 import { searchLocations } from './locations';
 import type { Location } from './locations';
-import { searchUsers } from '../db/queries/users';
-import type { User } from '../db/queries/users';
+import { searchUsers } from './users';
+import type { User } from './users';
 
 export interface GlobalSearchResults {
   items: ItemWithTotalStock[];

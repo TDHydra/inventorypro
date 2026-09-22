@@ -1,5 +1,5 @@
 import { UserSession, TeamContext, parsePermissionOverrides } from './permissions';
-import { getUserById } from '../db/queries/users';
+import { getUserById } from '../repos/users';
 import { getDb, rowsAs, resetLocalDb } from '../db/schema';
 // markDbWiped/clearDbWiped are web-only. Import them from the explicit `.web`
 // module: without `moduleSuffixes`, tsc resolves the bare `../db/schema` to the

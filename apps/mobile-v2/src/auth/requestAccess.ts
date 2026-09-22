@@ -5,11 +5,11 @@
 // real `hasPermission` chain directly — the caller supplies the candidate
 // pool and a `holds` callback (in practice, real callers close over the app's
 // actual `hasPermission` from ./permissions + the active-user roster from
-// db/queries/users; see the wiring in PermissionGate.tsx / SyncIndicator.tsx).
+// repos/users; see the wiring in PermissionGate.tsx / SyncIndicator.tsx).
 // That keeps this file free of react-native/db imports so it runs under plain
 // `node:test` via tsx (same precedent as denialMessages.ts, toastBus.ts,
 // confirmQueue.ts) — importing `auth/permissions.ts` as a VALUE here would
-// transitively pull in the native op-sqlite binding via db/queries/users.ts
+// transitively pull in the native op-sqlite binding via repos/users.ts
 // and crash outside the app (see useSession.test.ts's identical note).
 //
 // KEEP IN SYNC conceptually with permissions.ts's hasPermission resolution

@@ -1,12 +1,12 @@
 // Wires the pure `findAccessGrantor` (requestAccess.ts) to the real app: the
-// active-user roster (db/queries/users) + the real `hasPermission` chain
+// active-user roster (repos/users) + the real `hasPermission` chain
 // (permissions.ts). Deliberately kept OUT of requestAccess.ts — this file's
 // imports pull in the native op-sqlite binding, which crashes outside the app
 // (see requestAccess.ts's header comment). Anything that needs to actually
 // pick a grantor at runtime (PermissionGate, SyncIndicator) calls
 // `pickAccessGrantor` from here; anything testing the SELECTION LOGIC imports
 // `findAccessGrantor` from requestAccess.ts directly with a fake `holds`.
-import { getAllActiveUsers } from '../db/queries/users';
+import { getAllActiveUsers } from '../repos/users';
 import { hasPermission, parsePermissionOverrides, type UserSession } from './permissions';
 import type { Permission } from '../constants/roles';
 import { findAccessGrantor, type CandidateRef, type Grantor } from './requestAccess';

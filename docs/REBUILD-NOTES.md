@@ -151,6 +151,92 @@ Screens landed (all six Wave A surfaces; typecheck clean, 40/40 + 181/181):
   does NOT reliably regenerate it. If new routes throw TS2322 route-type
   errors, run metro briefly, then typecheck.
 
+### Wave A checkpoint (2026-09-22)
+
+- **Web smoke PASS** (export → expo serve :8081 → real browser): roster → PIN
+  login → hub tiles → inventory list → ItemCard → item detail → Adjust modal
+  → local reactive update → **outbox push landed in dev PG** (stock 3→4 +
+  adjust_stock activity row). Note: the push is debounced — a PG check right
+  after the write can race it; wait/recheck before calling it a failure.
+- **Device hotload pass PENDING**: `adb devices` empty (S24 Ultra unplugged).
+  Run it when the phone is back: adb reverse 8082+3001, metro under pty,
+  dev-client deep link. Wave B work does not block on this.
+- Cosmetic backlog for Wave D hub: tile grid (31% width, aspectRatio 1) is
+  oversized on desktop web viewports.
+- A file was mangled ON DISK post-commit (StockQuickAdd.tsx — all inline
+  comments hoisted to the top, code unchanged; source unknown, possibly a late
+  agent flush). Reverted via git checkout. After any agent completes, check
+  `git status` for unexpected modifications before building on top.
+
+## Wave B progress
+
+### Station B1 — Users + Roles (2026-09-22)
+
+- `src/repos/users.ts` + `src/repos/roleSettings.ts`: split out of the
+  Phase-2-built `src/db/queries/users.ts` (which bundled both domains with
+  hand-rolled `appendOutbox` calls, predating the repo convention) — that file
+  is now deleted; all ~10 importers repointed. Both repos build on
+  `createRepository('users' | 'role_settings')`.
+  - `role_settings` writes ALWAYS use `.mirror('UPDATE', payload, localWrite)`
+    with the old app's exact `INSERT ... ON CONFLICT(role) DO UPDATE SET
+    <touched-cols>` upsert preserved in `localWrite` — a role_settings row
+    isn't guaranteed to exist locally for every role (no local seed
+    migration), so a plain `.update()` would silently no-op, and a full-row
+    `INSERT OR REPLACE` would reset every unlisted column to its default.
+  - `users` writes: reads unchanged; PIN-touching operations
+    (`createUserOnline`, `resetUserPinOnline`, `resetEnrollmentCodeOnline`,
+    `changeRoleOnline`) stay online-only REST round-trips (server owns
+    pin_hash/pin_set/enrollment_code_hash — `USERS_ALWAYS_DENY` in
+    `apps/api/src/lib/syncPolicy.ts` blocks them on the outbox entirely) with
+    local-only mirroring (`queueTableBump`, no outbox — the server already has
+    the row); `setUserActive`/`saveUserFields`/`setUserRole` go through
+    `.update()`/`.mirror()`; `permission_overrides` uses `.mirror()` +
+    `JSON.stringify()` in `localWrite` (TEXT locally, object over the outbox —
+    same split as `role_settings.permission_overrides`).
+  - No repo function calls `appendLog` — callers wrap
+    `runInTransaction(() => { repoFn(...); appendLog({...}); })` themselves,
+    exploiting `runInTransaction`'s reentrancy, exactly mirroring both old
+    screens' structure.
+  - `pin_set`/`login` still never client-logged (existing Wave A rule, just
+    re-verified here — server writes the authoritative row on the same PIN
+    request).
+- Screens: `app/(app)/users/index.tsx` (list + search + multi-select bulk
+  deactivate/reactivate/change-role/reset-PIN + create modal + edit sheet with
+  PIN reset / access-code reset / permission overrides) and
+  `app/(app)/roles/index.tsx` (collapsible role cards, min-PIN stepper, idle
+  re-auth selector, color swatches, grouped permission matrix with
+  impact-preview confirms, "Preview as…" picker) — both straight ports of
+  `apps/mobile/app/(app)/(admin)/{users,roles}.tsx`.
+- `src/components/quickadd/UserQuickAdd.tsx` ported (name + role only, no
+  PIN, live duplicate-name search); wired into `QuickCreateSheet.tsx` and the
+  quickadd hub/dynamic route (`quickadd/index.tsx`, `quickadd/[sheet].tsx`) —
+  the `'user'` `TODO(wave-B)` markers in both are now resolved.
+- `src/components/PreviewBanner.tsx` ported (lives under `src/components/`,
+  not `@invenpro/ui` — packages/ edits aren't authorized for this station) and
+  mounted in `app/_layout.tsx` above the theme-keyed `<Stack>`. The "Preview
+  as…" role-preview plumbing (`previewRole`/`deriveEffectiveUser`/
+  `setPreviewWriteBlock`) already existed since Phase 2 explicitly awaiting
+  "a screen" — roles/index.tsx is that screen now.
+- `app/(app)/index.tsx` (hub stub) gained two permission-gated tiles (Users →
+  `manage_users`, Roles → `manage_roles_permissions`) — the only entry point
+  to the new screens until the real role-based hub lands in Wave D.
+- **Cut this station** (unported domains / explicit cut-list, each with a
+  marker so the right later wave picks it up):
+  - Dashboard preset assignment (users edit sheet + roles screen) — dashboard
+    preset engine is cut entirely per the coordinator's cut-list.
+  - Personal locker toggle (users edit sheet) — depends on the unported
+    `src/access/unitGrants.ts` domain; same class as `locations.ts`'s
+    `TODO(gap)` unported vehicle helpers.
+  - Message/DM button (users list) — `TODO(wave-chat)`.
+  - Bulk "Add to team" action (users list) — `TODO(wave-B)`, a later Wave B
+    station owns `src/repos/teams.ts`.
+- `.expo/types/router.d.ts` regenerated via a pty metro run (per the known
+  trap) to pick up the two new plain routes `/(app)/users` and `/(app)/roles`.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; unit tests still
+  40/40 (no new tests added for the two new repos this station — a gap to
+  close, not a regression: no existing test exercises `db/queries/users.ts`'s
+  successor either). `git status --short apps/mobile` empty throughout.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

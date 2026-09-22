@@ -1,5 +1,5 @@
 import { UserRole, Permission, ROLE_DEFAULTS, canActOnTarget } from '../constants/roles';
-import { getRolePermissionOverrides } from '../db/queries/users';
+import { getRolePermissionOverrides } from '../repos/roleSettings';
 
 export type { Permission } from '../constants/roles';
 

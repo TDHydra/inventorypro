@@ -1,0 +1,156 @@
+// Ported from apps/mobile/src/components/quickadd/UserQuickAdd.tsx.
+//
+// Import mapping applied (docs/REBUILD-PORTING.md):
+//   '../../db/queries/users' → '../../repos/users' (createUserOnline,
+//     searchUsers, roleColor now live there) + '../../repos/roleSettings'
+//     (getRoleColorMap).
+//   '../../lib/themedAlert' (Alert), FieldLabel, FormScreen, SelectField,
+//     useTheme, useThemedStyles → '@invenpro/ui'.
+//   '../../hooks/useDataVersion' (useTableVersion) → '@invenpro/core'.
+import { useState, useRef, useMemo } from 'react';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
+import type { Theme } from '@invenpro/ui';
+import { Alert, useTheme, useThemedStyles, FieldLabel, FormScreen, SelectField } from '@invenpro/ui';
+import { useTableVersion } from '@invenpro/core';
+import { createUserOnline, searchUsers } from '../../repos/users';
+import { getRoleColorMap, roleColor } from '../../repos/roleSettings';
+import { ROLE_DISPLAY_NAMES, UserRole } from '../../constants/roles';
+import { appendLog } from '../../db/queries/log';
+import { useSession } from '../../hooks/useSession';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { QuickAddFooter } from './QuickAddFooter';
+import { track } from '../../telemetry';
+import { validateName } from '../../lib/validation';
+
+const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
+const DEFAULT_ROLE: UserRole = 'mitigation_technician';
+
+interface Props {
+  onSaved: (label: string, createdId?: string) => void;
+}
+
+// Creating a user is ONLINE-ONLY (the server hashes a PIN the employee sets at
+// first sign-in). We only collect name + role here — no PIN — exactly like
+// the Users admin screen; see repos/users.ts's createUserOnline.
+export default function UserQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const { realUser } = useSession();
+  const { locked } = useMaintenanceMode();
+  const nameRef = useRef<TextInput>(null);
+
+  const [name, setName] = useState('');
+  const [role, setRole] = useState<UserRole>(DEFAULT_ROLE); // sticky
+  const [nameError, setNameError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Role colors for tinting matched names (re-read when role_settings changes).
+  const roleSettingsVersion = useTableVersion(['role_settings']);
+  const roleColors = useMemo(() => getRoleColorMap(), [roleSettingsVersion]);
+
+  // Live "already in the system?" search: as you type a name, surface
+  // existing users so you can spot a duplicate before creating one.
+  const nameMatches = useMemo(() => {
+    const q = name.trim();
+    if (q.length < 2) return [];
+    return searchUsers(q, 6);
+  }, [name]);
+
+  async function handleSave() {
+    track('action', 'quickadd_save_user', { screen: 'quick_add' });
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      track('audit', 'validation_reject', { screen: 'quick_add', props: { field: 'user.name', rule: nameResult.rule } });
+      setNameError(nameResult.error);
+      return;
+    }
+    const trimmedName = nameResult.value;
+    setNameError('');
+    setSaving(true);
+    try {
+      const id = await createUserOnline(trimmedName, role);
+      appendLog({
+        action: 'user_created',
+        entity_type: 'user',
+        entity_id: id,
+        user_id: realUser?.id ?? null,
+        team_id: null,
+        job_id: null,
+        note: `${trimmedName} (${role})`,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
+      onSaved(trimmedName, id);
+      setName(''); // keep role sticky for rapid entry
+      setTimeout(() => nameRef.current?.focus(), 100);
+    } catch (e) {
+      Alert.alert('Could not create user', (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard.
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={<QuickAddFooter onSave={handleSave} disabled={locked} loading={saving} locked={locked} />}
+    >
+      <FieldLabel>Name</FieldLabel>
+      <TextInput
+        ref={nameRef}
+        style={[s.input, !!nameError && s.inputError]}
+        placeholder="Full name *"
+        placeholderTextColor={t.colors.textMuted}
+        value={name}
+        onChangeText={val => { setName(val); if (nameError) setNameError(''); }}
+        autoFocus
+        returnKeyType="done"
+        onSubmitEditing={handleSave}
+      />
+      {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
+
+      {nameMatches.length > 0 && (
+        <View style={s.matches}>
+          <Text style={s.matchesHint}>Already in the system?</Text>
+          {nameMatches.map(u => (
+            <View key={u.id} style={s.matchRow}>
+              <Text style={[s.matchName, { color: roleColor(u.role, roleColors) }]} numberOfLines={1}>{u.name}</Text>
+              <Text style={s.matchSub}>{ROLE_DISPLAY_NAMES[u.role]}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <SelectField
+        label="Role"
+        value={role}
+        options={ALL_ROLES.map(r => ({ id: r, label: ROLE_DISPLAY_NAMES[r] }))}
+        onSelect={id => setRole(id as UserRole)}
+      />
+
+      <Text style={s.pinNote}>🔒 The employee sets their own PIN at first sign-in.</Text>
+    </FormScreen>
+  );
+}
+
+const makeStyles = (t: Theme) => StyleSheet.create({
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
+  input: {
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
+  },
+  matches: { backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border, marginTop: -2, overflow: 'hidden' },
+  matchesHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted, fontWeight: '700', textTransform: 'uppercase', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
+  matchRow: { paddingHorizontal: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: t.colors.borderDetail, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  matchName: { fontSize: t.typography.fontSizes.body2, fontWeight: '600', flex: 1 },
+  matchSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  pinNote: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted },
+});

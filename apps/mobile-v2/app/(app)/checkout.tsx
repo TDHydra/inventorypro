@@ -36,7 +36,7 @@ import { getOpenJobs, getActiveCheckoutsForUser, type Job, type ActiveCheckout }
 import {
   getAllLocations, getLocationsByOwner, resolveLocationShelfSelection, type Location,
 } from '../../src/repos/locations';
-import { getManagerTierUsers } from '../../src/db/queries/users';
+import { getManagerTierUsers } from '../../src/repos/users';
 import {
   getUnitsForItem, getAvailableUnitsAtLocation, getUnitByTag, setUnitStatus,
   getDeployedUnitsForUser, checkInUnitFromJob, type EquipmentUnit,

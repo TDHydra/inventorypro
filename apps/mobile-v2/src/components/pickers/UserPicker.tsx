@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { getAllActiveUsers, User } from '../../db/queries/users';
+import { getAllActiveUsers, User } from '../../repos/users';
 import { useTableVersion } from '@invenpro/core';
 import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
 import { SearchablePicker, PickerOption } from '../SearchablePicker';
