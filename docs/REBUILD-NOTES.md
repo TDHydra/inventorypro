@@ -531,6 +531,29 @@ Screens landed (all six Wave A surfaces; typecheck clean, 40/40 + 181/181):
 Access+Approvals, B4 Notifications+Logs) — zero `TODO(wave-B)` markers remain
 anywhere in `apps/mobile-v2`.
 
+### Wave B checkpoint (2026-09-22)
+
+- `pnpm -r test` green across the workspace: api 586, old mobile 947,
+  mobile-v2 100, core 181, ui 110 (exit 0).
+- Web export smoke PASS: fresh `expo export --platform web` served on :8081.
+  **Trap hit:** plain `expo export` bakes `EXPO_PUBLIC_API_URL`'s DEFAULT
+  (`localhost:3000`) into the bundle → login roster 404s. Always export with
+  `EXPO_PUBLIC_API_URL=http://localhost:3001` (or the real API) set. The
+  sql-wasm staging is NOT a manual step — `public/sql-wasm-browser.wasm` is
+  copied into dist by expo automatically.
+- Browser flow verified: roster → PIN login (Dev Tester) → full download
+  (37 synced tables; users 40 / locations 75 / items 149 / stock 73) →
+  Users, Roles, Teams, team detail (members + crews), Access (Eddie's
+  Locker), Approvals (empty state), Notifications, Activity Log all render.
+- **Bidirectional sync round-trip on a Wave B table:** seeded a notification
+  row in dev PG → pull picked it up (bell badge 1) → mark-read in UI →
+  push landed `read_at` in PG. No console errors.
+- Device hotload pass STILL PENDING (S24 Ultra not connected; `adb devices`
+  empty) — carried over again, now due at the Wave C checkpoint.
+- Web renderer freezes for a few seconds after route pushes (sql.js work on
+  the main thread?) — screenshots/CDP time out transiently. Cosmetic-ish;
+  keep an eye on it for the Phase 9 web hard pass.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.
