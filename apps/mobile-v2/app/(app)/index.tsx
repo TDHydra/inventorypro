@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, type Href } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import { useThemedStyles } from '@invenpro/ui';
 import { useDbQuery, TABLES } from '@invenpro/core';
@@ -8,9 +8,22 @@ import { ROLE_DISPLAY_NAMES } from '../../src/constants/roles';
 import { getDb } from '../../src/db/schema';
 
 // Phase 2 hub stub — proves the skeleton end-to-end (session, DB, sync) by
-// showing live row counts for a handful of core tables. Wave A replaces this
-// with the real hub (scanner, tiles, quick actions).
+// showing live row counts for a handful of core tables, plus (Wave A) a tile
+// grid to the surfaces landing this wave. The REAL hub — old (hub)/index.tsx,
+// 1144 lines with role dashboards — is Wave D; do not port it here.
 const COUNT_TABLES = ['users', 'locations', 'inventory_items', 'stock_by_location', 'jobs', 'teams'] as const;
+
+// Wave A tiles. The real role-based hub (dashboard tiles) lands in Wave D.
+interface Tile { label: string; icon: string; href: Href }
+const TILES: Tile[] = [
+  { label: 'Scan', icon: '⬛', href: '/(app)/scan' },
+  { label: 'Check Out / In', icon: '📦', href: '/(app)/checkout' },
+  { label: 'Inventory', icon: '📋', href: '/(app)/inventory' },
+  { label: 'Locations', icon: '📍', href: '/(app)/locations' },
+  { label: 'Equipment', icon: '🛠', href: '/(app)/equipment' },
+  { label: 'Manage Types', icon: '🏷', href: '/(app)/manage-types' },
+  { label: 'Quick Add', icon: '➕', href: '/(app)/quickadd' },
+];
 
 export default function HubStub() {
   const styles = useThemedStyles(makeStyles);
@@ -43,6 +56,19 @@ export default function HubStub() {
       <Text style={styles.name}>{user.name}</Text>
       <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role] ?? user.role}</Text>
 
+      <View style={styles.tileGrid}>
+        {TILES.map(tile => (
+          <TouchableOpacity
+            key={tile.label}
+            style={styles.tile}
+            onPress={() => router.push(tile.href)}
+          >
+            <Text style={styles.tileIcon}>{tile.icon}</Text>
+            <Text style={styles.tileLabel}>{tile.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Local data ({TABLES.length} synced tables)</Text>
         {COUNT_TABLES.map(table => (
@@ -66,6 +92,20 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   greeting: { fontSize: 16, color: t.colors.textSecondary },
   name: { fontSize: 28, fontWeight: '700', color: t.colors.brand },
   role: { fontSize: 13, color: t.colors.textSecondary, marginBottom: 24 },
+  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 },
+  tile: {
+    width: '31%',
+    aspectRatio: 1,
+    backgroundColor: t.colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  tileIcon: { fontSize: 26 },
+  tileLabel: { fontSize: 12, fontWeight: '600', color: t.colors.textPrimary, textAlign: 'center' },
   card: {
     backgroundColor: t.colors.surface,
     borderRadius: 12,

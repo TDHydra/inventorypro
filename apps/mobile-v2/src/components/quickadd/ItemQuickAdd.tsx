@@ -120,8 +120,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       `"${skuMatch.name}" already uses item # ${skuMatch.sku}. Add stock to it instead of creating a duplicate?`,
       [
         { text: 'Keep adding new', style: 'cancel' },
-        // TODO(gap): (inventory)/[id] isn't built yet (screens wave) — cast bypasses expo-router's typed-routes check.
-        { text: 'Open existing item', onPress: () => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: skuMatch.id } } as never) },
+        { text: 'Open existing item', onPress: () => router.push({ pathname: '/(app)/inventory/[id]', params: { id: skuMatch.id } }) },
         { text: 'Cancel', style: 'destructive', onPress: () => router.back() },
       ],
     );
@@ -384,8 +383,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
             <TouchableOpacity
               key={m.id}
               style={s.nameMatchRow}
-              // TODO(gap): (inventory)/[id] isn't built yet (screens wave) — cast bypasses expo-router's typed-routes check.
-              onPress={() => router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: m.id } } as never)}
+              onPress={() => router.push({ pathname: '/(app)/inventory/[id]', params: { id: m.id } })}
             >
               <Text style={s.nameMatchLabel} numberOfLines={1}>{m.name}</Text>
               {!!m.sku && <Text style={s.nameMatchSub}>#{m.sku}</Text>}

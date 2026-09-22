@@ -123,6 +123,42 @@ Foundation landed (repos + shared components; screens next):
   clean. Old app is READ-ONLY: re-check `git status apps/mobile` after any
   subagent wave.
 
+Screens landed (all six Wave A surfaces; typecheck clean, 40/40 + 181/181):
+
+- Routes are PLAIN dirs under `app/(app)/` (no parens groups): `inventory/
+  {index,[id],low-stock}`, `locations/{index,[id]}`, `equipment/{index,[id]}`,
+  `manage-types`, `scan`, `checkout`, `quickadd/{index,[sheet]}`. Hub stub
+  gained a 7-tile grid (real role hub is Wave D).
+- checkout.tsx (1600 ln) absorbs the old checkin screen as a CheckinPanel
+  mode; no checkouts table exists — state derives from activity_log/stock/
+  units via existing repos. jobs.ts stays READ-ONLY (got ActiveCheckout +
+  getActiveCheckoutsForUser).
+- quickadd/[sheet] is ONE dynamic route for all kinds; wave-B/C kinds render
+  disabled tiles / "coming soon". ItemQuickAdd reads a `barcode` param;
+  StockQuickAdd reads a `locationId` param (added for locations' "+ Add Stock
+  Here" — the old (inventory)/add.tsx was NOT ported, quickadd replaces it).
+- equipment gained a model-wide Maintenance Timeline
+  (getMaintenanceEventsForItem in repos/maintenance.ts) and a
+  NewEquipmentModelSheet on index (gap: no sheet could create a kind:
+  'equipment' model).
+- locations detail's "rooms" = sub-areas via repos/locations.getRoomsForParent;
+  repos/rooms.ts is the separate room-catalog table (photo tagging).
+- Remaining intentional `as never` casts: ONLY the three `/(app)/repairs/new`
+  pushes (ItemCard, equipment/[id], locations/[id]), tagged TODO(wave-C).
+  Wave C MUST sweep them when repairs lands.
+- `.expo/types/router.d.ts` (typed routes, gitignored) is regenerated ONLY by
+  a real metro dev server run (`expo start`, pty, no CI=1) — `expo export`
+  does NOT reliably regenerate it. If new routes throw TS2322 route-type
+  errors, run metro briefly, then typecheck.
+
+## Subagent strategy (user decision, 2026-09-22)
+
+Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.
+From Wave B onward: ONE persistent porting agent worked assembly-line style —
+coordinator sends it one station (domain) at a time via follow-up messages so
+its context/porting patterns carry forward; verify + commit per station before
+feeding the next. No parallel fan-out for porting work.
+
 ## Unresolved / watch
 
 - expo-notifications absent from dev variant — Wave D notification work must

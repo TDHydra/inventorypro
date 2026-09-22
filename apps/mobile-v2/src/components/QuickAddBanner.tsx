@@ -23,9 +23,7 @@ export function QuickAddBanner({ style }: { style?: StyleProp<ViewStyle> }) {
     <TouchableOpacity
       style={[s.btn, style]}
       activeOpacity={0.85}
-      // TODO(gap): (quickadd) route isn't built yet (screens wave) — cast bypasses
-      // expo-router's typed-routes check until that screen lands.
-      onPress={() => { track('action', 'hub_quick_add', { screen: 'hub' }); router.push('/(app)/(quickadd)' as never); }}
+      onPress={() => { track('action', 'hub_quick_add', { screen: 'hub' }); router.push('/(app)/quickadd'); }}
     >
       <Text style={s.icon}>⚡</Text>
       <View style={s.textWrap}>

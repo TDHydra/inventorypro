@@ -82,17 +82,15 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
     : (full?.unit ?? item.unit);
 
   function reportRepair() {
-    // TODO(wave-B): (repairs)/new isn't built yet — cast bypasses expo-router's
-    // typed-routes check until that screen lands.
+    // TODO(wave-C): repairs surface isn't built yet — cast bypasses
+    // expo-router's typed-routes check until that screen lands.
     router.push({
-      pathname: '/(app)/(repairs)/new',
+      pathname: '/(app)/repairs/new',
       params: { entityType: 'item', entityId: item.id, entityLabel: item.name },
     } as never);
   }
   function openDetail() {
-    // TODO(gap): (inventory)/[id] isn't built yet (screens wave) — cast bypasses
-    // expo-router's typed-routes check until that screen lands.
-    router.push({ pathname: '/(app)/(inventory)/[id]', params: { id: item.id } } as never);
+    router.push({ pathname: '/(app)/inventory/[id]', params: { id: item.id } });
   }
 
   return (

@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Text, StyleSheet } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../repos/items';
-import { resolveLocationShelfSelection } from '../../repos/locations';
+import { resolveLocationShelfSelection, getLocationById } from '../../repos/locations';
 // TODO(gap): src/db/queries/access.ts (381 lines) not ported — outside the Wave
 // repos list. Client-side team-inventory lock hint is disabled below; the
 // server still enforces the cross-team check on push.
@@ -42,7 +43,14 @@ export default function StockQuickAdd({ onSaved }: Props) {
   // server enforces; Delta (ADJUST) stays available regardless.
   const canRecount = usePermission('checkin_inventory');
 
-  const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(null); // sticky
+  // Prefilled location (e.g. arriving from a location detail's "+ Add Stock
+  // Here"), mirroring the old (inventory)/add.tsx's locationId param.
+  const { locationId: initialLocationId } = useLocalSearchParams<{ locationId?: string }>();
+  const [selectedLocation, setSelectedLocation] = useState<PickerOption | null>(() => { // sticky
+    if (!initialLocationId) return null;
+    const loc = getLocationById(initialLocationId);
+    return loc ? { id: loc.id, label: loc.name } : null;
+  });
   const [shelfValue, setShelfValue] = useState<PickerOption | null>(null);
   const [selectedItemOpt, setSelectedItemOpt] = useState<PickerOption | null>(null);
   const [mode, setMode] = useState<Mode>('delta');

@@ -95,6 +95,28 @@ export function getMaintenanceEventsForUnit(unitId: string): MaintenanceEvent[] 
   ).rows);
 }
 
+// Chronological maintenance timeline for a whole equipment MODEL (every unit
+// under it), newest first — added for the equipment detail screen's
+// maintenance_events timeline (apps/mobile-v2/app/(app)/equipment/[id].tsx).
+// The old app only ever surfaced maintenance per-unit inside a History modal;
+// there was no cross-unit query to port, so this is new (not a straight port).
+// No FK from maintenance_events to inventory_items — joins through
+// equipment_units.item_id, same join shape as getUnitsNeedingCleaning etc. in
+// repos/equipmentUnits.ts. `asset_tag` is included so the timeline can label
+// each event with which unit it belongs to without a second lookup.
+export function getMaintenanceEventsForItem(itemId: string, limit = 50): (MaintenanceEvent & { asset_tag: string })[] {
+  const db = getDb();
+  return rowsAs<MaintenanceEvent & { asset_tag: string }>(db.executeSync(
+    `SELECT me.*, eu.asset_tag AS asset_tag
+       FROM maintenance_events me
+       JOIN equipment_units eu ON eu.id = me.unit_id
+       WHERE eu.item_id = ?
+       ORDER BY me.event_date DESC, me.created_at DESC
+       LIMIT ?`,
+    [itemId, limit],
+  ).rows);
+}
+
 // Units with a scheduled next service that is now due (next_service_at <= now).
 export function getUnitsDueForService(nowIso: string): { id: string; asset_tag: string; next_service_at: string }[] {
   const db = getDb();

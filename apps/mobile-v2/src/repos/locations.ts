@@ -567,6 +567,47 @@ export function reactivateVehicle(locationId: string, userId: string | null): Re
   return { ok: true };
 }
 
+// Archive a location: active=FALSE (locations are NEVER hard-deleted) through
+// the local UPDATE + outbox + log path — mirrors the old app's hand-rolled
+// runInTransaction(update + outbox + appendLog) in the location-detail screen's
+// handleArchive. Vehicle-type locations do NOT use this: see the PORT NOTE at
+// the top of this file — retireVehicle needs the unported vehicles.ts domain
+// (open-checkout guard), so the location-detail screen hides the Archive
+// action for vehicles until that domain is ported (TODO(wave-B)).
+export function archiveLocation(id: string, userId: string | null): void {
+  const location = getLocationById(id);
+  if (!location) return;
+  const now = new Date().toISOString();
+  locationsRepo.mirror('UPDATE', { id, active: false, updated_at: now }, () => {
+    getDb().executeSync(`UPDATE locations SET active = 0, updated_at = ? WHERE id = ?`, [now, id]);
+    appendLog({
+      action: 'location_archived', entity_type: 'location', entity_id: id,
+      user_id: userId, team_id: null, job_id: null, note: location.name,
+      from_location_id: null, to_location_id: null, quantity: null, unit: null,
+      metadata: null, device_id: null,
+    });
+  });
+}
+
+// Restore a non-Vehicle location: active=TRUE via the same local UPDATE +
+// outbox + log path. Vehicle-type locations use reactivateVehicle (above)
+// instead — the location-detail screen branches on location.type to call the
+// right one, mirroring the old app's handleUnarchive.
+export function restoreLocation(id: string, userId: string | null): void {
+  const location = getLocationById(id);
+  if (!location) return;
+  const now = new Date().toISOString();
+  locationsRepo.mirror('UPDATE', { id, active: true, updated_at: now }, () => {
+    getDb().executeSync(`UPDATE locations SET active = 1, updated_at = ? WHERE id = ?`, [now, id]);
+    appendLog({
+      action: 'location_restored', entity_type: 'location', entity_id: id,
+      user_id: userId, team_id: null, job_id: null, note: location.name,
+      from_location_id: null, to_location_id: null, quantity: null, unit: null,
+      metadata: null, device_id: null,
+    });
+  });
+}
+
 // THE write path for every location create/update in this file (shelves,
 // lockers, and the general edit-form case once ported). Uses
 // locationsRepo.mirror() rather than .insert() because the local write and the

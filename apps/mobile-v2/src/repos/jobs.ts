@@ -62,3 +62,49 @@ export function getJobById(id: string): Job | null {
   const result = db.executeSync(`SELECT * FROM jobs WHERE id = ?`, [id]);
   return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type')[0] ?? null;
 }
+
+// Ported from apps/mobile/src/db/queries/jobs.ts (READ-ONLY — the checkout/
+// check-in wizard's "count-based active checkouts" list). Note: this is the
+// old app's actual query verbatim, including its known quirk — a returned
+// (checked-in) checkout still shows up here forever, since activity_log is
+// append-only and there's no "returned" flag on the checkout_to_job row. Not
+// this wave's problem to fix; ported as-is for identical domain behavior.
+export interface ActiveCheckout {
+  id: string;
+  user_id: string | null;
+  team_id: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  from_location_id: string | null;
+  to_location_id: string | null;
+  quantity: number;
+  unit: string | null;
+  job_id: string | null;
+  note: string | null;
+  metadata: string | null;
+  device_id: string | null;
+  created_at: string;
+  synced_at: string | null;
+  item_name: string;
+  job_name: string | null;
+  location_name: string | null;
+}
+
+export function getActiveCheckoutsForUser(userId: string): ActiveCheckout[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT al.*, i.name AS item_name, i.unit, j.name AS job_name, l.name AS location_name
+     FROM activity_log al
+     JOIN inventory_items i ON i.id = al.entity_id
+     LEFT JOIN jobs j ON j.id = al.job_id
+     LEFT JOIN locations l ON l.id = al.from_location_id
+     WHERE al.user_id = ?
+       AND al.action = 'checkout_to_job'
+       AND al.entity_type = 'item'
+       AND i.unit_tracked = 0
+     ORDER BY al.created_at DESC`,
+    [userId]
+  );
+  return rowsAs<ActiveCheckout>(result.rows);
+}
