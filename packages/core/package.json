@@ -6,10 +6,18 @@
   "types": "src/index.ts",
   "scripts": {
     "test": "node --import tsx --test $(find src -name '*.test.ts')",
-    "gen-baseline": "node --import tsx scripts/gen-baseline.ts"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "tsx": "^4.16.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "sql.js": "^1.10.3",
+    "react": "19.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "~19.1.0",
+    "@types/sql.js": "^1.4.9"
+  },
+  "peerDependencies": {
+    "react": "*"
   }
 }

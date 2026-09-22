@@ -1,0 +1,279 @@
+import { getDb } from '../db/provider';
+
+import { assertWritable, getCoreConfig } from '../config';
+import { queueTableBump } from '../db/tx';
+
+// Max delivery attempts before an entry is considered "failed" and dropped from
+// the active retry loop. Single source of truth (engine + outbox + indicator all
+// read this) so a dead entry is classified consistently everywhere.
+export const MAX_OUTBOX_ATTEMPTS = 5;
+
+export type OutboxOperation = 'INSERT' | 'UPDATE' | 'DELETE' | 'ADJUST';
+
+export interface OutboxEntry {
+  id: string;
+  operation: OutboxOperation;
+  table_name: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  attempts: number;
+  last_error: string | null;
+  synced_at: string | null;
+  // 0/1 (mig 061, #202). Set by markOutboxDenied when the server permanently
+  // rejects this entry (an authorization denial — engine.ts's
+  // PERMANENT_REJECTION classification). Denied rows are excluded from every
+  // "still active"/"failed-retrying" query below — they will never be
+  // delivered by retrying — and instead surface in getDeniedOutbox() for the
+  // SyncIndicator's third bucket, with last_error carrying a human-readable
+  // message (denialMessages.ts) rather than the raw server string.
+  denied: number;
+}
+
+export function appendOutbox(
+  operation: OutboxOperation,
+  table_name: string,
+  payload: Record<string, unknown>
+): void {
+  assertWritable();
+  const db = getDb();
+  db.executeSync(
+    `INSERT INTO outbox (id, operation, table_name, payload, created_at, attempts, last_error, synced_at, denied)
+     VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, 0)`,
+    [getCoreConfig().generateUUID(), operation, table_name, JSON.stringify(payload), new Date().toISOString()]
+  );
+  // Every synced local write passes through here, so this one call is what makes
+  // already-open screens (useTableVersion/useReactiveRows/useDataVersion) re-query
+  // after the surrounding transaction commits — the sync pull bumps separately.
+  queueTableBump(table_name);
+  // #218: 'outbox' is a local-only table no sync pull ever bumps, so this key
+  // fires exactly on committed local appends (deferred to COMMIT, deduped per
+  // transaction) — the offline "Saved — will sync" toast subscribes to it.
+  queueTableBump('outbox');
+}
+
+// `tableName` scopes the batch to one table — used to drain activity_log on its
+// own before a demo session discards everything else (see demoHandoff.ts).
+export function getPendingOutbox(limit = 50, tableName?: string): OutboxEntry[] {
+  const db = getDb();
+  // denied = 0: a denied entry will never be delivered by retrying — it lives
+  // on only for the SyncIndicator's denied bucket (getDeniedOutbox), never in
+  // the active drain queue.
+  const result = tableName
+    ? db.executeSync(
+        `SELECT * FROM outbox WHERE synced_at IS NULL AND denied = 0 AND table_name = ?
+         ORDER BY created_at ASC LIMIT ?`,
+        [tableName, limit]
+      )
+    : db.executeSync(
+        `SELECT * FROM outbox WHERE synced_at IS NULL AND denied = 0 ORDER BY created_at ASC LIMIT ?`,
+        [limit]
+      );
+  return (result.rows as unknown as OutboxEntry[]).map(row => ({
+    ...row,
+    payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+  }));
+}
+
+export function markOutboxSynced(ids: string[]): void {
+  if (ids.length === 0) return;
+  const db = getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  db.executeSync(
+    `UPDATE outbox SET synced_at = ? WHERE id IN (${placeholders})`,
+    [new Date().toISOString(), ...ids]
+  );
+}
+
+export function incrementOutboxAttempt(id: string, error: string): void {
+  const db = getDb();
+  db.executeSync(
+    `UPDATE outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
+    [error, id]
+  );
+}
+
+// Permanently drop a single entry the server rejected for a reason retrying can
+// never fix (an authorization denial). Unlike incrementOutboxAttempt this does
+// not leave the row pending-but-dead — it's removed, so the sync indicator can't
+// stick on a write that will never be accepted.
+// Superseded by markOutboxDenied for the engine.ts permanent-rejection path
+// (#202) — that keeps the row visible instead of deleting it outright — but
+// kept as a primitive other callers can still reach for an outright delete.
+export function dropOutboxEntry(id: string): void {
+  const db = getDb();
+  db.executeSync(`DELETE FROM outbox WHERE id = ?`, [id]);
+}
+
+// Mark a single entry PERMANENTLY denied by the server (an authorization
+// rejection — engine.ts's PERMANENT_REJECTION classification). Unlike
+// dropOutboxEntry, this keeps the row instead of deleting it, so the
+// SyncIndicator's denied bucket can list what was refused. `message` is the
+// human-readable string from denialMessages.ts — NOT the server's raw
+// rejection text — reusing last_error rather than adding a new column.
+export function markOutboxDenied(id: string, message: string): void {
+  const db = getDb();
+  db.executeSync(
+    `UPDATE outbox SET denied = 1, last_error = ? WHERE id = ?`,
+    [message, id]
+  );
+}
+
+// Denied entries, newest first, for the SyncIndicator's denied bucket.
+export function getDeniedOutbox(limit = 50): OutboxEntry[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM outbox WHERE synced_at IS NULL AND denied = 1
+     ORDER BY created_at DESC LIMIT ?`,
+    [limit]
+  );
+  return (result.rows as unknown as OutboxEntry[]).map(row => ({
+    ...row,
+    payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+  }));
+}
+
+export function getDeniedCount(): number {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT COUNT(*) as cnt FROM outbox WHERE synced_at IS NULL AND denied = 1`
+  );
+  return ((result.rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+}
+
+// User dismissed a single denied entry (SyncIndicator's Dismiss action) —
+// permanently discard it. Scoped to denied = 1 so this can't be used to drop
+// an entry still legitimately being retried.
+export function discardDeniedEntry(id: string): void {
+  const db = getDb();
+  db.executeSync(`DELETE FROM outbox WHERE id = ? AND denied = 1`, [id]);
+}
+
+export function getPendingCount(): number {
+  const db = getDb();
+  // denied = 0: a denied row is a terminal, user-visible state of its own
+  // (getDeniedCount) — it must not also inflate the "pending" count callers use
+  // to decide whether there's undelivered work (e.g. the demo-handoff gate).
+  const result = db.executeSync(
+    `SELECT COUNT(*) as cnt FROM outbox WHERE synced_at IS NULL AND denied = 0`
+  );
+  return ((result.rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+}
+
+// Whether a single media row (identified by its client-generated id — see
+// insertMediaRow in media/uploadCore.ts) still has an undelivered outbox entry
+// (#180: the "Share externally" mint endpoint reads the row from Postgres, so
+// offering to share a row that hasn't reached the server yet would 404).
+// There's no dedicated entity-id column on outbox — payload is opaque JSON —
+// so this matches the `"id":"<uuid>"` shape appendOutbox always serializes as
+// the first key of every media payload (insertMediaRow always passes `id`
+// first). Scoped to table_name so a foreign table's row can't collide on the
+// same uuid.
+export function isMediaUploadPending(mediaId: string): boolean {
+  const db = getDb();
+  // denied = 0: a denied media write will never reach the server, so it must
+  // not hold the "still uploading, don't offer Share yet" gate open forever.
+  const result = db.executeSync(
+    `SELECT 1 FROM outbox WHERE synced_at IS NULL AND denied = 0 AND table_name = 'media' AND payload LIKE ? LIMIT 1`,
+    [`%"id":"${mediaId}"%`]
+  );
+  return result.rows.length > 0;
+}
+
+// Counts split by deliverability: `active` are still being retried (attempts <
+// MAX), `failed` have exhausted retries and are NO LONGER sent — they're what
+// silently pinned the "pending" indicator forever. Surfacing them separately
+// lets the UI show a recoverable "failed" state instead of a stuck "pending".
+// Denied entries (denied = 1) are excluded from both — they're a third,
+// terminal bucket of their own (getDeniedCount/getDeniedOutbox).
+export function getOutboxCounts(): { active: number; failed: number } {
+  const db = getDb();
+  const row = db.executeSync(
+    `SELECT
+       COALESCE(SUM(CASE WHEN attempts <  ? THEN 1 ELSE 0 END), 0) AS active,
+       COALESCE(SUM(CASE WHEN attempts >= ? THEN 1 ELSE 0 END), 0) AS failed
+     FROM outbox WHERE synced_at IS NULL AND denied = 0`,
+    [MAX_OUTBOX_ATTEMPTS, MAX_OUTBOX_ATTEMPTS]
+  ).rows[0] as { active: number; failed: number } | undefined;
+  return { active: row?.active ?? 0, failed: row?.failed ?? 0 };
+}
+
+// Failed (retry-exhausted) entries, newest first, for diagnostic display.
+export function getFailedOutbox(limit = 50): OutboxEntry[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT * FROM outbox
+     WHERE synced_at IS NULL AND denied = 0 AND attempts >= ?
+     ORDER BY created_at DESC LIMIT ?`,
+    [MAX_OUTBOX_ATTEMPTS, limit]
+  );
+  return (result.rows as unknown as OutboxEntry[]).map(row => ({
+    ...row,
+    payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+  }));
+}
+
+// Re-arm every failed entry (attempts → 0) so the next sync cycle retries it.
+// Use after the underlying cause is fixed (e.g. a migration deployed). Returns
+// how many were reset. `tableName` scopes the re-arm to one table — the demo
+// handoff uses it to give dead activity_log rows one more shot rather than let a
+// single stuck entry block demo sign-in forever. Denied entries are excluded —
+// they were rejected on authorization grounds, not retry-exhaustion, so
+// re-arming them would resurrect a write the server will refuse again.
+export function retryFailedOutbox(tableName?: string): number {
+  const db = getDb();
+  const failed = ((db.executeSync(
+    `SELECT COUNT(*) AS cnt FROM outbox
+     WHERE synced_at IS NULL AND denied = 0 AND attempts >= ?${tableName ? ' AND table_name = ?' : ''}`,
+    tableName ? [MAX_OUTBOX_ATTEMPTS, tableName] : [MAX_OUTBOX_ATTEMPTS]
+  ).rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+  if (failed === 0) return 0;
+  db.executeSync(
+    `UPDATE outbox SET attempts = 0, last_error = NULL
+     WHERE synced_at IS NULL AND denied = 0 AND attempts >= ?${tableName ? ' AND table_name = ?' : ''}`,
+    tableName ? [MAX_OUTBOX_ATTEMPTS, tableName] : [MAX_OUTBOX_ATTEMPTS]
+  );
+  return failed;
+}
+
+// activity_log rows still awaiting a push. They are ordinary outbox rows
+// (table_name = 'activity_log'), so this is the audit trail's undelivered
+// count. denied = 0: a denied log row will never be delivered, so counting it
+// here would block the demo-handoff gate (prepareForDemoLogin) forever on a
+// write that can never succeed.
+export function getPendingLogCount(): number {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT COUNT(*) as cnt FROM outbox
+     WHERE synced_at IS NULL AND denied = 0 AND table_name = 'activity_log'`
+  );
+  return ((result.rows[0] as { cnt: number } | undefined)?.cnt) ?? 0;
+}
+
+// Drop EVERY pending entry — the demo-session handoff, where the outgoing user's
+// un-synced work is thrown away rather than pushed to the server under the demo
+// user's JWT. Returns how many were discarded.
+//
+// PRECONDITION: the caller must have already pushed the pending activity_log rows
+// (getPendingLogCount() === 0). reconcileLogSyncState() treats a vanished outbox
+// row as delivered, so discarding an un-pushed activity_log row would mark it
+// synced and silently forge the audit trail.
+export function discardPendingOutbox(): number {
+  const db = getDb();
+  const pending = getPendingCount();
+  if (pending === 0) return 0;
+  db.executeSync(`DELETE FROM outbox WHERE synced_at IS NULL`);
+  return pending;
+}
+
+// Permanently drop failed entries (give up on un-deliverable changes). Returns
+// how many were discarded.
+export function discardFailedOutbox(): number {
+  const db = getDb();
+  const { failed } = getOutboxCounts();
+  if (failed === 0) return 0;
+  db.executeSync(
+    `DELETE FROM outbox WHERE synced_at IS NULL AND attempts >= ?`,
+    [MAX_OUTBOX_ATTEMPTS]
+  );
+  return failed;
+}
