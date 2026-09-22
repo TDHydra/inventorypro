@@ -40,6 +40,10 @@ const ADMIN_TILES: GatedTile[] = [
   // Teams gates on view_teams (the screen's own gate, defaults true for every
   // tier) rather than manage_teams — matching teams/index.tsx's own PermissionGate.
   { label: 'Teams', icon: '👥', href: '/(app)/teams', permission: 'view_teams' },
+  // Access (unit_access admin surface) and Approvals (decide-queue) — Station
+  // B3. Gated on the same permission each screen itself courtesy-gates on.
+  { label: 'Access', icon: '🔐', href: '/(app)/access', permission: 'manage_locations' },
+  { label: 'Approvals', icon: '✅', href: '/(app)/approvals', permission: 'manage_teams' },
 ];
 
 export default function HubStub() {
@@ -49,9 +53,13 @@ export default function HubStub() {
   const canManageUsers = usePermission('manage_users');
   const canManageRoles = usePermission('manage_roles_permissions');
   const canViewTeams = usePermission('view_teams');
+  const canManageLocations = usePermission('manage_locations');
+  const canManageTeams = usePermission('manage_teams');
   const adminTiles = ADMIN_TILES.filter(tile => {
     if (tile.permission === 'manage_users') return canManageUsers;
     if (tile.permission === 'manage_roles_permissions') return canManageRoles;
+    if (tile.permission === 'manage_locations') return canManageLocations;
+    if (tile.permission === 'manage_teams') return canManageTeams;
     return canViewTeams;
   });
 

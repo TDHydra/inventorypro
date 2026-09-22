@@ -3,9 +3,7 @@ import { Text, StyleSheet } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { searchItems, adjustStock, upsertStock, getStockQuantity, getItemById } from '../../repos/items';
 import { resolveLocationShelfSelection, getLocationById } from '../../repos/locations';
-// TODO(gap): src/db/queries/access.ts (381 lines) not ported — outside the Wave
-// repos list. Client-side team-inventory lock hint is disabled below; the
-// server still enforces the cross-team check on push.
+import { getUnitInventoryLockForUserId } from '../../repos/access';
 import { useTableVersion } from '@invenpro/core';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
@@ -136,7 +134,7 @@ export default function StockQuickAdd({ onSaved }: Props) {
     // #162: no stock into another team's vehicle/locker without the cross-team
     // perm (defensive — the picker hides units today, but the server rejects
     // the write regardless, so fail here with the reason instead of on sync).
-    const teamLock = { locked: false as const, reason: undefined as string | undefined };
+    const teamLock = getUnitInventoryLockForUserId(realUser?.id, locationId);
     if (teamLock.locked) {
       trackReject('stock.location', 'foreign_team_unit');
       setError(teamLock.reason ?? 'This unit’s inventory belongs to another team.');

@@ -29,6 +29,7 @@ import type { Theme } from '@invenpro/ui';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import MoveStockModal from '../../../src/components/MoveStockModal';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -113,6 +114,7 @@ export default function ItemDetailScreen() {
   const [adjustDeltaText, setAdjustDeltaText] = useState('');
   const [moveFrom, setMoveFrom] = useState<{ locationId: string; locationName: string } | null>(null);
   const [addStockOpen, setAddStockOpen] = useState(false);
+  const [requestApprovalOpen, setRequestApprovalOpen] = useState(false);
   const [addLoc, setAddLoc] = useState<PickerOption | null>(null);
   const [addShelf, setAddShelf] = useState<PickerOption | null>(null);
   const [addQtyText, setAddQtyText] = useState('');
@@ -600,9 +602,12 @@ export default function ItemDetailScreen() {
                   (ActivityFeed) not ported this wave — both depend on
                   modules outside this wave's ownership. */}
 
-              {/* TODO(wave-chat): "Request Approval" sheet not ported this wave
-                  — depends on db/queries/notifications, not in v2 yet (mirrors
-                  the PermissionGate request-access gap noted in Wave A). */}
+              {/* Request Approval — restored Station B3 (repos/approvals.ts). */}
+              <PrimaryButton
+                label="Request Approval"
+                onPress={() => setRequestApprovalOpen(true)}
+                style={{ marginBottom: canEdit ? 8 : 0 }}
+              />
 
               {canEdit && (
                 <PrimaryButton label="Edit Item" onPress={startEdit} />
@@ -652,6 +657,15 @@ export default function ItemDetailScreen() {
         fromLocationName={moveFrom?.locationName ?? ''}
         onClose={() => setMoveFrom(null)}
         onDone={() => { setMoveFrom(null); reload(); }}
+      />
+
+      {/* ── Request approval on this item (#025, restored Station B3) ─────── */}
+      <RequestApprovalSheet
+        visible={requestApprovalOpen}
+        onClose={() => setRequestApprovalOpen(false)}
+        entityType="item"
+        entityId={item?.id ?? null}
+        entityLabel={item?.name ?? null}
       />
     </>
   );

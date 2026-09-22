@@ -7,6 +7,7 @@ import { useThemedStyles, ModalSheet, PrimaryButton, AppInput, FieldLabel } from
 import { parseQuantity } from '../lib/validation';
 import { runInTransaction } from '@invenpro/core';
 import { getStockAtLocation, resolveLocationShelfSelection } from '../repos/locations';
+import { getUnitInventoryLockForUserId } from '../repos/access';
 import { adjustStock, getStockQuantity, getItemById } from '../repos/items';
 import { appendLog } from '../db/queries/log';
 import { useSession } from '../hooks/useSession';
@@ -74,12 +75,14 @@ export default function MoveStockModal({
   // (destination) another team's vehicle/locker is locked without
   // manage_other_team_inventory. Shelves only exist under MAIN locations
   // (units can't have sub-areas), so checking destLoc.id covers the shelf case.
-  //
-  // TODO(gap): src/db/queries/access.ts (381 lines, getUnitInventoryLock) is not
-  // ported this wave — outside the repos/ list. Team-scoped unit locking is
-  // stubbed open (never locked) until that module lands.
-  const sourceLock = { locked: false as const, reason: undefined as string | undefined };
-  const destLock = { locked: false as const, reason: undefined as string | undefined };
+  const sourceLock = useMemo(
+    () => getUnitInventoryLockForUserId(realUser?.id, fromLocationId),
+    [realUser?.id, fromLocationId],
+  );
+  const destLock = useMemo(
+    () => getUnitInventoryLockForUserId(realUser?.id, destLoc?.id ?? null),
+    [realUser?.id, destLoc?.id],
+  );
   const teamLockReason = sourceLock.locked ? sourceLock.reason : destLock.locked ? destLock.reason : null;
 
   function reset() {

@@ -19,9 +19,8 @@
 // Cut for this wave (coordinator's cut-list / unported domains — see
 // docs/REBUILD-NOTES.md Wave B section):
 //   - Message member / DM (TODO(wave-chat) — chat isn't ported yet).
-//   - MemberPermissionsSheet's per-unit access grants + personal locker
-//     sections (TODO(gap) inside that component — depends on unported
-//     access/unitAccess domains).
+// MemberPermissionsSheet's per-unit access grants + personal locker sections
+// were restored in Station B3 (repos/access.ts + access/personalLocker.ts).
 //
 // repos/teams.ts's subteam functions (createSubteam/renameSubteam/
 // setSubteamMembership/clearSubteamMembership/deleteSubteam) don't call

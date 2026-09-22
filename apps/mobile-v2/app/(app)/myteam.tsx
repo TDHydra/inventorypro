@@ -12,14 +12,15 @@
 //
 // Cut for this station (see docs/REBUILD-NOTES.md Wave B section) — "Manage
 // My Team" (#124) was a technician's home base for crew + owned lockers +
-// owned vehicles. Only "My Crews" survives this wave:
-//   - My Lockers (LockerSheet, AccessListEditor, unit_access grants) —
-//     TODO(gap): depends on the unported src/db/queries/access.ts /
-//     unitAccess.ts / access/unitGrants.ts domain, same class as B1's cuts.
+// owned vehicles.
+//   - My Lockers restored in Station B3, SIMPLIFIED: the old LockerSheet
+//     (full LockerPanel + "Open full page" route) is cut — tapping a locker
+//     here opens AccessListEditor directly (grant/revoke who can access it),
+//     since a dedicated locker detail route isn't part of this wave.
 //   - My Vehicles (VehicleSheet, VehicleInlineStatus, vehicles table) —
 //     TODO(wave-C): vehicles aren't ported yet at all.
-// A user with a crew but no lockers/vehicles now just sees "My Crews" instead
-// of the old three-section layout; isEmpty is keyed on crews.length alone.
+// isEmpty is keyed on crews.length alone — My Lockers renders (possibly
+// empty) below My Crews regardless, mirroring the old app's layout.
 import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
@@ -39,6 +40,12 @@ import type { UserRole } from '../../src/constants/roles';
 import { CrewCard } from '../../src/components/crew/CrewCard';
 import { CrewEditor, type CrewDraft } from '../../src/components/crew/CrewEditor';
 import type { PickerOption } from '../../src/components/SearchablePicker';
+import { getLocationsByOwner } from '../../src/repos/locations';
+import { getAllActiveUsers } from '../../src/repos/users';
+import {
+  getUnitAccessRows, revokeUnitAccess, grantUnitAccessWithDefaults,
+} from '../../src/repos/access';
+import { AccessListEditor, type AccessEntry } from '../../src/components/crew/AccessListEditor';
 
 // Manage My Team (#124, scoped down) — a technician's home base for the crew(s)
 // they're in. Everything routes through the shared CrewCard/CrewEditor — this
@@ -147,9 +154,69 @@ export default function ManageMyTeamScreen() {
     }
   }
 
+  // ── My Lockers (#146 owned lockers, restored Station B3) ───────────────────
+  // Simplified vs. the old LockerSheet: tapping a locker opens AccessListEditor
+  // directly (who can access it), not a full LockerPanel.
+
+  const myLockers = useMemo(
+    () => (user ? getLocationsByOwner(user.id).filter(l => l.type === 'Locker' && l.active === 1) : []),
+    [user?.id, version],
+  );
+
+  const [accessLockerId, setAccessLockerId] = useState<string | null>(null);
+  const accessLocker = myLockers.find(l => l.id === accessLockerId) ?? null;
+
+  const lockerGrants = useMemo(
+    () => (accessLockerId ? getUnitAccessRows(accessLockerId) : []),
+    [accessLockerId, version],
+  );
+  const lockerEntries = useMemo<AccessEntry[]>(
+    () => lockerGrants.map(g => ({ userId: g.user_id, name: g.user_name ?? g.user_id })),
+    [lockerGrants],
+  );
+  const lockerCandidates = useMemo<PickerOption[]>(() => {
+    if (!accessLockerId) return [];
+    const already = new Set(lockerGrants.map(g => g.user_id));
+    return getAllActiveUsers()
+      .filter(u => u.id !== user?.id && !already.has(u.id))
+      .map(u => ({ id: u.id, label: u.name, sublabel: u.role ? (ROLE_DISPLAY_NAMES[u.role as UserRole] ?? u.role) : undefined }));
+  }, [accessLockerId, lockerGrants, user?.id]);
+
+  // grantUnitAccessWithDefaults/revokeUnitAccess (repos/access.ts) don't
+  // self-log (Station B3 convention) — this screen owns the appendLog calls,
+  // matching the shapes documented in repos/access.ts.
+  function handleGrantLockerAccess(opt: PickerOption) {
+    if (!accessLocker || isWriteBlocked()) return;
+    const actorId = realUser?.id ?? null;
+    runInTransaction(() => {
+      grantUnitAccessWithDefaults(accessLocker.id, opt.id, opt.sublabel ?? '', actorId);
+      appendLog({
+        action: 'unit_access_granted', entity_type: 'location', entity_id: accessLocker.id,
+        user_id: actorId, team_id: null, job_id: null,
+        note: null, from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: JSON.stringify({ grantee_user_id: opt.id }),
+        device_id: null,
+      });
+    });
+  }
+
+  function handleRevokeLockerAccess(entry: AccessEntry) {
+    if (!accessLocker || isWriteBlocked()) return;
+    runInTransaction(() => {
+      revokeUnitAccess(accessLocker.id, entry.userId);
+      appendLog({
+        action: 'unit_access_revoked', entity_type: 'location', entity_id: accessLocker.id,
+        user_id: null, team_id: null, job_id: null,
+        note: null, from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: JSON.stringify({ grantee_user_id: entry.userId }),
+        device_id: null,
+      });
+    });
+  }
+
   if (!user) return null; // (app)/_layout redirects to login
 
-  const isEmpty = crews.length === 0;
+  const isEmpty = crews.length === 0 && myLockers.length === 0;
 
   return (
     <>
@@ -188,8 +255,23 @@ export default function ManageMyTeamScreen() {
             />
           ))}
 
-          {/* TODO(gap): My Lockers section cut — depends on the unported
-              src/db/queries/access.ts / unitAccess.ts / access/unitGrants.ts. */}
+          {myLockers.length > 0 && (
+            <>
+              <Text style={s.sectionLabel}>My Locker{myLockers.length === 1 ? '' : 's'}</Text>
+              {myLockers.map(l => (
+                <TouchableOpacity
+                  key={l.id}
+                  style={s.lockerRow}
+                  onPress={() => setAccessLockerId(l.id)}
+                  disabled={locked}
+                >
+                  <Text style={s.lockerName}>🔒 {l.name}</Text>
+                  <Text style={s.editLink}>Manage access</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+
           {/* TODO(wave-C): My Vehicles section cut — vehicles aren't ported yet. */}
         </ScrollView>
       )}
@@ -203,6 +285,20 @@ export default function ManageMyTeamScreen() {
         candidates={crewCandidates}
         onSave={handleSaveCrew}
         disabled={locked}
+      />
+
+      {/* Who can access my locker — simplified stand-in for the old LockerSheet
+          (no full LockerPanel this wave, see header comment). */}
+      <AccessListEditor
+        visible={!!accessLockerId}
+        onClose={() => setAccessLockerId(null)}
+        title={accessLocker ? `Access — ${accessLocker.name}` : 'Access'}
+        entries={lockerEntries}
+        candidates={lockerCandidates}
+        canEdit={!locked}
+        onAdd={handleGrantLockerAccess}
+        onRemove={handleRevokeLockerAccess}
+        removeNoun="locker access"
       />
     </>
   );
@@ -221,4 +317,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
 
   editLink: { color: t.colors.primary, fontSize: t.typography.fontSizes.sm, fontWeight: t.typography.weights.bold },
   disabled: { opacity: 0.5 },
+
+  lockerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: t.colors.border, borderRadius: t.radii.md,
+    paddingHorizontal: t.spacing.base, paddingVertical: 12,
+  },
+  lockerName: { fontSize: 15, color: t.colors.textPrimary, fontWeight: '600' },
 });

@@ -335,6 +335,103 @@ Screens landed (all six Wave A surfaces; typecheck clean, 40/40 + 181/181):
   mobile-v2 test` 72/72 green. `git status --short apps/mobile` empty
   throughout.
 
+### Station B3 — Access + Approvals (2026-09-22)
+
+- `src/repos/access.ts` (new, ~330 lines): one repo file for `unit_access`,
+  merging old app's `db/queries/access.ts` (381 ln) + `db/queries/
+  unitAccess.ts` + `access/unitGrants.ts`, built on
+  `createRepository('unit_access')`. Supporting pure files kept separate
+  (matches old app's own split): `src/access/unitAccessPolicy.ts`
+  (`canManageUnitAccess`, verbatim), `src/db/unitAccessDefaults.ts`
+  (read-only trim of the per-role defaults reader — see cuts below).
+  - **Scope this station**: Vehicle-coupled surfaces are OUT — vehicles
+    aren't ported to mobile-v2 at all. Cut from the port:
+    `getAccessibleSourceLocations`, `getTeamUnits`, `getCheckoutSourceLocations`,
+    `getVisibleUnits`, `canManageVehicle`, `canLiftVehicleLockFor` —
+    `TODO(wave-C)`, same wave as `locations.ts`'s unported vehicle helpers.
+    `getGrantableUnits` is trimmed to Locker-type units only (was
+    `Vehicle ∪ Locker`). `getAllUnitAccessGrants` is a NEW function (no old
+    app equivalent) added to back `access/index.tsx`, filtered to active
+    Locker units.
+  - **Self-log convention (DIVERGENCE from the old app)**: old app's
+    `upsertUnitAccess`/`revokeUnitAccess` called `appendLog` internally
+    (`unit_access_granted`/`unit_access_revoked`). Following the same
+    convention B1/B2 established (repos never self-log), this port's
+    `upsertUnitAccess`/`revokeUnitAccess`/`grantUnitAccessWithDefaults` do
+    NOT call `appendLog` — every caller (`MemberPermissionsSheet.tsx`,
+    `myteam.tsx`'s My Lockers, `access/index.tsx`) wraps
+    `runInTransaction(() => { repoFn(...); appendLog({...}); })` itself,
+    using the exact old action names/metadata shapes documented on each
+    repo function.
+  - Outbox payload booleans: raw JS booleans (not `0`/`1`), matching B2's
+    `addTeamMember` precedent — `bindParams` converts to 0/1 for the local
+    write; the outbox JSON round-trips `true`/`false` fine server-side. This
+    diverges from the old app's explicit `b(v) => v ? 1 : 0` helper, which is
+    unnecessary here.
+  - `src/repos/approvals.ts` (new, ~115 lines): `createRepository('approval_requests')`,
+    ported from the approvals half of old app's `db/queries/notifications.ts`
+    (the notifications-inbox half — `listNotifications`/`countUnread`/
+    `markRead`/`markAllRead` — is OUT OF SCOPE, no standalone inbox is
+    planned). Routed through `.insert()`/`.update()` rather than hand-rolled
+    writes. One small, harmless divergence: old app's `decideApproval`
+    deliberately omitted `updated_at` from its outbox UPDATE payload ("the
+    server bumps updated_at"); `createRepository.update()` always
+    auto-touches `updated_at` when absent, so this port's outbox payload DOES
+    carry a client `updated_at` — the server remains authoritative regardless.
+    `decideApproval` was confirmed to never self-log in the old app either
+    (no `appendLog` call anywhere near it) — no divergence, no caller-owned
+    log needed for approve/deny.
+- Un-stubbed every `TODO(gap)` this module unblocks:
+  - The 4 original always-unlocked stubs (`StockQuickAdd`, `ItemQuickAdd`,
+    `EquipmentQuickAdd`, `MoveStockModal`) now call
+    `getUnitInventoryLockForUserId`/`getUnitInventoryLock` (#162 team-scoped
+    unit inventory lock).
+  - `MemberPermissionsSheet.tsx`: restored the "Unit access" grants section
+    (per-action switches, revoke, grant-new-unit picker) and "Personal
+    locker" toggle, verbatim from the old app's structure with the
+    self-log divergence applied (`toggleUnitAction`/`handleRevoke`/
+    `handleGrantUnit` each own an `appendLog` call now).
+  - `myteam.tsx`: restored "My Lockers", SIMPLIFIED vs. the old app — the old
+    `LockerSheet` (full `LockerPanel` + "Open full page" route) is cut;
+    tapping a locker here opens the generic `AccessListEditor` directly
+    (grant/revoke who can access it) since a dedicated locker detail route
+    isn't part of this wave.
+  - `users/index.tsx`: restored the personal-locker toggle in the edit-user
+    sheet (gated `manage_locations`), same pattern as
+    `MemberPermissionsSheet`'s toggle.
+- NEW surfaces (no old-app equivalent for either):
+  - `app/(app)/access/index.tsx` — admin surface for `unit_access`: list
+    every grant across active Locker units (`getAllUnitAccessGrants`),
+    filter by locker/person, grant (locker + person picker) / revoke, gated
+    `manage_locations` (`PermissionGate mode="screen"`).
+  - `app/(app)/approvals/index.tsx` — pending-approvals worklist
+    (`listOpenApprovals`), approve/deny via `decideApproval`. There's no
+    dedicated "approver" permission in the role model (the server resolves
+    approvers per-request); decide actions are courtesy-gated on
+    `manage_teams` (closest existing "authority over people" permission) —
+    the server remains the enforcement of record.
+  - `app/(app)/index.tsx` hub gained "Access" (`manage_locations`) and
+    "Approvals" (`manage_teams`) tiles in `ADMIN_TILES`.
+  - `RequestApprovalSheet.tsx` (verbatim port) wired into
+    `inventory/[id].tsx` and `equipment/[id].tsx` at their `TODO(wave-chat)`
+    "Request Approval" markers (the sheet itself has no chat dependency —
+    only `DiscussThisButton`/DM remain `TODO(wave-chat)` on those screens).
+- **Cut this station** (unported domain, marker so the right later wave
+  picks it up):
+  - `src/db/unitAccessDefaults.ts`'s admin per-role defaults TEMPLATE EDITOR
+    (the setter + version/listener pair + the `(admin)/unit-access-defaults.tsx`
+    screen) — `TODO(wave-C)`. Only the read-only getter is ported; every new
+    grant resolves to `FALLBACK_ACTIONS` until that admin screen lands.
+- Test debt closed: added `src/repos/access.test.ts` (16 tests, incl. 5
+  `getUnitInventoryLock`/`ForUserId` scenarios) and `src/repos/
+  approvals.test.ts` (7 tests) using the existing `testDb.ts` harness. Total
+  suite: 95/95 passing (was 72/72 after B2).
+- `.expo/types/router.d.ts` regenerated via a pty metro run for
+  `/(app)/access` + `/(app)/approvals`.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm --filter
+  mobile-v2 test` 95/95 green. `git status --short apps/mobile` empty
+  throughout.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

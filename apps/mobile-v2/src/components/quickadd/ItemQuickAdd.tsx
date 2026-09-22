@@ -7,9 +7,7 @@ import { generateUUID } from '../../utils/uuid';
 import { upsertItem, getItemBySku, getDistinctValues, searchItems, adjustStock } from '../../repos/items';
 import type { InventoryItem } from '../../repos/items';
 import { resolveLocationShelf, resolveLocationShelfSelection } from '../../repos/locations';
-// TODO(gap): src/db/queries/access.ts (381 lines) not ported — outside the Wave
-// repos list. Client-side team-inventory lock hint is disabled below; the
-// server still enforces the cross-team check on push.
+import { getUnitInventoryLockForUserId } from '../../repos/access';
 import { getMainStorageLocationId } from '../../db/mainStorage';
 import { runInTransaction, useTableVersion } from '@invenpro/core';
 import { appendLog } from '../../db/queries/log';
@@ -249,7 +247,7 @@ export default function ItemQuickAdd({ onSaved }: Props) {
     // without the cross-team perm (defensive — the picker hides units today,
     // but the server rejects the stock INSERT regardless).
     if (stockQty > 0 && homeLocationId) {
-      const teamLock = { locked: false as const, reason: undefined as string | undefined };
+      const teamLock = getUnitInventoryLockForUserId(realUser?.id, homeLocationId);
       if (teamLock.locked) {
         trackReject('item.home_location', 'foreign_team_unit');
         Alert.alert('Team inventory', teamLock.reason ?? 'This unit’s inventory belongs to another team.');

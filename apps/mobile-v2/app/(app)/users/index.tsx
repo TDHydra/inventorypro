@@ -13,9 +13,8 @@
 // Cut for this wave (coordinator's cut-list / unported domains — see
 // docs/REBUILD-NOTES.md Wave B section):
 //   - Dashboard preset assignment (dashboard preset engine is cut entirely).
-//   - Personal locker toggle (depends on the unported src/access/unitGrants.ts
-//     domain — TODO(gap), same class as locations.ts's unported vehicle helpers).
 //   - Message button / DM (TODO(wave-chat) — chat isn't ported yet).
+// Personal locker toggle restored in Station B3 (src/access/personalLocker.ts).
 //
 // Bulk "Add to team" (was TODO(wave-B-teams)) is now wired to
 // src/repos/teams.ts's addTeamMember (ported in Station B2).
@@ -49,6 +48,7 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
 import { TooltipHint } from '../../../src/components/TooltipHint';
+import { enablePersonalLocker, disablePersonalLocker, getPersonalLocker } from '../../../src/access/personalLocker';
 
 const ALL_ROLES = Object.keys(ROLE_DISPLAY_NAMES) as UserRole[];
 
@@ -97,7 +97,9 @@ export default function UsersScreen() {
   const router = useRouter();
   const { user: sessionUser, realUser } = useSession();
   const canManageUsers = usePermission('manage_users');
+  const canManageLocations = usePermission('manage_locations');
   const { locked } = useMaintenanceMode();
+  const lockerVersion = useTableVersion(['locations']);
   const sel = useMultiSelect<User>();
 
   // Re-read on sync pull so a user added/edited on another device shows while
@@ -129,6 +131,25 @@ export default function UsersScreen() {
   const roleMinPins = useMemo(() => getRoleSettings(), [roleSettingsVersion]);
   const roleOverrides = useMemo(() => getRolePermissionOverrides(), [roleSettingsVersion]);
   const roleColors = useMemo(() => getRoleColorMap(), [roleSettingsVersion]);
+
+  // Personal locker (#146) — provisioning is a locations write, gated the same
+  // way as MemberPermissionsSheet's identical toggle. Neither
+  // enablePersonalLocker/disablePersonalLocker self-logs (matches the old app).
+  const editUserLocker = useMemo(
+    () => (editUser ? getPersonalLocker(editUser.id) : null),
+    [editUser?.id, lockerVersion],
+  );
+
+  function toggleEditUserLocker() {
+    if (!editUser || isWriteBlocked()) return;
+    if (editUserLocker) {
+      const res = disablePersonalLocker(editUser.id);
+      if (!res.ok) { Alert.alert('Could not turn off locker', res.reason); return; }
+    } else {
+      const res = enablePersonalLocker(editUser.id, editUser.name, editUser.role, realUser?.id ?? null);
+      if (!res.ok) { Alert.alert('Could not create locker', res.reason); return; }
+    }
+  }
 
   function openEdit(u: User) {
     setEditUser(u);
@@ -948,6 +969,28 @@ export default function UsersScreen() {
                       </>
                     );
                   })()}
+
+                  {canManageLocations && (
+                    <>
+                      <FieldLabel>Personal Locker</FieldLabel>
+                      <View style={s.permRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.permName}>Personal locker</Text>
+                          <Text style={s.hint}>
+                            {editUserLocker
+                              ? `${editUserLocker.name} — turning off retires it (stock must be moved out first).`
+                              : "Creates a locker owned by this user with their role's unit-access defaults."}
+                          </Text>
+                        </View>
+                        <Switch
+                          value={!!editUserLocker}
+                          disabled={!canActOnUser}
+                          onValueChange={toggleEditUserLocker}
+                          trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                        />
+                      </View>
+                    </>
+                  )}
 
                   <TouchableOpacity style={s.cancel} onPress={() => setEditUser(null)}>
                     <Text style={[s.cancelText, s.cancelStrong]}>Close</Text>

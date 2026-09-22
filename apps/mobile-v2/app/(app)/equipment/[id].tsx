@@ -40,13 +40,15 @@ import {
   ModalSheet, PrimaryButton, FieldLabel, FormScreen, TextField, DateField,
   FilterChip, StatusPill, MaintenanceBanner,
 } from '@invenpro/ui';
+import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 
 // Slimmed from apps/mobile/app/(app)/(equipment)/[id].tsx (1253 ln). Cut this
 // wave (no infra ported yet — reported, not silently dropped):
 //   - MediaGallery (model photo + per-unit photos)         → TODO(wave-media)
 //   - LabelPrintSheet (model + unit QR labels)              → labels infra
 //     (src/labels/printLabel, LabelPrintSheet) not ported this wave — gap.
-//   - RequestApprovalSheet, DiscussThisButton (chat)         → TODO(wave-chat)
+//   - DiscussThisButton (chat)                                → TODO(wave-chat)
+//   RequestApprovalSheet restored Station B3 (repos/approvals.ts).
 //   - PriorRepairsCard, repair-ticket auto-complete on       → TODO(wave-B)
 //     "Return from repair" (src/db/queries/repairs.ts, taxonomy repair
 //     statuses not ported — the status/location change itself still works)
@@ -135,6 +137,7 @@ export default function EquipmentModelDetailScreen() {
   const [editUnitInterval, setEditUnitInterval] = useState('');
 
   const [historyUnit, setHistoryUnit] = useState<EquipmentUnit | null>(null);
+  const [requestApprovalOpen, setRequestApprovalOpen] = useState(false);
 
   const locationOptions = useMemo<PickerOption[]>(
     () => getAllLocations().map(l => ({ id: l.id, label: l.name })),
@@ -715,6 +718,13 @@ export default function EquipmentModelDetailScreen() {
                 )}
               </View>
 
+              {/* Request Approval — restored Station B3 (repos/approvals.ts). */}
+              <PrimaryButton
+                label="Request Approval"
+                onPress={() => setRequestApprovalOpen(true)}
+                style={{ marginBottom: canEdit ? 8 : 0 }}
+              />
+
               {canEdit && (
                 <PrimaryButton label="Edit Model" onPress={startEdit} />
               )}
@@ -1033,6 +1043,15 @@ export default function EquipmentModelDetailScreen() {
           <PrimaryButton label="Save Units" onPress={saveUnits} disabled={locked} style={{ flex: 1 }} />
         </View>
       </ModalSheet>
+
+      {/* ── Request approval on this model (#025, restored Station B3) ────── */}
+      <RequestApprovalSheet
+        visible={requestApprovalOpen}
+        onClose={() => setRequestApprovalOpen(false)}
+        entityType="item"
+        entityId={item.id}
+        entityLabel={item.name}
+      />
     </>
   );
 }

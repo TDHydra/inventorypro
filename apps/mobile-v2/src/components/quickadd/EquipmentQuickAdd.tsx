@@ -10,6 +10,7 @@ import { searchItems } from '../../repos/items';
 import { upsertUnit, getUnitByTag } from '../../repos/equipmentUnits';
 import type { EquipmentUnit } from '../../repos/equipmentUnits';
 import { resolveLocationShelfSelection } from '../../repos/locations';
+import { getUnitInventoryLockForUserId } from '../../repos/access';
 import { appendLog } from '../../db/queries/log';
 import { useSession } from '../../hooks/useSession';
 import { useDbQuery } from '@invenpro/core';
@@ -169,10 +170,7 @@ export default function EquipmentQuickAdd({ onSaved }: Props) {
     // #162: no equipment into another team's vehicle/locker without the
     // cross-team perm (defensive — the picker hides units today, but the
     // server rejects the write regardless, so fail here with the reason).
-    // TODO(gap): src/db/queries/access.ts (381 lines) not ported — outside the
-    // Wave repos list. getUnitInventoryLock's client-side team-inventory lock UI
-    // hint is disabled; the server still enforces this on push.
-    const teamLock = { locked: false as const, reason: undefined as string | undefined };
+    const teamLock = getUnitInventoryLockForUserId(realUser?.id, resolvedLocationId);
     if (teamLock.locked) {
       setFormError(teamLock.reason ?? 'This unit’s inventory belongs to another team.');
       return;
