@@ -1,5 +1,15 @@
 # InventoryPro — Full Status
 
+> **Correction, 2026-09-22.** The 2026-07-31 note below calls
+> `pmshydra@192.168.1.72` "the VPS". It is not — that is a **virtual machine on the
+> Unraid host**, and it was only ever prod between 2026-07-21 and 2026-08-01.
+> Production has since 2026-08-01 been a **real paid cloud VPS**: NFOservers
+> unmanaged VDS in Dallas, `74.91.114.166`, hostname `invenpro`, reached as
+> `ssh root@10.8.0.1` over WireGuard (public port 22 is firewalled off by design).
+> `invenpro.app` and `api.invenpro.app` resolve straight to it; traffic does not
+> pass through the house. See `.claude/skills/deploy-api/SKILL.md`, which is
+> current. Treat `.72` as a rollback/test box, never as prod.
+
 *Reconciled 2026-07-31: `main` @ `79c8a91`, prod = **VPS** `pmshydra@192.168.1.72`
 (migrated off Unraid `.239` on 2026-07-21 via `infra/vps/install.sh`), API schema
 **73**, mobile schema **55**. Release **1.3.6 (versionCode 4)** built with FCM
