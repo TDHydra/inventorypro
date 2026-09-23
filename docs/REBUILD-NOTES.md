@@ -1152,3 +1152,33 @@ send-time strip in engine.ts (repairs already-queued entries on retry) +
 addTeamMember payload cleaned. Phase 7 reminder: api-v2's manifest-driven
 sync must reproduce the old syncPolicy.ts SENSITIVE_DENY semantics exactly —
 add it to the golden contract test's coverage.
+
+## Wave C checkpoint (2026-09-23)
+
+Stations: C2 23043ae (schedule + on-call), C3 516d3f0 (vehicles + lockers),
+C4 69ab679 (repairs + #127 picker + access defaults). TODO(wave-C) = ZERO.
+
+- `pnpm -r test` exit 0, all packages green; mobile-v2 188/188; typecheck clean.
+- Web export smoke (EXPO_PUBLIC_API_URL=http://localhost:3001, expo serve
+  :8081): roster → PIN login (Dev Tester) → hub with all Wave A–C tiles →
+  schedule day board renders (hour grid + employee rows) → vehicles list
+  renders real data (Team/All/Available tabs, owners, lock badges, WATER FULL
+  chip). Transient renderer freezes after route pushes STILL present
+  (screenshot timeouts, stale find() refs) — Phase 9 watch item stands.
+- Device spot-check (S24, debug dev client + metro :8083 via adb reverse):
+  bundle served (2488 modules), app foregrounded, JS booted, schema v1 ready,
+  signed-in surface rendering (verified via uiautomator dump — screencap is
+  solid black on this install per the known secure-surface behavior; do NOT
+  treat black screencap as a broken app). Fast refresh proven earlier same
+  day on identical setup; not re-proven.
+- NEW require cycle from C3: src/repos/locations.ts → vehicles.ts →
+  access.ts → locations.ts (RN warning "can result in uninitialized values").
+  Cleanup candidate for C-polish/Wave D — break with a lazy import or by
+  extracting the shared fn.
+- Release APK w/ Wave C rebuilt for the phone (prod URL, Sentry skip) and
+  reinstalled over the dev client — see "Release APK" recipe above.
+
+Wave C / Phase 5 CLOSED. Next: Phase 6 Wave D (chat, media hub, settings
+split, label printing fixed templates, per-role dashboards, hub tile desktop
+sizing) ending in the PARITY GATE. Reminder: expo-notifications is absent
+from the dev variant — Wave D notification work needs a build that includes it.
