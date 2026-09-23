@@ -731,7 +731,11 @@ Work was paused by the user mid-Wave-C. Exact state and how to continue:
 - The "VPS" (10.8.0.1) is a QEMU VM `Ubuntu26-InvenPro-VPS` on the Unraid box
   (192.168.1.239) — VM snapshots are an extra rollback lever for Phase 8.
 
-**Release APK for the phone (user request, not yet delivered)**
+**Release APK for the phone (DELIVERED 2026-09-22 evening)** — built with the
+recipe below (Sentry skip worked, exit 0, 121MB), `adb install -r` Success,
+app booted to the unlock prompt on the S24. Caveat: it installed over the dev
+client, so stale dev-PG rows may linger in local SQLite until a fresh
+login/full-download against prod; if data looks off, sign out and back in.
 - Goal: standalone release build of mobile-v2 on the S24 (id com.inventorypro.app.v2,
   installs over the dev client) pointed at prod: build from apps/mobile-v2/android with
   `SENTRY_DISABLE_AUTO_UPLOAD=true EXPO_PUBLIC_API_URL=https://api.invenpro.app
