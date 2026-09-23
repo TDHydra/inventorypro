@@ -47,6 +47,10 @@ const TILES: Tile[] = [
   // Messages (Station D1) — ungated like the old app: every signed-in user
   // can chat; the ChatBell in the shared header is the other entry point.
   { label: 'Messages', icon: '💬', href: '/(app)/chat' },
+  // Media hub (Station D2) — ungated like the old app: the hub's own filters
+  // gate 'everything' on view_all_logs, and shared-pool rows are audience-
+  // scoped in the query itself.
+  { label: 'Media', icon: '🖼️', href: '/(app)/media' },
   // Logs (Station B4) — a personal, device-local activity view (see
   // app/(app)/logs/index.tsx's header comment for why it's scoped this way).
   // Ungated like My Team: it only ever shows the signed-in user's own rows.

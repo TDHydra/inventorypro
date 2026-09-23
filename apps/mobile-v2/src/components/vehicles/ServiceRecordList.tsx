@@ -4,6 +4,7 @@ import { Card, StatusPill, useThemedStyles, type Theme } from '@invenpro/ui';
 import { useTableVersion } from '@invenpro/core';
 import { AddServiceRecordSheet } from './AddServiceRecordSheet';
 import { getServiceRecords } from '../../repos/vehicles';
+import { getMediaForEntity } from '../../repos/media';
 import { serviceTargetLabel, serviceTypeLabel } from './vehicleSessionLogic';
 import { usePermission } from '../../hooks/usePermission';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -13,12 +14,8 @@ import { formatMoney } from '../../equipment/depreciation';
 // "Maintenance & Lifecycle" block. Shows the newest `limit` records with a
 // target pill for truck-mount/both entries; cost is view_financial_data-gated
 // (the server already omits it from pull for everyone else). Owns the
-// AddServiceRecordSheet.
-//
-// Station C3 deviation from apps/mobile: the receipt-photo indicator (📷,
-// backed by getMediaForEntity) is CUT — no media module exists in mobile-v2
-// yet (TODO(wave-media), matching the AddServiceRecordSheet photo-upload cut
-// below and the Station C1 equipment-photo precedent).
+// AddServiceRecordSheet. Receipt-photo indicator restored Station D2
+// (repos/media landed).
 interface Props {
   locationId: string;
   limit?: number;
@@ -29,10 +26,10 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
   const canEdit = usePermission('edit_inventory');
   const canViewFinancial = usePermission('view_financial_data');
   const { locked } = useMaintenanceMode();
-  const version = useTableVersion(['vehicle_service_records']);
+  const version = useTableVersion(['vehicle_service_records', 'media']);
   const [addOpen, setAddOpen] = useState(false);
   // Which kind the sheet opens on. The fuel-up button lands DIRECTLY on the
-  // receipt form (For-payer / gallons) — identical to the QuickAdd gas
+  // receipt form (photo / For-payer / gallons) — identical to the QuickAdd gas
   // receipt — instead of relying on the small Entry segment inside the sheet.
   const [addKind, setAddKind] = useState<'service' | 'fuel_up'>('service');
 
@@ -57,6 +54,10 @@ export function ServiceRecordList({ locationId, limit = 3 }: Props) {
                   </Text>
                   {r.target !== 'vehicle' && (
                     <StatusPill label={serviceTargetLabel(r.target)} tone="accent" />
+                  )}
+                  {/* #168: receipt photo indicator. */}
+                  {getMediaForEntity('service_record', r.id).length > 0 && (
+                    <Text style={s.rowSub}>📷</Text>
                   )}
                 </View>
                 {r.odometer != null && <Text style={s.rowSub}>{r.odometer.toLocaleString()} mi</Text>}

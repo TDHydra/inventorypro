@@ -4,16 +4,20 @@ import { Stack, useRouter } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import { useTheme, useThemedStyles, OfflineBanner } from '@invenpro/ui';
 import { useSession } from '../../src/hooks/useSession';
+import { usePermission } from '../../src/hooks/usePermission';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { NotificationBell } from '../../src/components/NotificationBell';
 import { ChatBell } from '../../src/components/ChatBell';
+import { QuickPhotoFlow, openQuickPhoto } from '../../src/components/quickphoto/QuickPhotoFlow';
 
 // Minimal Phase 2 shell. NotificationBell restored Station B4; ChatBell
-// restored Station D1. The old app's remaining header accessories (quick
-// photo, sync indicator sheet) and the idle logout/re-auth gates return with
-// their surfaces in Wave D.
+// restored Station D1; header quick-photo button + QuickPhotoFlow host
+// restored Station D2. The old app's remaining header accessories (sync
+// indicator sheet) and the idle logout/re-auth gates return with their
+// surfaces in Wave D.
 export default function AppLayout() {
   const { user, realUser, logout } = useSession();
+  const canUploadMedia = usePermission('upload_media');
   const router = useRouter();
   const t = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -45,6 +49,11 @@ export default function AppLayout() {
           headerTitleStyle: { fontWeight: t.typography.weights.bold, fontFamily: t.typography.fontFamily.bold },
           headerRight: () => (
             <View style={styles.headerRight}>
+              {canUploadMedia && (
+                <TouchableOpacity style={styles.switchBtn} onPress={() => openQuickPhoto()} hitSlop={8}>
+                  <Text style={styles.switchText}>📷</Text>
+                </TouchableOpacity>
+              )}
               <ChatBell />
               <NotificationBell />
               <TouchableOpacity
@@ -60,6 +69,7 @@ export default function AppLayout() {
           ),
         }}
       />
+      <QuickPhotoFlow />
     </View>
   );
 }

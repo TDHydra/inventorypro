@@ -24,6 +24,8 @@ import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { useFocusOrDataRefresh } from '../../../src/hooks/useFocusOrDataRefresh';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
+import { LabelItem } from '../../../src/labels/printLabel';
+import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
 
 interface Item {
   id: string;
@@ -60,6 +62,7 @@ export default function InventoryScreen() {
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [minQtyOpen, setMinQtyOpen] = useState(false);
+  const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
   const [minQtyValue, setMinQtyValue] = useState('');
   // Chips: "All" + one per Item Type (value = type id, matched against the item's
   // `category_id`). Falls back to just "All" until item types have synced.
@@ -227,16 +230,30 @@ export default function InventoryScreen() {
     void syncNow().catch(() => { /* offline — deletes flush on next sync */ });
   }, [ms, reloadList, logItem]);
 
+  // Offline QR-label batch print. Selected ids are always within the currently
+  // loaded window (toggle/selectAll only source from `items`), so we resolve
+  // titles/codes from memory — no DB round-trip. Printing is read-only, so it's
+  // exempt from the maintenance write block.
+  const handlePrintLabels = useCallback(() => {
+    const byId = new Map(items.map(i => [i.id, i]));
+    const labels: LabelItem[] = Array.from(ms.selected)
+      .map(id => byId.get(id))
+      .filter((i): i is Item => !!i)
+      .map(i => ({ title: i.name, code: i.barcode ?? i.id, payload: `INV:item:${i.id}` }));
+    if (labels.length === 0) { ms.exit(); return; }
+    // Open the chooser (presets + custom designed templates); print happens there.
+    setBatchLabels(labels);
+  }, [items, ms]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
-    // TODO(wave-labels): batch QR-label print sheet not ported this wave (no
-    // labels/printLabel.ts or LabelPrintSheet in v2 yet).
+    { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set item type', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
     { key: 'minqty', label: 'Set min-stock alert', onPress: () => { setMinQtyValue(''); setMinQtyOpen(true); } },
     ...(canDelete
       ? [{ key: 'delete', label: 'Delete', destructive: true, onPress: () => { void handleBulkDelete(); } } as BulkAction]
       : []),
-  ], [canDelete, handleBulkDelete]);
+  ], [canDelete, handleBulkDelete, handlePrintLabels]);
 
   return (
     <>
@@ -405,6 +422,12 @@ export default function InventoryScreen() {
           />
           <PrimaryButton label="Apply" onPress={applyMinQty} style={{ marginTop: 12 }} />
         </ModalSheet>
+
+        <BatchLabelPrintSheet
+          visible={batchLabels !== null}
+          items={batchLabels ?? []}
+          onClose={() => { setBatchLabels(null); ms.exit(); }}
+        />
       </View>
     </>
   );

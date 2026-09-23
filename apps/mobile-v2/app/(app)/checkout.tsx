@@ -14,7 +14,7 @@
  *     repos/items.ts's adjustStock — unchanged behavior, just called from here.
  *
  * Cuts this wave (see docs/REBUILD-NOTES.md "Wave A progress"):
- *   - MediaGallery / optional checkout-and-checkin photos — TODO(wave-media).
+ *   - MediaGallery / optional checkout-and-checkin photos — restored Station D2.
  *
  * Station C1: the destination job picker's inline "create a job" is wired up
  * now that repos/jobs.ts has real writes — mirrors teams/[id].tsx's inline
@@ -64,6 +64,7 @@ import {
 } from '../../src/repos/equipmentUnits';
 import { useSession } from '../../src/hooks/useSession';
 import { usePermission } from '../../src/hooks/usePermission';
+import { MediaGallery } from '../../src/components/MediaGallery';
 import { useMaintenanceMode } from '../../src/hooks/useMaintenanceMode';
 import { useFocusOrDataRefresh } from '../../src/hooks/useFocusOrDataRefresh';
 import { appendLog } from '../../src/db/queries/log';
@@ -140,6 +141,7 @@ export default function CheckoutScreen() {
   // Permission gates
   const canCheckout = usePermission('checkout_inventory');
   const canCheckin = usePermission('checkin_inventory');
+  const canUploadMedia = usePermission('upload_media');
   // Stable UUID for the checkout event; refreshed each time we enter the confirm step
   const [checkoutEventId, setCheckoutEventId] = useState<string>(() => generateUUID());
 
@@ -982,7 +984,11 @@ export default function CheckoutScreen() {
           ))}
         </View>
 
-        {/* TODO(wave-media): optional checkout photo (MediaGallery) cut this wave. */}
+        {/* Optional photo — media is additive and never blocks the stock move */}
+        <View>
+          <Text style={s.label}>Photo (optional)</Text>
+          <MediaGallery entityType="activity_log" entityId={checkoutEventId} canUpload={canUploadMedia} />
+        </View>
 
         <PrimaryButton
           label="Confirm ✓"
@@ -1182,6 +1188,7 @@ function CheckinPanel({
 
   const [checkinEventId, setCheckinEventId] = useState<string>(() => generateUUID());
   const [unitCheckinEventId, setUnitCheckinEventId] = useState<string>(() => generateUUID());
+  const canUploadMedia = usePermission('upload_media');
 
   const checkouts = useMemo(() => {
     if (!user) return [];
@@ -1576,7 +1583,9 @@ function CheckinPanel({
               ))}
             </ScrollView>
 
-            {/* TODO(wave-media): optional checkin photo (MediaGallery) cut this wave. */}
+            {/* Optional photo — media is additive and never blocks the stock return */}
+            <Text style={s.mediaLabel}>Photo (optional)</Text>
+            <MediaGallery entityType="activity_log" entityId={checkinEventId} canUpload={canUploadMedia} />
 
             <PrimaryButton
               label={submitting ? 'Returning...' : 'Confirm Return'}
@@ -1625,7 +1634,9 @@ function CheckinPanel({
               ))}
             </ScrollView>
 
-            {/* TODO(wave-media): optional unit-checkin photo (MediaGallery) cut this wave. */}
+            {/* Optional photo — media is additive and never blocks the unit return */}
+            <Text style={s.mediaLabel}>Photo (optional)</Text>
+            <MediaGallery entityType="activity_log" entityId={unitCheckinEventId} canUpload={canUploadMedia} />
 
             <PrimaryButton
               label={unitSubmitting ? 'Returning...' : 'Confirm Return'}
@@ -1655,6 +1666,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   confirmContent: { padding: 16, gap: 16 },
   sectionLabel: { fontSize: 18, fontWeight: '700', color: t.colors.brand, marginBottom: 16 },
   label: { fontSize: 13, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
+  mediaLabel: { fontSize: 13, fontWeight: '600', color: t.colors.textSecondary, marginTop: 8, marginBottom: 4 },
   qtyInput: {
     backgroundColor: t.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: 14, height: 54, fontSize: 24, fontWeight: '700',

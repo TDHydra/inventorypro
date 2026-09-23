@@ -18,8 +18,7 @@ import { resolveTypeColor } from '@invenpro/ui';
 import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../../constants/units';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { parsePackSize, parseQuantity, validateBarcode, validateName, validateText, MAX_QUANTITY } from '../../lib/validation';
-// TODO(wave-media): MediaGallery not ported yet (excluded this wave) — the
-// per-item photo thumbnail is dropped from this form until media lands.
+import { MediaGallery } from '../MediaGallery';
 import type { Theme } from '@invenpro/ui';
 import { useTheme, useThemedStyles, AppInput, FieldLabel, FilterChip, FormScreen, SelectField, QuantityStepper } from '@invenpro/ui';
 import { QuickAddFooter } from './QuickAddFooter';
@@ -358,8 +357,8 @@ export default function ItemQuickAdd({ onSaved }: Props) {
       footer={<QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />}
     >
       <View style={s.topRow}>
-        {/* TODO(wave-media): MediaGallery not ported yet (excluded this wave) —
-            the compact 64×64 photo thumbnail is dropped until media lands. */}
+        {/* Compact 64×64 photo thumbnail — keyed by itemId so it resets per item. */}
+        <MediaGallery key={itemId} entityType="item" entityId={itemId} canUpload variant="thumb" />
         <TextInput
           ref={nameRef}
           style={[s.input, s.nameInput, !!nameError && s.inputError]}

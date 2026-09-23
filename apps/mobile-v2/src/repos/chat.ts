@@ -13,13 +13,10 @@
 // belong in the audit log; the messages/conversation_participants rows ARE
 // the record.
 //
-// mentioned_user_ids / message media attachments: image attachments
-// (getMessageMedia in the old app, backed by the `media` table + expo-image-
-// picker + uploadMediaAsset) are cut this wave — TODO(wave-media), matching
-// every other MediaGallery-adjacent cut already made across mobile-v2
-// (repairs/[id].tsx, equipment/[id].tsx, inventory/[id].tsx headers).
-// @mentions (mentioned_user_ids) ARE ported (../chat/mentions.ts) since
-// they're pure text parsing with no media dependency.
+// Image attachments (getMessageMedia, backed by the `media` table): cut at
+// Station D1, restored Station D2 once src/media landed. @mentions
+// (mentioned_user_ids) were ported at D1 (../chat/mentions.ts — pure text
+// parsing, no media dependency).
 import { getDb, rowsAs, bindParams } from '../db/schema';
 import { createRepository, runInTransaction, queueTableBump } from '@invenpro/core';
 import { generateUUID } from '../utils/uuid';
@@ -204,6 +201,28 @@ export function getMessages(conversationId: string, limit = 500): Message[] {
     bindParams([conversationId, limit]),
   );
   return rowsAs<Message>(result.rows);
+}
+
+// #29-H: image attachments for every message in a conversation, keyed by
+// message id — synced media rows (entity_type='message').
+export function getMessageMedia(conversationId: string): Map<string, string[]> {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT md.entity_id, md.url
+       FROM media md
+       JOIN messages m ON m.id = md.entity_id
+      WHERE md.entity_type = 'message' AND md.media_type = 'image'
+        AND m.conversation_id = ?
+      ORDER BY md.created_at ASC`,
+    bindParams([conversationId]),
+  );
+  const byMessage = new Map<string, string[]>();
+  for (const r of rowsAs<{ entity_id: string; url: string }>(result.rows)) {
+    const urls = byMessage.get(r.entity_id);
+    if (urls) urls.push(r.url);
+    else byMessage.set(r.entity_id, [r.url]);
+  }
+  return byMessage;
 }
 
 // ── conversation list ────────────────────────────────────────────────────────

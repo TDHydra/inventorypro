@@ -10,6 +10,7 @@ import { getLocationPath } from '../repos/locations';
 import { isRepairableCategory } from '../constants/repairable';
 import { usePermission } from '../hooks/usePermission';
 import { resolveTypeColor } from '@invenpro/ui';
+import { MediaThumbnail } from './MediaThumbnail';
 
 interface ItemRow {
   id: string;
@@ -98,7 +99,7 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
   return (
     <View style={[styles.card, hasCategory && { borderLeftWidth: 4, borderLeftColor: typeColor }]}>
       <TouchableOpacity style={styles.header} onPress={toggle} activeOpacity={0.7}>
-        {/* TODO(wave-media): MediaThumbnail not ported yet (excluded this wave). */}
+        <MediaThumbnail entityType="item" entityId={item.id} size={44} />
         <View style={styles.headerLeft}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
           {item.barcode && <Text style={styles.barcode}>{item.barcode}</Text>}

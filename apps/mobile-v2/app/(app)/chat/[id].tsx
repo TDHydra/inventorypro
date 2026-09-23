@@ -11,12 +11,11 @@
 //   '../../../src/chat/mentions', '../../../src/chat/composerInsets' → ported
 //     verbatim alongside this screen (pure, no media dependency).
 //
-// Cut this wave (TODO(wave-media)): image attachments — the composer's 🖼️
-// button, expo-image-picker, uploadMediaAsset, and getMessageMedia/inline
-// <Image> rendering. Matches every other MediaGallery-adjacent cut already
-// made across mobile-v2 this wave. Everything else (send/edit/delete text
-// messages, @mentions, read receipts, notify prefs, group add/remove/leave)
-// is a straight port.
+// Image attachments (the composer's 🖼️ button, expo-image-picker,
+// uploadMediaAsset, getMessageMedia/inline <Image> rendering): cut at Station
+// D1, restored Station D2 once src/media landed. Everything else (send/edit/
+// delete text messages, @mentions, read receipts, notify prefs, group
+// add/remove/leave) is a straight port.
 //
 // chatPolicy (../../../src/chat/chatPolicy.ts, new this station): the long-
 // press action menu only offers Edit/Delete when canEditMessage/
@@ -26,7 +25,9 @@
 import { useState, useMemo, useCallback, useEffect, type ComponentProps } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet,
+  Image, ActivityIndicator,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 // keyboard-controller's KeyboardAvoidingView (NOT react-native's): once
 // <KeyboardProvider> is mounted app-wide (app/_layout.tsx), it takes over
 // Android soft-input handling, so RN's KeyboardAvoidingView is a no-op there.
@@ -37,11 +38,12 @@ import type { Theme } from '@invenpro/ui';
 import { useTheme, useThemedStyles, Alert, ModalSheet, PrimaryButton } from '@invenpro/ui';
 import { useDbQuery, syncNow } from '@invenpro/core';
 import {
-  getMessages, sendMessage, editMessage, deleteMessage, getConversation,
+  getMessages, getMessageMedia, sendMessage, editMessage, deleteMessage, getConversation,
   getParticipants, getMyParticipant, conversationTitle, markConversationRead,
   setNotifyPref, addParticipant, removeParticipant, leaveConversation,
   type Message, type Participant, type NotifyPref, type MessageUrgency,
 } from '../../../src/repos/chat';
+import { uploadMediaAsset } from '../../../src/media/upload';
 import { canEditMessage, canDeleteMessage, canSendMessage } from '../../../src/chat/chatPolicy';
 import { getAllActiveUsers } from '../../../src/repos/users';
 import { reloadChatUnread } from '../../../src/chat/unread';
@@ -95,6 +97,8 @@ export default function ChatThreadScreen() {
     ['conversation_participants'],
   );
   const messages = useDbQuery(() => getMessages(conversationId), [conversationId], ['messages', 'users']);
+  // Image attachments (#29-H), keyed by message id — synced media rows.
+  const mediaByMsg = useDbQuery(() => getMessageMedia(conversationId), [conversationId], ['media', 'messages']);
   // Inverted list renders data[0] at the bottom → newest first in the array.
   const inverted = useMemo(() => [...messages].reverse(), [messages]);
 
@@ -175,6 +179,60 @@ export default function ChatThreadScreen() {
     void syncNow().catch(() => { /* offline — outbox syncs later */ });
   }, [draft, userId, conversationId, urgency, editingId, prevDraft, participants, myPart]);
 
+  // ── image attachments (#29-H) ───────────────────────────────────────────────
+  // Pick an image → create the message row first (draft as optional caption) →
+  // upload keyed to that message id (media entity_type='message'). Uploads need
+  // connectivity (presigned PUT), unlike plain text sends. v2 deviation: the
+  // send/write guards (canSendMessage + isWriteBlocked) match send() above;
+  // no manual reload — useDbQuery on ['media','messages'] refreshes the list.
+  const [attaching, setAttaching] = useState(false);
+
+  const attachImage = useCallback(async () => {
+    if (!userId) return;
+    if (!canSendMessage(!!myPart)) return;
+    if (isWriteBlocked()) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Allow photo library access to send images.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.85,
+      allowsEditing: false,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+    const asset = result.assets[0];
+    // Server allows short alphanumeric extensions only; fall back to jpg.
+    const rawExt = (asset.fileName?.split('.').pop() ?? asset.mimeType?.split('/').pop() ?? 'jpg').toLowerCase();
+    const ext = /^[a-z0-9]{2,5}$/.test(rawExt) ? rawExt : 'jpg';
+
+    const caption = draft.trim();
+    const msg = sendMessage(conversationId, userId, caption, urgency);
+    setDraft('');
+    setAttaching(true);
+    try {
+      // The presign route's participant gate looks the message up SERVER-side
+      // (messages ⋈ conversation_participants), so the outbox row must be
+      // pushed before we can ask for an upload URL — otherwise a guaranteed 403.
+      await syncNow().catch(() => { /* upload below surfaces connectivity errors */ });
+      await uploadMediaAsset({
+        entityType: 'message', entityId: msg.id,
+        mediaType: 'image', ext,
+        uri: asset.uri, file: asset.file ?? undefined, size: asset.fileSize ?? undefined,
+        userId,
+      });
+    } catch (err) {
+      // A caption-less message has nothing left to say without its image —
+      // soft-delete it; a captioned one stays as plain text.
+      if (!caption) deleteMessage(msg.id);
+      Alert.alert('Upload Failed', (err as Error).message);
+    } finally {
+      setAttaching(false);
+      void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    }
+  }, [userId, conversationId, draft, urgency, myPart]);
+
   // ── read receipts ────────────────────────────────────────────────────────────
   // Rendered under the caller's LATEST own (non-deleted) message only, from the
   // other participants' last_read_at (already synced rows — refreshes via the
@@ -251,6 +309,7 @@ export default function ChatThreadScreen() {
       );
     }
     const canManage = userId != null && (canEditMessage(item.sender_id, userId) || canDeleteMessage(item.sender_id, userId));
+    const images = mediaByMsg.get(item.id);
     return (
       <View>
         <View style={[s.msgRow, mine ? s.msgRowMine : s.msgRowTheirs]}>
@@ -263,6 +322,9 @@ export default function ChatThreadScreen() {
             {isGroup && !mine && item.sender_name ? (
               <Text style={s.sender}>{item.sender_name}</Text>
             ) : null}
+            {images?.map(url => (
+              <Image key={url} source={{ uri: url }} style={s.msgImage} resizeMode="cover" />
+            ))}
             {item.body ? <Text style={[s.msgText, mine && s.msgTextMine]}>{item.body}</Text> : null}
             <View style={s.metaRow}>
               {item.urgency === 'urgent' && <Text style={[s.urgentTag, mine && s.urgentTagMine]}>URGENT</Text>}
@@ -278,7 +340,7 @@ export default function ChatThreadScreen() {
         ) : null}
       </View>
     );
-  }, [userId, isGroup, lastOwn?.id, receipt, s]);
+  }, [userId, isGroup, lastOwn?.id, receipt, mediaByMsg, s]);
 
   // The conversation row disappeared while open (removed-member purge / deletion)
   // — render a graceful dead-end instead of an empty shell that can still write.
@@ -357,6 +419,18 @@ export default function ChatThreadScreen() {
             </View>
           )}
           <View style={s.inputRow}>
+            {!editingId && (
+              <TouchableOpacity
+                style={s.attachBtn}
+                onPress={() => { void attachImage(); }}
+                disabled={attaching}
+                hitSlop={4}
+              >
+                {attaching
+                  ? <ActivityIndicator size="small" color={t.colors.primary} />
+                  : <Text style={s.attachIcon}>🖼️</Text>}
+              </TouchableOpacity>
+            )}
             <TextInput
               style={s.input}
               placeholder="Message…"
@@ -462,6 +536,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   bubbleMine: { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 },
   bubbleTheirs: { backgroundColor: t.colors.surface, borderWidth: 1, borderColor: t.colors.border, borderBottomLeftRadius: 4 },
   sender: { fontSize: t.typography.fontSizes.xs, fontWeight: '800', color: t.colors.primaryText, marginBottom: 2 },
+  msgImage: { width: 200, height: 200, borderRadius: t.radii.md, backgroundColor: t.colors.border, marginBottom: 4 },
   msgText: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary },
   msgTextMine: { color: t.colors.onPrimary },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginTop: 2 },
@@ -489,6 +564,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   uToggleText: { fontSize: t.typography.fontSizes.caption, fontWeight: '700', color: t.colors.textSecondary },
   uToggleTextOn: { color: t.colors.accent },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: t.spacing.sm },
+  attachBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  attachIcon: { fontSize: 22 },
   input: {
     flex: 1, backgroundColor: t.colors.background, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
     paddingHorizontal: t.spacing.base, paddingTop: 10, paddingBottom: 10, maxHeight: 120,

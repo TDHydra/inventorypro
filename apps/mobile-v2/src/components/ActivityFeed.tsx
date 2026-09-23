@@ -1,21 +1,21 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { useState, useMemo } from 'react';
+import {
+  View, Text, StyleSheet, Image, Modal, TouchableOpacity,
+  ScrollView, Dimensions,
+} from 'react-native';
 import { getLogForEntity } from '../db/queries/log';
+import { getPrimaryMedia, getMediaForEntity, MediaRecord } from '../repos/media';
 import type { Theme } from '@invenpro/ui';
 import { useThemedStyles } from '@invenpro/ui';
 import { useDbQuery } from '@invenpro/core';
 
-// Ported from apps/mobile/src/components/ActivityFeed.tsx (236 ln). Slimmed:
-// the old component's trailing photo thumbnail + full-screen lightbox
-// (getPrimaryMedia/getMediaForEntity, Image/Modal/ScrollView pager) is CUT —
-// src/db/queries/media.ts / the media domain isn't ported to mobile-v2 yet
-// (TODO(wave-media), matches the cut already made in ItemCard.tsx and
-// locations/[id].tsx's Photos section). Everything else — the icon/label/
-// user/qty/note/date row rendering — is a straight port.
-//
-// Reactivity: the old screen re-read on a manual useTableVersion(['activity_log',
-// 'media']) hook; mobile-v2 uses the same idiom other Station B3/B4 screens use
-// (@invenpro/core's useDbQuery), scoped to just 'activity_log' since media isn't
-// wired in here.
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Ported from apps/mobile/src/components/ActivityFeed.tsx (236 ln). The
+// trailing photo thumbnail + full-screen lightbox pager were cut pre-media-wave
+// and restored in Station D2 (repos/media landed). Reactivity: the old screen
+// re-read on a manual useTableVersion(['activity_log','media']); mobile-v2 uses
+// @invenpro/core's useDbQuery over the same two tables.
 
 // ── Action icon map ───────────────────────────────────────────────────────────
 // Exported so the logs screen (Station B4) and any other consumer can reuse
@@ -119,8 +119,24 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
   const rows = useDbQuery(
     () => getLogForEntity(entityType, entityId, limit),
     [entityType, entityId, limit],
-    ['activity_log'],
+    ['activity_log', 'media'],
   );
+
+  // Lightbox state: null = closed; MediaRecord[] = open showing those photos
+  const [lightbox, setLightbox] = useState<MediaRecord[] | null>(null);
+
+  // Build a per-entry primary-media map once when entries change instead of
+  // calling getPrimaryMedia inside each row's render pass. `rows` is a fresh
+  // array per useDbQuery recompute (which covers 'media' bumps too), so it's
+  // the only dependency needed.
+  const mediaByRow = useMemo(() => {
+    const m: Record<string, MediaRecord> = {};
+    for (const r of rows) {
+      const p = getPrimaryMedia('activity_log', r.id);
+      if (p) m[r.id] = p;
+    }
+    return m;
+  }, [rows]);
 
   return (
     <View style={s.list}>
@@ -128,22 +144,59 @@ export default function ActivityFeed({ entityType, entityId, limit = 50 }: Activ
         <View style={s.empty}>
           <Text style={s.emptyText}>No activity yet</Text>
         </View>
-      ) : rows.map(r => (
-        <View key={r.id} style={s.row}>
-          <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
-          <View style={s.middle}>
-            <Text style={s.action}>{actionLabel(r.action)}</Text>
-            {r.user_name ? (
-              <Text style={s.user}>{r.user_name}</Text>
+      ) : rows.map(r => {
+        const photo = mediaByRow[r.id];
+        return (
+          <View key={r.id} style={s.row}>
+            <Text style={s.icon}>{ACTION_ICONS[r.action] ?? '·'}</Text>
+            <View style={s.middle}>
+              <Text style={s.action}>{actionLabel(r.action)}</Text>
+              {r.user_name ? (
+                <Text style={s.user}>{r.user_name}</Text>
+              ) : null}
+              {r.quantity != null && r.unit ? (
+                <Text style={s.qty}>{r.quantity} {r.unit}</Text>
+              ) : null}
+              {r.note ? <Text style={s.note}>{r.note}</Text> : null}
+            </View>
+            <Text style={s.date}>{relativeDate(r.created_at)}</Text>
+            {photo ? (
+              <TouchableOpacity
+                onPress={() => setLightbox(getMediaForEntity('activity_log', r.id))}
+                style={s.thumbBtn}
+              >
+                <Image
+                  source={{ uri: photo.thumbnail_url ?? photo.url }}
+                  style={s.thumbImg}
+                />
+              </TouchableOpacity>
             ) : null}
-            {r.quantity != null && r.unit ? (
-              <Text style={s.qty}>{r.quantity} {r.unit}</Text>
-            ) : null}
-            {r.note ? <Text style={s.note}>{r.note}</Text> : null}
           </View>
-          <Text style={s.date}>{relativeDate(r.created_at)}</Text>
-        </View>
-      ))}
+        );
+      })}
+
+      {/* Lightbox — full-screen, tap anywhere to close; horizontal pager for multi-photo moves */}
+      <Modal visible={lightbox !== null} transparent animationType="fade">
+        <TouchableOpacity style={s.lightbox} onPress={() => setLightbox(null)} activeOpacity={1}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: SCREEN_WIDTH }}
+            contentContainerStyle={s.lightboxScroll}
+          >
+            {(lightbox ?? []).map((m, i) => (
+              <Image
+                key={i}
+                source={{ uri: m.url }}
+                style={[s.lightboxImg, { width: SCREEN_WIDTH }]}
+                resizeMode="contain"
+              />
+            ))}
+          </ScrollView>
+          <Text style={s.lightboxClose}>✕ Tap to close</Text>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -176,4 +229,15 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   date: { fontSize: 11, color: t.colors.textMuted, paddingTop: 2 },
   empty: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, color: t.colors.textMuted },
+  // Trailing thumbnail on rows that have a move photo
+  thumbBtn: { marginLeft: 4, alignSelf: 'center' },
+  thumbImg: { width: 36, height: 36, borderRadius: 6, backgroundColor: t.colors.border },
+  // Lightbox overlay (mirrors MediaGallery lightbox pattern)
+  lightbox: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  lightboxScroll: { alignItems: 'center' },
+  lightboxImg: { height: '80%' },
+  lightboxClose: { color: '#fff', marginTop: 16, fontSize: 14 },
 });

@@ -43,14 +43,14 @@ import {
   FilterChip, StatusPill, MaintenanceBanner,
 } from '@invenpro/ui';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { MediaGallery } from '../../../src/components/MediaGallery';
+import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 
-// Slimmed from apps/mobile/app/(app)/(equipment)/[id].tsx (1253 ln). Cut this
-// wave (no infra ported yet — reported, not silently dropped):
-//   - MediaGallery (model photo + per-unit photos)         → TODO(wave-media)
-//   - LabelPrintSheet (model + unit QR labels)              → labels infra
-//     (src/labels/printLabel, LabelPrintSheet) not ported this wave — gap.
+// Ported from apps/mobile/app/(app)/(equipment)/[id].tsx (1253 ln).
+//   MediaGallery (model photo + per-unit photos) + LabelPrintSheet (model +
+//   unit QR labels) restored Station D2.
 //   DiscussThisButton (chat headerRight) restored Station D1.
 //   RequestApprovalSheet restored Station B3 (repos/approvals.ts).
 //   - PriorRepairsCard + repair-ticket auto-complete on "Return from repair"
@@ -85,6 +85,8 @@ export default function EquipmentModelDetailScreen() {
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
   const canAddUnits = usePermission('add_inventory');
+  const canUpload = usePermission('upload_media');
+  const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
   const canViewFinancial = usePermission('view_financial_data');
   const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
@@ -142,6 +144,9 @@ export default function EquipmentModelDetailScreen() {
   const [editUnitInterval, setEditUnitInterval] = useState('');
 
   const [historyUnit, setHistoryUnit] = useState<EquipmentUnit | null>(null);
+  const [unitMediaUnit, setUnitMediaUnit] = useState<EquipmentUnit | null>(null);
+  const [printItemSheet, setPrintItemSheet] = useState(false);
+  const [printUnit, setPrintUnit] = useState<EquipmentUnit | null>(null);
   const [requestApprovalOpen, setRequestApprovalOpen] = useState(false);
 
   const locationOptions = useMemo<PickerOption[]>(
@@ -626,6 +631,10 @@ export default function EquipmentModelDetailScreen() {
 
               {locked && <MaintenanceBanner />}
 
+              {/* ── Model Photo ───────────────────────────────────────── */}
+              <Text style={s.sectionLabel}>Model Photo</Text>
+              <MediaGallery entityType="item" entityId={id} canUpload={canUpload} />
+
               {/* ── Unit Summary ──────────────────────────────────────── */}
               <Text style={s.sectionLabel}>Units on Hand</Text>
               <View style={s.card}>
@@ -665,6 +674,12 @@ export default function EquipmentModelDetailScreen() {
                       <View style={s.unitActionRow}>
                         <TouchableOpacity style={s.unitActionBtn} onPress={() => setHistoryUnit(u)}>
                           <Text style={s.unitActionText}>History</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={s.unitActionBtn} onPress={() => setPrintUnit(u)}>
+                          <Text style={s.unitActionText}>Print label</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={s.unitActionBtn} onPress={() => setUnitMediaUnit(u)}>
+                          <Text style={s.unitActionText}>Media</Text>
                         </TouchableOpacity>
                         {canEdit && u.status !== 'retired' && u.status !== 'in_repair' && (
                           <TouchableOpacity
@@ -739,6 +754,11 @@ export default function EquipmentModelDetailScreen() {
                 )}
               </View>
 
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setPrintItemSheet(true)}>
+                <Text style={s.attrKey}>🏷 Print QR Label</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
+
               {/* Request Approval — restored Station B3 (repos/approvals.ts). */}
               <PrimaryButton
                 label="Request Approval"
@@ -752,6 +772,36 @@ export default function EquipmentModelDetailScreen() {
             </>
           )}
       </FormScreen>
+
+      {/* ── Per-unit Media Modal ────────────────────────────────────────── */}
+      <ModalSheet visible={unitMediaUnit !== null} onClose={() => setUnitMediaUnit(null)} scroll>
+        <Text style={s.modalTitle}>Photos — {unitMediaUnit?.asset_tag}</Text>
+        {unitMediaUnit && (
+          <MediaGallery
+            entityType="equipment_unit"
+            entityId={unitMediaUnit.id}
+            canUpload={canUpload}
+          />
+        )}
+      </ModalSheet>
+
+      {/* ── Print QR Label (model) ─────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={printItemSheet}
+        onClose={() => setPrintItemSheet(false)}
+        title={item.name}
+        code={item.barcode ?? item.id}
+        qrUrl={`${API}/labels/item/${item.id}/qr.png`}
+      />
+
+      {/* ── Print QR Label (unit) ──────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={printUnit !== null}
+        onClose={() => setPrintUnit(null)}
+        title={item.name}
+        code={printUnit?.asset_tag ?? ''}
+        qrUrl={`${API}/labels/unit/${printUnit?.asset_tag ?? ''}/qr.png`}
+      />
 
       {/* ── Repair-In Modal (location picker) ──────────────────────────── */}
       <ModalSheet visible={repairInUnit !== null} onClose={() => setRepairInUnit(null)} scroll={false}>
@@ -1091,6 +1141,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   tagPrefixRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   tagPrefixLabel: { fontSize: 13, color: t.colors.textSecondary },
   sectionLabel: { fontSize: 12, fontWeight: '700', color: t.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  attrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11 },
+  attrKey: { fontSize: 14, color: t.colors.textSecondary },
+  attrVal: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
   divider: { borderBottomWidth: 1, borderBottomColor: t.colors.surfaceAlt },
   stockRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
   stockLoc: { fontSize: 15, color: t.colors.textPrimary, fontWeight: '600', flex: 1 },

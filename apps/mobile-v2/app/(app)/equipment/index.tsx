@@ -5,6 +5,9 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { getEquipmentModels } from '../../../src/repos/equipment';
+import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
+import { LabelItem } from '../../../src/labels/printLabel';
+import { BatchLabelPrintSheet } from '../../../src/components/BatchLabelPrintSheet';
 import type { EquipmentModel } from '../../../src/repos/equipment';
 import { updateItemFields, getDistinctValues, upsertItem } from '../../../src/repos/items';
 import type { InventoryItem } from '../../../src/repos/items';
@@ -28,10 +31,9 @@ import {
 } from '@invenpro/ui';
 import { useDbQuery, syncNow } from '@invenpro/core';
 
-// Slimmed from apps/mobile/app/(app)/(equipment)/index.tsx (364 ln). Cut this
-// wave: MediaThumbnail (TODO(wave-media)), label printing/BatchLabelPrintSheet
-// (labels infra — src/labels/printLabel, LabelItem — isn't ported to v2 this
-// wave; report as a gap). Reload/refresh-on-focus boilerplate is replaced by a
+// Ported from apps/mobile/app/(app)/(equipment)/index.tsx (364 ln).
+// MediaThumbnail + batch label printing (BatchLabelPrintSheet) restored
+// Station D2 (were cut pre-media/labels-wave). Reload/refresh-on-focus boilerplate is replaced by a
 // reactive useDbQuery keyed on the tables the list depends on (matches
 // ItemCard.tsx's idiom) instead of the old load()/useFocusEffect/refreshKey
 // triple. "Add equipment" no longer routes to a full add.tsx screen — the old
@@ -48,6 +50,7 @@ export default function EquipmentScreen() {
   const { locked } = useMaintenanceMode();
   const ms = useMultiSelect<EquipmentModel>();
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [batchLabels, setBatchLabels] = useState<LabelItem[] | null>(null);
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [newModelOpen, setNewModelOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -109,10 +112,27 @@ export default function EquipmentScreen() {
     ms.exit();
   }, [ms, logItem]);
 
+  // Offline QR-label batch print. Selected ids are always within the loaded
+  // `models` list (toggle/selectAll only source from it), so we resolve
+  // titles/codes from memory — no DB round-trip. Equipment models are
+  // inventory_items, so the scan payload is `INV:item:{id}` (same as the detail
+  // screen's model label). Printing is read-only — exempt from the write block.
+  const handlePrintLabels = useCallback(() => {
+    const byId = new Map(models.map(m => [m.id, m]));
+    const labels: LabelItem[] = Array.from(ms.selected)
+      .map(id => byId.get(id))
+      .filter((m): m is EquipmentModel => !!m)
+      .map(m => ({ title: m.name, code: m.barcode ?? m.id, payload: `INV:item:${m.id}` }));
+    if (labels.length === 0) { ms.exit(); return; }
+    // Open the chooser (presets + custom designed templates); print happens there.
+    setBatchLabels(labels);
+  }, [models, ms]);
+
   const bulkActions = useMemo<BulkAction[]>(() => [
+    { key: 'print', label: 'Print labels', onPress: () => { void handlePrintLabels(); } },
     { key: 'category', label: 'Set category', onPress: () => setCategoryPickerOpen(true) },
     { key: 'supplier', label: 'Set supplier', onPress: () => setSupplierPickerOpen(true) },
-  ], []);
+  ], [handlePrintLabels]);
 
   const onRefresh = useCallback(async () => {
     if (refreshing) return;
@@ -168,7 +188,7 @@ export default function EquipmentScreen() {
                       {selected && <Text style={s.checkMark}>✓</Text>}
                     </View>
                   )}
-                  {/* TODO(wave-media): MediaThumbnail not ported yet (excluded this wave). */}
+                  <MediaThumbnail entityType="item" entityId={m.id} size={44} />
                   <View style={s.info}>
                     <Text style={s.name} numberOfLines={1}>{m.name}</Text>
                     {/* Faithful port: the old screen badges off m.category, not
@@ -268,6 +288,12 @@ export default function EquipmentScreen() {
             onCreate={(text) => applySupplier(text)}
           />
         </ModalSheet>
+
+        <BatchLabelPrintSheet
+          visible={batchLabels !== null}
+          items={batchLabels ?? []}
+          onClose={() => { setBatchLabels(null); ms.exit(); }}
+        />
 
         <NewEquipmentModelSheet
           visible={newModelOpen}

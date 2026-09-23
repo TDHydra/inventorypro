@@ -25,8 +25,6 @@
  * RepairQuickAdd.tsx and equipment/[id].tsx's doRepairIn).
  *
  * Cuts (kept lean, matching established station precedent):
- *   - MediaGallery ("Photos" section) — TODO(wave-media), matches the same
- *     cut already made throughout mobile-v2 (ItemCard, locations/[id], etc).
  *   DiscussThisButton (chat headerRight) restored Station D1.
  *   - Status trail (#178 Part 2, statusTrailLogic.ts / buildStatusTrail) —
  *     NOT ported. This was a purely cosmetic "visited/current/upcoming"
@@ -68,6 +66,7 @@ import { PermissionGate } from '../../../src/components/PermissionGate';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { MediaGallery } from '../../../src/components/MediaGallery';
 import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { track } from '../../../src/telemetry';
 import { MAX_QUANTITY, validateText } from '../../../src/lib/validation';
@@ -725,8 +724,9 @@ export default function RepairDetailScreen() {
           })
         )}
 
-        {/* TODO(wave-media): Photos section (MediaGallery) not ported yet,
-            matches ItemCard.tsx / locations/[id].tsx's Photos cut. */}
+        {/* Media */}
+        <Text style={s.sectionTitle}>Photos</Text>
+        <MediaGallery entityType="repair" entityId={repair.id} canUpload={canEdit} />
 
         {/* History */}
         <Text style={s.sectionTitle}>History</Text>

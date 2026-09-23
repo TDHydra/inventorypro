@@ -15,7 +15,6 @@
 //     SegmentedControl, AutofillTextField → '@invenpro/ui'
 //
 // Cuts this wave:
-//   - Photos section (MediaGallery) — not ported to mobile-v2 yet. TODO(wave-media).
 //   DiscussThisButton (headerRight chat entry, #228) restored Station D1.
 // Everything else (edit form, team reassignment, assigned-crews roster +
 // assign/unassign sheet, deployed section, activity log, request-approval,
@@ -29,6 +28,7 @@ import {
   FilterChip, Card, ModalSheet, confirmSheet, SegmentedControl,
 } from '@invenpro/ui';
 import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
+import { MediaGallery } from '../../../src/components/MediaGallery';
 import { runInTransaction } from '@invenpro/core';
 import {
   getJobById, getJobDeployments, archiveJob, updateJobFields, type Job,
@@ -67,6 +67,7 @@ export default function JobDetailScreen() {
   const { user, realUser } = useSession();
   const canEdit = usePermission('create_jobs');
   const canClose = usePermission('close_jobs');
+  const canUpload = usePermission('upload_media');
   const refreshKey = useFocusOrDataRefresh();
 
   const [job, setJob] = useState<Job | null>(() => getJobById(id));
@@ -645,8 +646,9 @@ export default function JobDetailScreen() {
                 )}
               </Card>
 
-              {/* TODO(wave-media): Photos section (MediaGallery) not ported —
-                  mobile-v2 has no media pipeline yet. */}
+              {/* Photos section */}
+              <FieldLabel>Photos</FieldLabel>
+              <MediaGallery entityType="job" entityId={id} canUpload={canUpload} />
 
               {/* Actions */}
               <PrimaryButton label="Request Approval" onPress={() => setApprovalOpen(true)} />

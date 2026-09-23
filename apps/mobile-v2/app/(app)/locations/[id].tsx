@@ -23,11 +23,8 @@
 //     '/(app)/vehicles/[id]' typed-object push (Station C3, plain route).
 //
 // Slimmed per the rulebook — cut, each with a TODO marker / repo-owned note:
-//   - MediaGallery (photos section): TODO(wave-media), matches ItemCard.
-//   - LabelPrintSheet ("Print QR Label" row + sheet): TODO(wave-D) — component
-//     not ported to src/components yet (168 ln in the old app); out of scope
-//     for this locations-only port (src/components/** is shared, not owned
-//     here). Reported to the coordinator as a shared-component gap.
+//   - LabelPrintSheet + MediaGallery (Photos): restored Station D2 (media +
+//     labels infra landed — see the Print QR Label row and Photos section).
 //   - ActivityFeed (Activity section): ported Station B4 (src/components/
 //     ActivityFeed.tsx, media-thumbnail lightbox cut — see that file's header
 //     comment) — see the Activity section below.
@@ -71,6 +68,8 @@ import { SearchablePicker, PickerOption } from '../../../src/components/Searchab
 import { UserPicker } from '../../../src/components/pickers';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { MediaGallery } from '../../../src/components/MediaGallery';
+import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/repos/taxonomy';
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
@@ -90,6 +89,9 @@ export default function LocationDetailScreen() {
   // hub links, search results, and deep links all routed straight in
   // regardless of the role's permission. Gate the whole screen here.
   const canView = usePermission('view_locations');
+  const canUpload = usePermission('upload_media');
+  const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+  const [showPrintLabel, setShowPrintLabel] = useState(false);
   const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
 
@@ -592,12 +594,15 @@ export default function LocationDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* TODO(wave-D): Print QR Label row/sheet not ported — LabelPrintSheet
-            (src/components/LabelPrintSheet.tsx in the old app, 168 ln) isn't in
-            mobile-v2 yet. Reported as a shared-component gap. */}
+        {/* ── Print QR label ──────────────────────────────────────────────── */}
+        <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setShowPrintLabel(true)}>
+          <Text style={s.attrKey}>🏷 Print QR Label</Text>
+          <Text style={s.attrVal}>›</Text>
+        </TouchableOpacity>
 
-        {/* TODO(wave-media): Photos section (MediaGallery) not ported yet,
-            matches src/components/ItemCard.tsx's MediaThumbnail cut. */}
+        {/* ── Photos ──────────────────────────────────────────────────────── */}
+        <Text style={s.sectionLabel}>Photos</Text>
+        <MediaGallery entityType="location" entityId={id} canUpload={canUpload} />
 
         {/* ── Activity ─────────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Activity</Text>
@@ -748,6 +753,15 @@ export default function LocationDetailScreen() {
             </View>
           </ScrollView>
       </ModalSheet>
+
+      {/* ── Print QR Label (location) ────────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={showPrintLabel}
+        onClose={() => setShowPrintLabel(false)}
+        title={location.name}
+        code={`INV:location:${id}`}
+        qrUrl={`${API}/labels/location/${id}/qr.png`}
+      />
 
       {/* ── Move Stock Modal ─────────────────────────────────────────────────── */}
       <MoveStockModal

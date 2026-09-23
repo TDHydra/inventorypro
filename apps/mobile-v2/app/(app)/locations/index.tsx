@@ -11,8 +11,7 @@
 //     useThemedStyles → '@invenpro/ui'
 //   '/(app)/(locations)/[id]' route → '/(app)/locations/[id]'
 //
-// Slimmed per the rulebook: MediaThumbnail is cut (TODO(wave-media), matches
-// the pattern already used in src/components/ItemCard.tsx) — no dashboard
+// MediaThumbnail restored Station D2 (was cut pre-media-wave) — no dashboard
 // presets/analytics/broadcast existed in this screen to begin with.
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
@@ -37,6 +36,7 @@ import { isWriteBlocked } from '../../../src/db/maintenance';
 import { getAllActiveUsers } from '../../../src/repos/users';
 import { appendLog } from '../../../src/db/queries/log';
 import { SearchablePicker, PickerOption } from '../../../src/components/SearchablePicker';
+import { MediaThumbnail } from '../../../src/components/MediaThumbnail';
 import { UserPicker } from '../../../src/components/pickers';
 import { GpsAnchorField } from '../../../src/components/GpsAnchorField';
 import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, getLocationSubtypesWithFallback, getLocationTypeRules } from '../../../src/repos/taxonomy';
@@ -299,7 +299,7 @@ export default function LocationsScreen() {
           onPress={() => router.push({ pathname: '/(app)/locations/[id]', params: { id: loc.id } })}
           activeOpacity={0.7}
         >
-          {/* TODO(wave-media): MediaThumbnail not ported yet (media wave). */}
+          <MediaThumbnail entityType="location" entityId={loc.id} size={40} />
           <View style={{ flex: 1 }}>
             <Text style={s.name}>{loc.name}</Text>
             {!!loc.type && (
@@ -336,7 +336,7 @@ export default function LocationsScreen() {
             onPress={() => router.push({ pathname: '/(app)/locations/[id]', params: { id: node.id } })}
             activeOpacity={0.7}
           >
-            {/* TODO(wave-media): MediaThumbnail not ported yet (media wave). */}
+            <MediaThumbnail entityType="location" entityId={node.id} size={node.depth > 0 ? 30 : 40} />
             <View style={{ flex: 1 }}>
               <Text style={s.name}>{node.name}</Text>
               {!!node.type && (

@@ -32,6 +32,8 @@ import MoveStockModal from '../../../src/components/MoveStockModal';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { MediaGallery } from '../../../src/components/MediaGallery';
+import { LabelPrintSheet } from '../../../src/components/LabelPrintSheet';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -43,6 +45,8 @@ export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const canEdit = usePermission('edit_inventory');
+  const canUpload = usePermission('upload_media');
+  const API = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
   const { realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const refreshKey = useFocusOrDataRefresh();
@@ -117,6 +121,7 @@ export default function ItemDetailScreen() {
   const [moveFrom, setMoveFrom] = useState<{ locationId: string; locationName: string } | null>(null);
   const [addStockOpen, setAddStockOpen] = useState(false);
   const [requestApprovalOpen, setRequestApprovalOpen] = useState(false);
+  const [printItemSheet, setPrintItemSheet] = useState(false);
   const [addLoc, setAddLoc] = useState<PickerOption | null>(null);
   const [addShelf, setAddShelf] = useState<PickerOption | null>(null);
   const [addQtyText, setAddQtyText] = useState('');
@@ -549,8 +554,10 @@ export default function ItemDetailScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* TODO(wave-labels): QR label print sheet not ported this wave —
-                  no labels/printLabel.ts or LabelPrintSheet in v2 yet. */}
+              <TouchableOpacity style={[s.card, s.attrRow]} onPress={() => setPrintItemSheet(true)}>
+                <Text style={s.attrKey}>🏷 Print QR Label</Text>
+                <Text style={s.attrVal}>›</Text>
+              </TouchableOpacity>
 
               <View style={s.sectionHeaderRow}>
                 <Text style={s.sectionLabel}>Stock by location</Text>
@@ -596,15 +603,12 @@ export default function ItemDetailScreen() {
                 )}
               </View>
 
-              {/* TODO(wave-media): item photo gallery not ported this wave (no
-                  MediaGallery/media repo in v2 yet). */}
+              <Text style={s.sectionLabel}>Photos</Text>
+              <MediaGallery entityType="item" entityId={item.id} canUpload={canUpload} />
 
               {/* Repair history (Station C4) — ported alongside repairs/[id].tsx. */}
               <PriorRepairsCard entityType="item" entityId={item.id} />
 
-              {/* History — ActivityFeed itself already cuts its old media
-                  thumbnail (TODO(wave-media), see ActivityFeed.tsx); the rest
-                  of the log view has no media dependency, so it's ported here. */}
               <Text style={s.sectionLabel}>History</Text>
               <ActivityFeed entityType="item" entityId={item.id} />
 
@@ -621,6 +625,15 @@ export default function ItemDetailScreen() {
             </>
           )}
       </FormScreen>
+
+      {/* ── Print QR Label (item) ──────────────────────────────────────── */}
+      <LabelPrintSheet
+        visible={printItemSheet}
+        onClose={() => setPrintItemSheet(false)}
+        title={item.name}
+        code={item.barcode ?? item.id}
+        qrUrl={`${API}/labels/item/${item.id}/qr.png`}
+      />
 
       {/* ── Adjust stock at a location (signed delta) ─────────────────────── */}
       <ModalSheet visible={adjustTarget !== null} onClose={() => setAdjustTarget(null)}>

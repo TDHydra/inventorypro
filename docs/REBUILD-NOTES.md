@@ -1220,3 +1220,53 @@ in the main session per the no-subagents directive).
 - Chat deliberately logs NOTHING to activity_log (old-app parity, high
   frequency); conversations.updated_at bump on send is local-only +
   queueTableBump.
+
+## Station D2 — Media hub + label printing (2026-09-22)
+
+Full media + labels domain ported directly in the main session (no-subagents
+directive), including every embed the earlier stations cut with
+TODO(wave-media)/TODO(wave-labels) markers — sweep is now ZERO markers.
+
+- `src/repos/media.ts`: mirror()-based mutations (insert/update/move/delete/
+  bulk delete), hub page query folded in (old queries/mediaHubQuery.ts stays
+  dead), isMediaUploadPending moved here from sync/outbox. Repos are LOG-FREE:
+  the old app's self-logging moved to callers via `src/media/mediaLog.ts`
+  (logMediaAction — one helper reproducing the exact old log-row shape),
+  wrapped with the repo call in runInTransaction (PmContactPopup pattern).
+  `src/repos/labelTemplates.ts` read-only (designer dropped per plan).
+- `src/media/`: uploadCore (presign + insert via repos/media), upload.ts
+  (native expo-file-system streaming) / upload.web.ts twin,
+  resolveUploadBody(+test), shareLink(+test), shareExternal.
+- `src/labels/`: positioned(+test), printLabel(.web) — fixed templates only;
+  QR endpoints `${API}/labels/{item|unit|location}/…/qr.png`.
+- Components: MediaGallery(.web) (grid+thumb variants, #173 job note+room
+  sheet, sequential upload queue, lightbox), MediaDetailSheet (share gate
+  3s-poll kept), MediaThumbnail, QuickPhotoFlow (module-level openFn host in
+  (app)/_layout.tsx + 📷 header button), Label/BatchLabelPrintSheet.
+- Routes/embeds restored: `media/index.tsx` hub (FILTERS gated view_all_logs,
+  #237 loadError guards, #87 linkedId deep-link, bulk delete w/ per-id
+  logging); hub Media tile; MediaThumbnail in ItemCard/locations/equipment;
+  ActivityFeed thumbnails + lightbox pager; galleries on inventory/jobs/
+  repairs/locations/equipment detail (+ per-unit media modal) + ItemQuickAdd;
+  checkout/checkin/unit-checkin optional photos (pre-generated event ids →
+  activity_log entity); batch labels on equipment+inventory lists; Print QR
+  Label rows on detail screens.
+- Chat attachments restored (D1's cut): repos/chat.ts getMessageMedia,
+  composer 🖼️ button → send-then-upload (push outbox BEFORE presign — the
+  server participant-gate needs the message row), caption-less upload failure
+  soft-deletes the message; inline <Image> in bubbles. v2 deviation: attach
+  guards match send() (canSendMessage + isWriteBlocked), no manual reload
+  (useDbQuery on ['media','messages']).
+- AddServiceRecordSheet receipt photo restored (C3's cut): PickedPhoto +
+  source-sheet Modal, "no receipt photo — save anyway?" confirmSheet nudge,
+  recordId hoisted out of the runInTransaction so uploadMediaAsset runs
+  POST-COMMIT (failed upload never loses the receipt — 'Receipt saved — photo
+  not uploaded' alert); ServiceRecordList 📷 indicator.
+- Tests: repos/media.test.ts (uploadCore.test.ts port onto the manifest-DDL
+  harness — audience pool-only, room_id job-only, outbox payloads) +
+  quickPhotoLogic/resolveUploadBody/shareLink/positioned. mobile-v2 suite
+  275/275, workspace fully green (api 586, mobile 947), typecheck clean,
+  typed routes regenerated for the new media/ dir.
+- Parity-gate note: old (equipment)/add.tsx had a MediaGallery; v2 folded add
+  into the index modal (no gallery until the item exists — id needed). Check
+  at the gate whether post-create nav to detail covers it.
