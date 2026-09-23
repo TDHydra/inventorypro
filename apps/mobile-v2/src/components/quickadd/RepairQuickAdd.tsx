@@ -11,7 +11,7 @@ import { setUnitStatus, searchUnitsByTag } from '../../repos/equipmentUnits';
 import { searchItems } from '../../repos/items';
 import { getAllActiveUsers, getUserById } from '../../repos/users';
 import { getRoleColorMap, roleColor } from '../../repos/roleSettings';
-import { getNonShelfLocations, findOrCreateVehicleByName } from '../../repos/locations';
+import { getUnitLocations, findOrCreateVehicleByName } from '../../repos/locations';
 import { appendLog } from '../../db/queries/log';
 import { isWriteBlocked } from '../../db/maintenance';
 import { useSession } from '../../hooks/useSession';
@@ -45,7 +45,8 @@ import { validateText } from '../../lib/validation';
 //     getRoleColorMap) — mobile-v2 factored role-color helpers into their own
 //     module (see UserQuickAdd.tsx, VehicleQuickAdd's owner picker precedent).
 //   '../../db/queries/locations' (getNonShelfLocations,
-//     findOrCreateVehicleByName) → '../../repos/locations' (unchanged names).
+//     findOrCreateVehicleByName) → '../../repos/locations'; #280 later swapped
+//     getNonShelfLocations for getUnitLocations (vehicle picker fix).
 //   '../../sync/outbox' (appendOutbox) → DROPPED (see setUnitStatus note
 //     above — no direct outbox call remains in this file).
 //   ui/FilterChip, ui/FieldLabel, ui/AppInput, ui/FormScreen,
@@ -128,14 +129,15 @@ export default function RepairQuickAdd({ onSaved }: Props) {
     [assigneeOpt, optionsVersion],
   );
 
-  // Vehicles = location rows tagged as 'Vehicle' (fall back to all NON-SHELF
-  // locations so the picker is never empty when no type has been set yet —
-  // shelves are stock sub-slots, never a repair target).
-  const vehicleOptions = useMemo<PickerOption[]>(() => {
-    const all = getNonShelfLocations();
-    const vehicles = all.filter(l => (l.type ?? '').toLowerCase() === 'vehicle');
-    return (vehicles.length ? vehicles : all).map(l => ({ id: l.id, label: l.name }));
-  }, [vehiclesVersion]);
+  // Vehicles = unit-location rows tagged 'Vehicle' (#280). Must NOT come from
+  // getNonShelfLocations() — that list EXCLUDES units (isUnitLocation), so the
+  // old "fall back to all locations when empty" branch here always fired and
+  // the picker showed places instead of vehicles. Empty is fine: managers can
+  // still type-to-create via onCreate below.
+  const vehicleOptions = useMemo<PickerOption[]>(
+    () => getUnitLocations('Vehicle').map(l => ({ id: l.id, label: l.name })),
+    [vehiclesVersion],
+  );
 
   // DB-backed search for the large sets (catalog items, units by exact asset tag).
   const entitySearch = useMemo<((q: string) => PickerOption[]) | undefined>(() => {
