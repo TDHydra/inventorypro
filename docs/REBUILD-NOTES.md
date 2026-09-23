@@ -1328,3 +1328,39 @@ plain useDbQuery.
 
 tsc clean, 315 tests pass (pinChangeLogic tests ported). Typed routes
 regenerated for the six new settings/* paths.
+
+## Wave D checkpoint + parity gate (2026-09-23)
+
+Parity gate part 1 (manifest tables): all 37 tables reachable — 34 with
+direct surfaces; label_templates read-only via LabelPrintSheet /
+BatchLabelPrintSheet (designer dropped, mutations deliberately not ported);
+telemetry_buffer is a local upload queue (no UI by design); outbox surfaces
+through settings/sync counts.
+
+Parity gate part 2 (route diff old → v2): PASS with documented deviations.
+(admin)/{analytics,audit-log,broadcast,dashboards,label-templates} dropped
+per plan decision #3; (checkin) retired into the checkout flow; (crew)
+absorbed into checkout 'find' step (C4); (equipment)/add replaced by
+NewEquipmentModelSheet → detail (photos attach one tap post-create on
+equipment/[id], which has MediaGallery); (inventory)/add, (jobs)/create,
+(repairs)/new → quickadd sheets; 11 quickadd routes → dynamic [sheet].tsx
+(csv-import + gas-receipt present); onboarding-checklist stays dropped
+(login kept lean — flagged to user).
+
+Web smoke (static export + expo serve :8090, chrome-devtools, Dev Tester):
+dashboard matches the admin preset exactly (stats, stranded equipment, open
+jobs, hidden empty unread-chats, no crew quick actions); all seven settings
+pages render with real dev data and correct gating; form-override chips
+update live (seeded-state fix verified in-browser); zero console
+errors/warnings across the whole walk.
+
+Sync page fix found during smoke: "Last pull" stayed "never" after a manual
+sync — last_pulled_at lives in app_settings (no version bump; core pull.ts
+writes it via raw executeSync), so the status useDbQuery never re-ran. Fixed
+with a statusEpoch counter bumped in handleSyncNow's finally. Value IS
+written correctly (fresh mount shows the timestamp) — render staleness only.
+
+Phase 9 watch items (web): direct deep-links 404 (static single-bundle
+export — expo serve has no SPA fallback for nested routes); a hard reload
+wipes the in-memory session back to /login; stale localStorage vs wiped DB
+can resurrect the first-sign-in enrollment prompt.

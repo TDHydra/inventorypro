@@ -15,6 +15,10 @@ export default function SyncSettings() {
   const s = useThemedStyles(makeStyles);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  // last_pulled_at lives in app_settings, whose writes don't bump the data
+  // version (settings-split convention) — bump this counter after a manual
+  // sync so the status query re-runs and "Last pull" updates in place.
+  const [statusEpoch, setStatusEpoch] = useState(0);
 
   const status = useDbQuery(
     () => ({
@@ -22,7 +26,7 @@ export default function SyncSettings() {
       denied: getDeniedOutbox().length,
       lastPulledAt: getAppSetting('last_pulled_at'),
     }),
-    [],
+    [statusEpoch],
     ['outbox', 'app_settings'],
   );
 
@@ -36,6 +40,7 @@ export default function SyncSettings() {
       setSyncResult(`Sync failed: ${(err as Error).message}`);
     } finally {
       setSyncing(false);
+      setStatusEpoch(n => n + 1);
     }
   }
 
