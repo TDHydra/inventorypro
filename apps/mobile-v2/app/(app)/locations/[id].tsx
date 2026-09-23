@@ -17,6 +17,8 @@
 //     (add.tsx wasn't ported; the stock sheet reads the locationId param)
 //   '/(app)/(repairs)/new' route → cast `as never` (TODO(wave-C), matches the
 //     existing pattern in src/components/ItemCard.tsx)
+//   '/(app)/(vehicles)/[id]' onNavigate route (VehiclePanel embed) →
+//     '/(app)/vehicles/[id]' typed-object push (Station C3, plain route).
 //
 // Slimmed per the rulebook — cut, each with a TODO marker / repo-owned note:
 //   - MediaGallery (photos section): TODO(wave-media), matches ItemCard.
@@ -27,11 +29,11 @@
 //   - ActivityFeed (Activity section): ported Station B4 (src/components/
 //     ActivityFeed.tsx, media-thumbnail lightbox cut — see that file's header
 //     comment) — see the Activity section below.
-//   - VehiclePanel / LockerPanel (type-conditional embeds): TODO(wave-C) —
-//     both live under src/components/{vehicles,lockers}/, neither ported
-//     (498 + 208 ln); the vehicles/lockers domain itself isn't ported either
-//     (see the PORT NOTE atop repos/locations.ts). The header card's Type row
-//     still shows "Vehicle"/"Locker" via the taxonomy label.
+//   - VehiclePanel / LockerPanel (type-conditional embeds): WIRED Station C3
+//     — both now live under src/components/{vehicles,lockers}/ (ported this
+//     station). Summary-variant embeds sit right below the header card,
+//     matching the old app's placement; VehiclePanel's onNavigate opens the
+//     full '/(app)/vehicles/[id]' page, LockerPanel navigates itself.
 //   - Vehicle-type Archive: hidden (retireVehicle needs the unported
 //     vehicles.ts domain — see repos/locations.ts's archiveLocation doc
 //     comment). Vehicle-type Restore/reactivation IS kept working
@@ -72,6 +74,8 @@ import { getLocationTypes, getLocationTypesWithFallback, getLocationSubtypes, ge
 import { ICON_ALIASES, ICON_OPTIONS, COLOR_OPTIONS, renderIcon } from '../../../src/constants/locationStyles';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
+import { VehiclePanel } from '../../../src/components/vehicles/VehiclePanel';
+import { LockerPanel } from '../../../src/components/lockers/LockerPanel';
 
 export default function LocationDetailScreen() {
   const s = useThemedStyles(makeStyles);
@@ -407,11 +411,21 @@ export default function LocationDetailScreen() {
           {!!ownerName && <KeyValueRow label="Owner" value={ownerName} />}
         </Card>
 
-        {/* TODO(wave-C): VehiclePanel / LockerPanel embeds not ported yet —
-            src/components/{vehicles,lockers}/ don't exist in mobile-v2, and the
-            vehicles/lockers domain itself isn't ported (see the PORT NOTE atop
-            repos/locations.ts). The header Type row above still shows
-            "Vehicle"/"Locker". Reported as a shared-component gap. */}
+        {/* ── Vehicle / Locker embeds (field-crew #125/#126, stage C1; wired
+            Station C3) ── Type-conditional panels above the stock section.
+            The panels self-load (useTableVersion) so they need only the id.
+            VehiclePanel's header tap-through opens the full vehicles/[id]
+            page; LockerPanel navigates itself (hub "check out from here"). */}
+        {location.type === 'Vehicle' && (
+          <VehiclePanel
+            locationId={id}
+            variant="summary"
+            onNavigate={() => router.push({ pathname: '/(app)/vehicles/[id]', params: { id } })}
+          />
+        )}
+        {location.type === 'Locker' && (
+          <LockerPanel locationId={id} variant="summary" />
+        )}
 
         {/* ── Stock here ──────────────────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Stock here</Text>

@@ -780,6 +780,141 @@ anywhere in `apps/mobile-v2`.
   mobile-v2 test` 136/136 green (was 112/112 after C1, +13 schedule.test.ts,
   +11 oncall.test.ts). `git status --short apps/mobile` empty throughout.
 
+### Station C3 — Vehicles + Lockers (2026-09-22)
+
+- `src/repos/vehicles.ts` (new, 544 ln) — ported from `apps/mobile/src/db/
+  queries/vehicles.ts` over `vehicles` (deprecated `water_state` column kept
+  via `.mirror()` divergence, matching the manifest), `vehicle_service_records`,
+  `vehicle_checkouts`. `createServiceRecord`, `checkOutVehicle`/
+  `takeOverVehicle`/`checkInVehicle`/`addJobToActiveCheckout`/
+  `insertCheckout`, `upsertVehicleState`, `ensureVehicleRow`,
+  `isVehicleAvailableForCheckout`, `getActiveCheckout`, `getCheckoutHistory`,
+  `getOdometerTimeline`, `getFuelUps`, `getVehicle`. **Real
+  `vehicle_checkouts` table exists** — vehicle checkout history is a direct
+  table read (`getCheckoutHistory`), NOT an activity_log derivation (a
+  discrepancy in the original brief text, resolved per the old app's own
+  `vehicles.ts`).
+  - **No self-log** (caller-owned convention, matches B/C2): checkout/
+    takeover/check-in/service-record/state writes all had their internal
+    `appendLog` calls removed and relocated to the UI call sites, byte-for-byte
+    equivalent `action`/`entity_type`/`entity_id`/`job_id`/`note` shapes to the
+    old app's originals (reconstructed by grepping the old app's own internal
+    calls).
+  - `src/components/vehicles/vehicleSessionLogic.ts` (new) — verbatim port
+    (zero imports, DB/RN-free pure kernel — same precedent as `ui/
+    quantityMath.ts`/`ui/dateFieldLogic.ts`): `resolveCheckoutAction`,
+    `buildClosePayload`, `formatSince`, tank/service labels, takeover/fuel-up
+    note builders, `odometerDeltas`, `resolveVehicleAvailability`,
+    `canLiftVehicleLock`/`resolveLockStamp`, `snapDebrisLevel`/
+    `snapFuelLevel`, `buildReceiptVehicleMismatchNote`.
+    - `vehicleSessionLogic.test.ts` (new, verbatim port, 37 tests) — zero
+      import-mapping needed.
+- `src/components/vehicles/{AddServiceRecordSheet,VehicleHistoryPanel,
+  VehicleCheckoutSheet,VehicleEditSheet,VehicleInlineStatus,VehicleSheet,
+  VehiclePanel}.tsx` (new) — thin Panel pattern (Panel → Sheet → Route), kept
+  lean per the brief (old `VehiclePanel` mega-screen NOT rebuilt as-is — its
+  479 ln straight-ported, only the `UnitContentsPanel` embed cut, see below).
+  Gas receipts stay merged INTO `AddServiceRecordSheet` (`initialKind:
+  'fuel_up'`) — no parallel gas-receipt form resurrected, matching the
+  standing memory rule.
+  - Every write site that used to rely on `vehicles.ts` self-logging now
+    wraps its repo call + `appendLog(...)` in `runInTransaction` (caller-owned
+    convention): `VehicleCheckoutSheet.save` (checkout/takeover), a
+    `writeState` helper in `VehiclePanel` (tank/lock/debris/fuel writes),
+    `VehiclePanel.onPrimaryPress`'s `check_in` branch, `VehicleEditSheet`'s
+    location-rename + `upsertVehicleState` writes (one transaction) and its
+    separate odometer-change `createServiceRecord` write (its own
+    transaction, matching the old app's non-atomic-with-rename shape).
+  - `retireVehicle`/`reactivateVehicle` call sites in `VehiclePanel` are
+    UNCHANGED — both already self-log via `locationsRepo.mirror()`
+    (`repos/locations.ts`), unlike `vehicles.ts`'s converted functions.
+  - `upsertLocation` already self-mirrors (strips `synced_at`/`type_id`,
+    coerces booleans) — `VehicleEditSheet`'s location-rename branch calls it
+    directly, no hand-rolled outbox stripping needed (simpler than the old
+    app).
+  - Cut: `UnitContentsPanel` embed in `VehiclePanel` (full variant) —
+    `TODO(wave-D)`, comment-only, no functional replacement.
+- `src/repos/access.ts` — un-stubbed the vehicle-coupled access surface left
+  as `TODO(wave-C)` by Station B3: `getAccessibleSourceLocations`,
+  `getTeamUnits`, `getCheckoutSourceLocations`, `isTeamManagerAnywhere`,
+  `getVisibleUnits`, `canManageVehicle`, `canLiftVehicleLockFor` all ported
+  (import-mapping only from the old app's `db/queries/access.ts`);
+  `getGrantableUnits` widened back to Vehicle ∪ Locker (was Locker-only from
+  B3). `getAllUnitAccessGrants` (admin grants-list) stays Locker-only —
+  out of this station's scope. Added `canManageLockerAccess` (was referenced
+  only in a comment, never actually defined) — ported verbatim from the old
+  app, owner-or-tier-3+ authority, unknown roles fail closed.
+- `src/components/lockers/{LockerPanel,LockerSheet}.tsx` (new) — ported from
+  `apps/mobile/src/components/lockers/*`. Wired B3's pre-existing access
+  functions (`getUnitAccessRows`, `getUserUnitPerms`, `revokeUnitAccess`,
+  `grantUnitAccessWithDefaults`) — did NOT duplicate, all matched the old
+  app's call shapes exactly. Cut `UnitContentsPanel` embed (full variant),
+  same `TODO(wave-D)` as `VehiclePanel`.
+- Route files (new, plain segments per the established Station B/C
+  convention — old app's parenthesized `(vehicles)`/`(lockers)` groups map to
+  plain `vehicles`/`lockers`): `app/(app)/vehicles/{index,[id]}.tsx`,
+  `app/(app)/lockers/{index,[id]}.tsx`. Straight ports; `[id].tsx` files are
+  thin wrappers rendering `VehiclePanel`/`LockerPanel` `variant="full"`.
+  - Router convention: `router.push({ pathname: '/(app)/vehicles/[id]',
+    params: { id } })` (typed-object form, matching `ItemCard.tsx`/
+    `JobDetailPopup.tsx`/`ItemQuickAdd.tsx`) — corrected mid-station after an
+    initial wrong guess (`router.push(\`/(app)/vehicles/${id}\` as never)`)
+    in `VehicleSheet.tsx`; applied correctly from the start in
+    `LockerSheet.tsx` and both route `index.tsx` files.
+  - Hit the same known `.expo/types/router.d.ts` regeneration trap as every
+    prior station (route types are gitignored, only regenerate via a real
+    metro bundler run). Fixed with `timeout 60 script -qec "npx expo start
+    --web --port 8199" /tmp/metro_c3.log` — bundled clean (1617 modules), then
+    confirmed via grep that `vehicles/[id]`/`lockers/[id]` landed in the
+    regenerated file before re-running typecheck.
+- **`locations/[id].tsx` embeds** (previously `TODO(wave-C)`): wired
+  `VehiclePanel`/`LockerPanel` (`variant="summary"`) directly below the
+  header card, type-conditional on `location.type === 'Vehicle' | 'Locker'`
+  — matches the old app's placement exactly. `VehiclePanel`'s `onNavigate`
+  opens the full `/(app)/vehicles/[id]` route; `LockerPanel` navigates
+  itself.
+- **`myteam.tsx` "My Vehicles"** (previously `TODO(wave-C)`, cut section):
+  restored to the old app's own shape (owned, active vehicles;
+  `VehicleInlineStatus` + tap opens the full `VehicleSheet`) rather than the
+  simplified AccessListEditor stand-in used for My Lockers — vehicles are
+  fully ported now, so there's no reason to simplify. Also closed a
+  pre-existing B3 reactivity gap while touching this: `myLockers`/
+  `myVehicles` both read `getLocationsByOwner` (the `locations` table), which
+  wasn't in the screen's `useTableVersion` list — added `locations` alongside
+  the new `vehicles`/`vehicle_checkouts`.
+- **Hub tiles**: added ungated "Vehicles" (`/(app)/vehicles`) and "Lockers"
+  (`/(app)/lockers`) tiles to `app/(app)/index.tsx`'s `TILES` array. The old
+  app had no dedicated hub tile for either (only reachable via the Wave-D
+  dashboard's `StatTiles`/`WorkList`, or embedded in a location's detail
+  page) — same ungated reasoning as Jobs/Schedule: both list screens
+  self-gate visibility via `getVisibleUnits`, so this is a new entry point,
+  not a new permission.
+- **QuickAdd wiring**: `src/components/quickadd/{VehicleQuickAdd,
+  GasReceiptQuickAdd}.tsx` (new). `VehicleQuickAdd` straight-ported (location
+  insert tagged `type: 'Vehicle'` + `ensureVehicleRow`, both self-mirroring —
+  the old app's hand-rolled `appendOutbox` after `upsertLocation` is dropped,
+  same fix `LocationQuickAdd` already applied); wrapped in `runInTransaction`
+  per the Wave B/C quickadd convention. `GasReceiptQuickAdd` is a thin host
+  (`AddServiceRecordSheet` on `initialKind: 'fuel_up'`) — confirms the old
+  app itself never resurrected a parallel gas-receipt form.
+  - `QuickCreateSheet.tsx`'s `'vehicle'` case now renders `VehicleQuickAdd`
+    (was `return null`). `'gas-receipt'` has no `QuickCreateKind` case in
+    either app — it's only reachable via the dedicated route, not the
+    inline-create sheet.
+  - `quickadd/index.tsx`'s `ACTIONS` — removed `deferred: true` from
+    `vehicle`/`gas-receipt`, updated their `sub` copy.
+  - `quickadd/[sheet].tsx`'s switch — split `'vehicle'`/`'gas-receipt'` out
+    of the placeholder case into real `QuickAddScreenShell` cases
+    (`wrapForm={false}`, matching the old app's per-kind route wrappers
+    exactly); `'repair'` stays deferred (`TODO(wave-D)`, confirmed out of
+    scope for C3 per the coordinator brief).
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm -r --filter
+  mobile-v2 test` 173/173 green (was 136/136 after C2, +37
+  `vehicleSessionLogic.test.ts` — the only new test file this station; no
+  other domain's test count changed). `git status --short apps/mobile` empty
+  throughout; `docs/STATUS.md`'s pre-existing uncommitted change left
+  untouched.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

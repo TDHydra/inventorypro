@@ -11,6 +11,8 @@ import EquipmentQuickAdd from '../../../src/components/quickadd/EquipmentQuickAd
 import UserQuickAdd from '../../../src/components/quickadd/UserQuickAdd';
 import TeamQuickAdd from '../../../src/components/quickadd/TeamQuickAdd';
 import JobQuickAdd from '../../../src/components/quickadd/JobQuickAdd';
+import VehicleQuickAdd from '../../../src/components/quickadd/VehicleQuickAdd';
+import GasReceiptQuickAdd from '../../../src/components/quickadd/GasReceiptQuickAdd';
 import CsvImport from '../../../src/components/CsvImport';
 
 /**
@@ -32,11 +34,12 @@ const KIND_TITLES: Record<string, string> = {
   'csv-import': 'Quick Add — Import CSV',
   user: 'Quick Add — User',
   team: 'Quick Add — Team',
-  // TODO(wave-C)
   vehicle: 'Quick Add — Vehicle',
-  repair: 'Quick Add — Repair',
   'gas-receipt': 'Quick Add — Gas Receipt',
   job: 'Quick Add — Job',
+  // TODO(wave-D): repair quick add — repairs/ isn't ported (out of scope for
+  // Station C3, see the coordinator brief). Placeholder route stays below.
+  repair: 'Quick Add — Repair',
 };
 
 export default function QuickAddSheetScreen() {
@@ -94,11 +97,21 @@ export default function QuickAddSheetScreen() {
           {onSaved => <JobQuickAdd onSaved={onSaved} />}
         </QuickAddScreenShell>
       );
-    // TODO(wave-C): VehicleQuickAdd / RepairQuickAdd / GasReceiptQuickAdd not
-    // ported this wave.
     case 'vehicle':
-    case 'repair':
+      return (
+        <QuickAddScreenShell title={title} wrapForm={false}>
+          {onSaved => <VehicleQuickAdd onSaved={onSaved} />}
+        </QuickAddScreenShell>
+      );
     case 'gas-receipt':
+      return (
+        <QuickAddScreenShell title={title} wrapForm={false}>
+          {onSaved => <GasReceiptQuickAdd onSaved={onSaved} />}
+        </QuickAddScreenShell>
+      );
+    // TODO(wave-D): RepairQuickAdd not ported (repairs/ excluded, out of
+    // scope for Station C3 per the coordinator brief).
+    case 'repair':
       return <ComingSoonPlaceholder title={title} />;
     default:
       return <Redirect href="/(app)/quickadd" />;

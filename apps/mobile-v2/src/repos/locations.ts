@@ -1,20 +1,17 @@
 import { getDb, rowsAs, bindParams } from '../db/schema';
-import { createRepository } from '@invenpro/core';
+import { createRepository, runInTransaction } from '@invenpro/core';
 import { resolveTypeId, resolveLabels, LOCATION_TYPE } from './taxonomy';
 import { generateUUID } from '../utils/uuid';
 import { appendLog } from '../db/queries/log';
+import { ensureVehicleRow, getActiveCheckout } from './vehicles';
 
-// PORT NOTE: findOrCreateVehicleByName and retireVehicle are CUT from this
-// port. Both need the `vehicles` domain (ensureVehicleRow / getActiveCheckout
-// from the old app's src/db/queries/vehicles.ts), which itself pulls in
-// src/db/queries/access.ts (sharesTeamWithOwner) and
-// src/components/vehicles/vehicleSessionLogic.ts — none of which exist in
-// mobile-v2 yet. That's a separate, unported domain (~600 lines across the
-// two files, plus access.ts's own further deps on auth/permissions and
-// access/unitAccessPolicy), out of scope for this locations/rooms/taxonomy
-// port. reactivateVehicle is KEPT below — it never touches vehicles.ts.
-// Once vehicles.ts is ported to src/repos/vehicles.ts, re-add these two
-// functions verbatim (import mapping only) from apps/mobile/src/db/queries/locations.ts.
+// Station C3 (Wave C): findOrCreateVehicleByName and retireVehicle, cut from
+// the B1 locations/rooms/taxonomy port (see git history for the old PORT
+// NOTE), are ADDED below now that src/repos/vehicles.ts exists. This creates
+// an accepted circular import (locations.ts → vehicles.ts → access.ts →
+// locations.ts) — precedented by the old app's identical circularity; safe
+// because none of the three files runs top-level side effects (function
+// hoisting covers the cycle).
 
 const locationsRepo = createRepository('locations');
 
@@ -468,6 +465,43 @@ export function findOrCreateShelfByName(name: string): string | null {
   return id;
 }
 
+// Find (case-insensitive) or create a Vehicle location by name, returning its
+// id. Mirrors findOrCreateShelfByName but for type 'Vehicle' — backs the
+// inline "+ Create" affordance in a Vehicle picker (a vehicle is just a
+// location tagged type='Vehicle'; owner can be set later from the location
+// screen).
+export function findOrCreateVehicleByName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const existing = rowsAs<Location>(db.executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Vehicle' AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [trimmed],
+  ).rows)[0];
+  if (existing) return existing.id;
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  const vehicle: Location = {
+    id, name: trimmed, parent_id: null, color: null, icon: '🚐',
+    owner_user_id: null, active: 1, updated_at: now, synced_at: null,
+    latitude: null, longitude: null, subareas_require_owner: 0, type: 'Vehicle', has_shelves: 0,
+  };
+  try {
+    // Atomic (mirrors findOrCreateShelfByName), and every Vehicle-typed
+    // location gets its 1:1 `vehicles` extension row at creation (#125) so
+    // VehiclePanel/state writes have a base row to converge on.
+    runInTransaction(() => {
+      upsertLocation(vehicle);
+      ensureVehicleRow(id);
+    });
+  } catch (err) {
+    console.warn('findOrCreateVehicleByName: failed to create vehicle', err);
+    return null;
+  }
+  return id;
+}
+
 // Find (or reactivate) the Locker OWNED by `userId`, or create one named after
 // them, returning its id (#146 personal locker — follow-up to #130's untyped
 // sub-area lockers). Mirrors findOrCreateVehicleByName's structure (name-scoped
@@ -567,13 +601,65 @@ export function reactivateVehicle(locationId: string, userId: string | null): Re
   return { ok: true };
 }
 
+/**
+ * Retire a Vehicle: active=FALSE through the same local UPDATE + outbox path
+ * as retireLocker, with a fresh updated_at watermark (locations are NEVER
+ * hard-deleted). Refuses (no write) when:
+ *   - the vehicle has an open checkout session — retiring it out from under
+ *     whoever has it checked out would strand them, and
+ *   - the vehicle still holds stock — mirrors the Locker stock guard in
+ *     access/personalLocker.ts's disablePersonalLocker exactly (same
+ *     "N item(s)" phrasing).
+ * Permission gating (manage_locations) is the UI's job — see VehiclePanel;
+ * the outbox write is authorized server-side regardless. Uses
+ * locationsRepo.mirror() (KEEPS self-logging, unlike vehicles.ts's writes)
+ * to match its sibling functions in this file (reactivateVehicle/
+ * archiveLocation/restoreLocation) — Station C3 decision: this function
+ * lives in the locations.ts domain convention, not the vehicles.ts one.
+ */
+export function retireVehicle(locationId: string, userId: string | null): RetireUnitResult {
+  const vehicle = getLocationById(locationId);
+  if (!vehicle || vehicle.type !== 'Vehicle') return { ok: false, reason: 'Not a vehicle.' };
+  if (getActiveCheckout(locationId)) {
+    return { ok: false, reason: 'This vehicle is checked out. Check it in first, then retire it.' };
+  }
+  const stock = getStockAtLocation(locationId);
+  if (stock.length > 0) {
+    const n = stock.length;
+    return {
+      ok: false,
+      reason: `${vehicle.name} still holds stock (${n} item${n === 1 ? '' : 's'}). Move or remove it first, then retire the vehicle.`,
+    };
+  }
+  const now = new Date().toISOString();
+  try {
+    locationsRepo.mirror('UPDATE', { id: locationId, active: false, updated_at: now }, () => {
+      getDb().executeSync(`UPDATE locations SET active = 0, updated_at = ? WHERE id = ?`, [now, locationId]);
+      // 'location_archived' (not 'unit_retired'): the locations/[id] screen's
+      // generic Archive/Restore reroutes through retireVehicle/reactivateVehicle
+      // for Vehicle rows too (#153 — closes a bypass of these guards reachable
+      // via QR scan / repair link / search), so both paths write the SAME
+      // action into the SAME location's Activity feed.
+      appendLog({
+        action: 'location_archived', entity_type: 'location', entity_id: locationId,
+        user_id: userId, team_id: null, job_id: null, note: vehicle.name,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('retireVehicle: failed to retire vehicle', err);
+    return { ok: false, reason: 'Could not retire the vehicle. Please try again.' };
+  }
+  return { ok: true };
+}
+
 // Archive a location: active=FALSE (locations are NEVER hard-deleted) through
 // the local UPDATE + outbox + log path — mirrors the old app's hand-rolled
 // runInTransaction(update + outbox + appendLog) in the location-detail screen's
-// handleArchive. Vehicle-type locations do NOT use this: see the PORT NOTE at
-// the top of this file — retireVehicle needs the unported vehicles.ts domain
-// (open-checkout guard), so the location-detail screen hides the Archive
-// action for vehicles until that domain is ported (TODO(wave-C)).
+// handleArchive. Vehicle-type locations use retireVehicle instead (above) —
+// the location-detail screen branches on location.type, mirroring the old
+// app's handleArchive/handleUnarchive split.
 export function archiveLocation(id: string, userId: string | null): void {
   const location = getLocationById(id);
   if (!location) return;

@@ -48,6 +48,14 @@ const TILES: Tile[] = [
   // app/(app)/logs/index.tsx's header comment for why it's scoped this way).
   // Ungated like My Team: it only ever shows the signed-in user's own rows.
   { label: 'Activity Log', icon: '🧾', href: '/(app)/logs' },
+  // Vehicles + Lockers (Station C3) — old app had no dedicated hub tile for
+  // either (only reachable via the Wave-D dashboard's StatTiles/WorkList, or
+  // embedded in a location's detail page). Same reasoning as Jobs/Schedule:
+  // both list screens self-gate visibility via getVisibleUnits (owner + team
+  // + explicit unit_access grants, or every unit for managers), so the tiles
+  // stay ungated here — just a new entry point, not a new permission.
+  { label: 'Vehicles', icon: '🚐', href: '/(app)/vehicles' },
+  { label: 'Lockers', icon: '🔒', href: '/(app)/lockers' },
 ];
 
 // Wave B: Users/Roles/Teams tiles, gated on their own manage_*/view_*

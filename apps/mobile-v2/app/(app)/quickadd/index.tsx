@@ -10,12 +10,14 @@ import { useThemedStyles, PrimaryButton } from '@invenpro/ui';
  * of its own file, so adding a new quick-add kind only means adding a row
  * here + a case in `[sheet].tsx` (see that file's KIND_META).
  *
- * Wave A ships item/csv-import/stock/equipment/location. The rest are real,
- * known kinds whose forms aren't ported yet — old chooser had no per-kind
- * permission gating (only the overall `quick_add` gate below), so there's no
- * existing gating to mirror; tiles are just visually disabled until their
- * wave lands. `[sheet].tsx` still renders a themed "coming soon" placeholder
- * for them so a deep link / other push site isn't a dead end.
+ * Wave A shipped item/csv-import/stock/equipment/location; Waves B/C added
+ * user/team/job/vehicle/gas-receipt. Only 'repair' remains a real, known kind
+ * whose form isn't ported yet (repairs/ excluded, TODO(wave-D)) — old chooser
+ * had no per-kind permission gating (only the overall `quick_add` gate
+ * below), so there's no existing gating to mirror; its tile is just visually
+ * disabled until that wave lands. `[sheet].tsx` still renders a themed
+ * "coming soon" placeholder for it so a deep link / other push site isn't a
+ * dead end.
  */
 const ACTIONS: { kind: string; icon: string; label: string; sub: string; deferred?: boolean }[] = [
   { kind: 'item', icon: '📦', label: 'Item', sub: 'New catalog item' },
@@ -23,12 +25,11 @@ const ACTIONS: { kind: string; icon: string; label: string; sub: string; deferre
   { kind: 'stock', icon: '➕', label: 'Stock', sub: 'Add stock to a location' },
   { kind: 'equipment', icon: '🛠️', label: 'Equipment', sub: 'New equipment + units' },
   { kind: 'location', icon: '📍', label: 'Location', sub: 'New location / shelf' },
-  // TODO(wave-C): vehicle quick add not ported yet.
-  { kind: 'vehicle', icon: '🚐', label: 'Vehicle', sub: 'Coming soon', deferred: true },
-  // TODO(wave-C): gas-receipt quick add not ported yet.
-  { kind: 'gas-receipt', icon: '⛽', label: 'Gas Receipt', sub: 'Coming soon', deferred: true },
+  { kind: 'vehicle', icon: '🚐', label: 'Vehicle', sub: 'New vehicle' },
+  { kind: 'gas-receipt', icon: '⛽', label: 'Gas Receipt', sub: 'Log a fuel-up' },
   { kind: 'job', icon: '🏗', label: 'Job', sub: 'New job' },
-  // TODO(wave-C): repair quick add not ported yet.
+  // TODO(wave-D): repair quick add not ported yet (repairs/ excluded, out of
+  // scope for Station C3 per the coordinator brief).
   { kind: 'repair', icon: '🔧', label: 'Repair', sub: 'Coming soon', deferred: true },
   { kind: 'team', icon: '👥', label: 'Team', sub: 'New team' },
   { kind: 'user', icon: '👤', label: 'User', sub: 'New employee account' },

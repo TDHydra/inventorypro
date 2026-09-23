@@ -3,13 +3,18 @@
 // grants (#122 Phase A1/B) on Locker/Vehicle UNIT locations — who besides the
 // owner/owning team can view/add/remove/move/edit/grant inside one.
 //
-// SCOPE THIS STATION (Station B3): Vehicle-coupled surfaces are OUT — vehicles
-// aren't ported to mobile-v2 at all yet (see repos/locations.ts's own PORT
-// NOTE). Cut from this port: getAccessibleSourceLocations, getTeamUnits,
-// getCheckoutSourceLocations, getVisibleUnits, canManageVehicle,
-// canLiftVehicleLockFor (all Vehicle-coupled — TODO(wave-C), same wave as
-// locations.ts's findOrCreateVehicleByName/retireVehicle). getGrantableUnits
-// below is trimmed to Locker-type units only (was Vehicle ∪ Locker).
+// Station C3 (Wave C): un-stubbed the Vehicle-coupled access surface left as
+// TODO(wave-C) by Station B3 — getAccessibleSourceLocations, getTeamUnits,
+// getCheckoutSourceLocations, isTeamManagerAnywhere, getVisibleUnits,
+// canManageVehicle, canLiftVehicleLockFor all ported below (import-mapping
+// only from apps/mobile/src/db/queries/access.ts); getGrantableUnits widened
+// back to Vehicle ∪ Locker (was Locker-only). getAllUnitAccessGrants (admin
+// grants-list) stays Locker-only — that surface's own scope, not part of this
+// station's brief. getAccessibleLocationIds/canSeeAllUnitsInManage are
+// inlined as private helpers below (ported from the old app's pure kernel,
+// src/access/accessResolution.ts) rather than a separate module — same
+// reasoning as isUnitInventoryBlocked's existing inline precedent in this
+// file: only this file's functions need them.
 //
 // Self-log convention (DIVERGENCE from the old app): old db/queries/
 // unitAccess.ts's upsertUnitAccess/revokeUnitAccess called appendLog
@@ -34,8 +39,12 @@ import type { UserSession } from '../auth/permissions';
 import { ROLE_TIER, ROLE_DEFAULTS } from '../constants/roles';
 import type { UserRole } from '../constants/roles';
 import { canManageUnitAccess } from '../access/unitAccessPolicy';
-import { getAllLocations, getLocationById, isUnitLocation, type Location } from './locations';
+import {
+  getAllLocations, getLocationById, getUnitLocations, getNonShelfLocations,
+  isUnitLocation, type Location,
+} from './locations';
 import { getDefaultActionsForRole } from '../db/unitAccessDefaults';
+import { canLiftVehicleLock } from '../components/vehicles/vehicleSessionLogic';
 
 const accessRepo = createRepository('unit_access');
 
@@ -159,13 +168,13 @@ export function getManagedOwnerIds(callerId: string): Set<string> {
 
 /**
  * Units `user` may create a grant on for `granteeRole` (canManageUnitAccess
- * per unit). Trimmed to Locker-type units this station — Vehicle grants are
- * out of scope (see header PORT NOTE).
+ * per unit). Vehicle ∪ Locker (Station C3: widened back from Locker-only —
+ * see header note).
  */
 export function getGrantableUnits(user: UserSession, granteeRole: string | null): Location[] {
   const managed = getManagedOwnerIds(user.id);
   return getAllLocations()
-    .filter(l => l.type === 'Locker')
+    .filter(l => l.type === 'Vehicle' || l.type === 'Locker')
     .filter(l => canManageUnitAccess({
       callerId: user.id,
       callerRole: user.role,
@@ -173,6 +182,239 @@ export function getGrantableUnits(user: UserSession, granteeRole: string | null)
       callerManagesOwnersTeam: l.owner_user_id != null && managed.has(l.owner_user_id),
       granteeRole,
     }));
+}
+
+// ── Access resolution (Station C3) ──────────────────────────────────────────
+// The DB-backed wrapper around the pure access kernel, inlined below
+// (getAccessibleLocationIds/canSeeAllUnitsInManage — ported from the old
+// app's src/access/accessResolution.ts) since only this file's functions
+// need them (same reasoning as isUnitInventoryBlocked's existing inline
+// precedent further down this file).
+
+interface AccessLockerRow { id: string; ownerUserId: string | null; }
+interface AccessGrantRow { locationId: string; userId: string; }
+interface TeamMemberRow { teamId: string; userId: string; }
+
+/**
+ * The Set of location ids from `lockers` that `userId` may access: owned by
+ * them, explicitly granted to them via unit_access, or owned by any user who
+ * shares at least one parent team with them. Grants pointing at locations not
+ * present in `lockers` are ignored (stale grant / non-asset location).
+ * Ownerless lockers are reachable only via an explicit grant.
+ */
+function getAccessibleLocationIds(
+  input: { lockers: AccessLockerRow[]; grants: AccessGrantRow[]; teamMembers: TeamMemberRow[] },
+  userId: string,
+): Set<string> {
+  const { lockers, grants, teamMembers } = input;
+  const lockerIds = new Set(lockers.map(l => l.id));
+
+  const myTeamIds = new Set<string>();
+  for (const tm of teamMembers) {
+    if (tm.userId === userId) myTeamIds.add(tm.teamId);
+  }
+  const teammateIds = new Set<string>();
+  for (const tm of teamMembers) {
+    if (myTeamIds.has(tm.teamId)) teammateIds.add(tm.userId);
+  }
+
+  const accessible = new Set<string>();
+  for (const locker of lockers) {
+    if (locker.ownerUserId === null) continue;
+    if (locker.ownerUserId === userId || teammateIds.has(locker.ownerUserId)) {
+      accessible.add(locker.id);
+    }
+  }
+  for (const grant of grants) {
+    if (grant.userId === userId && lockerIds.has(grant.locationId)) {
+      accessible.add(grant.locationId);
+    }
+  }
+  return accessible;
+}
+
+/**
+ * #130 (Frank's Locker invisible to Matt): manage contexts list ALL units for
+ * tier-3+ org authority, Production Managers (tier 2 — the spec names them),
+ * team managers (team_members.is_manager), and unit owners. Day-to-day
+ * surfaces (fast-checkout picker) keep using getAccessibleLocationIds —
+ * explicit visibility via unit_access.can_view.
+ */
+function canSeeAllUnitsInManage(ctx: { roleTier: number; isTeamManager: boolean; ownsAnyUnit: boolean; isProductionManager: boolean }): boolean {
+  return ctx.roleTier >= 3 || ctx.isProductionManager || ctx.isTeamManager || ctx.ownsAnyUnit;
+}
+
+/** Shared row loader for getAccessibleSourceLocations / getTeamUnits. */
+function loadUnitAccessRows(): { assets: Location[]; grants: AccessGrantRow[]; teamMembers: TeamMemberRow[] } {
+  const db = getDb();
+  const assets = getAllLocations().filter(l => l.type === 'Locker' || l.type === 'Vehicle');
+  const grants: AccessGrantRow[] = rowsAs<{ location_id: string; user_id: string }>(
+    db.executeSync(`SELECT location_id, user_id FROM unit_access WHERE can_view = 1`).rows,
+  ).map(g => ({ locationId: g.location_id, userId: g.user_id }));
+  const teamMembers: TeamMemberRow[] = rowsAs<{ team_id: string; user_id: string }>(
+    db.executeSync(`SELECT team_id, user_id FROM team_members`).rows,
+  ).map(tm => ({ teamId: tm.team_id, userId: tm.user_id }));
+  return { assets, grants, teamMembers };
+}
+
+export interface AccessibleSourceLocations {
+  lockers: Location[];
+  vehicles: Location[];
+}
+
+/**
+ * The Locker- and Vehicle-typed locations `userId` may work from, partitioned
+ * by type. Access = owned by them ∪ granted via unit_access (can_view = 1) ∪
+ * owned by any user sharing a parent team with them (whole team, not just the
+ * subteam). Backs the fast-checkout source picker and Manage My Team. NOTE:
+ * org-authority (tier 3+) bypass is deliberately NOT applied here — the
+ * picker shows an admin their own assets, not every locker in the org.
+ *
+ * #157: VEHICLES are exempt from the access filter — every Vehicle-kind unit
+ * is visible to everyone (whoever needs the van can find it); the owner's
+ * checkout_locked flag gates the checkout ACTION instead (repos/vehicles.ts
+ * isCheckoutLockedFor). Locker behavior is unchanged.
+ */
+export function getAccessibleSourceLocations(userId: string): AccessibleSourceLocations {
+  const { assets, grants, teamMembers } = loadUnitAccessRows();
+  const lockerRows: AccessLockerRow[] = assets.map(l => ({ id: l.id, ownerUserId: l.owner_user_id }));
+  const accessible = getAccessibleLocationIds({ lockers: lockerRows, grants, teamMembers }, userId);
+
+  const lockers: Location[] = [];
+  const vehicles: Location[] = [];
+  for (const loc of assets) {
+    if (loc.type === 'Vehicle') {
+      vehicles.push(loc); // #157: all vehicles, regardless of ownership/grants
+      continue;
+    }
+    if (accessible.has(loc.id)) lockers.push(loc);
+  }
+  return { lockers, vehicles };
+}
+
+/**
+ * The kind-filtered unit set the pure KERNEL grants — owned by me ∪ granted
+ * via unit_access (can_view = 1) ∪ owned by anyone sharing a parent team with
+ * me — WITHOUT the #157 all-vehicles bypass. Backs the "Team Vehicles"
+ * segment on the Vehicles screen; getAccessibleSourceLocations/
+ * getVisibleUnits keep the bypass for every other caller. Additive only —
+ * nothing else routes through this.
+ */
+export function getTeamUnits(user: UserSession, kind: 'Vehicle' | 'Locker'): Location[] {
+  const { assets, grants, teamMembers } = loadUnitAccessRows();
+  const lockerRows: AccessLockerRow[] = assets.map(l => ({ id: l.id, ownerUserId: l.owner_user_id }));
+  const accessible = getAccessibleLocationIds({ lockers: lockerRows, grants, teamMembers }, user.id);
+  return assets.filter(l => l.type === kind && accessible.has(l.id));
+}
+
+export interface CheckoutSources {
+  /** Main stock-holding locations (role-gated at the screen; no per-object ACL). */
+  locations: Location[];
+  lockers: Location[];
+  vehicles: Location[];
+}
+
+/**
+ * #139 source taxonomy: the full Location ∪ Vehicle ∪ Locker source set for
+ * the fast-checkout picker. Units come from the access-gated resolver (owned
+ * ∪ granted ∪ teammate); main locations are added explicitly and gated by
+ * role only. Kept separate from getAccessibleSourceLocations so Manage My
+ * Team / getVisibleUnits (units only) are unaffected.
+ * #158: ALL active TYPED main locations (incl. empty ones), not just
+ * stock-holding ones — see getNonShelfLocations' own doc.
+ */
+export function getCheckoutSourceLocations(userId: string): CheckoutSources {
+  const units = getAccessibleSourceLocations(userId);
+  return {
+    locations: getNonShelfLocations(),
+    lockers: units.lockers,
+    vehicles: units.vehicles,
+  };
+}
+
+// ── Unit visibility (#130) ───────────────────────────────────────────────────
+
+export function isTeamManagerAnywhere(userId: string): boolean {
+  const db = getDb();
+  return (rowsAs<{ n: number }>(db.executeSync(
+    `SELECT COUNT(*) AS n FROM team_members WHERE user_id = ? AND is_manager = 1`, [userId],
+  ).rows)[0]?.n ?? 0) > 0;
+}
+
+export interface VisibleUnits { units: Location[]; showsAll: boolean; }
+
+/** Unit list for the Vehicles/Lockers screens (#130): full census for managers, accessible-only otherwise. */
+export function getVisibleUnits(user: UserSession, kind: 'Vehicle' | 'Locker'): VisibleUnits {
+  const ctx = {
+    roleTier: ROLE_TIER[user.role] ?? 0,
+    isTeamManager: isTeamManagerAnywhere(user.id),
+    ownsAnyUnit: getAllLocations().some(l => isUnitLocation(l) && l.owner_user_id === user.id),
+    isProductionManager: user.role === 'production_manager',
+  };
+  if (canSeeAllUnitsInManage(ctx)) return { units: getUnitLocations(kind), showsAll: true };
+  const acc = getAccessibleSourceLocations(user.id);
+  return { units: kind === 'Vehicle' ? acc.vehicles : acc.lockers, showsAll: false };
+}
+
+/**
+ * Locker access-management authority (Station C3, ported from apps/mobile's
+ * canManageLockerAccess): owner or tier-3+ org authority — the exact mirror
+ * of the server's locker_access write guard (routes/sync.ts). Unknown roles
+ * fail closed.
+ */
+export function canManageLockerAccess(
+  user: UserSession | null | undefined,
+  location: Pick<Location, 'owner_user_id'> | null | undefined,
+): boolean {
+  if (!user || !location) return false;
+  if (location.owner_user_id !== null && location.owner_user_id === user.id) return true;
+  return (ROLE_TIER[user.role] ?? 0) >= 3;
+}
+
+/**
+ * #165: vehicle management authority — lock/unlock checkout, bypass a lock,
+ * edit state. Owner and tier-3+ (same as canManageLockerAccess), PLUS tier-2
+ * managers for vehicles owned by someone on one of their teams ("their team's
+ * vehicles" — the PM slice of the #156 device review).
+ */
+export function canManageVehicle(
+  user: UserSession | null | undefined,
+  location: Pick<Location, 'owner_user_id'> | null | undefined,
+): boolean {
+  if (!user || !location) return false;
+  if (location.owner_user_id !== null && location.owner_user_id === user.id) return true;
+  const tier = ROLE_TIER[user.role] ?? 0;
+  if (tier >= 3) return true;
+  return tier >= 2 && sharesTeamWithOwner(user.id, location.owner_user_id);
+}
+
+/**
+ * #167: may `user` lift the vehicle's current lock (and therefore flip the
+ * toggle OFF / bypass it)? Unlocked → true (locking ON is gated by
+ * canManageVehicle alone). Locker tier resolves from their CURRENT role;
+ * a deleted locker resolves to tier 0. SQL twin: isCheckoutLockedFor
+ * (repos/vehicles.ts) — kept in sync manually.
+ */
+export function canLiftVehicleLockFor(
+  user: UserSession | null | undefined,
+  location: Pick<Location, 'owner_user_id'> | null | undefined,
+  vehicle: { checkout_locked: number; locked_by: string | null } | null | undefined,
+): boolean {
+  if (!user || !location) return false;
+  if (!vehicle?.checkout_locked) return true;
+  let lockerRole: string | null = null;
+  if (vehicle.locked_by) {
+    lockerRole = rowsAs<{ role: string | null }>(getDb().executeSync(
+      `SELECT role FROM users WHERE id = ?`, [vehicle.locked_by],
+    ).rows)[0]?.role ?? null;
+  }
+  return canLiftVehicleLock({
+    canManage: canManageVehicle(user, location),
+    lockedBy: vehicle.locked_by,
+    lockerTier: ROLE_TIER[lockerRole as UserRole] ?? 0,
+    userId: user.id,
+    userTier: ROLE_TIER[user.role] ?? 0,
+  });
 }
 
 // ── Writes: grant / revoke ──────────────────────────────────────────────────

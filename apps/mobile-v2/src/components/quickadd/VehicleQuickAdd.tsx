@@ -1,0 +1,210 @@
+import { useState, useRef, useMemo } from 'react';
+import { Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import {
+  useTheme, useThemedStyles, getTheme, FieldLabel, FormScreen, StatusPill, type Theme,
+} from '@invenpro/ui';
+import { runInTransaction } from '@invenpro/core';
+import { generateUUID } from '../../utils/uuid';
+import { upsertLocation, type Location } from '../../repos/locations';
+import { ensureVehicleRow, VEHICLE_MODEL_CATEGORY } from '../../repos/vehicles';
+import { getAllActiveUsers } from '../../repos/users';
+import { TaxonomyChips } from '../pickers';
+import { ROLE_DISPLAY_NAMES } from '../../constants/roles';
+import { appendLog } from '../../db/queries/log';
+import { useSession } from '../../hooks/useSession';
+import { SearchablePicker, type PickerOption } from '../SearchablePicker';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useTableVersion } from '@invenpro/core';
+import { AdvancedFields } from '../ui/AdvancedFields';
+import { PermissionGate } from '../PermissionGate';
+import { QuickAddFooter } from './QuickAddFooter';
+import { track } from '../../telemetry';
+import { validateName } from '../../lib/validation';
+
+// Ported from apps/mobile/src/components/quickadd/VehicleQuickAdd.tsx (203 ln,
+// Station C3). A vehicle is just a location tagged type='Vehicle' (no
+// separate table) — mirrors LocationQuickAdd but locks the type and offers an
+// optional Owner instead of a parent.
+//
+// Import mapping applied (docs/REBUILD-PORTING.md):
+//   '../../db/queries/locations' (upsertLocation) → '../../repos/locations'
+//     (already self-mirrors the outbox internally — the old app's hand-rolled
+//     appendOutbox call after upsertLocation is DROPPED here, same fix
+//     LocationQuickAdd already applied).
+//   '../../db/queries/vehicles' (ensureVehicleRow, VEHICLE_MODEL_CATEGORY) →
+//     '../../repos/vehicles' (ensureVehicleRow already self-mirrors too, and
+//     does not self-log — see repos/vehicles.ts's header comment).
+//   '../../db/tx' (runInTransaction) → '@invenpro/core'
+//   '../../db/queries/users' → '../../repos/users'
+//   '../../hooks/useDataVersion' (useTableVersion) → '@invenpro/core'
+//   ui/FieldLabel, ui/FormScreen, ui/StatusPill, useTheme/useThemedStyles →
+//     '@invenpro/ui'
+// Straight port otherwise (TaxonomyChips model picker, truck-mount/debris
+// toggles, sticky owner picker in AdvancedFields).
+const VEHICLE_ICON = '🚐';
+
+interface Props {
+  onSaved: (label: string, createdId?: string) => void;
+}
+
+export default function VehicleQuickAdd({ onSaved }: Props) {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const { realUser } = useSession();
+  const { locked } = useMaintenanceMode();
+  const nameRef = useRef<TextInput>(null);
+
+  const [name, setName] = useState('');
+  const [ownerOption, setOwnerOption] = useState<PickerOption | null>(null); // optional, sticky
+  // vehicle_model taxonomy (#81) — optional, sticky like owner (fleets are
+  // usually added a model at a time). id + label both kept (dual-write, #74).
+  const [model, setModel] = useState<{ id: string | null; label: string | null }>({ id: null, label: null });
+  // Truck mount is set here at creation (or later in the vehicle Edit sheet) —
+  // it's equipment spec, not day-to-day state, so it doesn't live on the panel.
+  // Sticky like model/owner: fleets are usually added a spec at a time.
+  const [truckMount, setTruckMount] = useState(false);
+  // #152: debris tracker — equipment spec like the truck mount, same stickiness.
+  const [debrisOption, setDebrisOption] = useState(false);
+  const [nameError, setNameError] = useState('');
+
+  const usersVersion = useTableVersion(['users']);
+  const ownerOptions = useMemo<PickerOption[]>(
+    () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name, sublabel: ROLE_DISPLAY_NAMES[u.role] })),
+    [usersVersion],
+  );
+
+  function handleSave() {
+    track('action', 'quickadd_save_vehicle', { screen: 'quick_add' });
+    // Bounded, control-char-free name (same 'Name is required.' copy as before
+    // for the blank case).
+    const nameResult = validateName(name);
+    if (!nameResult.ok) {
+      track('audit', 'validation_reject', { screen: 'quick_add', props: { field: 'vehicle.name', rule: nameResult.rule } });
+      setNameError(nameResult.error);
+      return;
+    }
+    const trimmedName = nameResult.value;
+    setNameError('');
+
+    const now = new Date().toISOString();
+    const id = generateUUID();
+
+    const loc: Location = {
+      id,
+      name: trimmedName,
+      parent_id: null,
+      color: getTheme().colors.brand,
+      icon: VEHICLE_ICON,
+      owner_user_id: ownerOption?.id ?? null,
+      active: 1,
+      updated_at: now,
+      synced_at: null,
+      type: 'Vehicle',
+    };
+
+    // Atomic (#125): the location, its vehicles extension row (state/model),
+    // and the log land together or not at all. upsertLocation/ensureVehicleRow
+    // both self-mirror to the outbox internally — no hand-rolled appendOutbox
+    // here (unlike the old app).
+    runInTransaction(() => {
+      upsertLocation(loc);
+      ensureVehicleRow(id, { model: model.label, model_id: model.id, truck_mount: truckMount ? 1 : 0, debris_option: debrisOption ? 1 : 0 });
+      appendLog({
+        action: 'location_created',
+        entity_type: 'location',
+        entity_id: id,
+        user_id: realUser?.id ?? null,
+        team_id: null,
+        job_id: null,
+        note: trimmedName,
+        from_location_id: null,
+        to_location_id: null,
+        quantity: null,
+        unit: null,
+        metadata: null,
+        device_id: null,
+      });
+    });
+
+    onSaved(trimmedName, id);
+    setName(''); // clear name; keep owner sticky
+    setTimeout(() => nameRef.current?.focus(), 100);
+  }
+
+  return (
+    // Owns its FormScreen (shell passes wrapForm={false}) so the Save/Done bar
+    // sits in the sticky footer slot and floats above the keyboard (#118).
+    <FormScreen
+      contentContainerStyle={s.content}
+      footer={(
+        // A vehicle IS a location insert (upsertLocation above) — server
+        // enforces manage_locations on that path, so gate the save control the
+        // same way instead of letting a denied user hit a sync conflict (#76).
+        <PermissionGate permission="manage_locations" mode="disable">
+          <QuickAddFooter onSave={handleSave} disabled={locked} locked={locked} />
+        </PermissionGate>
+      )}
+    >
+      <TextInput
+        ref={nameRef}
+        style={[s.input, !!nameError && s.inputError]}
+        placeholder="Vehicle name *"
+        placeholderTextColor={t.colors.textMuted}
+        value={name}
+        onChangeText={t => { setName(t); if (nameError) setNameError(''); }}
+        autoFocus
+        returnKeyType="done"
+        onSubmitEditing={handleSave}
+      />
+      {!!nameError && <Text style={s.errorText}>{nameError}</Text>}
+
+      <TaxonomyChips
+        category={VEHICLE_MODEL_CATEGORY}
+        label="Model (optional)"
+        deselectable
+        valueId={model.id}
+        valueLabel={model.label}
+        onChange={setModel}
+      />
+
+      <Pressable onPress={() => setTruckMount(v => !v)} style={s.truckRow}>
+        <StatusPill
+          label={truckMount ? 'Truck mount' : 'No truck mount'}
+          tone={truckMount ? 'primary' : 'neutral'}
+        />
+        <Text style={s.toggleHint}>tap to toggle</Text>
+      </Pressable>
+
+      <Pressable onPress={() => setDebrisOption(v => !v)} style={s.truckRow}>
+        <StatusPill
+          label={debrisOption ? 'Debris tracker' : 'No debris tracker'}
+          tone={debrisOption ? 'primary' : 'neutral'}
+        />
+        <Text style={s.toggleHint}>tap to toggle</Text>
+      </Pressable>
+
+      <AdvancedFields>
+        <FieldLabel>Owner (optional)</FieldLabel>
+        <SearchablePicker
+          placeholder="Search people..."
+          options={ownerOptions}
+          value={ownerOption}
+          onSelect={opt => setOwnerOption(prev => prev?.id === opt.id ? null : opt)}
+        />
+      </AdvancedFields>
+    </FormScreen>
+  );
+}
+
+const makeStyles = (t: Theme) => StyleSheet.create({
+  // Mirrors the shell's default FormScreen content padding + this form's row gap.
+  content: { padding: t.spacing.lg, paddingBottom: 48, gap: 10 },
+  input: {
+    backgroundColor: t.colors.surface, borderRadius: t.radii.md, borderWidth: 1, borderColor: t.colors.border,
+    paddingHorizontal: t.spacing.base, height: 44, fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary,
+  },
+  inputError: { borderColor: t.colors.danger },
+  errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger, marginTop: -4 },
+  truckRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  toggleHint: { fontSize: t.typography.fontSizes.xs, color: t.colors.textMuted },
+});

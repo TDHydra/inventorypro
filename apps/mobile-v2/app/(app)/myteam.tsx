@@ -17,8 +17,9 @@
 //     (full LockerPanel + "Open full page" route) is cut — tapping a locker
 //     here opens AccessListEditor directly (grant/revoke who can access it),
 //     since a dedicated locker detail route isn't part of this wave.
-//   - My Vehicles (VehicleSheet, VehicleInlineStatus, vehicles table) —
-//     TODO(wave-C): vehicles aren't ported yet at all.
+//   - My Vehicles: WIRED Station C3 — restored to the old app's own shape
+//     (VehicleSheet + VehicleInlineStatus, not the simplified My-Lockers
+//     stand-in), since vehicles/VehicleSheet is now ported.
 // isEmpty is keyed on crews.length alone — My Lockers renders (possibly
 // empty) below My Crews regardless, mirroring the old app's layout.
 import { useMemo, useState } from 'react';
@@ -46,6 +47,10 @@ import {
   getUnitAccessRows, revokeUnitAccess, grantUnitAccessWithDefaults,
 } from '../../src/repos/access';
 import { AccessListEditor, type AccessEntry } from '../../src/components/crew/AccessListEditor';
+import { getVehicle, VEHICLE_MODEL_CATEGORY } from '../../src/repos/vehicles';
+import { getTypeIcon } from '../../src/repos/taxonomy';
+import { VehicleSheet } from '../../src/components/vehicles/VehicleSheet';
+import { VehicleInlineStatus } from '../../src/components/vehicles/VehicleInlineStatus';
 
 // Manage My Team (#124, scoped down) — a technician's home base for the crew(s)
 // they're in. Everything routes through the shared CrewCard/CrewEditor — this
@@ -60,7 +65,11 @@ export default function ManageMyTeamScreen() {
 
   // Re-query on any change (sync pull OR our own local writes — both tick the
   // table version bus) that touches the tables this screen reads.
-  const version = useTableVersion(['team_members', 'subteams', 'users']);
+  // Station C3: added 'locations' (myLockers/myVehicles both read
+  // getLocationsByOwner — a pre-existing B3 gap, closed here since this list
+  // is being touched for the new vehicles read anyway), 'vehicles',
+  // 'vehicle_checkouts' (My Vehicles section + VehicleInlineStatus/VehicleSheet).
+  const version = useTableVersion(['team_members', 'subteams', 'users', 'locations', 'vehicles', 'vehicle_checkouts']);
 
   const crews = useMemo<Crew[]>(
     () => (user ? getMyCrews(user.id) : []),
@@ -214,9 +223,29 @@ export default function ManageMyTeamScreen() {
     });
   }
 
+  // ── My Vehicles (#124, restored Station C3) ─────────────────────────────────
+  // Straight port of the old app's myVehicles/vehicleRows: owned, active
+  // vehicles; tapping opens the full VehicleSheet (unlike My Lockers' simplified
+  // AccessListEditor stand-in — VehicleSheet/VehiclePanel are fully ported now).
+
+  const myVehicles = useMemo(
+    () => (user ? getLocationsByOwner(user.id).filter(l => l.type === 'Vehicle' && l.active === 1) : []),
+    [user?.id, version],
+  );
+
+  const vehicleRows = useMemo(
+    () => myVehicles.map(location => {
+      const model = getVehicle(location.id)?.model ?? null;
+      return { location, model, icon: getTypeIcon(VEHICLE_MODEL_CATEGORY, model ?? '') ?? '🚐' };
+    }),
+    [myVehicles, version],
+  );
+
+  const [vehicleSheetId, setVehicleSheetId] = useState<string | null>(null);
+
   if (!user) return null; // (app)/_layout redirects to login
 
-  const isEmpty = crews.length === 0 && myLockers.length === 0;
+  const isEmpty = crews.length === 0 && myLockers.length === 0 && vehicleRows.length === 0;
 
   return (
     <>
@@ -227,7 +256,7 @@ export default function ManageMyTeamScreen() {
           <EmptyState
             icon="🧰"
             title="Nothing to manage yet"
-            subtitle="You're not in a crew yet. Crews are set up by your manager."
+            subtitle="You're not in a crew and don't own a locker or vehicle yet. Crews and asset owners are set up by your manager."
           />
         </View>
       ) : (
@@ -272,7 +301,27 @@ export default function ManageMyTeamScreen() {
             </>
           )}
 
-          {/* TODO(wave-C): My Vehicles section cut — vehicles aren't ported yet. */}
+          {/* My Vehicles — model icon + live status pills, tap for the sheet
+              (restored Station C3). */}
+          {vehicleRows.length > 0 && (
+            <>
+              <Text style={s.sectionLabel}>My Vehicle{vehicleRows.length === 1 ? '' : 's'}</Text>
+              {vehicleRows.map(row => (
+                <TouchableOpacity
+                  key={row.location.id}
+                  style={s.lockerRow}
+                  onPress={() => setVehicleSheetId(row.location.id)}
+                >
+                  <View>
+                    <Text style={s.lockerName}>{row.icon} {row.location.name}</Text>
+                    {row.model ? <Text style={s.editLink}>{row.model}</Text> : null}
+                    <VehicleInlineStatus locationId={row.location.id} />
+                  </View>
+                  <Text style={s.editLink}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
         </ScrollView>
       )}
 
@@ -300,6 +349,14 @@ export default function ManageMyTeamScreen() {
         onRemove={handleRevokeLockerAccess}
         removeNoun="locker access"
       />
+
+      {vehicleSheetId !== null && (
+        <VehicleSheet
+          locationId={vehicleSheetId}
+          visible
+          onClose={() => setVehicleSheetId(null)}
+        />
+      )}
     </>
   );
 }
