@@ -1408,3 +1408,45 @@ VPS .env pins: `API_IMAGE=inventorypro-api-v2:latest`, `API_DOCKERFILE=apps/api-
 **Phase 8 cutover = literally `upgrade.sh`**: it builds the standby (blue = api-v2),
 health-gates it, flips nginx, smoke-tests through the public path (versions now differ,
 so /health proves which code serves), drains, stops green. Rollback drill first per plan.
+
+## Phase 9 — web hard pass + ship (2026-09-23)
+
+### Hard pass (dev, real browser vs api-v2 :3002)
+Full cycle verified in Chrome against a dev api-v2: login (fresh-device public
+/auth/roster path), full download, Quick Add write → outbox → `/sync/push` →
+row + `item_created` activity log in PG (~55s, one heartbeat), hard reload →
+silent session resume with data intact from the encrypted IndexedDB snapshot.
+`.web.tsx` twin sweep: MediaGallery (thumbnails + full-res from s3 presigned
+URLs), BarcodeScanner (camera-denied fallback + USB scanner mode), forms,
+session/schema/netinfo all good.
+
+Watch items, all closed (commit a0c94bc):
+- **Deep-link 404**: nginx SPA fallback already covers the server side; client
+  side fixed — the (app) guard now routes to `/unlock?next=<path>` when a
+  stored session exists instead of bouncing to /login.
+- **Hard reload wipes session**: unlock resumes silently on web (WebAuthn
+  never registers a credential at login so promptBiometric can only fail
+  there; the per-tab sessionStorage AES key + 15-min idle wipe gate resume),
+  and `hasStoredSession` accepts an unexpired stored JWT (refresh token is
+  deliberately memory-only on web).
+- **Stale-localStorage enrollment prompt**: nothing to fix — the only
+  localStorage key is `inventorypro_theme_dark` (shared, benign); every stale
+  IndexedDB path (legacy plaintext blob, missing/wrong AES key, corrupt
+  ciphertext) returns null → fresh DB + /login, and legacy plaintext is purged.
+
+Note for future manual testing: the quick-add footer's **Done** button is
+`router.back()` only — the save action is **"Save & add another"**.
+
+### Ship (commit b2155da)
+`infra/Dockerfile.web-v2` builds the mobile-v2 Expo web export (workspace TS
+sources, sql-wasm-browser.wasm staged, source maps stripped) behind a new
+`WEB_DOCKERFILE` compose selector (default = old app). VPS .env adds
+`WEB_DOCKERFILE=infra/Dockerfile.web-v2`; old bundle kept as rollback image
+tag **`inventorypro-web:old-app-rollback`** (rollback = retag to :latest +
+`compose up -d web`, or drop the .env pin and rebuild). Live since
+2026-09-23: invenpro.app serves bundle `index-610717af…` (was
+`index-bda607b7…`) against the still-active OLD api (green) — contract
+parity makes the v2 client/v1 server pairing safe until the Phase 8 flip.
+Verified from the public internet: / and deep links 200, wasm
+`application/wasm`, roster + per-user PIN screen render, zero console
+errors. Full prod login/write needs a real PIN — user's check.
