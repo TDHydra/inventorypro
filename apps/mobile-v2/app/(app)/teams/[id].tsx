@@ -18,9 +18,9 @@
 //
 // Cut for this wave (coordinator's cut-list / unported domains — see
 // docs/REBUILD-NOTES.md Wave B section):
-//   - Message member / DM (TODO(wave-chat) — chat isn't ported yet).
 // MemberPermissionsSheet's per-unit access grants + personal locker sections
 // were restored in Station B3 (repos/access.ts + access/personalLocker.ts).
+// Message member / DM restored in Station D1 (src/repos/chat.ts).
 //
 // repos/teams.ts's subteam functions (createSubteam/renameSubteam/
 // setSubteamMembership/clearSubteamMembership/deleteSubteam) don't call
@@ -31,13 +31,14 @@
 // return for exactly that purpose.
 import { useState, useMemo, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import {
   Alert, useThemedStyles, Card, EmptyState, KeyValueRow, confirmSheet,
   ModalSheet, EntityEditSheet, PrimaryButton, AppInput, MaintenanceBanner,
 } from '@invenpro/ui';
-import { runInTransaction } from '@invenpro/core';
+import { runInTransaction, syncNow } from '@invenpro/core';
+import { createDmConversation } from '../../../src/repos/chat';
 import {
   getTeamById, getTeamMembers, updateTeam, addTeamMember, removeTeamMember,
   setMemberManagerOnline, getSubteamsForTeam, createSubteam, renameSubteam,
@@ -73,6 +74,7 @@ function trackReject(field: string, rule: string) {
 export default function TeamDetailScreen() {
   const s = useThemedStyles(makeStyles);
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { user, realUser } = useSession();
   // #197/#198: previously this screen only checked team membership/org
   // authority (the deep-link guard below) — a role with view_teams
@@ -297,6 +299,22 @@ export default function TeamDetailScreen() {
     }
     // Refresh only after the write committed.
     setMembers(getTeamMembers(team.id));
+  }
+
+  // ── Message a member (find-or-create DM → open the thread) ─────────────────
+
+  function handleMessageMember(memberUserId: string) {
+    if (!user) return;
+    let convId: string;
+    try {
+      // createDmConversation reuses an existing 1:1 before creating (repos/chat.ts).
+      convId = createDmConversation(user.id, memberUserId);
+    } catch {
+      Alert.alert('Could not start chat', 'Please try again.');
+      return;
+    }
+    void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    router.push({ pathname: '/(app)/chat/[id]', params: { id: convId } });
   }
 
   // ── Promote / demote manager ────────────────────────────────────────────────
@@ -618,7 +636,16 @@ export default function TeamDetailScreen() {
                     </Text>
                   )}
                 </View>
-                {/* TODO(wave-chat): message-member button cut — chat isn't ported yet. */}
+                {m.user_id !== user?.id && (
+                  <TouchableOpacity
+                    onPress={() => handleMessageMember(m.user_id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={s.msgBtn}
+                    accessibilityLabel={`Message ${m.user_name ?? 'member'}`}
+                  >
+                    <Text style={s.msgText}>💬</Text>
+                  </TouchableOpacity>
+                )}
                 {canManageRoster ? (
                   <TouchableOpacity
                     onPress={() => handleToggleManager(m)}
@@ -877,6 +904,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   },
   permsText: { color: t.colors.textSecondary, fontSize: 12, fontWeight: '700' },
 
+  msgBtn: {
+    marginLeft: 10, borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  msgText: { color: t.colors.primary, fontSize: 12, fontWeight: '700' },
   mgrToggle: {
     borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
     paddingHorizontal: 10, paddingVertical: 4,

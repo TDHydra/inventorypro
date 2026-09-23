@@ -1182,3 +1182,41 @@ Wave C / Phase 5 CLOSED. Next: Phase 6 Wave D (chat, media hub, settings
 split, label printing fixed templates, per-role dashboards, hub tile desktop
 sizing) ending in the PARITY GATE. Reminder: expo-notifications is absent
 from the dev variant — Wave D notification work needs a build that includes it.
+
+## Station D1 — Chat (2026-09-23)
+
+Full chat domain ported (started by the assembly-line agent, finished directly
+in the main session per the no-subagents directive).
+
+- `src/repos/chat.ts` + `src/repos/chatPurge.ts`: conversations/participants/
+  messages repos (DM find-or-create inside runInTransaction — #203 rollback
+  covered by test), soft delete (deleted_at + blanked body), edit/delete queue
+  outbox UPDATEs (messages is INSERT_NO_UPSERT server-side — an INSERT re-send
+  would be a silent no-op). reconcileChat registered UNSCOPED in boot.ts with
+  an hourly throttle (app_settings `chat_reconciled_at`); purge fetches the
+  authoritative conversation keep-set via paginated `/sync/full?table=
+  conversations` and NEVER deletes on a non-OK response.
+- `src/chat/unread.ts`: first real createConfigCache call site (tables:
+  messages + conversation_participants); ChatBell subscribes via
+  useChatUnread — NO 4s polling (old-app store quirk dropped). Local mark-read
+  calls reloadChatUnread() explicitly.
+- `src/chat/{chatPolicy,mentions,discussDraft,composerInsets}.ts`: pure
+  modules; chatPolicy is a NEW client-side mirror of the server rules
+  (sender-only edit/delete, participant-only send) used to pre-flight-disable
+  affordances — server stays the authority.
+- Screens: flat `chat/{index,[id]}.tsx` routes (no nested (chat) group);
+  thread uses react-native-keyboard-controller (KeyboardChatScrollView +
+  KeyboardStickyView; KeyboardProvider mounted in app/_layout.tsx). Image
+  attachments cut → TODO(wave-media). No push wiring (expo-notifications
+  absent from the dev variant).
+- Entry points wired, TODO(wave-chat) = ZERO: ChatBell + Messages hub tile;
+  DiscussThisButton headerRight on jobs/repairs/equipment detail; 💬 Message
+  on users list rows + team roster; PmContactPopup Message button;
+  PermissionGate request-access now opens a prefilled DM (was a toast).
+- Tests: repos/chat.test.ts (7, incl. #203 write-block rollback via a
+  configureCore assertWritable re-wire on the test harness) + pure ports
+  mentions/discussDraft/composerInsets. mobile-v2 suite 217/217, typecheck
+  clean.
+- Chat deliberately logs NOTHING to activity_log (old-app parity, high
+  frequency); conversations.updated_at bump on send is local-only +
+  queueTableBump.

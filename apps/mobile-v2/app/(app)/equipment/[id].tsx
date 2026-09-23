@@ -44,13 +44,14 @@ import {
 } from '@invenpro/ui';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 
 // Slimmed from apps/mobile/app/(app)/(equipment)/[id].tsx (1253 ln). Cut this
 // wave (no infra ported yet — reported, not silently dropped):
 //   - MediaGallery (model photo + per-unit photos)         → TODO(wave-media)
 //   - LabelPrintSheet (model + unit QR labels)              → labels infra
 //     (src/labels/printLabel, LabelPrintSheet) not ported this wave — gap.
-//   - DiscussThisButton (chat)                                → TODO(wave-chat)
+//   DiscussThisButton (chat headerRight) restored Station D1.
 //   RequestApprovalSheet restored Station B3 (repos/approvals.ts).
 //   - PriorRepairsCard + repair-ticket auto-complete on "Return from repair"
 //     — DONE (Station C4): doRepairIn below drives completed repairs to a
@@ -561,6 +562,7 @@ export default function EquipmentModelDetailScreen() {
         options={{
           title: editing ? 'Edit Model' : item.name,
           headerShown: true,
+          headerRight: () => <DiscussThisButton kind="equipment" label={item.name} />,
         }}
       />
       <FormScreen contentContainerStyle={s.content}>

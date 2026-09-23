@@ -25,6 +25,7 @@ import { installConnectivityMonitor } from '../src/sync/installConnectivityMonit
 import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
 import { ToastHost } from '../src/components/ToastHost';
 import { PreviewBanner } from '../src/components/PreviewBanner';
+import { setChatCurrentUserId } from '../src/chat/unread';
 
 // Wire core's injection seams before anything can touch sync/db modules.
 bootCore();
@@ -98,6 +99,14 @@ export default function RootLayout() {
   // Re-arm the once-per-session expiry notice on each sign-in.
   useEffect(() => {
     if (user) resetSessionExpiredNotice();
+  }, [user?.id]);
+
+  // Station D1: keep the chat-unread cache's notion of "me" in sync with the
+  // REAL session user (never the effective/previewed one — same reasoning as
+  // setMaintenanceRole above: a role preview must never change whose unread
+  // count is shown). Also the reset-to-null path on logout.
+  useEffect(() => {
+    setChatCurrentUserId(user?.id ?? null);
   }, [user?.id]);
 
   const sessionValue: SessionContextValue = {

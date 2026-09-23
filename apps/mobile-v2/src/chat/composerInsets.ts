@@ -1,0 +1,33 @@
+// Station D1: straight port of apps/mobile/src/chat/composerInsets.ts (#89b).
+// Reconciles the bottom safe-area inset with the message composer's padding
+// and the keyboard offset. Kept as a pure module (no React/RN imports) so it
+// stays unit-testable under `node --test`.
+//
+// Lives under src/ (NOT app/) on purpose: Expo Router globs every file under
+// app/ into the route bundle, so a co-located *.test.ts importing `node:test`
+// there would break the Metro build.
+
+function safeInset(insetBottom: number): number {
+  // Guard against NaN / negative values coming out of useSafeAreaInsets().
+  return Number.isFinite(insetBottom) && insetBottom > 0 ? insetBottom : 0;
+}
+
+/**
+ * Bottom padding for the composer: the existing base padding plus the device's
+ * safe-area inset, so the composer clears the gesture nav bar / home indicator
+ * instead of sitting underneath it.
+ */
+export function composerBottomPadding(base: number, insetBottom: number): number {
+  return base + safeInset(insetBottom);
+}
+
+/**
+ * keyboardVerticalOffset for the chat KeyboardAvoidingView. The composer already
+ * reserves `insetBottom` of bottom padding (see composerBottomPadding); when the
+ * keyboard opens on iOS (`padding` behaviour) that reserved space would show as a
+ * gap above the keyboard, so fold the inset back out of the header offset to keep
+ * the input snug against the keyboard.
+ */
+export function chatKeyboardVerticalOffset(headerOffset: number, insetBottom: number): number {
+  return headerOffset - safeInset(insetBottom);
+}

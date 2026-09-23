@@ -1,11 +1,13 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { useRouter } from 'expo-router';
 import { usePermission } from '../hooks/usePermission';
 import { useSession } from '../hooks/useSession';
 import { Permission, PERMISSION_LABELS } from '../constants/roles';
 import type { Theme } from '@invenpro/ui';
 import { useThemedStyles, appToastBus } from '@invenpro/ui';
 import { pickAccessGrantor } from '../auth/pickAccessGrantor';
+import { createDmConversation } from '../repos/chat';
 import { isWriteBlocked } from '../db/maintenance';
 import { EmptyState } from '@invenpro/ui';
 
@@ -60,6 +62,7 @@ export function PermissionGate({ permission, teamId, children, fallback = null, 
   const allowed = usePermission(permission, teamId);
   const s = useThemedStyles(makeStyles);
   const { user } = useSession();
+  const router = useRouter();
 
   if (allowed) return <>{children}</>;
   if (mode === 'hide') return <>{fallback}</>;
@@ -69,16 +72,24 @@ export function PermissionGate({ permission, teamId, children, fallback = null, 
   // #203: find someone who could grant this, lazily (only on tap — never on
   // every render) and only when we have a real signed-in user to exclude/
   // anchor tier-distance against. Shared by both 'disable' (via the toast
-  // action below) and 'screen' (via the EmptyState CTA).
-  //
-  // TODO(wave-chat): chat/DM isn't ported this wave (createDmConversation
-  // lived at db/queries/chat.ts, excluded). Until chat lands, this just
-  // names who to ask via a toast instead of opening/prefilling a DM.
+  // action below) and 'screen' (via the EmptyState CTA). Real DM + prefilled
+  // draft restored Station D1 (was a name-who-to-ask toast while chat was
+  // unported).
   const openRequestAccessDm = (grantor: { id: string; name: string }) => {
     if (!user) return;
+    // #203: this is a write (a local conversations/participants INSERT) like
+    // any other — during maintenance lock or "Preview as role" it must
+    // silently no-op instead of letting an uncaught MaintenanceLockedError
+    // escape the tap handler. Guarding here covers BOTH callers: 'disable'
+    // mode's toast action and 'screen' mode's EmptyState CTA.
     if (isWriteBlocked()) return;
-    appToastBus.push({
-      message: `Ask ${grantor.name} for access to "${PERMISSION_LABELS[permission]}".`,
+    const conversationId = createDmConversation(user.id, grantor.id);
+    router.push({
+      pathname: '/(app)/chat/[id]',
+      params: {
+        id: conversationId,
+        draft: `Hi ${grantor.name} — could I get access to "${PERMISSION_LABELS[permission]}"? I need it for `,
+      },
     });
   };
 

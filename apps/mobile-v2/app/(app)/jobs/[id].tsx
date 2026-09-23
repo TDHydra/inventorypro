@@ -16,8 +16,7 @@
 //
 // Cuts this wave:
 //   - Photos section (MediaGallery) — not ported to mobile-v2 yet. TODO(wave-media).
-//   - DiscussThisButton (headerRight chat entry, #228) — chat isn't ported to
-//     mobile-v2 yet. TODO(wave-chat).
+//   DiscussThisButton (headerRight chat entry, #228) restored Station D1.
 // Everything else (edit form, team reassignment, assigned-crews roster +
 // assign/unassign sheet, deployed section, activity log, request-approval,
 // archive) is a straight port.
@@ -43,6 +42,7 @@ import { getAllTeams } from '../../../src/repos/teams';
 import { getAllActiveUsers } from '../../../src/repos/users';
 import { getTaxonomyTypesWithFallback } from '../../../src/repos/taxonomy';
 import { JobSummaryCard } from '../../../src/components/jobs/JobSummaryCard';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { ROLE_TIER } from '../../../src/constants/roles';
 import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
@@ -405,8 +405,9 @@ export default function JobDetailScreen() {
         options={{
           title: editing ? 'Edit Job' : job.name,
           headerShown: true,
-          // TODO(wave-chat): old app's DiscussThisButton (#228 chat entry) is
-          // cut here — chat isn't ported to mobile-v2 yet.
+          headerRight: () => (
+            <DiscussThisButton kind="job" label={job.name} refText={job.job_number ? `#${job.job_number}` : null} />
+          ),
         }}
       />
       <FormScreen contentContainerStyle={s.content}>

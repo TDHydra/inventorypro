@@ -1,12 +1,15 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import { useThemedStyles, ModalSheet, PrimaryButton, FieldLabel, confirmSheet } from '@invenpro/ui';
-import { useDbQuery, runInTransaction } from '@invenpro/core';
+import { useDbQuery, runInTransaction, syncNow } from '@invenpro/core';
 import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { getUserById } from '../../repos/users';
 import { appendLog } from '../../db/queries/log';
 import { clearSlot } from '../../repos/schedule';
+import { createDmConversation } from '../../repos/chat';
+import { isWriteBlocked } from '../../db/maintenance';
 
 interface Props {
   visible: boolean;
@@ -22,10 +25,7 @@ interface Props {
 // '../../db/queries/users' -> '../../repos/users', '../../db/queries/schedule'
 // -> '../../repos/schedule'.
 //
-// Cut this wave: the old app's "Message" button (createDmConversation + push
-// to '/(app)/(chat)/[id]') — chat/DM hasn't been ported to mobile-v2 yet.
-// TODO(wave-chat): restore a one-tap DM handoff to this manager once the chat
-// domain lands (see other TODO(wave-chat) markers, e.g. jobs screens).
+// "Message" one-tap DM handoff restored Station D1 (src/repos/chat.ts).
 //
 // Behavior change (no-self-log convention): clearSlot() no longer logs
 // 'schedule_cleared' itself (nor takes an actorId) — this handler now builds
@@ -33,9 +33,21 @@ interface Props {
 // opens internally (reentrant -> one commit).
 export function PmContactPopup({ visible, onClose, managerId, assignmentId }: Props) {
   const s = useThemedStyles(makeStyles);
+  const router = useRouter();
   const { user } = useSession();
   const canEdit = usePermission('manage_schedule');
   const manager = useDbQuery(() => getUserById(managerId), [managerId], ['users']);
+
+  function handleMessage() {
+    if (!user?.id || !manager) return;
+    // Same write-block guard as every other write affordance — a DM start is
+    // a local conversations/participants INSERT like any other.
+    if (isWriteBlocked()) return;
+    const conversationId = createDmConversation(user.id, manager.id);
+    onClose();
+    void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    router.push({ pathname: '/(app)/chat/[id]', params: { id: conversationId } });
+  }
 
   async function handleClear() {
     const ok = await confirmSheet({
@@ -69,6 +81,7 @@ export function PmContactPopup({ visible, onClose, managerId, assignmentId }: Pr
           <FieldLabel style={s.fieldLabel}>Phone</FieldLabel>
           <Text style={s.value}>{manager.phone || '—'}</Text>
           <View style={s.actions}>
+            <PrimaryButton label="Message" onPress={handleMessage} />
             {canEdit && (
               <PrimaryButton label="Clear this slot" tone="danger" onPress={handleClear} style={s.clearBtn} />
             )}

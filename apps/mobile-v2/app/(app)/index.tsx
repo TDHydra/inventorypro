@@ -44,6 +44,9 @@ const TILES: Tile[] = [
   // ungated here, like Jobs/My Team/Activity Log.
   { label: 'Schedule', icon: '🗓', href: '/(app)/schedule' },
   { label: 'On-Call', icon: '📟', href: '/(app)/oncall' },
+  // Messages (Station D1) — ungated like the old app: every signed-in user
+  // can chat; the ChatBell in the shared header is the other entry point.
+  { label: 'Messages', icon: '💬', href: '/(app)/chat' },
   // Logs (Station B4) — a personal, device-local activity view (see
   // app/(app)/logs/index.tsx's header comment for why it's scoped this way).
   // Ungated like My Team: it only ever shows the signed-in user's own rows.

@@ -8,6 +8,8 @@ import { getValidJwt, revalidateSession, getSavedUserId } from './auth/session';
 import { assertWritable } from './db/maintenance';
 import { loadRolePermissionCache } from './auth/permissions';
 import { reconcileTeams } from './repos/teams';
+import { reconcileChat } from './repos/chatPurge';
+import { chatUnreadCache } from './chat/unread';
 import { track } from './telemetry';
 
 let booted = false;
@@ -41,4 +43,18 @@ export function bootCore(): void {
     name: 'reconcileTeams',
     run: async () => { await reconcileTeams(); },
   });
+
+  // Station D1 — same "no `tables` filter, own internal throttle" shape as
+  // reconcileTeams above (chatPurge.ts's reconcileChat, ported from the old
+  // app's sync/chatPurge.ts of the same name).
+  registerAfterPull({
+    name: 'reconcileChat',
+    run: async () => { await reconcileChat(); },
+  });
+
+  // chat unread count (src/chat/unread.ts) — the first real call site of
+  // createConfigCache; its own afterPullHook is scoped to
+  // ['messages','conversation_participants'] so it only reloads when those
+  // tables actually changed in a pull.
+  registerAfterPull(chatUnreadCache.afterPullHook);
 }

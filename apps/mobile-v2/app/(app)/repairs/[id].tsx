@@ -27,8 +27,7 @@
  * Cuts (kept lean, matching established station precedent):
  *   - MediaGallery ("Photos" section) — TODO(wave-media), matches the same
  *     cut already made throughout mobile-v2 (ItemCard, locations/[id], etc).
- *   - DiscussThisButton (chat headerRight) — TODO(wave-chat), matches
- *     PermissionGate.tsx / teams/[id].tsx's existing chat cuts.
+ *   DiscussThisButton (chat headerRight) restored Station D1.
  *   - Status trail (#178 Part 2, statusTrailLogic.ts / buildStatusTrail) —
  *     NOT ported. This was a purely cosmetic "visited/current/upcoming"
  *     pill row derived from parsing activity_log rows for
@@ -69,6 +68,7 @@ import { PermissionGate } from '../../../src/components/PermissionGate';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { LocationShelfPicker } from '../../../src/components/pickers';
 import ActivityFeed from '../../../src/components/ActivityFeed';
+import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { track } from '../../../src/telemetry';
 import { MAX_QUANTITY, validateText } from '../../../src/lib/validation';
 
@@ -510,9 +510,15 @@ export default function RepairDetailScreen() {
 
   return (
     <>
-      {/* TODO(wave-chat): headerRight DiscussThisButton entity-linked chat
-          entry cut — chat isn't ported yet, matches teams/[id].tsx et al. */}
-      <Stack.Screen options={{ title: 'Repair', headerShown: true }} />
+      <Stack.Screen
+        options={{
+          title: 'Repair',
+          headerShown: true,
+          headerRight: () => (
+            <DiscussThisButton kind="repair" label={repair.entity_label ?? ''} />
+          ),
+        }}
+      />
       <FormScreen contentContainerStyle={s.content}>
         {/* Header */}
         <View style={s.header}>

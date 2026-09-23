@@ -6,10 +6,12 @@ import { useTheme, useThemedStyles, OfflineBanner } from '@invenpro/ui';
 import { useSession } from '../../src/hooks/useSession';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { NotificationBell } from '../../src/components/NotificationBell';
+import { ChatBell } from '../../src/components/ChatBell';
 
-// Minimal Phase 2 shell. NotificationBell restored Station B4. The old app's
-// remaining header accessories (chat bell, quick photo, sync indicator sheet)
-// and the idle logout/re-auth gates return with their surfaces in Waves C–D.
+// Minimal Phase 2 shell. NotificationBell restored Station B4; ChatBell
+// restored Station D1. The old app's remaining header accessories (quick
+// photo, sync indicator sheet) and the idle logout/re-auth gates return with
+// their surfaces in Wave D.
 export default function AppLayout() {
   const { user, realUser, logout } = useSession();
   const router = useRouter();
@@ -43,6 +45,7 @@ export default function AppLayout() {
           headerTitleStyle: { fontWeight: t.typography.weights.bold, fontFamily: t.typography.fontFamily.bold },
           headerRight: () => (
             <View style={styles.headerRight}>
+              <ChatBell />
               <NotificationBell />
               <TouchableOpacity
                 style={styles.switchBtn}

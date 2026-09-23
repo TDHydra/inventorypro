@@ -13,8 +13,8 @@
 // Cut for this wave (coordinator's cut-list / unported domains — see
 // docs/REBUILD-NOTES.md Wave B section):
 //   - Dashboard preset assignment (dashboard preset engine is cut entirely).
-//   - Message button / DM (TODO(wave-chat) — chat isn't ported yet).
 // Personal locker toggle restored in Station B3 (src/access/personalLocker.ts).
+// Message button / DM restored in Station D1 (src/repos/chat.ts).
 //
 // Bulk "Add to team" (was TODO(wave-B-teams)) is now wired to
 // src/repos/teams.ts's addTeamMember (ported in Station B2).
@@ -29,7 +29,8 @@ import {
   ModalSheet, PrimaryButton, AppInput, FieldLabel, SearchHeader, StatusBadge,
   SelectField, BulkActionBar, type BulkAction,
 } from '@invenpro/ui';
-import { useReactiveRows, useTableVersion, runInTransaction } from '@invenpro/core';
+import { useReactiveRows, useTableVersion, runInTransaction, syncNow } from '@invenpro/core';
+import { createDmConversation } from '../../../src/repos/chat';
 import {
   getAllUsers, setUserActive, setUserRole, changeRoleOnline, applyOnlineRoleChange,
   saveUserFields, createUserOnline, resetUserPinOnline, resetEnrollmentCodeOnline,
@@ -149,6 +150,21 @@ export default function UsersScreen() {
       const res = enablePersonalLocker(editUser.id, editUser.name, editUser.role, realUser?.id ?? null);
       if (!res.ok) { Alert.alert('Could not create locker', res.reason); return; }
     }
+  }
+
+  // Find-or-create a DM with this user and open the thread (mirrors the team
+  // roster's Message action; createDmConversation reuses an existing 1:1).
+  function messageUser(u: User) {
+    if (!sessionUser) return;
+    let convId: string;
+    try {
+      convId = createDmConversation(sessionUser.id, u.id);
+    } catch {
+      Alert.alert('Could not start chat', 'Please try again.');
+      return;
+    }
+    void syncNow().catch(() => { /* offline — outbox syncs later */ });
+    router.push({ pathname: '/(app)/chat/[id]', params: { id: convId } });
   }
 
   function openEdit(u: User) {
@@ -748,6 +764,16 @@ export default function UsersScreen() {
                 {st !== 'active' && (
                   <StatusBadge label={STATUS_META[st].label} tone={STATUS_META[st].tone} />
                 )}
+                {!sel.active && u.id !== sessionUser?.id && (
+                  <TouchableOpacity
+                    onPress={() => messageUser(u)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={s.msgBtn}
+                    accessibilityLabel={`Message ${u.name}`}
+                  >
+                    <Text style={s.msgBtnText}>💬</Text>
+                  </TouchableOpacity>
+                )}
                 <Text style={s.tier}>T{ROLE_TIER[u.role as UserRole]}</Text>
                 <Text style={s.chevron}>›</Text>
               </TouchableOpacity>
@@ -1071,6 +1097,11 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   pinPending: { fontSize: t.typography.fontSizes.sm, color: t.colors.warning },
   tier: { fontSize: t.typography.fontSizes.sm, color: t.colors.textSecondary, fontWeight: '600' },
   chevron: { fontSize: 18, color: t.colors.textSecondary },
+  msgBtn: {
+    borderWidth: 1, borderColor: t.colors.border, borderRadius: 999,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  msgBtnText: { fontSize: t.typography.fontSizes.body2 },
   empty: { textAlign: 'center', color: t.colors.textSecondary, marginTop: t.spacing.xxxl },
   modalTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.md },
   dupWarn: { color: t.colors.warning, fontSize: t.typography.fontSizes.sm, marginBottom: t.spacing.sm },
