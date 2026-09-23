@@ -1450,3 +1450,37 @@ parity makes the v2 client/v1 server pairing safe until the Phase 8 flip.
 Verified from the public internet: / and deep links 200, wasm
 `application/wasm`, roster + per-user PIN screen render, zero console
 errors. Full prod login/write needs a real PIN — user's check.
+
+## Phase 8 — blue-green cutover (2026-09-23, ~07:10 UTC)
+
+**api.invenpro.app now serves api-v2 2.0.0** (blue). Executed by
+`/opt/inventorypro/bin/upgrade.sh` exactly as designed: its own pre-upgrade
+pg_dump (kept in `/opt/inventorypro/backups/pre-upgrade/`, tagged with the
+deployed SHA), standby build + loopback health gate while green kept serving,
+nginx one-line flip, post-flip public smoke test (passed — no flip-back),
+10s drain, green stopped.
+
+Verify results:
+- Public `/health` → `version 2.0.0`, fresh uptime.
+- `/sync/pull` + `/sync/full` unauthenticated → 401 (auth gate intact).
+- Row counts **byte-identical pre/post** across all 46 user tables
+  (pg_stat snapshot diff clean; exact counts items=2/users=39/
+  activity_log=1593/media=1287 unchanged). `schema_migrations` max still
+  **81** — no destructive migration ran, by design.
+- Real-browser prod round-trip on invenpro.app: the user logged into the
+  new web app as themselves post-flip — full download + steady
+  authenticated `/sync/pull` against api-v2, zero console errors.
+
+**Rollback (until soak ends):** green (`api2`, old api 1.0.1) is stopped
+but intact as next standby — flip back =
+`echo 'set $api_upstream inventorypro_api_green;' > /etc/nginx/inventorypro-api-active.conf
+&& nginx -s reload` after `compose start api2`. No DB restore needed
+(schema untouched).
+
+**Soak week → 2026-09-30.** Old Android app (`com.inventorypro.app`) stays
+installed next to mobile-v2 (`com.inventorypro.app.v2`); old web bundle kept
+as image tag `inventorypro-web:old-app-rollback` (upgrade.sh also re-tagged
+`inventorypro-web:rollback`). AFTER soak + final dump: destructive migration
+(next-free ≥082 — DROP locker_access, PG app_settings, vehicles.water_state,
+dashboard_presets exposure; also swap api-v2 opPerm.ts's locker-access
+subquery for the unit_access model), then Phase 10 delete/rename.
