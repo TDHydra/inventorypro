@@ -65,6 +65,17 @@ export function isRefreshToken(payload: unknown): boolean {
     && (payload as { type?: unknown }).type === 'refresh';
 }
 
+// Refresh-token rotation (v2): /auth/refresh returns a NEW refresh token on
+// every successful exchange, so an active device never hits the old 7-day
+// re-login cliff. The rotated token carries `auth_time` — the ORIGINAL login
+// time, preserved verbatim across rotations — and rotation stops at this
+// absolute session cap: past it the exchange 401s (a DEFINITIVE rejection,
+// which the mobile client treats as session-dead → re-authenticate). Tokens
+// minted before rotation existed carry no auth_time; their own iat is used as
+// the origin so pre-rotation sessions age out on the same clock instead of
+// sliding forever.
+const REFRESH_SESSION_CAP_MS = 30 * 24 * 60 * 60_000;
+
 // Exponential backoff once a target has racked up enough failures: no lock below
 // the threshold, then a small initial delay doubling per additional failure,
 // capped at 1h. Pure + exported so it can be unit-tested without touching the
@@ -286,7 +297,7 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
 
     const jwt = fastify.jwt.sign(payload, { expiresIn: '15m' });
     const refreshToken = fastify.jwt.sign(
-      { sub: user.id, type: 'refresh' },
+      { sub: user.id, type: 'refresh', auth_time: Math.floor(Date.now() / 1000) },
       { expiresIn: '7d' }
     );
 
@@ -384,7 +395,7 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
         { sub: user.id, name: user.name, role: user.role, test: true },
         { expiresIn: '15m' }
       );
-      const testRefresh = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '1h' });
+      const testRefresh = fastify.jwt.sign({ sub: user.id, type: 'refresh', auth_time: Math.floor(Date.now() / 1000) }, { expiresIn: '1h' });
       return {
         jwt: testJwt,
         refreshToken: testRefresh,
@@ -452,7 +463,7 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
 
     recordSuccess(lockKey);
     const jwt = fastify.jwt.sign({ sub: user.id, name: user.name, role: user.role }, { expiresIn: '15m' });
-    const refreshToken = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
+    const refreshToken = fastify.jwt.sign({ sub: user.id, type: 'refresh', auth_time: Math.floor(Date.now() / 1000) }, { expiresIn: '7d' });
 
     await fastify.pg.query(
       `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at, metadata)
@@ -478,9 +489,9 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       },
     },
   }, async (request, reply) => {
-    let decoded: { sub: string; type: string };
+    let decoded: { sub: string; type: string; auth_time?: number; iat?: number };
     try {
-      decoded = fastify.jwt.verify<{ sub: string; type: string }>(request.body.refresh_token);
+      decoded = fastify.jwt.verify<{ sub: string; type: string; auth_time?: number; iat?: number }>(request.body.refresh_token);
     } catch {
       return reply.status(401).send({ error: 'Invalid or expired refresh token' });
     }
@@ -489,14 +500,23 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       return reply.status(401).send({ error: 'Invalid token type' });
     }
 
+    // Absolute session cap: rotation slides the 7d window, but never past
+    // REFRESH_SESSION_CAP_MS from the ORIGINAL login (auth_time, or the
+    // token's own iat for pre-rotation tokens). 401 is the definitive
+    // rejection the mobile client maps to "session dead — sign in again".
+    const authTime = typeof decoded.auth_time === 'number' ? decoded.auth_time : (decoded.iat ?? 0);
+    if (!(authTime > 0) || Date.now() - authTime * 1000 > REFRESH_SESSION_CAP_MS) {
+      return reply.status(401).send({ error: 'Session expired; sign in again' });
+    }
+
     // Cap refreshes per subject so a leaked refresh token can't be minted into an
     // endless stream of short-lived JWTs. Keyed on the verified sub (available now).
     if (overLimit('refresh:' + decoded.sub, 30)) {
       return reply.status(429).send({ error: 'rate' });
     }
 
-    const { rows } = await fastify.pg.query<{ id: string; name: string; role: string; active: boolean; expires_at: string | null }>(
-      `SELECT id, name, role, active, expires_at FROM users WHERE id = $1`,
+    const { rows } = await fastify.pg.query<{ id: string; name: string; role: string; active: boolean; expires_at: string | null; is_test: boolean | null }>(
+      `SELECT id, name, role, active, expires_at, is_test FROM users WHERE id = $1`,
       [decoded.sub]
     );
 
@@ -510,7 +530,16 @@ const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
       { expiresIn: '15m' }
     );
 
-    return { jwt };
+    // Rotation: mint a fresh refresh token carrying the ORIGINAL auth_time
+    // (test accounts keep their short window — matches the login mint). Old
+    // clients ignore the extra field; the v2 client stores it, so an active
+    // device keeps sliding up to the absolute cap above.
+    const refreshToken = fastify.jwt.sign(
+      { sub: user.id, type: 'refresh', auth_time: authTime },
+      { expiresIn: user.is_test ? '1h' : '7d' }
+    );
+
+    return { jwt, refreshToken };
   });
 };
 

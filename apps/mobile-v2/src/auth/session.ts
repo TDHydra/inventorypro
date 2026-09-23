@@ -45,8 +45,9 @@ function decodeJwtExp(jwt: string): number | null {
 
 /**
  * Return a JWT that should be accepted by the server right now. If the stored
- * 15-minute JWT is expired (or about to be), mint a fresh one from the 30-day
- * refresh token via /auth/refresh. Falls back to the existing token when offline
+ * 15-minute JWT is expired (or about to be), mint a fresh one from the stored
+ * refresh token via /auth/refresh (7-day token, rotated on each exchange, 30-day
+ * absolute cap server-side). Falls back to the existing token when offline
  * or when refresh isn't possible, so sync degrades gracefully instead of dying.
  */
 export async function getValidJwt(): Promise<string | null> {
@@ -74,8 +75,11 @@ export async function getValidJwt(): Promise<string | null> {
       return null;
     }
     if (!res.ok) return jwt;                            // 5xx/transient — keep existing
-    const data = await res.json() as { jwt: string };
+    const data = await res.json() as { jwt: string; refreshToken?: string };
     await SecureStore.setItemAsync(JWT_KEY, data.jwt);
+    // api-v2 rotates the refresh token on every exchange (sliding 7d window,
+    // 30d absolute cap server-side). Absent against the old API — keep ours.
+    if (data.refreshToken) await SecureStore.setItemAsync(REFRESH_KEY, data.refreshToken);
     return data.jwt;
   } catch {
     return jwt;                                         // offline — keep existing
@@ -106,8 +110,10 @@ export async function revalidateSession(): Promise<void> {
       return;
     }
     if (res.ok) {
-      const data = await res.json() as { jwt: string };
+      const data = await res.json() as { jwt: string; refreshToken?: string };
       await SecureStore.setItemAsync(JWT_KEY, data.jwt);
+      // Rotated by api-v2 — see getValidJwt.
+      if (data.refreshToken) await SecureStore.setItemAsync(REFRESH_KEY, data.refreshToken);
     }
   } catch {
     /* offline/transient — decide nothing */
