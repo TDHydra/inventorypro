@@ -1364,3 +1364,47 @@ Phase 9 watch items (web): direct deep-links 404 (static single-bundle
 export — expo serve has no SPA fallback for nested routes); a hard reload
 wipes the in-memory session back to /login; stale localStorage vs wiped DB
 can resurrect the first-sign-in enrollment prompt.
+
+## Phase 7 — api-v2 manifest-driven server (2026-09-23)
+
+### Station 1 — sync rewrite (0cc9530)
+The 2073-line `routes/sync.ts` monolith is now `src/sync/` (19 modules): manifest-derived
+allowlists (`tables.ts` from `@invenpro/core/src/manifest/derive`), a 4-phase guard registry
+(preAuthorize → privileged → authorizeRow → afterApply, registration order = check order),
+`apply.ts` (verbatim applyEntry port), and a ~360-line route skeleton with an 11-step push
+pipeline. Rejection order/wording/codes are the wire contract and preserved exactly.
+`locker_access` + `dashboard_presets` deliberately dropped (pushes → 'Table not allowed').
+Boot asserts manifest⇄PG schema agreement (`failOnSchemaDrift: true` in index.ts).
+
+### Station 2 — refresh-token rotation (f63acea)
+`/auth/refresh` now rotates: returns `{ jwt, refreshToken }`; refresh tokens carry
+`auth_time` (original login, preserved across rotations); 30-day absolute cap → 401
+'Session expired; sign in again'; legacy tokens use their own iat as origin; test accounts
+rotate onto the 1h window. mobile-v2 stores the rotated token when present (backward
+compatible with the old API). Sessions now slide 7d with a 30d hard stop.
+
+### Station 3 — golden contract test (74dae41)
+`apps/api-v2/scripts/golden-contract.ts` replays identical /sync/full + /pull + /push
+exchanges against old api (:3001) and api-v2 (:3002) over the same dev DB. PASS:
+all 33 tables byte-identical for full_admin AND construction_crew (scoping parity),
+push probes (SENSITIVE_DENY pin_hash/notifications.title, server-only + perm-gated
+activity actions, allowlist, malformed payload/ADJUST, privileged gate) exactly equal,
+idempotent activity write applied once. Only divergence: the two dropped tables.
+
+### Station 4 — Docker image + prod soak deploy (5f57145, fe46195, 62f86e1)
+`apps/api-v2/Dockerfile`: single-stage tsx runtime (core is consumed as TS source; tsx
+moved to prod deps). `infra/docker-compose.prod.yml`: BOTH colors' image/dockerfile now
+parameterized (`API_IMAGE`/`API_DOCKERFILE`, `API2_IMAGE`/`API2_DOCKERFILE`) with defaults
+identical to before — inert unless a box's .env opts in.
+
+**Prod state (VPS 74.91.114.166, since 2026-09-23):** active color is GREEN
+(`api2`, :3001, old api 1.0.1, untouched). BLUE (`api`, :3000 loopback) now soaks
+**api-v2 2.0.0** against the live prod DB: migrations no-op (identical 001-081),
+schema-drift boot assertion passed, /health + auth-gating probes green, nginx untouched.
+VPS .env pins: `API_IMAGE=inventorypro-api-v2:latest`, `API_DOCKERFILE=apps/api-v2/Dockerfile`,
+`API2_IMAGE=inventorypro-api:latest`, `API2_DOCKERFILE=apps/api/Dockerfile`.
+`/opt/inventorypro/app` is checked out on `lean-rebuild`.
+
+**Phase 8 cutover = literally `upgrade.sh`**: it builds the standby (blue = api-v2),
+health-gates it, flips nginx, smoke-tests through the public path (versions now differ,
+so /health proves which code serves), drains, stops green. Rollback drill first per plan.
