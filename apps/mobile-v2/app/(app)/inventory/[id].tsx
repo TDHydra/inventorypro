@@ -30,6 +30,8 @@ import { LocationShelfPicker } from '../../../src/components/pickers';
 import type { PickerOption } from '../../../src/components/SearchablePicker';
 import MoveStockModal from '../../../src/components/MoveStockModal';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
+import ActivityFeed from '../../../src/components/ActivityFeed';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -597,10 +599,14 @@ export default function ItemDetailScreen() {
               {/* TODO(wave-media): item photo gallery not ported this wave (no
                   MediaGallery/media repo in v2 yet). */}
 
-              {/* TODO(wave-C): repairs history (PriorRepairsCard) and
-                  TODO(wave-media): activity feed with media thumbnails
-                  (ActivityFeed) not ported this wave — both depend on
-                  modules outside this wave's ownership. */}
+              {/* Repair history (Station C4) — ported alongside repairs/[id].tsx. */}
+              <PriorRepairsCard entityType="item" entityId={item.id} />
+
+              {/* History — ActivityFeed itself already cuts its old media
+                  thumbnail (TODO(wave-media), see ActivityFeed.tsx); the rest
+                  of the log view has no media dependency, so it's ported here. */}
+              <Text style={s.sectionLabel}>History</Text>
+              <ActivityFeed entityType="item" entityId={item.id} />
 
               {/* Request Approval — restored Station B3 (repos/approvals.ts). */}
               <PrimaryButton

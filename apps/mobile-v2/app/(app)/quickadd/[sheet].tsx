@@ -1,8 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { Stack, Redirect, useRouter, useLocalSearchParams } from 'expo-router';
-import { usePermission } from '../../../src/hooks/usePermission';
-import type { Theme } from '@invenpro/ui';
-import { useThemedStyles, PrimaryButton } from '@invenpro/ui';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { QuickAddScreenShell } from '../../../src/components/quickadd/QuickAddScreenShell';
 import ItemQuickAdd from '../../../src/components/quickadd/ItemQuickAdd';
 import LocationQuickAdd from '../../../src/components/quickadd/LocationQuickAdd';
@@ -13,6 +9,7 @@ import TeamQuickAdd from '../../../src/components/quickadd/TeamQuickAdd';
 import JobQuickAdd from '../../../src/components/quickadd/JobQuickAdd';
 import VehicleQuickAdd from '../../../src/components/quickadd/VehicleQuickAdd';
 import GasReceiptQuickAdd from '../../../src/components/quickadd/GasReceiptQuickAdd';
+import RepairQuickAdd from '../../../src/components/quickadd/RepairQuickAdd';
 import CsvImport from '../../../src/components/CsvImport';
 
 /**
@@ -21,10 +18,10 @@ import CsvImport from '../../../src/components/CsvImport';
  * component through QuickAddScreenShell). `sheet` is the kind; unknown kinds
  * redirect back to the chooser.
  *
- * Wave A kinds (item/location/stock/equipment/csv-import) render their real
- * form. Everything else is a known-but-not-yet-built kind — the chooser tile
- * is disabled, but this route still renders a themed "coming soon" placeholder
- * so a deep link or another push site isn't a dead end.
+ * Station C4 (repair) closed out the last known-but-unbuilt kind — every
+ * entry in KIND_TITLES now renders its real form (the "coming soon"
+ * placeholder this route used to fall back to has been removed as dead
+ * code; an unrecognized `sheet` param still redirects to the chooser).
  */
 const KIND_TITLES: Record<string, string> = {
   item: 'Quick Add — Item',
@@ -37,8 +34,6 @@ const KIND_TITLES: Record<string, string> = {
   vehicle: 'Quick Add — Vehicle',
   'gas-receipt': 'Quick Add — Gas Receipt',
   job: 'Quick Add — Job',
-  // TODO(wave-D): repair quick add — repairs/ isn't ported (out of scope for
-  // Station C3, see the coordinator brief). Placeholder route stays below.
   repair: 'Quick Add — Repair',
 };
 
@@ -109,47 +104,13 @@ export default function QuickAddSheetScreen() {
           {onSaved => <GasReceiptQuickAdd onSaved={onSaved} />}
         </QuickAddScreenShell>
       );
-    // TODO(wave-D): RepairQuickAdd not ported (repairs/ excluded, out of
-    // scope for Station C3 per the coordinator brief).
     case 'repair':
-      return <ComingSoonPlaceholder title={title} />;
+      return (
+        <QuickAddScreenShell title={title} wrapForm={false}>
+          {onSaved => <RepairQuickAdd onSaved={onSaved} />}
+        </QuickAddScreenShell>
+      );
     default:
       return <Redirect href="/(app)/quickadd" />;
   }
 }
-
-function ComingSoonPlaceholder({ title }: { title: string }) {
-  const s = useThemedStyles(makeStyles);
-  const canQuickAdd = usePermission('quick_add');
-  const router = useRouter();
-
-  if (!canQuickAdd) {
-    return (
-      <>
-        <Stack.Screen options={{ title, headerShown: true }} />
-        <View style={s.gate}>
-          <Text style={s.gateTitle}>Not authorized</Text>
-          <Text style={s.gateSub}>You don't have permission to quick add. Ask an admin to enable it for your role.</Text>
-          <PrimaryButton label="Go back" onPress={() => router.back()} style={{ paddingHorizontal: 24 }} />
-        </View>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Stack.Screen options={{ title, headerShown: true }} />
-      <View style={s.gate}>
-        <Text style={s.gateTitle}>Coming soon</Text>
-        <Text style={s.gateSub}>{title.replace('Quick Add — ', '')} quick add lands in a later wave.</Text>
-        <PrimaryButton label="Go back" onPress={() => router.back()} style={{ paddingHorizontal: 24 }} />
-      </View>
-    </>
-  );
-}
-
-const makeStyles = (t: Theme) => StyleSheet.create({
-  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xxxl, backgroundColor: t.colors.background },
-  gateTitle: { fontSize: t.typography.fontSizes.lg, fontWeight: '700', color: t.colors.textPrimary, marginBottom: t.spacing.sm },
-  gateSub: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center', marginBottom: t.spacing.xxl },
-});

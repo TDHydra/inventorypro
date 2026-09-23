@@ -3,8 +3,8 @@
 // grants (#122 Phase A1/B) on Locker/Vehicle UNIT locations — who besides the
 // owner/owning team can view/add/remove/move/edit/grant inside one.
 //
-// Station C3 (Wave C): un-stubbed the Vehicle-coupled access surface left as
-// TODO(wave-C) by Station B3 — getAccessibleSourceLocations, getTeamUnits,
+// Station C3 (Wave C): un-stubbed the Vehicle-coupled access surface Station
+// B3 had left as a stub — getAccessibleSourceLocations, getTeamUnits,
 // getCheckoutSourceLocations, isTeamManagerAnywhere, getVisibleUnits,
 // canManageVehicle, canLiftVehicleLockFor all ported below (import-mapping
 // only from apps/mobile/src/db/queries/access.ts); getGrantableUnits widened

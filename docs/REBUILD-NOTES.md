@@ -915,6 +915,147 @@ anywhere in `apps/mobile-v2`.
   throughout; `docs/STATUS.md`'s pre-existing uncommitted change left
   untouched.
 
+### Station C4 — Repairs + fast-checkout source picker (#127) + unit-access
+defaults editor + Wave C TODO sweep (2026-09-22)
+
+The last Wave C station. Scope per the coordinator's dispatch: repairs
+creation via quick-add only (no dedicated `/repairs/new` screen), repairs
+list + detail surfaces, equipment repair auto-complete, the three
+`/(app)/repairs/new` `as never` casts, fast-checkout source picker (#127),
+the unit-access-defaults admin template editor, and a full `TODO(wave-C)`
+sweep to zero.
+
+- `src/repos/repairs.ts` (new) — ported from `apps/mobile/src/db/queries/
+  repairs.ts` (260 ln) over `repairs`/`repair_parts`/`repair_steps`, routed
+  through `createRepository()` (`.insert()`/`.update()`) instead of the old
+  app's hand-rolled SQL + manual `appendOutbox` pairs. No self-log (caller-
+  owned convention). `repairsRepo.insert({ ...repair })` (not
+  `.insert(repair)`) — passing a named `interface`-typed variable directly to
+  `createRepository`'s `Record<string, unknown>` parameter fails TS (no
+  index signature on interfaces); spreading into a fresh object literal is
+  the established fix (see `approvals.ts`'s identical `{ ...row }` pattern).
+  - `repairs.test.ts` (new, 8 tests): createRepair/getRepairById/
+    getRepairsForEntity/getRepairs/updateRepairFields/updateRepairStatus/
+    addRepairPart+getRepairParts/addRepairStep+getRepairSteps. Two of the
+    parts/steps tests assert Set-membership rather than strict array order —
+    two synchronous inserts can tie on `created_at` (ms resolution), so
+    `ORDER BY created_at` isn't a stable enough sort to assert array position
+    against in a fast test run.
+- `src/components/quickadd/RepairQuickAdd.tsx` (new) — full port of the old
+  app's 293-line `RepairQuickAdd`, wired into `QuickCreateSheet.tsx`'s
+  `'repair'` case (was `return null`) and `quickadd/index.tsx`'s `ACTIONS`
+  (removed `deferred: true` — C3 had mismarked this `TODO(wave-D)`; it was
+  always C4 scope). Equipment-unit auto-drive-to-repair calls
+  `setUnitStatus(target.id, { status: 'in_repair' })` with NO manual
+  `appendOutbox('UPDATE','equipment_units',...)` afterward — unlike the old
+  app, mobile-v2's `setUnitStatus` (`repos/equipmentUnits.ts`) already
+  self-mirrors its own outbox UPDATE via `.update()`.
+  - Entity-context prefill (`entityType`/`entityId`/`entityLabel`): since
+    there's no dedicated `/repairs/new` screen to carry these as route
+    params into a child form, `RepairQuickAdd` reads them itself via
+    `useLocalSearchParams` (mirrors `StockQuickAdd`'s existing
+    `locationId`-param-reading precedent) and seeds `entityType`/`target`
+    state with lazy `useState` initializers.
+  - `quickadd/[sheet].tsx` — added the `'repair'` case (`QuickAddScreenShell
+    wrapForm={false}`, matching the old app's `(quickadd)/repair.tsx`
+    wrapper) and deleted the now-fully-dead `ComingSoonPlaceholder` function
+    (repair was its last consumer).
+- **The three `/(app)/repairs/new` `as never` casts** (`ItemCard.tsx`
+  `reportRepair`, `equipment/[id].tsx` per-unit "Report repair",
+  `locations/[id].tsx` vehicle "Report repair") — all repointed at
+  `router.push({ pathname: '/(app)/quickadd/[sheet]', params: { sheet:
+  'repair', entityType, entityId, entityLabel } })` with NO cast. Confirmed
+  via a real precedent (`locations/[id].tsx`'s pre-existing "Add Stock Here"
+  button) that an object-form `router.push` to `[sheet].tsx` compiles
+  without `as never` even with extra params beyond the route's own `sheet`
+  param.
+- `app/(app)/repairs/index.tsx` (new route, directory) — ported from the old
+  app's `(repairs)/index.tsx` (134 ln). First real adopter of
+  `ListScreenShell`/`ShellFilter` (`@invenpro/ui`) — pre-built and
+  documented as intended for this exact screen since an earlier station, but
+  had zero consumers until now. Open/Done/All filter chips, `StatusBadge` +
+  overdue badge, relative-age label, FAB → quickadd sheet (no entity
+  context).
+- `app/(app)/repairs/[id].tsx` (new route) — ported from the old app's
+  `(repairs)/[id].tsx` (974 ln): status picker with **equipment repair
+  auto-complete** (completing a ticket on an `equipment_unit` entity prompts
+  a return-to-service location via a `ModalSheet`; reopening a completed
+  ticket drives the unit back to `in_repair`), notes/parts_needed/assignee/
+  cost/due_at editing, troubleshooting steps (#178 Part 1), parts consumed
+  (#178 Part 4, atomic `adjustStock` + `addRepairPart` + log), `Prior
+  RepairsCard` embed, and History (`ActivityFeed`). All equipment-unit
+  status writes go through `setUnitStatus` directly (self-mirroring) — the
+  old app's `outboxUnit()` helper and every manual `appendOutbox('UPDATE',
+  'equipment_units', ...)` call site are dropped entirely.
+  - Cuts: `MediaGallery` (Photos section, `TODO(wave-media)`) and
+    `DiscussThisButton` (chat headerRight, `TODO(wave-chat)`) — both match
+    existing cuts elsewhere in mobile-v2. The old screen's status-trail
+    visualization (#178 Part 2, `statusTrailLogic.ts`/`buildStatusTrail`) is
+    NOT ported — it was a purely cosmetic pill row derived from the same
+    activity_log rows the ActivityFeed "History" section already renders in
+    more detail, so it's cut as redundant polish. Not a wave marker either
+    way — no brief scope item names it.
+- `src/components/repairs/PriorRepairsCard.tsx` (new) — straight port (82
+  ln). Embedded in three places: `repairs/[id].tsx` (own history, excluding
+  self), `equipment/[id].tsx`'s per-unit History `ModalSheet` (resolves that
+  screen's prior repair-history gap), and `inventory/[id].tsx` (resolves the
+  same gap there; also restored that screen's `ActivityFeed` "History"
+  section alongside it — it has no media dependency, only the item photo
+  gallery above it stays `TODO(wave-media)`).
+- **Fast-checkout source picker (#127)** — old app's #127 lived at a
+  dashboard-tile-gated `(crew)` hub screen; since the dashboard-widget
+  system is an allowed Wave-D deferral but the coordinator named #127
+  in-scope, the underlying VALUE (skip re-finding your own accessible
+  source location) was ported directly into `checkout.tsx`'s existing
+  'find' step as a non-blocking `QuickSourcePicker` strip, instead of
+  building a new hub/dashboard-tile route. Wires `getCheckoutSourceLocations`/
+  `getUnitInventoryLock` (`repos/access.ts`, ported Station B3/C3 but never
+  previously consumed by any screen) for the first time. Reasoning recorded
+  in a header comment in `checkout.tsx` itself.
+- **Unit-access-defaults admin template editor** — `src/db/
+  unitAccessDefaults.ts` gained the write path (`setUnitAccessDefaults`,
+  `toggleUnitAccessDefault`, version counter + `subscribe`/`notify` pair,
+  mirroring `hiddenFields.ts`'s exact shape) and `src/hooks/
+  useUnitAccessDefaults.ts` (new hook, same `useSyncExternalStore` shape as
+  `useHiddenFields`). Per the brief's "extend, don't duplicate": rather than
+  porting the old app's standalone `(admin)/unit-access-defaults.tsx` route,
+  the per-role toggle grid was folded into `app/(app)/access/index.tsx` (B3's
+  existing unit-access surface) as a `system_settings`-gated "Defaults"
+  button opening a `ModalSheet` — no new route. `toggleUnitAccessDefault`
+  self-logs (`unit_access_defaults_changed`), matching `hiddenFields.ts`'s
+  `toggleHiddenField` sibling convention (a deliberate exception to the
+  repo-layer caller-owned-log rule — this isn't a `createRepository` table,
+  it's an `app_config` template writer in the same family as `hiddenFields`/
+  `maintenance`/`qrSignConfig`/`orgTheme`/`formMode`).
+  - `unitAccessDefaults.test.ts` (new, 7 tests): pure-parse edge cases
+    (missing/bad JSON, unknown roles, partial backfill from
+    `FALLBACK_ACTIONS`), a live `setUnitAccessDefaults`/
+    `getUnitAccessDefaults` round-trip against a real in-memory DB (outbox
+    INSERT queued), `toggleUnitAccessDefault` preserving untouched cells +
+    self-logging, and `subscribe`/`notify` version-bump semantics.
+- **Full `TODO(wave-C)` sweep**: `grep -rn "TODO(wave-C)" apps/mobile-v2
+  packages` returns nothing. The five pre-existing hits were resolved, not
+  just reworded: `src/db/unitAccessDefaults.ts`'s admin-editor stub (now
+  implemented, see above); `equipment/[id].tsx`'s header comment (repair
+  auto-complete + `PriorRepairsCard` — both now done, comment updated to say
+  so); `inventory/[id].tsx`'s repair-history stub (now `PriorRepairsCard` +
+  `ActivityFeed`, comment removed); this screen's own two descriptive
+  mentions of the literal string (reworded to avoid tripping the sweep grep
+  on prose, not actual deferred work). No new `TODO(wave-C)` or unjustified
+  `TODO(wave-D)` markers were introduced — every cut this station (media,
+  chat, the status-trail visualization) either matches an existing wave tag
+  convention or needed no tag at all (out-of-brief-scope polish).
+- Router types: hit the same `.expo/types/router.d.ts` regeneration trap as
+  every prior station (two new route files this time — `repairs/index.tsx`,
+  `repairs/[id].tsx`). Fixed with `timeout 60 script -qec "npx expo start
+  --web --port 8098" /tmp/expo_c4_repairs.log`; confirmed `repairs` landed in
+  the regenerated file (3 matches) before re-running typecheck.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm -r --filter
+  mobile-v2 test` 188/188 green (was 173/173 after C3, +8 `repairs.test.ts`
+  +7 `unitAccessDefaults.test.ts`). `git status --short apps/mobile` empty
+  throughout; `docs/STATUS.md`'s pre-existing uncommitted change left
+  untouched. This was the last Wave C station.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

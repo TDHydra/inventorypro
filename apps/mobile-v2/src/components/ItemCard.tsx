@@ -82,12 +82,14 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
     : (full?.unit ?? item.unit);
 
   function reportRepair() {
-    // TODO(wave-C): repairs surface isn't built yet — cast bypasses
-    // expo-router's typed-routes check until that screen lands.
+    // No dedicated '/repairs/new' screen (Station C4 brief: creation via
+    // quick-add only) — routes into the repair quick-add sheet, which reads
+    // these same entityType/entityId/entityLabel params to pre-fill the
+    // target (see RepairQuickAdd.tsx).
     router.push({
-      pathname: '/(app)/repairs/new',
-      params: { entityType: 'item', entityId: item.id, entityLabel: item.name },
-    } as never);
+      pathname: '/(app)/quickadd/[sheet]',
+      params: { sheet: 'repair', entityType: 'item', entityId: item.id, entityLabel: item.name },
+    });
   }
   function openDetail() {
     router.push({ pathname: '/(app)/inventory/[id]', params: { id: item.id } });

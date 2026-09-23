@@ -10,7 +10,7 @@
 // and grant creation already require) for both viewing and managing — there's
 // no separate read-only "view access" permission in the role model.
 import { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Switch } from 'react-native';
 import { Stack } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import {
@@ -23,7 +23,7 @@ import {
 } from '../../../src/repos/access';
 import { getUnitLocations } from '../../../src/repos/locations';
 import { getAllActiveUsers } from '../../../src/repos/users';
-import { ROLE_DISPLAY_NAMES } from '../../../src/constants/roles';
+import { ROLE_DISPLAY_NAMES, ROLE_TIER } from '../../../src/constants/roles';
 import type { UserRole } from '../../../src/constants/roles';
 import { appendLog } from '../../../src/db/queries/log';
 import { useSession } from '../../../src/hooks/useSession';
@@ -32,12 +32,34 @@ import { PermissionGate } from '../../../src/components/PermissionGate';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
+import { useUnitAccessDefaults } from '../../../src/hooks/useUnitAccessDefaults';
+import {
+  toggleUnitAccessDefault, notifyUnitAccessDefaultsChanged, FALLBACK_ACTIONS,
+  type UnitAccessActions,
+} from '../../../src/db/unitAccessDefaults';
+
+// Station C4: per-role new-grant DEFAULTS template editor, ported from the old
+// app's standalone (admin)/unit-access-defaults.tsx screen — but folded into
+// THIS screen (a "Defaults" button opening a ModalSheet) rather than a
+// duplicate route, per the brief's "extend, don't duplicate" instruction
+// (B3's access surface + repos already exist here). Gated on system_settings
+// (matching the old app's admin gate), independent of this screen's own
+// manage_locations gate for viewing/managing individual grants.
+const ROLES_ORDERED = (Object.keys(ROLE_TIER) as UserRole[]).sort(
+  (a, b) => ROLE_TIER[b] - ROLE_TIER[a] || ROLE_DISPLAY_NAMES[a].localeCompare(ROLE_DISPLAY_NAMES[b]),
+);
+const ACTION_LABELS: Record<keyof UnitAccessActions, string> = {
+  view: 'See contents', add: 'Add stock', remove: 'Take stock', move: 'Move stock',
+  editDetails: 'Edit details', grant: 'Grant access to others',
+};
+const DEFAULT_ACTION_KEYS = Object.keys(ACTION_LABELS) as (keyof UnitAccessActions)[];
 
 export default function AccessScreen() {
   const s = useThemedStyles(makeStyles);
   const t = useTheme();
   const { realUser } = useSession();
   const canManage = usePermission('manage_locations');
+  const canSetDefaults = usePermission('system_settings');
   const { locked } = useMaintenanceMode();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -45,6 +67,8 @@ export default function AccessScreen() {
   const [showGrant, setShowGrant] = useState(false);
   const [grantUnit, setGrantUnit] = useState<PickerOption | null>(null);
   const [grantUser, setGrantUser] = useState<PickerOption | null>(null);
+  const [showDefaults, setShowDefaults] = useState(false);
+  const defaults = useUnitAccessDefaults(); // reactive — sync pulls re-render this modal
 
   const grants = useDbQuery(() => getAllUnitAccessGrants(), [], ['unit_access', 'locations', 'users']);
 
@@ -128,6 +152,19 @@ export default function AccessScreen() {
     });
   }
 
+  // toggleUnitAccessDefault self-logs (unlike this screen's grant/revoke
+  // handlers) — see src/db/unitAccessDefaults.ts's header note.
+  function handleToggleDefault(role: UserRole, action: keyof UnitAccessActions, value: boolean) {
+    if (isWriteBlocked()) return;
+    try {
+      runInTransaction(() => toggleUnitAccessDefault(role, action, value, realUser?.id ?? null));
+    } catch (e) {
+      Alert.alert('Could not save defaults', e instanceof Error ? e.message : 'Please try again.');
+      return;
+    }
+    notifyUnitAccessDefaultsChanged();
+  }
+
   if (!canManage) {
     return (
       <>
@@ -148,6 +185,11 @@ export default function AccessScreen() {
             value={query}
             onChangeText={setQuery}
           />
+          {canSetDefaults && (
+            <TouchableOpacity style={s.defaultsBtn} onPress={() => setShowDefaults(true)}>
+              <Text style={s.defaultsBtnText}>Defaults</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={s.addBtn} onPress={() => setShowGrant(true)} disabled={locked}>
             <Text style={s.addBtnText}>+ Grant</Text>
           </TouchableOpacity>
@@ -198,6 +240,40 @@ export default function AccessScreen() {
             <PrimaryButton label="Grant" onPress={handleGrant} disabled={!grantUnit || !grantUser || locked} style={{ marginTop: 8 }} />
           </ScrollView>
         </ModalSheet>
+
+        {/* New-grant defaults per role (Station C4) */}
+        {canSetDefaults && (
+          <ModalSheet visible={showDefaults} onClose={() => setShowDefaults(false)} scroll>
+            <Text style={s.modalTitle}>New-grant defaults per role</Text>
+            <Text style={s.defaultsIntro}>
+              When someone is granted access to a vehicle or locker, their grant starts
+              with these actions (based on their role). Individual grants can still be
+              edited afterwards from the member's permissions sheet.
+            </Text>
+            {ROLES_ORDERED.map(role => {
+              const actions = defaults[role] ?? FALLBACK_ACTIONS;
+              return (
+                <View key={role} style={s.defaultsCard}>
+                  <Text style={s.defaultsRoleTitle}>{ROLE_DISPLAY_NAMES[role]}</Text>
+                  {DEFAULT_ACTION_KEYS.map((k, idx) => (
+                    <View key={k}>
+                      {idx > 0 && <View style={s.defaultsDivider} />}
+                      <View style={s.defaultsRow}>
+                        <Text style={s.defaultsRowLabel}>{ACTION_LABELS[k]}</Text>
+                        <Switch
+                          value={actions[k]}
+                          disabled={locked}
+                          onValueChange={(v) => handleToggleDefault(role, k, v)}
+                          trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              );
+            })}
+          </ModalSheet>
+        )}
       </View>
     </>
   );
@@ -212,10 +288,27 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   search: { flex: 1 },
   addBtn: { backgroundColor: t.colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
   addBtnText: { color: t.colors.primaryText, fontWeight: '700', fontSize: 14 },
+  defaultsBtn: {
+    backgroundColor: t.colors.surfaceAlt, borderRadius: 10, borderWidth: 1,
+    borderColor: t.colors.border, paddingHorizontal: 14, paddingVertical: 10,
+  },
+  defaultsBtnText: { color: t.colors.textPrimary, fontWeight: '700', fontSize: 14 },
   list: { padding: 12, gap: 8, paddingBottom: 48 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { fontSize: 15, fontWeight: '600', color: t.colors.textPrimary },
   sub: { fontSize: 12, color: t.colors.textSecondary, marginTop: 2 },
   revoke: { color: t.colors.danger, fontSize: 13, fontWeight: '600' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 14 },
+  defaultsIntro: { fontSize: 13, color: t.colors.textSecondary, lineHeight: 19, marginBottom: 16 },
+  defaultsCard: {
+    backgroundColor: t.colors.surface, borderRadius: 12, borderWidth: 1,
+    borderColor: t.colors.border, overflow: 'hidden', marginBottom: 12,
+  },
+  defaultsRoleTitle: { fontSize: 15, fontWeight: '700', color: t.colors.textPrimary, paddingTop: 10, paddingHorizontal: 14 },
+  defaultsRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  defaultsRowLabel: { fontSize: 14, color: t.colors.textPrimary, fontWeight: '500' },
+  defaultsDivider: { height: 1, backgroundColor: t.colors.border, marginHorizontal: 14 },
 });

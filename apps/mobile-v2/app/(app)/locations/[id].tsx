@@ -15,8 +15,10 @@
 //   '/(app)/(locations)/[id]' route → '/(app)/locations/[id]'
 //   '/(app)/(inventory)/add' route → '/(app)/quickadd/[sheet]' sheet=stock
 //     (add.tsx wasn't ported; the stock sheet reads the locationId param)
-//   '/(app)/(repairs)/new' route → cast `as never` (TODO(wave-C), matches the
-//     existing pattern in src/components/ItemCard.tsx)
+//   '/(app)/(repairs)/new' route → '/(app)/quickadd/[sheet]' sheet='repair'
+//     (Station C4: no dedicated new-repair screen; RepairQuickAdd reads the
+//     same entityType/entityId/entityLabel params to pre-fill the target —
+//     matches the pattern in src/components/ItemCard.tsx)
 //   '/(app)/(vehicles)/[id]' onNavigate route (VehiclePanel embed) →
 //     '/(app)/vehicles/[id]' typed-object push (Station C3, plain route).
 //
@@ -578,11 +580,12 @@ export default function LocationDetailScreen() {
           <TouchableOpacity
             style={[s.card, s.reportRepairRow]}
             onPress={() => router.push({
-              // TODO(wave-C): repairs surface isn't built yet — cast bypasses
-              // expo-router's typed-routes check until that screen lands.
-              pathname: '/(app)/repairs/new',
-              params: { entityType: 'location', entityId: location.id, entityLabel: location.name },
-            } as never)}
+              // No dedicated '/repairs/new' screen (Station C4 brief: creation
+              // via quick-add only) — routes into the repair quick-add sheet,
+              // which reads these same params to pre-fill the target.
+              pathname: '/(app)/quickadd/[sheet]',
+              params: { sheet: 'repair', entityType: 'location', entityId: location.id, entityLabel: location.name },
+            })}
           >
             <Text style={s.reportRepairText}>🔧 Report repair</Text>
             <Text style={s.attrVal}>›</Text>

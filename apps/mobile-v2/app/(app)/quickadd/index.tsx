@@ -11,13 +11,8 @@ import { useThemedStyles, PrimaryButton } from '@invenpro/ui';
  * here + a case in `[sheet].tsx` (see that file's KIND_META).
  *
  * Wave A shipped item/csv-import/stock/equipment/location; Waves B/C added
- * user/team/job/vehicle/gas-receipt. Only 'repair' remains a real, known kind
- * whose form isn't ported yet (repairs/ excluded, TODO(wave-D)) — old chooser
- * had no per-kind permission gating (only the overall `quick_add` gate
- * below), so there's no existing gating to mirror; its tile is just visually
- * disabled until that wave lands. `[sheet].tsx` still renders a themed
- * "coming soon" placeholder for it so a deep link / other push site isn't a
- * dead end.
+ * user/team/job/vehicle/gas-receipt; Station C4 added repair — every known
+ * quick-add kind is now live (no `deferred` tiles remain).
  */
 const ACTIONS: { kind: string; icon: string; label: string; sub: string; deferred?: boolean }[] = [
   { kind: 'item', icon: '📦', label: 'Item', sub: 'New catalog item' },
@@ -28,9 +23,7 @@ const ACTIONS: { kind: string; icon: string; label: string; sub: string; deferre
   { kind: 'vehicle', icon: '🚐', label: 'Vehicle', sub: 'New vehicle' },
   { kind: 'gas-receipt', icon: '⛽', label: 'Gas Receipt', sub: 'Log a fuel-up' },
   { kind: 'job', icon: '🏗', label: 'Job', sub: 'New job' },
-  // TODO(wave-D): repair quick add not ported yet (repairs/ excluded, out of
-  // scope for Station C3 per the coordinator brief).
-  { kind: 'repair', icon: '🔧', label: 'Repair', sub: 'Coming soon', deferred: true },
+  { kind: 'repair', icon: '🔧', label: 'Repair', sub: 'Open a repair ticket' },
   { kind: 'team', icon: '👥', label: 'Team', sub: 'New team' },
   { kind: 'user', icon: '👤', label: 'User', sub: 'New employee account' },
 ];

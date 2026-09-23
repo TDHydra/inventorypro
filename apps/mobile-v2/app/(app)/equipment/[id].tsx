@@ -21,7 +21,9 @@ import { usePermission } from '../../../src/hooks/usePermission';
 import { useSession } from '../../../src/hooks/useSession';
 import { useMaintenanceMode } from '../../../src/hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../../src/db/maintenance';
-import { useDbQuery, useDataVersion } from '@invenpro/core';
+import { useDbQuery, useDataVersion, runInTransaction } from '@invenpro/core';
+import { getRepairsForEntity, updateRepairStatus } from '../../../src/repos/repairs';
+import { getRepairStatuses, isTerminalStatus } from '../../../src/repos/taxonomy';
 import { BarcodeInput } from '../../../src/components/BarcodeInput';
 import { UnitRow } from '../../../src/components/UnitRow';
 import { PickerOption } from '../../../src/components/SearchablePicker';
@@ -41,6 +43,7 @@ import {
   FilterChip, StatusPill, MaintenanceBanner,
 } from '@invenpro/ui';
 import { RequestApprovalSheet } from '../../../src/components/RequestApprovalSheet';
+import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 
 // Slimmed from apps/mobile/app/(app)/(equipment)/[id].tsx (1253 ln). Cut this
 // wave (no infra ported yet — reported, not silently dropped):
@@ -49,9 +52,10 @@ import { RequestApprovalSheet } from '../../../src/components/RequestApprovalShe
 //     (src/labels/printLabel, LabelPrintSheet) not ported this wave — gap.
 //   - DiscussThisButton (chat)                                → TODO(wave-chat)
 //   RequestApprovalSheet restored Station B3 (repos/approvals.ts).
-//   - PriorRepairsCard, repair-ticket auto-complete on       → TODO(wave-C)
-//     "Return from repair" (src/db/queries/repairs.ts, taxonomy repair
-//     statuses not ported — the status/location change itself still works)
+//   - PriorRepairsCard + repair-ticket auto-complete on "Return from repair"
+//     — DONE (Station C4): doRepairIn below drives completed repairs to a
+//     terminal status atomically, and PriorRepairsCard is now embedded in the
+//     per-unit History modal (see historyUnit ModalSheet below).
 //   - ActivityFeed (per-unit audit log view)                 → cut, not
 //     required by the plan; the activity_log rows themselves are unaffected
 // Kept and ported: model edit, unit add/edit/retire, cleanliness toggle,
@@ -369,21 +373,34 @@ export default function EquipmentModelDetailScreen() {
   }
 
   // ── Repair helpers ───────────────────────────────────────────────────────
-  // TODO(wave-C): the old app completed any open repair ticket for this unit
-  // here too (src/db/queries/repairs.ts getRepairsForEntity/updateRepairStatus
-  // + taxonomy repair-status lookup) — repairs isn't ported this wave, so a
-  // unit returned from repair no longer auto-closes its ticket. The status/
-  // location change below still applies.
+  // Putting a unit in repair now goes through "Report repair" (a ticket) —
+  // the old note-only repair-out is removed so in_repair always has a
+  // Repairs ticket (matches the old app's own comment here).
   function doRepairIn(unit: EquipmentUnit, locationId: string) {
     if (!user || !item) return;
     if (isWriteBlocked()) return;
-    setUnitStatus(unit.id, { status: 'available', current_location_id: locationId, notes: null });
-    appendLog({
-      user_id: realUser!.id, team_id: null, action: 'repair_in',
-      entity_type: 'item', entity_id: item.id,
-      from_location_id: null, to_location_id: locationId, quantity: null, unit: null, job_id: null,
-      note: 'unit ' + unit.asset_tag,
-      metadata: null, device_id: null,
+    // Atomic (#125 discipline): the unit status flip, the auto-completion of
+    // any open repair ticket, and the log all land together or not at all.
+    // setUnitStatus/updateRepairStatus both self-mirror to the outbox
+    // internally — no hand-rolled appendOutbox here (unlike the old app).
+    runInTransaction(() => {
+      setUnitStatus(unit.id, { status: 'available', current_location_id: locationId, notes: null });
+      appendLog({
+        user_id: realUser!.id, team_id: null, action: 'repair_in',
+        entity_type: 'item', entity_id: item.id,
+        from_location_id: null, to_location_id: locationId, quantity: null, unit: null, job_id: null,
+        note: 'unit ' + unit.asset_tag,
+        metadata: null, device_id: null,
+      });
+      // Keep the repair ticket(s) in sync: returning a unit completes its
+      // open ticket with a terminal status (so the Repairs list shows it as
+      // done) — Station C4's equipment repair auto-complete behavior.
+      const terminalLabel = getRepairStatuses().find(s => isTerminalStatus(s.label))?.label;
+      if (terminalLabel) {
+        for (const r of getRepairsForEntity('equipment_unit', unit.id)) {
+          if (r.completed_at == null) updateRepairStatus(r.id, terminalLabel, true);
+        }
+      }
     });
     setRepairInUnit(null);
     setRepairInLoc(null);
@@ -650,12 +667,14 @@ export default function EquipmentModelDetailScreen() {
                         {canEdit && u.status !== 'retired' && u.status !== 'in_repair' && (
                           <TouchableOpacity
                             style={s.unitActionBtn}
-                            // TODO(wave-C): repairs isn't ported yet — cast
-                            // bypasses expo-router's typed-routes check.
+                            // No dedicated '/repairs/new' screen (Station C4
+                            // brief: creation via quick-add only) — routes
+                            // into the repair quick-add sheet, which reads
+                            // these same params to pre-fill the target.
                             onPress={() => router.push({
-                              pathname: '/(app)/repairs/new',
-                              params: { entityType: 'equipment_unit', entityId: u.id, entityLabel: u.asset_tag },
-                            } as never)}
+                              pathname: '/(app)/quickadd/[sheet]',
+                              params: { sheet: 'repair', entityType: 'equipment_unit', entityId: u.id, entityLabel: u.asset_tag },
+                            })}
                           >
                             <Text style={s.unitActionText}>Report repair</Text>
                           </TouchableOpacity>
@@ -936,6 +955,9 @@ export default function EquipmentModelDetailScreen() {
                   <Text style={s.maintAddText}>+ Add maintenance event</Text>
                 </TouchableOpacity>
               )}
+              {/* Repair history for this unit (Station C4) — ported alongside
+                  repairs/[id].tsx, resolving this screen's prior repair-history gap. */}
+              <PriorRepairsCard entityType="equipment_unit" entityId={historyUnit.id} />
             </View>
           );
         })()}

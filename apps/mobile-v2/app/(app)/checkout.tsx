@@ -23,6 +23,23 @@
  *
  * Route mapping: (app)/(checkout) → (app)/checkout; (app)/(checkin) absorbed
  * above; (app)/(inventory)/scan → (app)/scan; (app)/(dashboard) → (app)/ (hub).
+ *
+ * Station C4: ported the "Where are you working from?" fast-checkout source
+ * picker (#127, apps/mobile/app/(app)/(crew)/index.tsx) INTO this flow's
+ * 'find' step, rather than as its own screen — the old app used it as a
+ * dashboard-tile entry point that dropped the user straight into a
+ * scan-scoped hub screen, but mobile-v2 has no separate hub/scan-first
+ * screen for it to gate (index.tsx's tile grid already plays that role, and
+ * the wave-D dashboard-widget system this tile lived in isn't ported). The
+ * value of #127 — skip re-finding your own locker/vehicle/location every
+ * checkout — is preserved as a quick-access strip (getCheckoutSourceLocations)
+ * above the search box: tapping a card sets `quickSourceLocId`, which
+ * prefills the qty step's source exactly like the existing #147 `params.loc`
+ * prefill (arriving from a scan) — same `prefillLocId` plumbing in
+ * handleSelectItem, just a second way to populate it. Auto-preselects when
+ * the user has exactly one accessible source (no extra tap), matching the
+ * old screen's auto-advance. Locked (other-team) units show the same
+ * lock-reason alert as the old SourceCard (getUnitInventoryLock).
  */
 import { useState, useMemo, useEffect } from 'react';
 import {
@@ -39,6 +56,8 @@ import {
   getAllLocations, getLocationsByOwner, resolveLocationShelfSelection, type Location,
 } from '../../src/repos/locations';
 import { getManagerTierUsers } from '../../src/repos/users';
+import { getCheckoutSourceLocations, getUnitInventoryLock } from '../../src/repos/access';
+import type { UserSession } from '../../src/auth/permissions';
 import {
   getUnitsForItem, getAvailableUnitsAtLocation, getUnitByTag, setUnitStatus,
   getDeployedUnitsForUser, checkInUnitFromJob, type EquipmentUnit,
@@ -95,6 +114,11 @@ export default function CheckoutScreen() {
   const [stock, setStock] = useState<StockByLocation[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<StockByLocation | null>(null);
   const [quantity, setQuantity] = useState('1');
+  // #127 quick-access: the user's own locker/vehicle/location, tapped on the
+  // 'find' step before an item is chosen (see handleSelectItem's prefillLocId
+  // param). Independent of `selectedLocation` (that's the qty step's actual
+  // per-item source row).
+  const [quickSourceLocId, setQuickSourceLocId] = useState<string | null>(null);
 
   // Unit-tracked items move SPECIFIC units instead of a quantity.
   const [selectedUnits, setSelectedUnits] = useState<EquipmentUnit[]>([]);
@@ -138,6 +162,26 @@ export default function CheckoutScreen() {
     if (!itemSearch.trim()) return [];
     return searchItems(itemSearch, 50, 0);
   }, [itemSearch, refreshKey]);
+
+  // #127 fast-checkout quick-access: every locker/vehicle/location the user
+  // can check out from (owned ∪ granted ∪ owned by a parent-team mate; main
+  // locations gated on checkout_inventory like the old CrewSourcePicker).
+  const checkoutSources = useMemo(
+    () => (user ? getCheckoutSourceLocations(user.id) : { locations: [], lockers: [], vehicles: [] }),
+    [user?.id, refreshKey],
+  );
+  const quickSourceLocations = canCheckout ? checkoutSources.locations : [];
+  const quickSourceTotal = quickSourceLocations.length + checkoutSources.lockers.length + checkoutSources.vehicles.length;
+  const quickSourceOnly = quickSourceTotal === 1
+    ? (quickSourceLocations[0] ?? checkoutSources.lockers[0] ?? checkoutSources.vehicles[0])
+    : null;
+  // Auto-preselect when there's exactly one accessible source (matches the
+  // old screen's auto-advance) — but only while nothing else has been chosen
+  // yet, so it never clobbers a `params.loc` arrival or a manual pick/clear.
+  useEffect(() => {
+    if (quickSourceOnly && quickSourceLocId === null && !params.loc) setQuickSourceLocId(quickSourceOnly.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickSourceOnly?.id]);
 
   const cat = (selectedItem?.unit_category ?? '') as any;
   const unit = selectedItem?.unit ?? '';
@@ -542,6 +586,15 @@ export default function CheckoutScreen() {
         <View style={s.container}>
           <TooltipHint screenKey="checkout" />
           <ModeToggle mode="out" onChange={m => setStep(m === 'in' ? 'checkin' : 'find')} s={s} />
+          <QuickSourcePicker
+            s={s}
+            user={user}
+            locations={quickSourceLocations}
+            lockers={checkoutSources.lockers}
+            vehicles={checkoutSources.vehicles}
+            selectedId={quickSourceLocId}
+            onSelect={id => setQuickSourceLocId(prev => (prev === id ? null : id))}
+          />
           <AppInput
             placeholder="Search item name or barcode..."
             value={itemSearch}
@@ -557,7 +610,7 @@ export default function CheckoutScreen() {
             data={itemResults}
             keyExtractor={i => i.id}
             renderItem={({ item }) => (
-              <TouchableOpacity style={s.row} onPress={() => handleSelectItem(item)}>
+              <TouchableOpacity style={s.row} onPress={() => handleSelectItem(item, quickSourceLocId ?? undefined)}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.rowName}>{item.name}</Text>
                   {item.barcode && <Text style={s.rowSub}>{item.barcode}</Text>}
@@ -958,6 +1011,76 @@ function ModeToggle({ mode, onChange, s }: { mode: 'out' | 'in'; onChange: (m: '
       <TouchableOpacity style={[s.forBtn, mode === 'in' && s.forBtnActive]} onPress={() => onChange('in')}>
         <Text style={[s.forBtnText, mode === 'in' && s.forBtnTextActive]}>Check In</Text>
       </TouchableOpacity>
+    </View>
+  );
+}
+
+// #127 fast-checkout quick-access strip — "Where are you working from?"
+// Collapses to a single "Working from: <name>" row once a source is picked
+// (tap it again, or its own row, to clear); shows the full sectioned list
+// otherwise. Renders nothing when the user has no accessible source (same as
+// the old CrewSourcePicker's EmptyState case, minus the empty state itself —
+// this is a non-blocking convenience strip, not a gate, so silence is right).
+function QuickSourcePicker({
+  s, user, locations, lockers, vehicles, selectedId, onSelect,
+}: {
+  s: any;
+  user: UserSession | null;
+  locations: Location[];
+  lockers: Location[];
+  vehicles: Location[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const total = locations.length + lockers.length + vehicles.length;
+  if (total === 0) return null;
+
+  const selected = selectedId
+    ? [...locations, ...lockers, ...vehicles].find(l => l.id === selectedId) ?? null
+    : null;
+
+  function pick(loc: Location) {
+    const lock = getUnitInventoryLock(user, loc.type === 'Vehicle' || loc.type === 'Locker' ? loc.id : null);
+    if (lock.locked) {
+      Alert.alert('Team inventory', lock.reason ?? 'This unit belongs to another team.');
+      return;
+    }
+    onSelect(loc.id);
+  }
+
+  if (selected) {
+    return (
+      <TouchableOpacity style={s.quickSourceSelected} onPress={() => onSelect(selected.id)}>
+        <Text style={s.quickSourceSelectedIcon}>{selected.icon || (selected.type === 'Vehicle' ? '🚐' : selected.type === 'Locker' ? '🔒' : '📍')}</Text>
+        <Text style={s.quickSourceSelectedText}>Working from: {selected.name}</Text>
+        <Text style={s.quickSourceChange}>change</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  const sections: { label: string; rows: Location[] }[] = [
+    { label: 'Locations', rows: locations },
+    { label: 'Lockers', rows: lockers },
+    { label: 'Vehicles', rows: vehicles },
+  ].filter(sec => sec.rows.length > 0);
+
+  return (
+    <View style={s.quickSourceWrap}>
+      <Text style={s.quickSourcePrompt}>Where are you working from?</Text>
+      {sections.map(sec => (
+        <View key={sec.label}>
+          <Text style={s.quickSourceSectionLabel}>{sec.label}</Text>
+          <View style={s.quickSourceRow}>
+            {sec.rows.map(loc => (
+              <TouchableOpacity key={loc.id} style={s.quickSourceChip} onPress={() => pick(loc)}>
+                <Text style={s.quickSourceChipText} numberOfLines={1}>
+                  {loc.icon || (loc.type === 'Vehicle' ? '🚐' : loc.type === 'Locker' ? '🔒' : '📍')} {loc.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -1546,6 +1669,27 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   qtyHint: { marginTop: 6, fontSize: 12, color: t.colors.textSecondary, textAlign: 'center' },
   scanRow: { paddingVertical: 12, alignItems: 'center' },
   scanText: { color: t.colors.primary, fontSize: 15, fontWeight: '600' },
+  // #127 fast-checkout quick-access strip (find step).
+  quickSourceWrap: { marginBottom: 10 },
+  quickSourcePrompt: { fontSize: 13, fontWeight: '700', color: t.colors.textSecondary, marginBottom: 6 },
+  quickSourceSectionLabel: {
+    fontSize: 11, fontWeight: '700', color: t.colors.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4, marginBottom: 4,
+  },
+  quickSourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  quickSourceChip: {
+    backgroundColor: t.colors.surfaceAlt, borderRadius: t.radii.xl,
+    borderWidth: 1, borderColor: t.colors.border, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  quickSourceChipText: { fontSize: 13, fontWeight: '600', color: t.colors.textPrimary },
+  quickSourceSelected: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: t.colors.primaryBg, borderRadius: 10,
+    borderWidth: 1, borderColor: t.colors.primary, padding: 10, marginBottom: 10,
+  },
+  quickSourceSelectedIcon: { fontSize: 18 },
+  quickSourceSelectedText: { flex: 1, fontSize: 13, fontWeight: '600', color: t.colors.textPrimary },
+  quickSourceChange: { fontSize: 12, fontWeight: '600', color: t.colors.primary },
   row: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: t.colors.surface, padding: 14,
