@@ -1,0 +1,134 @@
+import { View, Text, ScrollView, StyleSheet, Switch } from 'react-native';
+import { Stack } from 'expo-router';
+import type { Theme } from '@invenpro/ui';
+import { useTheme, useThemedStyles, Alert } from '@invenpro/ui';
+import { runInTransaction } from '@invenpro/core';
+import { usePermission } from '../../../src/hooks/usePermission';
+import { useUnitAccessDefaults } from '../../../src/hooks/useUnitAccessDefaults';
+import {
+  setUnitAccessDefaults,
+  notifyUnitAccessDefaultsChanged,
+  FALLBACK_ACTIONS,
+  type UnitAccessActions,
+} from '../../../src/db/unitAccessDefaults';
+import { ROLE_TIER, ROLE_DISPLAY_NAMES, type UserRole } from '../../../src/constants/roles';
+import { isWriteBlocked } from '../../../src/db/maintenance';
+
+// Station D3: Settings → Unit Access Defaults — port of the old app's
+// standalone unit-access-defaults admin screen (#122 Phase B). Gated on
+// `system_settings`; each toggle commits immediately (hidden-fields idiom)
+// and the reactive useUnitAccessDefaults hook keeps the switches live across
+// sync pulls.
+const ROLES_ORDERED = (Object.keys(ROLE_TIER) as UserRole[]).sort(
+  (a, b) => ROLE_TIER[b] - ROLE_TIER[a] || ROLE_DISPLAY_NAMES[a].localeCompare(ROLE_DISPLAY_NAMES[b]),
+);
+
+const ACTION_LABELS: Record<keyof UnitAccessActions, string> = {
+  view: 'See contents', add: 'Add stock', remove: 'Take stock', move: 'Move stock',
+  editDetails: 'Edit details', grant: 'Grant access to others',
+};
+const ACTION_KEYS = Object.keys(ACTION_LABELS) as (keyof UnitAccessActions)[];
+
+export default function UnitAccessDefaultsSettings() {
+  const s = useThemedStyles(makeStyles);
+  const t = useTheme();
+  const isAdmin = usePermission('system_settings');
+  const defaults = useUnitAccessDefaults();   // reactive — sync pulls re-render this screen
+
+  function handleToggle(role: UserRole, action: keyof UnitAccessActions, value: boolean) {
+    if (isWriteBlocked()) return;
+    const next = {
+      ...defaults,
+      [role]: { ...(defaults[role] ?? FALLBACK_ACTIONS), [action]: value },
+    };
+    try {
+      runInTransaction(() => setUnitAccessDefaults(next));
+    } catch (e) {
+      Alert.alert('Could not save defaults', e instanceof Error ? e.message : 'Please try again.');
+      return;
+    }
+    notifyUnitAccessDefaultsChanged();
+  }
+
+  if (!isAdmin) {
+    return (
+      <View style={s.center}>
+        <Stack.Screen options={{ title: 'Unit Access Defaults' }} />
+        <Text style={s.muted}>You don&apos;t have access to unit access defaults.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={s.container} contentContainerStyle={s.content}>
+      <Stack.Screen options={{ title: 'Unit Access Defaults' }} />
+      <View style={s.intro}>
+        <Text style={s.introTitle}>New-grant defaults per role</Text>
+        <Text style={s.introBody}>
+          When someone is granted access to a vehicle or locker, their grant starts
+          with these actions (based on their role). Individual grants can be edited
+          afterwards from the member&apos;s permissions sheet.
+        </Text>
+      </View>
+      {ROLES_ORDERED.map(role => {
+        const actions = defaults[role] ?? FALLBACK_ACTIONS;
+        return (
+          <View key={role} style={s.card}>
+            <Text style={s.roleTitle}>{ROLE_DISPLAY_NAMES[role]}</Text>
+            {ACTION_KEYS.map((k, idx) => (
+              <View key={k}>
+                {idx > 0 && <View style={s.divider} />}
+                <View style={s.row}>
+                  <Text style={s.rowLabel}>{ACTION_LABELS[k]}</Text>
+                  <Switch
+                    value={actions[k]}
+                    onValueChange={(v) => handleToggle(role, k, v)}
+                    trackColor={{ true: t.colors.primary, false: t.colors.border }}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+// Settings-split house style — see app/(app)/settings/index.tsx makeStyles.
+const makeStyles = (t: Theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 48 },
+
+  center: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', padding: t.spacing.xl,
+    backgroundColor: t.colors.background,
+  },
+  muted: { fontSize: t.typography.fontSizes.body, color: t.colors.textSecondary, textAlign: 'center' },
+
+  intro: { gap: t.spacing.sm },
+  introTitle: {
+    fontSize: t.typography.fontSizes.lg,
+    fontWeight: '700',
+    color: t.colors.textPrimary,
+  },
+  introBody: { fontSize: t.typography.fontSizes.body2, color: t.colors.textSecondary, lineHeight: 20 },
+
+  card: {
+    backgroundColor: t.colors.surface,
+    borderRadius: t.radii.lg,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    overflow: 'hidden',
+  },
+  roleTitle: { fontSize: 15, fontWeight: '700', color: t.colors.textPrimary, paddingTop: t.spacing.sm, paddingHorizontal: t.spacing.base },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: t.spacing.base,
+    paddingVertical: t.spacing.base,
+  },
+  rowLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '500' },
+  divider: { height: 1, backgroundColor: t.colors.border, marginHorizontal: t.spacing.base },
+});

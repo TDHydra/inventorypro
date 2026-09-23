@@ -1283,3 +1283,48 @@ a one-tap "You're at <job>" banner (no auto-commit — job vs. pool is an
 audience choice). Auto-fill never overrides a manual pick/clear or params.loc.
 Data caveat at ship time: only 3/62 prod locations anchored (Lexington Park,
 Huntington, Maintenence); the one open job had no site_location_id.
+
+## Station D3 — userPrefs, notifications, dashboards, settings split (2026-09-23)
+
+user_prefs module (theme, quiet hours, per-category push mutes — column-scoped
+upserts per the mig-060 postmortem, never INSERT OR REPLACE), notifications
+module (inbox + localAlerts + push registration), the role dashboards, and the
+settings split.
+
+Dashboards (plan decision #3 — 21-file preset engine CUT, hardcoded per-role
+presets instead): src/dashboard/presets.ts is pure data (StatTileId /
+WorkListId closed vocabularies; registry Records give TS exhaustiveness),
+rendered by components/dashboard/{StatTiles,WorkList,QuickActionsRow}.tsx on
+the hub. One useDbQuery per component with a stable broad table list (per-stat
+lists would churn subscribe closures; over-invalidation is cheap at COUNT
+scale). Work lists hide entirely when empty — the hub is a launchpad, not a
+status report. Quick actions are crew-only (tier-1 minus temporary_employee).
+users.dashboard_preset_id stays in the schema, unused by v2 UI.
+
+Settings split: old 1111-line (admin)/settings.tsx → app/(app)/settings/
+{index,sync,notifications,security,org,fields,access-defaults}.tsx. The hub
+keeps account/profile/theme/form-override/app-info + links; notifications
+absorbs the NotificationPrefsSheet categories (#245, inline switches) and the
+notification-routing screen (inline editor); security gets idle/maintenance/
+demo-accounts/QR-signing (tier gates preserved: system_settings for admin
+pages, tier-4 for System, apex for demo accounts); org gets org theme, form
+default, main storage, approval threshold, Manage Types link. Dropped with the
+split (plan decision #3): analytics, audit-log, broadcast, label designer,
+dashboards designer, sample-data dev tool.
+
+Support modules ported: api/me.ts, profile sheets (PIN/email/phone) +
+ProfileSection, QrSigningSection, NotificationRoutingEditor, updateUserLocal
+(local mirror, NO outbox and NO updated_at touch — the server's stamp must win
+the next pull's freshness compare).
+
+Reactivity gotcha (recurring, worth remembering): core's setAppSetting does a
+plain INSERT OR REPLACE with NO queueTableBump — app_settings writes never
+bump the data version. Every app_settings-backed control in the split
+(notifications_enabled, idle timeout, form override) therefore holds seeded
+local useState updated in its handler and re-seeded on focus/data ticks; the
+notify trigger text inputs re-seed on FOCUS only so a background pull can't
+clobber typing. user_prefs/app_config writes DO bump, so those reads stay
+plain useDbQuery.
+
+tsc clean, 315 tests pass (pinChangeLogic tests ported). Typed routes
+regenerated for the six new settings/* paths.

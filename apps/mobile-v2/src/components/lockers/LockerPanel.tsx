@@ -6,6 +6,7 @@ import { useSession } from '../../hooks/useSession';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { isWriteBlocked } from '../../db/maintenance';
 import { getLocationById, getLocationPath } from '../../repos/locations';
+import { UnitContentsPanel } from '../units/UnitContentsPanel';
 import { getUserById, getAllActiveUsers } from '../../repos/users';
 import {
   canManageLockerAccess, getUnitAccessRows, getUserUnitPerms, revokeUnitAccess,
@@ -23,11 +24,9 @@ import type { PickerOption } from '../SearchablePicker';
 // unless the user can manage (owner or tier-3+ via canManageLockerAccess, or
 // an explicit unit_access can_grant bit).
 //
-// Station C3 deviation from apps/mobile: the old app's `UnitContentsPanel`
-// embed (per-action gated contents list + add/remove/move) is CUT here —
-// TODO(wave-D), same cut and same reasoning as VehiclePanel's. The
-// location-detail screen's generic stock list already covers reads for the
-// summary embed's host; the full-variant contents shortcuts are deferred.
+// The old app's `UnitContentsPanel` embed (per-action gated contents list +
+// add/remove/move, full variant only) was CUT at Station C3 and restored in
+// Station D3 (src/components/units/), same as VehiclePanel's.
 // grantUnitAccessWithDefaults/revokeUnitAccess/getUnitAccessRows/
 // getUserUnitPerms all came from Station B3 (repos/access.ts) — wired here,
 // not duplicated. canManageLockerAccess was added this station (Station C3)
@@ -41,7 +40,7 @@ interface Props {
   onNavigate?: (href: string) => void;
 }
 
-export function LockerPanel({ locationId, variant = 'full' }: Props) {
+export function LockerPanel({ locationId, variant = 'full', onNavigate }: Props) {
   const s = useThemedStyles(makeStyles);
   const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
@@ -126,9 +125,9 @@ export function LockerPanel({ locationId, variant = 'full' }: Props) {
         <Text style={s.ownerName}>{owner ? owner.name : 'No owner'}</Text>
       </View>
 
-      {/* Contents: TODO(wave-D) — the old app's UnitContentsPanel (per-action
-          gated contents list + add/remove/move, full variant only) is cut for
-          this station; see the header note above. */}
+      {/* Contents (A2 Task 4) — per-action gated list + add/remove/move.
+          Restored Station D3 (was TODO(wave-D)), full variant only. */}
+      {variant === 'full' && <UnitContentsPanel locationId={locationId} onNavigate={onNavigate} />}
 
       {/* Access chips (read-only at a glance) + Manage for owner / org authority. */}
       <View style={s.section}>

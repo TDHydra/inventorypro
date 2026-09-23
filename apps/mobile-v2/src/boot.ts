@@ -10,6 +10,7 @@ import { loadRolePermissionCache } from './auth/permissions';
 import { reconcileTeams } from './repos/teams';
 import { reconcileChat } from './repos/chatPurge';
 import { chatUnreadCache } from './chat/unread';
+import { runLocalAlertChecks } from './notifications/localAlerts';
 import { track } from './telemetry';
 
 let booted = false;
@@ -57,4 +58,14 @@ export function bootCore(): void {
   // ['messages','conversation_participants'] so it only reloads when those
   // tables actually changed in a pull.
   registerAfterPull(chatUnreadCache.afterPullHook);
+
+  // Station D3 — local alert checks (low stock / expiry / overdue repairs /
+  // service due / sync-stuck; localAlerts.ts, .web twin on web). The old
+  // engine.ts called this in its hardcoded post-cycle block; no `tables`
+  // filter here because the sync-stuck alert depends on outbox state (which
+  // changes on push-only cycles), and the checks are cheap and self-deduping.
+  registerAfterPull({
+    name: 'localAlerts',
+    run: async () => { await runLocalAlertChecks(); },
+  });
 }

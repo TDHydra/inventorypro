@@ -11,7 +11,7 @@ import {
   resolveLockStamp,
   resolveVehicleAvailability,
 } from '../components/vehicles/vehicleSessionLogic';
-import { sharesTeamWithOwner } from './access';
+import { sharesTeamWithOwner } from './ownership';
 
 // VEHICLES domain (#125 + #81, migration 042 / API 054). Station C3 (Wave C):
 // ported from apps/mobile/src/db/queries/vehicles.ts, adapted to

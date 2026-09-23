@@ -6,6 +6,7 @@ import {
 } from '@invenpro/ui';
 import { runInTransaction, useTableVersion } from '@invenpro/core';
 import { ServiceRecordList } from './ServiceRecordList';
+import { UnitContentsPanel } from '../units/UnitContentsPanel';
 import { VehicleHistoryPanel } from './VehicleHistoryPanel';
 import { VehicleCheckoutSheet, type CheckoutSheetMode } from './VehicleCheckoutSheet';
 import { VehicleEditSheet } from './VehicleEditSheet';
@@ -41,10 +42,8 @@ import { appendLog } from '../../db/queries/log';
  *                     above stock on locations/[id] (Station C1 precedent).
  *
  * Station C3 deviations from apps/mobile:
- *  - The old app's `UnitContentsPanel` (per-action gated contents list +
- *    add/remove/move) is CUT here — TODO(wave-D). The location-detail screen
- *    already shows the generic stock list for this location; a vehicle-
- *    specific quick-add/move affordance is deferred.
+ *  - `UnitContentsPanel` (per-action gated contents list + add/remove/move)
+ *    was CUT at C3 and restored in Station D3 (src/components/units/).
  *  - upsertVehicleState no longer self-logs (Station C3's no-self-log
  *    conversion of repos/vehicles.ts) — every write site below (tank
  *    toggles, lock toggle, debris/fuel sliders) now wraps its call in
@@ -473,10 +472,12 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
         />
       </Card>
 
-      {/* Contents: TODO(wave-D) — the old app's UnitContentsPanel (per-action
-          gated contents list + add/remove/move) is cut for this station. The
-          location-detail screen's generic stock list already covers reads;
-          per-action shortcuts here are deferred. */}
+      {/* Contents (A2 Task 5) — per-action gated list + add/remove/move.
+          Restored Station D3 (was TODO(wave-D)). */}
+      <Text style={s.sectionLabel}>Contents</Text>
+      <Card variant="detail">
+        <UnitContentsPanel locationId={locationId} />
+      </Card>
 
       {/* Service log (last 3 + add) */}
       <ServiceRecordList locationId={locationId} limit={3} />

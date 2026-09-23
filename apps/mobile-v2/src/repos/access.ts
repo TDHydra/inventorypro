@@ -44,6 +44,7 @@ import {
   isUnitLocation, type Location,
 } from './locations';
 import { getDefaultActionsForRole } from '../db/unitAccessDefaults';
+import { sharesTeamWithOwner } from './ownership';
 import { canLiftVehicleLock } from '../components/vehicles/vehicleSessionLogic';
 
 const accessRepo = createRepository('unit_access');
@@ -116,6 +117,29 @@ export function getUserUnitPerms(userId: string, locationId: string): UnitPerms 
   return {
     view: !!r?.can_view, add: !!r?.can_add, remove: !!r?.can_remove,
     move: !!r?.can_move, editDetails: !!r?.can_edit_details, grant: !!r?.can_grant,
+  };
+}
+
+/**
+ * Per-action perms resolution kernel (ported from the old app's
+ * src/access/accessResolution.ts for Station D3's UnitContentsPanel):
+ * owner/tier-3+ get everything; a teammate of the owner gets view/add/
+ * remove/move implicitly; editDetails/grant stay row-grant-only.
+ */
+export function resolveUnitActionPerms(input: {
+  isOwner: boolean; roleTier: number; isTeammateOfOwner: boolean; rowPerms: UnitPerms;
+}): UnitPerms {
+  if (input.isOwner || input.roleTier >= 3) {
+    return { view: true, add: true, remove: true, move: true, editDetails: true, grant: true };
+  }
+  const t = input.isTeammateOfOwner;
+  return {
+    view: input.rowPerms.view || t,
+    add: input.rowPerms.add || t,
+    remove: input.rowPerms.remove || t,
+    move: input.rowPerms.move || t,
+    editDetails: input.rowPerms.editDetails,
+    grant: input.rowPerms.grant,
   };
 }
 
@@ -497,15 +521,9 @@ function ownerTeamLabel(ownerUserId: string): string {
   return owner ? `${owner.name}'s team` : 'another team';
 }
 
-export function sharesTeamWithOwner(userId: string, ownerUserId: string | null): boolean {
-  if (!ownerUserId) return false;
-  if (ownerUserId === userId) return true;
-  const db = getDb();
-  return (rowsAs<{ n: number }>(db.executeSync(
-    `SELECT COUNT(*) AS n FROM team_members a JOIN team_members b ON b.team_id = a.team_id
-      WHERE a.user_id = ? AND b.user_id = ?`, [userId, ownerUserId],
-  ).rows)[0]?.n ?? 0) > 0;
-}
+// sharesTeamWithOwner moved to ./ownership (Station D3, require-cycle break);
+// re-exported so existing importers keep working.
+export { sharesTeamWithOwner };
 
 /**
  * manage_other_team_inventory for one actor, resolved the way the SERVER

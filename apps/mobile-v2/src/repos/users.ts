@@ -32,7 +32,7 @@ export interface User {
   expires_at: string | null;
   email?: string | null;
   phone?: string | null; // normalized: optional leading '+', 7–15 digits (migration 049)
-  dashboard_preset_id?: string | null; // TODO(wave-D): dashboard preset engine is cut this wave; column kept for schema parity, unused by any v2 UI.
+  dashboard_preset_id?: string | null; // Dashboard preset engine cut in the rebuild (plan decision #3 — Station D3 ships hardcoded per-role dashboards, src/dashboard/presets.ts); column kept for schema parity, unused by any v2 UI.
   is_test?: number; // 1 = public demo account (sandboxed session, code shown at login)
   enrollment_code_public?: string | null; // display-only; non-null only when is_test
   created_at: string;
@@ -260,6 +260,22 @@ export function markUserPinSet(userId: string, pinLength: number): void {
 // reflects it immediately (other devices pick it up on the next pull).
 export function markUserPinReset(userId: string): void {
   getDb().executeSync(`UPDATE users SET pin_set = 0 WHERE id = ?`, [userId]);
+  queueTableBump('users');
+}
+
+// Mirror a /me self-service change (email/phone) into the local users row.
+// Local-only on purpose: the SERVER already committed the value and bumped
+// updated_at (src/api/me.ts), so an outbox write would just re-push what the
+// next pull is about to deliver. Deliberately does NOT touch updated_at —
+// the server's stamp must win the next pull's freshness compare.
+export function updateUserLocal(userId: string, fields: Partial<Pick<User, 'email' | 'phone'>>): void {
+  const cols = Object.keys(fields);
+  if (cols.length === 0) return;
+  const assignments = cols.map(c => `${c} = ?`).join(', ');
+  getDb().executeSync(
+    `UPDATE users SET ${assignments} WHERE id = ?`,
+    bindParams([...cols.map(c => (fields as Record<string, unknown>)[c]), userId])
+  );
   queueTableBump('users');
 }
 

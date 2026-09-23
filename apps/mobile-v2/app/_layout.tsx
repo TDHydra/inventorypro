@@ -9,6 +9,7 @@ import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold } from '@expo-goo
 import {
   startSyncEngine, stopSyncEngine,
   setSessionExpiredHandler, resetSessionExpiredNotice,
+  getAppSetting,
 } from '@invenpro/core';
 import {
   AlertHost, Alert, ConfirmSheetHost, loadThemeFromSettings, useTheme,
@@ -26,6 +27,7 @@ import { setWebIdleLogoutHandler } from '../src/hooks/useWebIdleWipe';
 import { ToastHost } from '../src/components/ToastHost';
 import { PreviewBanner } from '../src/components/PreviewBanner';
 import { setChatCurrentUserId } from '../src/chat/unread';
+import { initNotifications, ensureNotificationPermission } from '../src/notifications/localAlerts';
 
 // Wire core's injection seams before anything can touch sync/db modules.
 bootCore();
@@ -68,6 +70,13 @@ export default function RootLayout() {
         loadRolePermissionCache();
         startSyncEngine(appSyncTriggers);
         installConnectivityMonitor();
+        // Notifications (Station D3): create the Android channel, then (unless
+        // the user has turned the device pref off) make sure we hold OS
+        // permission so the post-sync alert checks can actually surface.
+        void initNotifications();
+        if (getAppSetting('notifications_enabled') !== 'false') {
+          void ensureNotificationPermission();
+        }
       })
       .catch(err => console.error('[DB] Init failed:', err));
 

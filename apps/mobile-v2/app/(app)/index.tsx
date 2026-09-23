@@ -1,20 +1,19 @@
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
 import { Stack, useRouter, type Href } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import { useThemedStyles } from '@invenpro/ui';
-import { useDbQuery, TABLES } from '@invenpro/core';
 import { useSession } from '../../src/hooks/useSession';
 import { usePermission } from '../../src/hooks/usePermission';
 import { ROLE_DISPLAY_NAMES } from '../../src/constants/roles';
-import { getDb } from '../../src/db/schema';
+import { ROLE_DASHBOARDS } from '../../src/dashboard/presets';
+import { StatTiles } from '../../src/components/dashboard/StatTiles';
+import { WorkList } from '../../src/components/dashboard/WorkList';
+import { QuickActionsRow } from '../../src/components/dashboard/QuickActionsRow';
 
-// Phase 2 hub stub — proves the skeleton end-to-end (session, DB, sync) by
-// showing live row counts for a handful of core tables, plus (Wave A) a tile
-// grid to the surfaces landing this wave. The REAL hub — old (hub)/index.tsx,
-// 1144 lines with role dashboards — is Wave D; do not port it here.
-const COUNT_TABLES = ['users', 'locations', 'inventory_items', 'stock_by_location', 'jobs', 'teams'] as const;
-
-// Wave A tiles. The real role-based hub (dashboard tiles) lands in Wave D.
+// Station D3: the real hub. Role-keyed dashboard (hardcoded presets — the old
+// 21-file user-editable engine was cut, plan decision #3) above the universal
+// nav grid: quick-action pills → stat tiles → work lists → tiles. The Phase-2
+// row-count card is gone (it only existed to prove the sync skeleton).
 interface Tile { label: string; icon: string; href: Href }
 const TILES: Tile[] = [
   { label: 'Scan', icon: '⬛', href: '/(app)/scan' },
@@ -65,9 +64,8 @@ const TILES: Tile[] = [
   { label: 'Lockers', icon: '🔒', href: '/(app)/lockers' },
 ];
 
-// Wave B: Users/Roles/Teams tiles, gated on their own manage_*/view_*
-// permission (the only entry point to those screens until the real
-// role-based hub lands in Wave D).
+// Users/Roles/Teams/Access/Approvals tiles, gated on their own manage_*/view_*
+// permission (matching each destination screen's own gate).
 interface GatedTile extends Tile { permission: Parameters<typeof usePermission>[0] }
 const ADMIN_TILES: GatedTile[] = [
   { label: 'Users', icon: '👤', href: '/(app)/users', permission: 'manage_users' },
@@ -81,10 +79,15 @@ const ADMIN_TILES: GatedTile[] = [
   { label: 'Approvals', icon: '✅', href: '/(app)/approvals', permission: 'manage_teams' },
 ];
 
-export default function HubStub() {
+export default function Hub() {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const { user } = useSession();
+  // Desktop/web: percentage tiles get huge on wide windows — switch to a
+  // fixed tile width and cap the content column so the hub reads like a
+  // dashboard, not a stretched phone screen.
+  const { width } = useWindowDimensions();
+  const wide = width >= 700;
   const canManageUsers = usePermission('manage_users');
   const canManageRoles = usePermission('manage_roles_permissions');
   const canViewTeams = usePermission('view_teams');
@@ -98,52 +101,30 @@ export default function HubStub() {
     return canViewTeams;
   });
 
-  const counts = useDbQuery(
-    () => {
-      const db = getDb();
-      const out: Record<string, number> = {};
-      for (const table of COUNT_TABLES) {
-        try {
-          out[table] = (db.executeSync(`SELECT COUNT(*) AS n FROM ${table}`).rows[0] as { n: number }).n;
-        } catch {
-          out[table] = -1;
-        }
-      }
-      return out;
-    },
-    [],
-    [...COUNT_TABLES],
-  );
-
   if (!user) return null;
+  const dash = ROLE_DASHBOARDS[user.role];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, wide && styles.contentWide]}>
       <Stack.Screen options={{ title: 'InventoryPro' }} />
       <Text style={styles.greeting}>Welcome back,</Text>
       <Text style={styles.name}>{user.name}</Text>
       <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role] ?? user.role}</Text>
 
+      {dash?.quickActions && <QuickActionsRow />}
+      {dash && <StatTiles stats={dash.stats} />}
+      {dash?.lists.map(id => <WorkList key={id} list={id} />)}
+
       <View style={styles.tileGrid}>
         {[...TILES, ...adminTiles].map(tile => (
           <TouchableOpacity
             key={tile.label}
-            style={styles.tile}
+            style={[styles.tile, wide && styles.tileWide]}
             onPress={() => router.push(tile.href)}
           >
             <Text style={styles.tileIcon}>{tile.icon}</Text>
             <Text style={styles.tileLabel}>{tile.label}</Text>
           </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Local data ({TABLES.length} synced tables)</Text>
-        {COUNT_TABLES.map(table => (
-          <View key={table} style={styles.row}>
-            <Text style={styles.rowLabel}>{table.replace(/_/g, ' ')}</Text>
-            <Text style={styles.rowValue}>{counts?.[table] ?? '…'}</Text>
-          </View>
         ))}
       </View>
 
@@ -157,6 +138,7 @@ export default function HubStub() {
 const makeStyles = (t: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 20 },
+  contentWide: { maxWidth: 900, width: '100%', alignSelf: 'center' },
   greeting: { fontSize: 16, color: t.colors.textSecondary },
   name: { fontSize: 28, fontWeight: '700', color: t.colors.brand },
   role: { fontSize: 13, color: t.colors.textSecondary, marginBottom: 24 },
@@ -172,20 +154,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
+  tileWide: { width: 120 },
   tileIcon: { fontSize: 26 },
   tileLabel: { fontSize: 12, fontWeight: '600', color: t.colors.textPrimary, textAlign: 'center' },
-  card: {
-    backgroundColor: t.colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: t.colors.border,
-    padding: 16,
-    marginBottom: 20,
-  },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: t.colors.textPrimary, marginBottom: 10 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
-  rowLabel: { fontSize: 14, color: t.colors.textSecondary, textTransform: 'capitalize' },
-  rowValue: { fontSize: 14, fontWeight: '600', color: t.colors.textPrimary },
   settingsBtn: { paddingVertical: 12 },
   settingsText: { fontSize: 16, color: t.colors.primaryText, fontWeight: '600' },
 });
