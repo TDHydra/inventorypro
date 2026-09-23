@@ -1,0 +1,517 @@
+import { FastifyPluginAsync } from 'fastify';
+import bcrypt from 'bcrypt';
+import { overLimit } from '../lib/rateLimit';
+import { createDemoModeGate, DemoModeGate } from '../lib/demoMode';
+import { UUID_SCHEMA } from '../lib/schemaShapes';
+import { isWeakPin } from '../lib/weakPin';
+
+interface TokenBody {
+  user_id: string;
+  pin: string;
+}
+
+interface RefreshBody {
+  refresh_token: string;
+}
+
+interface SetPinBody {
+  user_id: string;
+  pin: string;
+  enrollment_code: string;
+}
+
+// In-memory brute-force guard (the API runs as a single container). Keyed per
+// target (user_id); a sliding window of failures triggers a temporary lockout.
+// Blocks PIN guessing on /auth/token and hammering a single account on /set-pin.
+const attempts = new Map<string, { count: number; first: number; lockedUntil: number }>();
+export const WINDOW_MS = 15 * 60_000;
+
+// user_id must look like the UUID primary key it is (users.id). Without this
+// bound, any unauthenticated caller could spray unique junk user_ids at
+// /auth/token — each recordFail() permanently added a map entry, growing the
+// attempts map without limit (memory-exhaustion DoS). The shared UUID_SCHEMA
+// (lib/schemaShapes.ts) closes the hole at the schema layer with pattern +
+// maxLength; the sweep timer below reclaims what legitimate churn leaves.
+const USER_ID_SCHEMA = UUID_SCHEMA;
+
+// Periodic garbage collection for the attempts map: recordSuccess() is the ONLY
+// other deletion path, so keys for never-successful targets (bogus user_ids,
+// one-off roster IPs) would otherwise live forever. Deletes entries that are
+// not currently locked AND whose failure window has fully elapsed — an active
+// lockout is never dropped early. The map parameter exists for unit tests;
+// production passes nothing and sweeps the module singleton.
+export function sweepAttempts(
+  now: number,
+  map: Map<string, { count: number; first: number; lockedUntil: number }> = attempts,
+): number {
+  let removed = 0;
+  for (const [key, r] of map) {
+    if (r.lockedUntil > now) continue; // still locked — keep
+    if (now - r.first > WINDOW_MS) {
+      map.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+// True when a verified JWT payload is a refresh token. Refresh tokens
+// ({sub, type:'refresh'}, 7d) are signed with the SAME secret as access tokens
+// ({sub, name, role}, 15m), so every access-token verification point must also
+// reject type:'refresh' or a long-lived refresh token doubles as an access
+// token. Legacy access tokens carry no `type` claim and must keep passing.
+export function isRefreshToken(payload: unknown): boolean {
+  return !!payload && typeof payload === 'object'
+    && (payload as { type?: unknown }).type === 'refresh';
+}
+
+// Exponential backoff once a target has racked up enough failures: no lock below
+// the threshold, then a small initial delay doubling per additional failure,
+// capped at 1h. Pure + exported so it can be unit-tested without touching the
+// in-memory Map.
+export function nextLockMs(count: number): number {
+  if (count < 3) return 0;
+  return Math.min(60 * 60_000, 15_000 * 2 ** (count - 3)); // 15s,30s,60s… cap 1h
+}
+function isLocked(key: string): boolean {
+  const r = attempts.get(key);
+  return !!r && r.lockedUntil > Date.now();
+}
+function recordFail(key: string): void {
+  const now = Date.now();
+  const r = attempts.get(key);
+  if (!r) { attempts.set(key, { count: 1, first: now, lockedUntil: 0 }); return; }
+  if (now - r.first > WINDOW_MS) {
+    // Window since the first failure elapsed — DECAY the retained count instead
+    // of fully resetting it. A full reset lets an attacker pace ≤(threshold-1)
+    // fails per window forever without ever locking; halving still lets a
+    // genuinely stale record cool down, but escalation state isn't shed for free.
+    const decayed = Math.max(0, Math.floor(r.count / 2));
+    attempts.set(key, { count: decayed + 1, first: now, lockedUntil: 0 });
+    return;
+  }
+  r.count += 1;
+  const ms = nextLockMs(r.count);
+  if (ms > 0) r.lockedUntil = now + ms;
+}
+function recordSuccess(key: string): void { attempts.delete(key); }
+
+// IP-keyed rate limit for the public /auth/roster endpoint (no auth to gate it,
+// so this is the only thing standing between it and enumeration/scraping abuse).
+// Reuses the same `attempts` map/window; count-only, no lockout escalation.
+// Kept generous: request.ip is the real client now that trustProxy is on
+// (see index.ts), but a shared-NAT office still puts many users behind one
+// public IP, so a normal morning login rush shouldn't trip this.
+const ROSTER_LIMIT = 200;
+function rosterRateLimited(ip: string): boolean {
+  const key = `roster:${ip}`;
+  const now = Date.now();
+  const r = attempts.get(key);
+  if (!r || now - r.first > WINDOW_MS) {
+    attempts.set(key, { count: 1, first: now, lockedUntil: 0 });
+    return false;
+  }
+  r.count += 1;
+  return r.count > ROSTER_LIMIT;
+}
+
+// Per-IP cap on POST /auth/token (SEC-H residual). The UUID schema bound stops
+// junk user_ids, but an unauthenticated attacker spraying DISTINCT well-formed
+// UUIDs still inserted ~1 attempts-map entry per request between sweeps. This
+// cap runs FIRST in the handler — before isLocked/recordFail can touch the
+// attempts map — so over-cap requests cannot grow memory. It deliberately uses
+// the shared bucket limiter (lib/rateLimit), NOT the attempts map: the guard
+// must not feed the map it exists to protect. Same generosity and window as
+// ROSTER_LIMIT — request.ip is the real client (trustProxy, see index.ts), but
+// a shared-NAT office behind one public IP shouldn't trip it during a morning
+// login rush. Exported for tests.
+export const TOKEN_IP_LIMIT = 200;
+
+export interface AuthRoutesOpts {
+  // Shared with routes/audit.ts (see index.ts) so PATCH /audit/demo-mode
+  // invalidates the cache these routes read.
+  demoGate?: DemoModeGate;
+}
+
+const routes: FastifyPluginAsync<AuthRoutesOpts> = async (fastify, opts) => {
+  const demoGate = opts.demoGate ?? createDemoModeGate({
+    query: (sql, params) => fastify.pg.query(sql, params as any[]),
+  });
+  // GET /auth/roster — PUBLIC login picker roster. Intentionally unauthenticated:
+  // a brand-new device has no token yet and needs the list of names to sign in.
+  // Returns ONLY the minimum the picker needs — id, name, role (display subtitle),
+  // pin_length_required, and pin_set (chooses the set-PIN vs enter-PIN screen).
+  // Deliberately NOT exposed: pin_hash, permission_overrides, expires_at, and ALL
+  // business data — those require a token and arrive via the post-login full sync.
+  // Inactive/expired users are filtered so they never appear as a sign-in option.
+  fastify.get('/roster', async (request, reply) => {
+    if (rosterRateLimited(request.ip)) {
+      return reply.status(429).send({ error: 'Too many requests. Try again later.' });
+    }
+    // Demo mode OFF hides the demo accounts entirely: they are neither listed
+    // nor is their public enrollment code exposed. Filtered in SQL (not in the
+    // mapping) so a disabled demo account can never reach the response at all.
+    const demoOn = await demoGate.isEnabled();
+    // Org default theme (Phase E, #138): public BY DESIGN — a theme id is not
+    // sensitive, and a brand-new device must theme the sign-in screen before
+    // any token exists. Absent row → null → client falls back to built-in.
+    const { rows: themeRows } = await fastify.pg.query<{ value: string }>(
+      `SELECT value FROM app_config WHERE key = 'default_theme_id'`, []
+    );
+    const { rows } = await fastify.pg.query<{
+      id: string; name: string; role: string;
+      pin_length_required: number; pin_set: boolean;
+      is_test: boolean; test_code: string | null;
+    }>(
+      // pin_length_required is the role's min for a user who hasn't set a PIN yet
+      // (so the set-PIN screen demands the role minimum), but the user's OWN stored
+      // length once set — otherwise raising a role's minimum would lock existing
+      // users out of the enter-PIN screen. GREATEST guards the pre-fix placeholder.
+      `SELECT u.id, u.name, u.role,
+              CASE WHEN u.pin_hash IS NOT NULL
+                   THEN u.pin_length_required
+                   ELSE GREATEST(u.pin_length_required, COALESCE(rs.min_pin_length, 4))
+              END AS pin_length_required,
+              (u.pin_hash IS NOT NULL) AS pin_set,
+              u.is_test,
+              CASE WHEN u.is_test THEN u.enrollment_code_public END AS test_code
+         FROM users u
+         LEFT JOIN role_settings rs ON rs.role = u.role
+        WHERE u.active = true
+          AND (u.expires_at IS NULL OR u.expires_at > NOW())
+          ${demoOn ? '' : 'AND NOT u.is_test'}
+        ORDER BY u.name`,
+      []
+    );
+    return reply.send({
+      default_theme_id: themeRows[0]?.value ?? null,
+      users: rows.map(u => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        pin_length_required: u.pin_length_required,
+        pin_set: u.pin_set ? 1 : 0,
+        is_test: u.is_test ? 1 : 0,
+        // Public BY DESIGN (login screen shows it for demo accounts); the CASE
+        // above guarantees it is null for every real account, and the demo-mode
+        // filter guarantees no is_test row exists here when the switch is off.
+        test_code: demoOn ? u.test_code : null,
+      })),
+    });
+  });
+
+  // POST /auth/token — verify PIN, return JWT + refresh token
+  fastify.post<{ Body: TokenBody }>('/token', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['user_id', 'pin'],
+        properties: {
+          user_id: USER_ID_SCHEMA,
+          pin: { type: 'string', minLength: 4, maxLength: 8 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    // SEC-H: per-IP cap BEFORE anything touches the attempts map — an over-cap
+    // caller must not reach isLocked/recordFail, or a sprayed stream of unique
+    // valid-format UUIDs would keep adding one map entry per request.
+    if (overLimit(`tokenip:${request.ip}`, TOKEN_IP_LIMIT, WINDOW_MS)) {
+      return reply.status(429).send({ error: 'Too many requests. Try again later.' });
+    }
+    const { user_id, pin } = request.body;
+    const lockKey = `token:${user_id}`;
+    if (isLocked(lockKey)) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
+
+    const { rows } = await fastify.pg.query<{
+      id: string; name: string; role: string; pin_hash: string;
+      pin_length_required: number; permission_overrides: Record<string, boolean>;
+      active: boolean; expires_at: string | null;
+    }>(
+      `SELECT id, name, role, pin_hash, pin_length_required,
+              permission_overrides, active, expires_at
+       FROM users WHERE id = $1`,
+      [user_id]
+    );
+
+    const user = rows[0];
+
+    // Unify the unknown-user and wrong-PIN responses to one generic message so a
+    // caller can't enumerate valid accounts. (active/expired/no-PIN below are
+    // distinct because the client needs them for sign-in UX.)
+    if (!user) {
+      recordFail(lockKey);
+      return reply.status(401).send({ error: 'Invalid credentials' });
+    }
+
+    if (!user.active) {
+      return reply.status(403).send({ error: 'Account is inactive' });
+    }
+
+    if (user.expires_at && new Date(user.expires_at) < new Date()) {
+      return reply.status(403).send({ error: 'Account has expired' });
+    }
+
+    // No PIN set yet — must go through first-login setup, not normal sign-in.
+    if (!user.pin_hash) {
+      return reply.status(409).send({ error: 'PIN not set. Complete first-login setup.' });
+    }
+
+    // H1: reserve this credential attempt BEFORE the bcrypt await. The isLocked()
+    // gate at the top of the handler is a check-then-act TOCTOU — a burst of
+    // concurrent requests for one user_id all observe "not locked" and each run a
+    // full bcrypt compare before any recordFail lands, defeating the ≈3-guess
+    // backoff. Counting here (synchronous, pre-await) makes the Nth concurrent
+    // request observe the lock the (N-1)th just set. The attempt that trips the
+    // threshold still gets its 401 (wasLocked was false); later ones get 429.
+    const wasLocked = isLocked(lockKey);
+    recordFail(lockKey);
+    if (wasLocked) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
+
+    const pinMatch = await bcrypt.compare(pin, user.pin_hash);
+    if (!pinMatch) {
+      return reply.status(401).send({ error: 'Invalid credentials' });
+    }
+    recordSuccess(lockKey);
+
+    const payload = {
+      sub: user.id,
+      name: user.name,
+      role: user.role,
+    };
+
+    const jwt = fastify.jwt.sign(payload, { expiresIn: '15m' });
+    const refreshToken = fastify.jwt.sign(
+      { sub: user.id, type: 'refresh' },
+      { expiresIn: '7d' }
+    );
+
+    // Log successful login
+    await fastify.pg.query(
+      // request_id correlates this row to its api_request_audit entry, so the
+      // audit tab can expand a request into the business actions it produced.
+      `INSERT INTO activity_log
+         (id, user_id, action, entity_type, entity_id, created_at, synced_at, metadata)
+       VALUES (gen_random_uuid(), $1, 'login', 'user', $1, NOW(), NOW(), $2)`,
+      [user.id, JSON.stringify({ request_id: request.id })]
+    );
+
+    return {
+      jwt,
+      refreshToken,
+      userId: user.id,
+      user: {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        pin_length_required: user.pin_length_required,
+        permission_overrides: user.permission_overrides,
+      },
+    };
+  });
+
+  // POST /auth/set-pin — first-login PIN setup. Only valid while the user has
+  // not yet set a PIN (pin_set = false); afterwards they must use /auth/token.
+  // Confirmation/double-entry happens on the device before this is called.
+  fastify.post<{ Body: SetPinBody }>('/set-pin', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['user_id', 'pin', 'enrollment_code'],
+        properties: {
+          user_id: USER_ID_SCHEMA,
+          pin: { type: 'string', minLength: 4, maxLength: 8 },
+          // One-time enrollment codes are issued as 6-digit numeric strings
+          // (see issueEnrollmentCode in routes/users.ts). Enforce that shape here.
+          enrollment_code: { type: 'string', pattern: '^[0-9]{6}$' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { user_id, pin } = request.body;
+    // Rate-limit per target to blunt hammering. The admin-issued one-time
+    // enrollment code (below) closes the first-login takeover: an unauthenticated
+    // caller can no longer set the PIN of a not-yet-onboarded user without it.
+    const lockKey = `setpin:${user_id}`;
+    if (isLocked(lockKey)) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
+
+    const { rows } = await fastify.pg.query<{
+      id: string; name: string; role: string;
+      pin_set: boolean; active: boolean; expires_at: string | null;
+      enrollment_code_hash: string | null; enrollment_code_expires_at: string | null;
+      is_test: boolean; enrollment_code_public: string | null; min_pin_length: number;
+    }>(
+      `SELECT u.id, u.name, u.role, u.pin_set, u.active, u.expires_at,
+              u.enrollment_code_hash, u.enrollment_code_expires_at, u.is_test, u.enrollment_code_public,
+              COALESCE(rs.min_pin_length, 4) AS min_pin_length
+         FROM users u
+         LEFT JOIN role_settings rs ON rs.role = u.role
+        WHERE u.id = $1`,
+      [user_id]
+    );
+    const user = rows[0];
+
+    if (!user) return reply.status(401).send({ error: 'Invalid credentials' });
+    if (!user.active) return reply.status(403).send({ error: 'Account is inactive' });
+    if (user.expires_at && new Date(user.expires_at) < new Date()) {
+      return reply.status(403).send({ error: 'Account has expired' });
+    }
+
+    // Test/demo accounts self-reset: verify against the public code and issue a
+    // session WITHOUT persisting anything — pin_hash stays NULL (so the roster
+    // keeps pin_set=0 and the enrollment wizard always runs), the code is never
+    // cleared, and no activity_log row is written. The short refresh token
+    // matches the 15-minute idle cap on device; `test: true` in the JWT is
+    // observability only — enforcement is DB-resolved everywhere.
+    if (user.is_test) {
+      // Kill switch first — when demo mode is off a demo account is not
+      // enrollable at all, so refuse BEFORE comparing the (public) code.
+      if (!(await demoGate.isEnabled())) {
+        return reply.status(403).send({ error: 'Demo accounts are currently disabled' });
+      }
+      if (!user.enrollment_code_public || request.body.enrollment_code !== user.enrollment_code_public) {
+        recordFail(lockKey);
+        return reply.status(401).send({ error: 'Invalid enrollment code' });
+      }
+      recordSuccess(lockKey);
+      const testJwt = fastify.jwt.sign(
+        { sub: user.id, name: user.name, role: user.role, test: true },
+        { expiresIn: '15m' }
+      );
+      const testRefresh = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '1h' });
+      return {
+        jwt: testJwt,
+        refreshToken: testRefresh,
+        userId: user.id,
+        user: { id: user.id, name: user.name, role: user.role },
+      };
+    }
+
+    if (user.pin_set) {
+      // Already set — refuse so nobody can overwrite an existing PIN.
+      recordFail(lockKey);
+      return reply.status(409).send({ error: 'PIN already set' });
+    }
+
+    if (!user.enrollment_code_hash) {
+      recordFail(lockKey);
+      return reply.status(403).send({ error: 'Enrollment not available for this account' });
+    }
+    // One-time codes now carry a hard expiry (migration 051). A NULL or past
+    // enrollment_code_expires_at means no active code — refuse BEFORE the bcrypt
+    // compare so a leaked/forgotten code can't be redeemed after its window.
+    if (!user.enrollment_code_expires_at || new Date(user.enrollment_code_expires_at) < new Date()) {
+      recordFail(lockKey);
+      return reply.status(403).send({ error: 'Enrollment code expired' });
+    }
+    // H1: reserve the enrollment-code guess BEFORE the bcrypt await (same TOCTOU
+    // as /auth/token). Without this, concurrent guesses against a brand-new
+    // account's one-time code each get a full compare before the counter moves —
+    // an account-takeover brute-force vector. Count synchronously; the tripping
+    // attempt still gets its 401, later concurrent ones get 429.
+    const wasLocked = isLocked(lockKey);
+    recordFail(lockKey);
+    if (wasLocked) {
+      return reply.status(429).send({ error: 'Too many attempts. Try again in a few minutes.' });
+    }
+    const codeOk = await bcrypt.compare(request.body.enrollment_code, user.enrollment_code_hash);
+    if (!codeOk) {
+      return reply.status(401).send({ error: 'Invalid enrollment code' });
+    }
+
+    // Enforce the role's minimum PIN length (role_settings.min_pin_length). The
+    // schema floor is a static 4; the actual requirement is per-role and set by
+    // admins. Not a credential guess, so no lock penalty — just refuse the write.
+    if (pin.length < user.min_pin_length) {
+      return reply.status(400).send({
+        error: `Your role requires a PIN of at least ${user.min_pin_length} digits.`,
+      });
+    }
+
+    // Reject trivially guessable PINs at the moment they're chosen. Only here at
+    // set-pin — NEVER on /auth/token, which would lock out existing users who
+    // already have a weak PIN. Not a credential guess, so no lock penalty.
+    if (isWeakPin(pin)) {
+      return reply.status(400).send({
+        error: 'That PIN is too easy to guess. Avoid repeated digits and simple sequences like 1234.',
+      });
+    }
+
+    const pinHash = await bcrypt.hash(pin, 10);
+    await fastify.pg.query(
+      `UPDATE users SET pin_hash = $1, pin_length_required = $2, pin_set = TRUE, enrollment_code_hash = NULL, enrollment_code_expires_at = NULL, updated_at = NOW()
+       WHERE id = $3`,
+      [pinHash, pin.length, user.id]
+    );
+
+    recordSuccess(lockKey);
+    const jwt = fastify.jwt.sign({ sub: user.id, name: user.name, role: user.role }, { expiresIn: '15m' });
+    const refreshToken = fastify.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
+
+    await fastify.pg.query(
+      `INSERT INTO activity_log (id, user_id, action, entity_type, entity_id, created_at, synced_at, metadata)
+       VALUES (gen_random_uuid(), $1, 'pin_set', 'user', $1, NOW(), NOW(), $2)`,
+      [user.id, JSON.stringify({ request_id: request.id })]
+    );
+
+    return {
+      jwt,
+      refreshToken,
+      userId: user.id,
+      user: { id: user.id, name: user.name, role: user.role },
+    };
+  });
+
+  // POST /auth/refresh — exchange refresh token for new JWT
+  fastify.post<{ Body: RefreshBody }>('/refresh', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['refresh_token'],
+        properties: { refresh_token: { type: 'string' } },
+      },
+    },
+  }, async (request, reply) => {
+    let decoded: { sub: string; type: string };
+    try {
+      decoded = fastify.jwt.verify<{ sub: string; type: string }>(request.body.refresh_token);
+    } catch {
+      return reply.status(401).send({ error: 'Invalid or expired refresh token' });
+    }
+
+    if (decoded.type !== 'refresh') {
+      return reply.status(401).send({ error: 'Invalid token type' });
+    }
+
+    // Cap refreshes per subject so a leaked refresh token can't be minted into an
+    // endless stream of short-lived JWTs. Keyed on the verified sub (available now).
+    if (overLimit('refresh:' + decoded.sub, 30)) {
+      return reply.status(429).send({ error: 'rate' });
+    }
+
+    const { rows } = await fastify.pg.query<{ id: string; name: string; role: string; active: boolean; expires_at: string | null }>(
+      `SELECT id, name, role, active, expires_at FROM users WHERE id = $1`,
+      [decoded.sub]
+    );
+
+    const user = rows[0];
+    if (!user || !user.active || (user.expires_at && new Date(user.expires_at) < new Date())) {
+      return reply.status(403).send({ error: 'Account inactive or expired' });
+    }
+
+    const jwt = fastify.jwt.sign(
+      { sub: user.id, name: user.name, role: user.role },
+      { expiresIn: '15m' }
+    );
+
+    return { jwt };
+  });
+};
+
+export default routes;

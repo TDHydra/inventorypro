@@ -1,0 +1,2 @@
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'product';
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(id);

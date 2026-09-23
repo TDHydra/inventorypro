@@ -1,0 +1,1 @@
+ALTER TABLE role_settings ADD COLUMN IF NOT EXISTS color TEXT;
