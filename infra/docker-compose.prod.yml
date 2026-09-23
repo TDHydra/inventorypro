@@ -183,7 +183,10 @@ services:
     image: ${WEB_IMAGE:-inventorypro-web:latest}
     build:
       context: ..
-      dockerfile: infra/Dockerfile.web
+      # Phase 9: WEB_DOCKERFILE lets the VPS .env select the mobile-v2 web
+      # image (infra/Dockerfile.web-v2) without touching this file; default
+      # stays the old app's build.
+      dockerfile: ${WEB_DOCKERFILE:-infra/Dockerfile.web}
       args:
         EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-https://api.invenpro.app}
     restart: unless-stopped
