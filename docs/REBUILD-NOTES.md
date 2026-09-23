@@ -659,6 +659,127 @@ anywhere in `apps/mobile-v2`.
   mobile-v2 test` 112/112 green (was 100/100 after B4, +12 new jobs.test.ts).
   `git status --short apps/mobile` empty throughout.
 
+### Station C2 — Schedule board + NEW on-call surface (2026-09-22)
+
+- `src/repos/schedule.ts` (new) — ported from `apps/mobile/src/db/queries/
+  schedule.ts` over `schedule_assignments`. `assignJobSlot`/`assignManagerSlot`
+  (job-kind vs manager-kind rows, manager rows carry `job_id: null`),
+  `ScheduleConflictError` (thrown on overlap unless `force: true`, which
+  auto-clears the conflicting rows and returns them in a `cleared` array so
+  the caller can log each one), `updateSlotTimes` (move an existing slot,
+  same conflict/force semantics), `clearSlot` (soft-delete, no-op returning
+  `null` if already cleared, throws on unknown id), `getScheduleBoardForDay`
+  (day+active filter, joins employee/job/manager names), 
+  `getScheduleAssignmentsForJob`, `getAssignableManagers` (`production_manager`
+  tier), `getScheduleableEmployees` (ROLE_TIER-1 only, excludes managers/
+  dispatchers). **No self-log** — matches B1-B4's convention, NOT jobs.ts's
+  C1 assign/unassign deviation (explicitly told not to copy that). Rejects
+  `end_minute <= start_minute`.
+  - `src/repos/schedule.test.ts` (new, 13 tests) — assign/conflict/force-clear/
+    move/clear-slot/board+job reads/assignable-managers/scheduleable-employees,
+    plus a demo of the caller-owned `runInTransaction`+`appendLog` pattern.
+    Seed data must use real `UserRole` values (`mitigation_technician`/
+    `contents_crew`=tier1, `production_manager`=tier2, `office_manager`=tier3)
+    and the `users` table's NOT NULL `pin_length_required` column — invalid
+    roles silently break `ROLE_TIER` lookups without a SQL-level error.
+    Gotcha: the outbox JSON payload keeps the RAW JS boolean passed to
+    `.update()` (e.g. `active: false`) — only `bindParams`/`toBindable`
+    normalizes booleans to 0/1 for the actual SQL bind, not for the payload
+    written to the outbox table.
+- `src/repos/oncall.ts` (new) — ported from `apps/mobile/src/db/queries/
+  oncall.ts` over `on_call_shifts` (week-keyed crew assignment) and
+  `on_call_coverage` (date-range person-covers-person entries). `assignWeek`
+  (manual override, sticky, returns `null` on a true clear-of-nothing no-op),
+  `ensureRotationFill` (9-week mount-time auto-fill cycling the
+  `on_call_rotation` app_config list, idempotent, outbox INSERTs, no log —
+  mechanical not a user action), `getCurrentShift`/`getWeekBoundary`/
+  `getRotation` (boundary-hour week math from `app_config`), 
+  `getAssignableCrews`, `createCoverage`/`updateCoverage`/`deleteCoverage` +
+  `getCoverage`/`getCoverageById` (overlap-range queries). No self-log on
+  any of the five write functions — `updateCoverage`/`deleteCoverage`
+  deliberately stay unlogged permanently (no allowlisted server action exists
+  for coverage edits/deletes; the row still syncs via outbox, it just isn't
+  narrated in the activity feed).
+  - `src/repos/oncall.test.ts` (new, 11 tests) — rotation fill (idempotent,
+    no log), manual override stickiness, clear/no-op detection, caller-owned
+    log demo, boundary-hour `getCurrentShift`, assignable crews, coverage
+    create/read/update/delete (all no-self-log), overlap-match reads. Full
+    rewrite for the new testDb harness (old app's `oncall.test.ts` read only
+    as a template).
+- `src/components/schedule/{SlotCell,EmployeeScheduleRow,DaySelector,
+  AssignmentPickerSheet,JobDetailPopup,PmContactPopup,DayBoardScreen}.tsx`
+  (new) — ported from `apps/mobile/src/components/schedule/*` with import
+  mapping only (`@invenpro/ui` for shared primitives, `@invenpro/core` for
+  `useDbQuery`/`useTableVersion`/`runInTransaction`, local `../../utils/uuid`
+  for `generateUUID` — it is NOT part of `@invenpro/core`'s public export
+  surface, only injected via `configureCore`). Every write site that used to
+  self-log now wraps its repo call + `appendLog(...)` in one
+  `runInTransaction` (reentrant with the repo's own inner transaction, so
+  still one commit): `AssignmentPickerSheet.trySlotAssign` (assign +
+  conditional `schedule_cleared` entries for any force-cleared conflicts +
+  `schedule_assigned`), `JobDetailPopup`/`PmContactPopup.handleClear`
+  (`clearSlot` + conditional `schedule_cleared`, skipped on the no-op `null`
+  return), `DayBoardScreen`'s `QuickCreateSheet.onCreated` handoff. Confirmed
+  `AssignmentPickerSheet.createJobInline` must NOT also call `appendOutbox`
+  manually (unlike the old app) — `jobs.ts`'s `upsertJob` already does that
+  internally via `createRepository`.
+  - Cut: `PmContactPopup`'s old "Message" button (DM/chat entry point) — chat
+    domain isn't ported yet. Marked `TODO(wave-chat)`.
+  - `app/(app)/schedule/index.tsx` (new plain-dir route) — thin wrapper
+    rendering `DayBoardScreen`, matching the C1 `jobs/index.tsx` route-vs-
+    component split.
+- **NEW on-call surface** (no old-app equivalent — the old app only had an
+  embedded widget/calendar plus a create-only `CoverageSheet`, no full page):
+  `app/(app)/oncall/index.tsx` combines (1) the ported `OnCallCalendar` week
+  grid (`on_call_shifts`) inside a `Card`, (2) a coverage list
+  (`on_call_coverage`, fixed 30-day-back/180-day-forward window via
+  `getCoverage`, `useDbQuery` subscribed to `['on_call_coverage','users']`,
+  `EmptyState` fallback) where tapping a row opens `CoverageSheet` in
+  edit/detail mode, and (3) a `Fab` "Add Coverage" create affordance — every
+  table this station covers is now reachable via list + detail + create/edit,
+  per the mechanical DoD. Both write surfaces gate on `manage_teams` (matches
+  the server's `OPERATION_PERM` for `on_call_shifts`/`on_call_coverage`
+  INSERT/UPDATE/DELETE in `apps/api/src/lib/syncPolicy.ts`); a header
+  "Settings" link gates `system_settings` and opens `oncall/settings.tsx`
+  (ported from the old app's `(admin)/on-call-settings.tsx` — week boundary +
+  rotation drag-order, reuses the same local `setAppConfigSynced` pattern as
+  `orgTheme.ts`/`maintenance.ts`/etc.; no shared helper exists yet in
+  mobile-v2 for this).
+  - `src/components/oncall/CoverageSheet.tsx` extended (not a plain port) with
+    an optional `coverage?: CoverageRow | null` prop: present -> pre-filled
+    edit mode + a "Delete coverage" action (`confirmSheet` guarded); absent ->
+    original create flow. Create wraps `createCoverage` + `appendLog
+    ('on_call_coverage_added')` in `runInTransaction`; update/delete
+    deliberately stay unlogged (see oncall.ts note above).
+  - `src/components/oncall/OnCallCalendar.tsx` ported with the same
+    caller-owned-log adaptation as the schedule screens: `commit()` wraps
+    `assignWeek` + conditional `appendLog('on_call_assigned')`, skipped on a
+    true no-op clear.
+- **Hub tile**: added ungated "Schedule" (`/(app)/schedule`) and "On-Call"
+  (`/(app)/oncall`) tiles to `app/(app)/index.tsx`'s `TILES` array, same
+  reasoning as C1's Jobs tile — neither the old day board nor the on-call
+  widget had a dedicated view permission (only write actions gate:
+  `manage_schedule` server-side for slot assignment, `manage_teams` for
+  on-call/coverage); both screens self-gate their own write affordances, and
+  on-call's settings sub-screen has its own `system_settings` gate.
+- **`afterPull` hook registry**: no new entry added. `src/boot.ts`'s
+  registry is reserved for proactive, must-run-every-pull refreshers
+  independent of any mounted screen (role-permission cache, team
+  reconciliation) — `ensureRotationFill` is a mount-time, permission-gated
+  fill matching the old app's own behavior (which had no such hook either),
+  and mounted on-call screens already stay in sync post-pull via
+  `useTableVersion(['on_call_shifts', 'subteams', 'app_config'])`/
+  `useDbQuery` subscriptions. Decision: none needed for this station.
+- `.expo/types/router.d.ts` regeneration hit the same known trap as C1 — ran
+  a real pty metro dev server (`timeout 45 script -qefc "npx expo start
+  --port 8082" /dev/null > /tmp/metro-c2.log 2>&1`, no `CI=1`); its file-map
+  walk regenerated the route types (confirmed via grep for `schedule`/
+  `oncall` in the file) before the `timeout` ended the session. Typecheck was
+  clean after.
+- Verified: `pnpm --filter mobile-v2 typecheck` clean; `pnpm -r --filter
+  mobile-v2 test` 136/136 green (was 112/112 after C1, +13 schedule.test.ts,
+  +11 oncall.test.ts). `git status --short apps/mobile` empty throughout.
+
 ## Subagent strategy (user decision, 2026-09-22)
 
 Wave A ran 6 parallel screen agents and hit the session rate limit mid-flight.

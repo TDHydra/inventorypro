@@ -34,6 +34,16 @@ const TILES: Tile[] = [
   // preset engine or checkout's job picker. Ungated here like My Team/Activity
   // Log — visibility is universal, actions gate inside the screens.
   { label: 'Jobs', icon: '🏗', href: '/(app)/jobs' },
+  // Schedule + On-Call (Station C2) — same reasoning as Jobs: the old app
+  // gated neither the day board nor the on-call widget behind a dedicated
+  // view permission (only the write actions gate: assigning a slot checks
+  // manage_schedule server-side, assigning on-call/coverage checks
+  // manage_teams). Both screens self-gate their own write affordances
+  // (buttons/taps hidden via usePermission), and on-call's settings
+  // sub-screen has its own system_settings gate — so both tiles stay
+  // ungated here, like Jobs/My Team/Activity Log.
+  { label: 'Schedule', icon: '🗓', href: '/(app)/schedule' },
+  { label: 'On-Call', icon: '📟', href: '/(app)/oncall' },
   // Logs (Station B4) — a personal, device-local activity view (see
   // app/(app)/logs/index.tsx's header comment for why it's scoped this way).
   // Ungated like My Team: it only ever shows the signed-in user's own rows.
