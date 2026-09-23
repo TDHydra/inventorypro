@@ -41,7 +41,7 @@
  * old screen's auto-advance. Locked (other-team) units show the same
  * lock-reason alert as the old SourceCard (getUnitInventoryLock).
  */
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
@@ -51,7 +51,7 @@ import {
   searchItems, getItemById, getStockByItem, adjustStock, getStockQuantity,
   type ItemWithTotalStock, type StockByLocation,
 } from '../../src/repos/items';
-import { getOpenJobs, getActiveCheckoutsForUser, type Job, type ActiveCheckout } from '../../src/repos/jobs';
+import { getOpenJobsWithCoords, getActiveCheckoutsForUser, type Job, type ActiveCheckout } from '../../src/repos/jobs';
 import {
   getAllLocations, getLocationsByOwner, resolveLocationShelfSelection, type Location,
 } from '../../src/repos/locations';
@@ -77,7 +77,7 @@ import { LocationShelfPicker } from '../../src/components/pickers';
 import { QuickCreateSheet } from '../../src/components/quickadd/QuickCreateSheet';
 import { BarcodeInput } from '../../src/components/BarcodeInput';
 import { useCurrentPosition } from '../../src/hooks/useCurrentPosition';
-import { sortByProximity } from '../../src/location/proximity';
+import { sortByProximity, AUTO_SELECT_RADIUS_M } from '../../src/location/proximity';
 import { LocationSuggestionBanner } from '../../src/components/LocationSuggestionBanner';
 import { TooltipHint } from '../../src/components/TooltipHint';
 import { track } from '../../src/telemetry';
@@ -232,6 +232,21 @@ export default function CheckoutScreen() {
     [sortedSourceStock],
   );
 
+  // "You're at Lexington Park" → just fill it in. Auto-select the nearest
+  // anchored source once per item, only while the picker is untouched — never
+  // clobbers a params.loc prefill, a manual pick, or a deliberate clear (the
+  // per-item ref stops re-fills after the user empties the field).
+  const autoSourceForItem = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedItem || step !== 'qty' || selectedLocation || params.loc) return;
+    if (autoSourceForItem.current === selectedItem.id) return;
+    if (nearestSource?.distanceM != null && nearestSource.distanceM <= AUTO_SELECT_RADIUS_M) {
+      autoSourceForItem.current = selectedItem.id;
+      selectSource({ id: nearestSource.location_id, label: nearestSource.location_name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearestSource, selectedItem?.id, step, selectedLocation, params.loc]);
+
   // Nearest destination candidate for the Location-destination banner.
   const sortedDestLocations = useMemo(
     () => sortByProximity(
@@ -258,9 +273,28 @@ export default function CheckoutScreen() {
   }, [selectedItem, isUnitTracked, selectedLocation, refreshKey]);
   // Job options (open jobs; SearchablePicker filters client-side; READ-ONLY
   // this wave — no inline job creation, jobs.ts has no writes until Wave C).
+  // Ranked nearest-first via each job's site anchor (site_location_id →
+  // locations lat/lng), same treatment as the location pickers.
+  const sortedJobs = useMemo(
+    () => sortByProximity(getOpenJobsWithCoords(), coords),
+    [step, refreshKey, coords]
+  );
   const jobOptions: PickerOption[] = useMemo(
-    () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
-    [step, refreshKey]
+    () => sortedJobs.map(j => ({
+      id: j.id,
+      label: j.name,
+      sublabel: [
+        j.customer_name ?? undefined,
+        j.distanceM != null ? `~${Math.round(j.distanceM)} m` : undefined,
+      ].filter(Boolean).join(' · ') || undefined,
+    })),
+    [sortedJobs]
+  );
+  // A job only counts as "you're standing at it" inside the auto-select
+  // radius — unlike the location banners, job sites can be anywhere in town.
+  const nearestJob = useMemo(
+    () => sortedJobs.find(j => j.distanceM != null && j.distanceM <= AUTO_SELECT_RADIUS_M) ?? null,
+    [sortedJobs],
   );
   const jobValue: PickerOption | null = selectedJob
     ? { id: selectedJob.id, label: selectedJob.name }
@@ -395,6 +429,26 @@ export default function CheckoutScreen() {
   function setPmQty(pmId: string, qty: string) {
     setPmSelections(prev => prev.map(p => (p.pmId === pmId ? { ...p, qty } : p)));
   }
+
+  // Landing on the destination step with nothing chosen: if the phone is
+  // standing at a job site or a known location (inside the auto-select
+  // radius), pre-pick it — the closer anchor wins, job on a tie. resetDest()
+  // runs on every entry, so destType === null is exactly "user hasn't chosen
+  // yet"; tapping any destination type manually ends the auto-fill.
+  useEffect(() => {
+    if (step !== 'dest' || destType !== null) return;
+    const jobD = nearestJob?.distanceM ?? Infinity;
+    const locD = nearestDest?.distanceM != null && nearestDest.distanceM <= AUTO_SELECT_RADIUS_M
+      ? nearestDest.distanceM : Infinity;
+    if (jobD === Infinity && locD === Infinity) return;
+    if (jobD <= locD && nearestJob) {
+      setDestType('job');
+      setSelectedJob({ id: nearestJob.id, name: nearestJob.name });
+    } else if (nearestDest) {
+      setDestType('location');
+      setDestLoc({ id: nearestDest.id, label: nearestDest.name });
+    }
+  }, [step, destType, nearestJob, nearestDest]);
 
   // Whether the dest step is complete enough to review.
   const destReady = useMemo(() => {
@@ -674,7 +728,8 @@ export default function CheckoutScreen() {
           ) : (
             <>
               <LocationSuggestionBanner
-                name={nearestSource?.location_name ?? null}
+                name={nearestSource && selectedLocation?.location_id !== nearestSource.location_id
+                  ? nearestSource.location_name : null}
                 distanceM={nearestSource?.distanceM ?? null}
                 onUse={() => nearestSource && selectSource({ id: nearestSource.location_id, label: nearestSource.location_name })}
               />
@@ -797,6 +852,11 @@ export default function CheckoutScreen() {
           {destType === 'job' && (
             <>
               <Text style={s.label}>Job</Text>
+              <LocationSuggestionBanner
+                name={nearestJob && selectedJob?.id !== nearestJob.id ? nearestJob.name : null}
+                distanceM={nearestJob?.distanceM ?? null}
+                onUse={() => nearestJob && setSelectedJob({ id: nearestJob.id, name: nearestJob.name })}
+              />
               <SearchablePicker
                 placeholder="Search jobs..."
                 options={jobOptions}
@@ -811,7 +871,7 @@ export default function CheckoutScreen() {
             <>
               <Text style={s.label}>To Location</Text>
               <LocationSuggestionBanner
-                name={nearestDest?.name ?? null}
+                name={nearestDest && destLoc?.id !== nearestDest.id ? nearestDest.name : null}
                 distanceM={nearestDest?.distanceM ?? null}
                 onUse={() => nearestDest && setDestLoc({ id: nearestDest.id, label: nearestDest.name })}
               />
@@ -1212,6 +1272,27 @@ function CheckinPanel({
     [sortedLocations],
   );
 
+  // Returning stock "to where you're standing" is the overwhelmingly common
+  // case — pre-fill the return location when a modal opens empty and the
+  // nearest anchor is inside the auto-select radius. Manual picks stick
+  // (effects only fire while the field is null).
+  const nearbyReturn = nearestLocation != null
+    && nearestLocation.distanceM != null
+    && nearestLocation.distanceM <= AUTO_SELECT_RADIUS_M
+    ? nearestLocation : null;
+  useEffect(() => {
+    if (showModal && !returnLocation && nearbyReturn) {
+      setReturnLocation({ id: nearbyReturn.id, label: nearbyReturn.name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showModal, nearbyReturn?.id]);
+  useEffect(() => {
+    if (showUnitModal && !unitReturnLocation && nearbyReturn) {
+      setUnitReturnLocation({ id: nearbyReturn.id, label: nearbyReturn.name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showUnitModal, nearbyReturn?.id]);
+
   function toggleSelect(id: string) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -1554,7 +1635,7 @@ function CheckinPanel({
 
             <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
               <LocationSuggestionBanner
-                name={nearestLocation?.name ?? null}
+                name={nearestLocation && returnLocation?.id !== nearestLocation.id ? nearestLocation.name : null}
                 distanceM={nearestLocation?.distanceM ?? null}
                 onUse={() => nearestLocation && setReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
               />
@@ -1610,7 +1691,7 @@ function CheckinPanel({
 
             <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
               <LocationSuggestionBanner
-                name={nearestLocation?.name ?? null}
+                name={nearestLocation && unitReturnLocation?.id !== nearestLocation.id ? nearestLocation.name : null}
                 distanceM={nearestLocation?.distanceM ?? null}
                 onUse={() => nearestLocation && setUnitReturnLocation({ id: nearestLocation.id, label: nearestLocation.name })}
               />

@@ -2,7 +2,7 @@
 // Import mapping: ui kit/Alert/theme → '@invenpro/ui'; useDbQuery/syncNow →
 // '@invenpro/core'; db/queries/* → '../../repos/*'; isMediaUploadPending moved
 // from sync/outbox into repos/media. quickPhotoLogic.ts copied verbatim.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -12,7 +12,10 @@ import {
 import { useDbQuery, syncNow } from '@invenpro/core';
 import { useSession } from '../../hooks/useSession';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
-import { getOpenJobs } from '../../repos/jobs';
+import { getOpenJobsWithCoords } from '../../repos/jobs';
+import { useCurrentPosition } from '../../hooks/useCurrentPosition';
+import { sortByProximity, AUTO_SELECT_RADIUS_M } from '../../location/proximity';
+import { LocationSuggestionBanner } from '../LocationSuggestionBanner';
 import { getAllActiveUsers, type User } from '../../repos/users';
 import {
   getLocationNoteSuggestions, getPoolLocationNoteSuggestions, isMediaUploadPending,
@@ -184,12 +187,37 @@ export function QuickPhotoFlow() {
     setState(prev => assetsPicked(prev, assets));
   }
 
+  // Where-am-I: ask for a fix when the destination sheet opens so the job
+  // list can be ranked nearest-first (via each job's site-location anchor)
+  // and the "You're at <job>" one-tap suggestion can render. Fire-and-forget;
+  // denied/unavailable just leaves the list in updated_at order.
+  const { coords, request } = useCurrentPosition();
+  useEffect(() => {
+    if (state.phase === 'destination') void request();
+  }, [state.phase, request]);
+
   // Re-runs whenever a local write OR a background sync pull touches jobs
   // (#60/#63) — no manual reload key needed.
-  const jobOptions: PickerOption[] = useDbQuery(
-    () => getOpenJobs().map(j => ({ id: j.id, label: j.name })),
-    [state.phase],
+  const sortedJobs = useDbQuery(
+    () => sortByProximity(getOpenJobsWithCoords(), coords),
+    [state.phase, coords],
     ['jobs'],
+  );
+  const jobOptions: PickerOption[] = useMemo(
+    () => sortedJobs.map(j => ({
+      id: j.id,
+      label: j.name,
+      sublabel: j.distanceM != null ? `~${Math.round(j.distanceM)} m` : undefined,
+    })),
+    [sortedJobs],
+  );
+  // Only a job whose site anchor is inside the auto-select radius counts as
+  // "you're standing at it". No auto-commit here — picking a job vs. sharing
+  // to the pool is an intent choice the flow can't make for the user — so the
+  // suggestion is a one-tap banner instead.
+  const nearestJob = useMemo(
+    () => sortedJobs.find(j => j.distanceM != null && j.distanceM <= AUTO_SELECT_RADIUS_M) ?? null,
+    [sortedJobs],
   );
 
   // Same reactivity, for the "specific users" share picker.
@@ -295,6 +323,12 @@ export function QuickPhotoFlow() {
         scroll
       >
         <Text style={s.title}>For a job?</Text>
+        <LocationSuggestionBanner
+          name={nearestJob?.name ?? null}
+          distanceM={nearestJob?.distanceM ?? null}
+          onUse={() => nearestJob && setState(prev =>
+            chooseDest(prev, { kind: 'job', jobId: nearestJob.id, jobName: nearestJob.name }))}
+        />
         <SearchablePicker
           placeholder="Search jobs..."
           options={jobOptions}

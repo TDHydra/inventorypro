@@ -1270,3 +1270,16 @@ TODO(wave-media)/TODO(wave-labels) markers — sweep is now ZERO markers.
 - Parity-gate note: old (equipment)/add.tsx had a MediaGallery; v2 folded add
   into the index modal (no gallery until the item exists — id needed). Check
   at the gate whether post-create nav to detail covers it.
+
+## Proximity auto-fill (user request, 2026-09-23)
+
+GPS-aware pickers: checkout source auto-selects the nearest anchored location
+(≤ AUTO_SELECT_RADIUS_M = 500 m, src/location/proximity.ts); the destination
+step pre-picks the job site or location you're standing at (job wins the tie;
+jobs get coords via site_location_id → locations lat/lng through
+getOpenJobsWithCoords, repos/jobs.ts); check-in return modals pre-fill the
+nearest location; QuickPhoto's "For a job?" list is ranked nearest-first with
+a one-tap "You're at <job>" banner (no auto-commit — job vs. pool is an
+audience choice). Auto-fill never overrides a manual pick/clear or params.loc.
+Data caveat at ship time: only 3/62 prod locations anchored (Lexington Park,
+Huntington, Maintenence); the one open job had no site_location_id.

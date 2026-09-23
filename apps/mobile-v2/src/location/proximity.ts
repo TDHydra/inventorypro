@@ -1,5 +1,11 @@
 export interface LatLng { latitude: number; longitude: number }
 
+// "You're standing at X" radius for auto-selecting the nearest anchored
+// location/job in pickers. Balanced-accuracy fixes can be ~100 m off and a
+// site's anchor is a single point on an often-large property, so tighter
+// values produce false negatives at real sites.
+export const AUTO_SELECT_RADIUS_M = 500;
+
 const R = 6371000; // earth radius, metres
 const toRad = (d: number) => (d * Math.PI) / 180;
 

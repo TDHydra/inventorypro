@@ -55,6 +55,27 @@ export function getOpenJobs(): Job[] {
   return resolveLabels(rowsAs<Job>(result.rows), 'type_id', 'type');
 }
 
+/**
+ * Open jobs with their site anchor (site_location_id → locations.lat/lng) so
+ * pickers can proximity-rank them exactly like locations. Jobs without a site
+ * location — or with an un-anchored one — come back with null coords and sink
+ * to the bottom of sortByProximity.
+ */
+export function getOpenJobsWithCoords(): (Job & { latitude: number | null; longitude: number | null })[] {
+  const db = getDb();
+  const result = db.executeSync(
+    `SELECT j.*, l.latitude AS latitude, l.longitude AS longitude
+       FROM jobs j
+       LEFT JOIN locations l ON l.id = j.site_location_id
+      WHERE j.status = 'open'
+      ORDER BY j.updated_at DESC`
+  );
+  return resolveLabels(
+    rowsAs<Job & { latitude: number | null; longitude: number | null }>(result.rows),
+    'type_id', 'type',
+  );
+}
+
 export function searchJobs(query: string): Job[] {
   const db = getDb();
   const result = db.executeSync(
