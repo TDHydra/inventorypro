@@ -55,6 +55,14 @@ export interface TableSpec {
   insertNoUpsert?: boolean;
   /** No UPDATE/DELETE ever (activity_log audit trail). */
   immutable?: boolean;
+  /** Server-controlled columns stripped from push payloads at send time.
+   *  Mirrors the UNCONDITIONAL entries of the server's SENSITIVE_DENY map
+   *  (apps/api/src/lib/syncPolicy.ts) — the server rejects the WHOLE entry
+   *  ("Forbidden columns: ...") if one of these is present, so a payload that
+   *  carries one strands in the outbox. Only list columns denied for every
+   *  caller; permission-conditional denials (e.g. users.role) must NOT be
+   *  stripped here or admin edits would silently vanish. */
+  pushStripColumns?: string[];
   /** Full local DDL truth — every column with SQLite type/notnull/default. */
   columns: ColumnSpec[];
   /** Verbatim CREATE TABLE from the real 001–067 migration chain — PKs, UNIQUEs,

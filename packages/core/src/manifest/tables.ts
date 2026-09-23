@@ -359,6 +359,10 @@ export const TABLES: TableSpec[] = [
     fullDownload: true,
     fullDownloadOrder: 7,
     privilegedPerm: 'manage_teams',
+    // is_manager is server-controlled (self-promotion vector): sync pushes
+    // carrying it are rejected whole by the server. Promotion/demotion goes
+    // through the gated PATCH /teams/:id/members/:uid instead (repos/teams.ts).
+    pushStripColumns: ['is_manager'],
     columns: [
       { name: 'team_id', type: 'TEXT', notNull: true },
       { name: 'user_id', type: 'TEXT', notNull: true },

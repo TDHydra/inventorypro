@@ -233,13 +233,15 @@ export function addTeamMember(
       bindParams([teamId, userId, JSON.stringify(overrides), addedBy ?? null, joined_at, joined_at]),
     );
     queueTableBump('team_members');
+    // NO is_manager here: it is server-controlled (SENSITIVE_DENY — the server
+    // rejects the whole entry if present; it also gets stripped at push time).
+    // The server defaults it to false; promotion goes through the gated PATCH.
     appendOutbox('INSERT', 'team_members', {
       team_id: teamId,
       user_id: userId,
       team_permission_overrides: overrides,
       added_by: addedBy ?? null,
       joined_at,
-      is_manager: false,
       updated_at: joined_at,
     });
   });

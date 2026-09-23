@@ -14,6 +14,7 @@ import {
 import { shouldEmitHeartbeat } from './heartbeat';
 import { denialMessage } from './denialMessages';
 import { isPermanentRejection } from './rejectionClassify';
+import { stripServerControlledColumns } from '../manifest/derive';
 import { pullChanges } from './pull';
 import { noteServerReachable } from './connectivityStore';
 import { isSandboxActive } from './sandbox';
@@ -108,7 +109,16 @@ async function pushEntries(entries: OutboxEntry[], jwt: string): Promise<number>
       'Content-Type': 'application/json',
       Authorization: `Bearer ${jwt}`,
     },
-    body: JSON.stringify({ entries }),
+    // Strip server-controlled columns (e.g. team_members.is_manager) at send
+    // time — the server rejects a whole entry that carries one, which strands
+    // it in the outbox. Send-time (not append-time) so already-queued entries
+    // from older builds are also repaired on their next retry.
+    body: JSON.stringify({
+      entries: entries.map(e => {
+        const payload = stripServerControlledColumns(e.table_name, e.payload);
+        return payload === e.payload ? e : { ...e, payload };
+      }),
+    }),
   });
 
   if (!res.ok) {

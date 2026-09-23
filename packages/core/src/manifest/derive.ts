@@ -24,6 +24,24 @@ export const PUSH_TABLES: string[] = TABLES
 export const DELETE_FORBIDDEN_TABLES: Set<string> = new Set(
   TABLES.filter(t => t.deleteForbidden).map(t => t.name));
 
+const PUSH_STRIP: Map<string, Set<string>> = new Map(
+  TABLES.filter(t => t.pushStripColumns?.length)
+    .map(t => [t.name, new Set(t.pushStripColumns)]));
+
+/** Drop server-controlled columns (TableSpec.pushStripColumns) from a push
+ *  payload. Returns the SAME object when nothing applies; a shallow copy
+ *  otherwise (never mutates — the stored outbox row keeps its full payload). */
+export function stripServerControlledColumns(
+  table: string,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const strip = PUSH_STRIP.get(table);
+  if (!strip) return payload;
+  const keys = Object.keys(payload);
+  if (!keys.some(k => strip.has(k))) return payload;
+  return Object.fromEntries(keys.filter(k => !strip.has(k)).map(k => [k, payload[k]]));
+}
+
 export const INSERT_NO_UPSERT_TABLES: Set<string> = new Set(
   TABLES.filter(t => t.insertNoUpsert).map(t => t.name));
 
