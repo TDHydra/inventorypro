@@ -160,6 +160,16 @@ services:
   api2:
     <<: *api-common
     profiles: ["blue-green"]
+    # Phase 7 (lean rebuild): the green color may run a DIFFERENT image than
+    # blue — the VPS soak sets API2_IMAGE=inventorypro-api-v2 and
+    # API2_DOCKERFILE=apps/api-v2/Dockerfile in .env so api-v2 soaks on the
+    # green loopback port while blue (old api) keeps serving live traffic.
+    # The nested defaults fall back to blue's exact image/dockerfile, so a box
+    # that sets neither var behaves precisely as before (same-image standby).
+    image: ${API2_IMAGE:-${API_IMAGE:-inventorypro-api:latest}}
+    build:
+      context: ..
+      dockerfile: ${API2_DOCKERFILE:-apps/api/Dockerfile}
     ports:
       - "${API2_PORT:-3001}:3000"
 
