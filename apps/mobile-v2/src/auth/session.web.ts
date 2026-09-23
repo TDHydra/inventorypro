@@ -252,14 +252,21 @@ export async function hasActiveSession(): Promise<boolean> {
 }
 
 /**
- * A returning user that can unlock with biometrics: a refresh token + user id
- * are persisted from a prior online sign-in, and that user is still active
- * locally. The 15-minute JWT may be expired — getValidJwt() mints a fresh one
- * after unlock — so we deliberately do NOT require it here.
+ * A returning user that can resume without a fresh PIN sign-in. On web the
+ * refresh token is deliberately memory-only (nothing long-lived at rest), so
+ * after a reload the only surviving credential is the encrypted 15-minute JWT
+ * — and only in the SAME tab, since its AES key lives in sessionStorage. An
+ * UNEXPIRED stored JWT is therefore an acceptable resume credential: its
+ * lifetime matches the 15-minute idle auto-wipe, so a reload inside that
+ * window resumes seamlessly and anything older lands on login exactly as the
+ * wipe would have forced anyway. In-memory refresh (no reload yet) also counts.
  */
 export async function hasStoredSession(): Promise<boolean> {
-  const [refresh, userId] = await Promise.all([getRefreshToken(), getSavedUserId()]);
-  if (!refresh || !userId) return false;
+  const [refresh, jwt, userId] = await Promise.all([getRefreshToken(), getJwt(), getSavedUserId()]);
+  if (!userId) return false;
+  const jwtExp = jwt ? decodeJwtExp(jwt) : null;
+  const jwtAlive = jwtExp !== null && jwtExp * 1000 > Date.now() + 5_000;
+  if (!refresh && !jwtAlive) return false;
   const user = getUserById(userId);
   return !!user && user.active === 1;
 }

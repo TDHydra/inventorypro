@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, usePathname } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import { useTheme, useThemedStyles, OfflineBanner } from '@invenpro/ui';
 import { useSession } from '../../src/hooks/useSession';
+import { hasStoredSession } from '../../src/auth/session';
 import { usePermission } from '../../src/hooks/usePermission';
 import { setMaintenanceRole } from '../../src/db/maintenance';
 import { NotificationBell } from '../../src/components/NotificationBell';
@@ -19,14 +20,30 @@ export default function AppLayout() {
   const { user, realUser, logout } = useSession();
   const canUploadMedia = usePermission('upload_media');
   const router = useRouter();
+  const pathname = usePathname();
   const t = useTheme();
   const styles = useThemedStyles(makeStyles);
 
-  // Guard — redirect to login if no session
+  // Guard — no in-memory session. On a hard reload / deep link (web) the
+  // session context always boots empty even though a stored session exists,
+  // so bouncing straight to /login forced a full re-login and dropped the
+  // deep-link target. Route to /unlock instead when a stored session is
+  // there (it restores the session without PIN re-entry) and hand it the
+  // intended path so the user lands where the link pointed. `cancelled`
+  // guards the async check against a logout/unmount race.
   useEffect(() => {
-    if (!user) {
-      router.replace('/(auth)/login');
-    }
+    if (user) return;
+    let cancelled = false;
+    (async () => {
+      const stored = await hasStoredSession();
+      if (cancelled) return;
+      if (stored) {
+        router.replace({ pathname: '/(auth)/unlock', params: { next: pathname } });
+      } else {
+        router.replace('/(auth)/login');
+      }
+    })();
+    return () => { cancelled = true; };
   }, [user]);
 
   // Keep the write-layer exempt flag in sync with the REAL session user —

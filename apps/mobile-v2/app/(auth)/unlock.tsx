@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import type { Theme } from '@invenpro/ui';
 import { useTheme } from '@invenpro/ui';
 import { useThemedStyles } from '@invenpro/ui';
@@ -14,6 +14,12 @@ export default function UnlockScreen() {
   const styles = useThemedStyles(makeStyles);
   const t = useTheme();
   const router = useRouter();
+  // Deep-link target from the (app) guard: restore the session, then land on
+  // the page the link actually pointed at instead of always the dashboard.
+  // Only ever a same-app absolute path ("/x…", never "//host") — anything
+  // else falls back to the dashboard.
+  const { next } = useLocalSearchParams<{ next?: string }>();
+  const nextPath = typeof next === 'string' && /^\/(?!\/)/.test(next) ? next : null;
   const { setUser } = useSession();
   const [busy, setBusy] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -35,15 +41,24 @@ export default function UnlockScreen() {
     }
     setName(session.name);
 
-    const ok = await promptBiometric(`Unlock as ${session.name}`);
+    // Web: resume silently. The snapshot AES key lives only in THIS tab's
+    // sessionStorage — a new tab/browser can't even read the session, so a
+    // same-tab reload proves the same person is still there; the 15-minute
+    // idle auto-wipe (session.web.ts) covers walk-aways. WebAuthn can't gate
+    // this: we never register a credential at login, so navigator.credentials
+    // .get() has nothing discoverable and fails on every machine — which is
+    // exactly the old app's "hard reload forces re-login" web bug.
+    const ok = Platform.OS === 'web' || await promptBiometric(`Unlock as ${session.name}`);
     if (!ok) { setBusy(false); setFailed(true); return; }
 
     // Biometric passed — resume the session and refresh the JWT in the
     // background so sync works (no PIN re-entry, fully offline-capable).
     setUser(session);
     getValidJwt().catch(() => { /* offline is fine; sync retries later */ });
-    router.replace('/(app)');
-  }, [router, setUser]);
+    // nextPath is validated same-app-absolute above; the typed-routes union
+    // can't express a runtime string, hence the cast.
+    router.replace((nextPath ?? '/(app)') as Parameters<typeof router.replace>[0]);
+  }, [router, setUser, nextPath]);
 
   useEffect(() => { attemptUnlock(); }, [attemptUnlock]);
 
