@@ -43,6 +43,7 @@
     "uuid": "^14.0.1"
   },
   "devDependencies": {
+    "@sentry/cli": "2.58.4",
     "@types/jsbarcode": "^3.11.4",
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.6",
