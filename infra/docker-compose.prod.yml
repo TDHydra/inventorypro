@@ -97,9 +97,13 @@ services:
     image: ${API_IMAGE:-inventorypro-api:latest}
     # If you don't have a prebuilt image, uncomment `build:` and run with --build
     # from a checkout of the monorepo on the host.
+    # Phase 7 (lean rebuild): the dockerfile is parameterized (like api2's
+    # below) because EITHER color can be the standby slot that soaks api-v2 —
+    # whichever color nginx currently routes stays on the old api image while
+    # the other is pointed at apps/api-v2/Dockerfile via .env.
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: ${API_DOCKERFILE:-apps/api/Dockerfile}
     restart: unless-stopped
     depends_on:
       postgres:
