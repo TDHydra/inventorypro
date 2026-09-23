@@ -744,3 +744,14 @@ login/full-download against prod; if data looks off, sign out and back in.
 - First attempt failed ONLY on the Sentry source-map upload (no auth token on this
   machine) — the env var above skips it; gradle cache is warm, rerun is ~2-5 min.
 - Note: writes from this build hit PROD data (same contract as old app).
+
+## Incident: prod rejected team_members pushes (2026-09-22 evening, FIXED 9f0ec92)
+
+First real-world use of the release APK: adding team members failed. Server
+rejected the entries whole ("Forbidden columns: is_manager" — SENSITIVE_DENY,
+unconditional) and the manager-toggle PATCH then 404'd because the member row
+never landed. NOT a prod/VPS problem. Fix: manifest `pushStripColumns` +
+send-time strip in engine.ts (repairs already-queued entries on retry) +
+addTeamMember payload cleaned. Phase 7 reminder: api-v2's manifest-driven
+sync must reproduce the old syncPolicy.ts SENSITIVE_DENY semantics exactly —
+add it to the golden contract test's coverage.
