@@ -1484,3 +1484,24 @@ as image tag `inventorypro-web:old-app-rollback` (upgrade.sh also re-tagged
 (next-free ≥082 — DROP locker_access, PG app_settings, vehicles.water_state,
 dashboard_presets exposure; also swap api-v2 opPerm.ts's locker-access
 subquery for the unit_access model), then Phase 10 delete/rename.
+
+## Branch promotion — `lean-rebuild` → `main` (2026-09-30)
+
+`main` had sat 45 commits behind `lean-rebuild` since the rebuild began, so the
+public repo's default branch still showed the pre-rebuild app, and the VPS
+checkout tracked `lean-rebuild` — diverging from `upgrade.sh`, which does a bare
+`git pull --ff-only` on whatever branch is checked out.
+
+Promoted by **fast-forward only** (`main` was 0 commits ahead, so no merge commit
+and no conflicts): `origin/main` d94d75f → b17652e. `/opt/inventorypro/app` then
+switched `lean-rebuild` → `main` at the *same* SHA, so the working tree never
+changed and **no rebuild or restart happened** — containers stayed Up, schema
+stayed at 81. Verified after: tree byte-identical to `origin/main`,
+`/health` → 2.0.0, invenpro.app 200, s3 200, unauthenticated `/sync/pull` → 401.
+
+Deploys are back on the documented path: land on `main`, then
+`ssh root@10.8.0.1 /opt/inventorypro/bin/upgrade.sh`.
+
+**Not done, deliberately:** the post-soak destructive migration (≥082) and
+Phase 10 delete/rename are still pending — held for their own session with the
+final pre-migration dump. Old-app rollback images remain in place.
