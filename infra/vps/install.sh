@@ -1034,8 +1034,8 @@ ls -1t "$PRE_DIR"/pre-*.dump.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
   exit 1
 }
 case "$(cat "$ACTIVE_COLOR_CONF")" in
-  *inventorypro_api_blue*)  active_color=blue;  active_svc=api;  standby_color=green; standby_svc=api2; standby_port=3001 ;;
-  *inventorypro_api_green*) active_color=green; active_svc=api2; standby_color=blue;  standby_svc=api;  standby_port=3000 ;;
+  *inventorypro_api_blue*)  active_color=blue;  active_svc=api;  active_port=3000; standby_color=green; standby_svc=api2; standby_port=3001 ;;
+  *inventorypro_api_green*) active_color=green; active_svc=api2; active_port=3001; standby_color=blue;  standby_svc=api;  standby_port=3000 ;;
   *) echo "unrecognized contents of $ACTIVE_COLOR_CONF — expected inventorypro_api_blue or inventorypro_api_green" >&2; exit 1 ;;
 esac
 echo "active: $active_color ($active_svc, still serving) — deploying standby: $standby_color ($standby_svc, port $standby_port)"
@@ -1068,6 +1068,31 @@ if [ -z "$gate_ok" ]; then
   fi
   echo "If $standby_svc ran migrations before failing health, its code is now BEHIND the new schema — do not just retry blindly; check the logs above and, if truly needed, the pre-upgrade snapshot ($dump)." >&2
   exit 1
+fi
+
+# Downgrade guard (2026-09-30). The flip promotes "the other color", whose
+# image/Dockerfile pins live in .env and can silently drift BEHIND the active
+# color. That bit us in prod: after the Phase 8 cutover made blue=api-v2 live,
+# a routine run of this script promoted a green still pinned to the old api and
+# rolled the public API back 2.0.0 -> 1.0.1. Nothing caught it — the old API is
+# perfectly healthy, so both the health gate above and the smoke test below
+# passed. Version comparison is the only thing that can see it.
+ver_of() { curl -fsS -m 5 "http://127.0.0.1:$1/health" 2>/dev/null \
+  | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'; }
+standby_ver=$(ver_of "$standby_port")
+active_ver=$(ver_of "${active_port:-}")
+echo "versions — active $active_color=${active_ver:-unknown}, standby $standby_color=${standby_ver:-unknown}"
+if [ -n "$standby_ver" ] && [ -n "$active_ver" ] && [ "$standby_ver" != "$active_ver" ] \
+   && [ "$(printf '%s\n%s\n' "$active_ver" "$standby_ver" | sort -V | head -1)" = "$standby_ver" ]; then
+  if [ "${ALLOW_DOWNGRADE:-0}" = 1 ]; then
+    echo "WARNING: promoting $standby_color DOWNGRADES the API $active_ver -> $standby_ver; ALLOW_DOWNGRADE=1 is set, continuing." >&2
+  else
+    echo "REFUSING TO FLIP: standby $standby_color ($standby_svc) is version $standby_ver, but $active_color ($active_svc) is serving $active_ver — promoting it would DOWNGRADE the API." >&2
+    echo "Its pins in /opt/inventorypro/.env are probably stale:" >&2
+    grep -E "^API2?_(IMAGE|DOCKERFILE)=" /opt/inventorypro/.env >&2 || true
+    echo "$active_color was never touched and is still serving live traffic. Fix the pins and re-run, or set ALLOW_DOWNGRADE=1 to override deliberately." >&2
+    exit 1
+  fi
 fi
 
 echo "flipping nginx from $active_color to $standby_color…"

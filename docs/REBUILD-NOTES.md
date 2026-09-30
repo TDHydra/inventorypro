@@ -1505,3 +1505,58 @@ Deploys are back on the documented path: land on `main`, then
 **Not done, deliberately:** the post-soak destructive migration (≥082) and
 Phase 10 delete/rename are still pending — held for their own session with the
 final pre-migration dump. Old-app rollback images remain in place.
+
+## INCIDENT 2026-09-30 — `upgrade.sh` silently rolled the API back 2.0.0 → 1.0.1
+
+**Impact:** `api.invenpro.app` served the **old api 1.0.1** for ~16 minutes
+(16:08–16:24 CDT) instead of api-v2 2.0.0. No data loss, no schema change
+(stayed at 81), no failed requests — the v2 web bundle kept working against it
+because of the golden-contract parity, which is also *why nobody noticed*.
+
+**Cause — the blue-green flip promotes "the other color", whichever it is.**
+`upgrade.sh` reads the active color and deploys the opposite one. Phase 8 made
+**blue = api-v2** the active color, but green's pins in `/opt/inventorypro/.env`
+were never moved off the old app:
+
+```
+API2_IMAGE=inventorypro-api:latest
+API2_DOCKERFILE=apps/api/Dockerfile      ← old api 1.0.1
+```
+
+So *any* `upgrade.sh` run in the post-Phase-8 state builds the OLD api, promotes
+it, and stops api-v2 — a routine deploy is a silent rollback. Both existing
+safety nets passed it: the loopback health gate and the post-flip public smoke
+test, because old api 1.0.1 is perfectly healthy. Nothing compared versions.
+
+**Detected by** asking what version prod was running — not by monitoring, which
+is the second half of the bug:
+
+**Secondary defect — the health monitor was color-blind.** The deployed
+`/usr/local/bin/inventorypro-healthcheck.sh` hardcoded `127.0.0.1:3000` (blue),
+so from 16:09 it logged `FAIL` every minute and alerted healthchecks.io even
+though the API was fine on green:3001. The `#247` fix for this exists in
+`infra/vps/install.sh` (it reads the active-color file at runtime) but the
+installed copy predated it and was never re-generated.
+
+### Fixes (all applied + verified)
+1. **Flipped back** — started blue, health-gated it on :3000 (`2.0.0`, "All
+   migrations already applied", no schema drift), flipped nginx, public smoke
+   test green, stopped green. Old image preserved as
+   `inventorypro-api:old-1.0.1-rollback`.
+2. **Downgrade guard in `upgrade.sh`** (generator + deployed copy): after the
+   health gate, compare standby vs active `/health` version and **refuse to
+   flip on a downgrade** unless `ALLOW_DOWNGRADE=1`. Fails open when either
+   version can't be parsed, so it can never block a deploy spuriously.
+   Verified: refuses 2.0.0→1.0.1 and 2.10.0→2.9.0; allows 1.0.1→2.0.0,
+   2.0.0→2.0.0, 2.0.0→2.0.1/2.1.0; honours the override.
+3. **Health monitor** re-generated from `install.sh` so it probes whichever
+   color the nginx active-color file names. Now exits 0 silently with blue live.
+4. **Green repinned to api-v2** with its own tag so both colors are v2 and
+   either direction is safe (this retires the old-api rollback path, by choice):
+   `API2_IMAGE=inventorypro-api-v2:green`, `API2_DOCKERFILE=apps/api-v2/Dockerfile`.
+   Distinct tags matter — sharing `:latest` between colors would let a standby
+   build move the tag under the running active container.
+
+**Lesson:** a health check that only proves "something answers" cannot detect a
+rollback. Blue-green needs an *identity* gate (version/SHA), not just liveness.
+Backups of every file changed: `*.bak-2026-09-30` next to each.
