@@ -3,12 +3,19 @@ import { View, Text, Pressable, PanResponder, StyleSheet } from 'react-native';
 import type { Theme } from '../../themes/types';
 import { useThemedStyles } from '../../hooks/useThemedStyles';
 import { KIT_HIT_SLOP } from './hitSlop';
+import { clampLevelPct, stepLevelPct } from './levelStep';
 
 interface Props {
   /** Committed value 0–100 (shown when not dragging). */
   value: number;
   /** Fired on release with the raw (unsnapped) 0–100 position. */
   onCommit: (rawPct: number) => void;
+  /**
+   * Grid the ± buttons step on, in percent. MUST match how the caller
+   * quantizes in onCommit — a step smaller than the caller's snap rounds
+   * straight back to where it started and the button does nothing (#285).
+   */
+  step?: number;
   disabled?: boolean;
 }
 
@@ -17,13 +24,13 @@ interface Props {
  * native module, web-safe (precedent: DragList). The fill tracks the finger
  * continuously; the caller decides how to quantize the committed value.
  */
-export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
+export function VerticalLevelSlider({ value, onCommit, step = 10, disabled }: Props) {
   const s = useThemedStyles(makeStyles);
   const [drag, setDrag] = useState<number | null>(null);
   // Refs, not state, inside the responder: setState is async and the once-
   // created responder must always read current values (DragList pattern).
-  const cfg = useRef({ disabled: !!disabled, onCommit });
-  cfg.current = { disabled: !!disabled, onCommit };
+  const cfg = useRef({ disabled: !!disabled, onCommit, step });
+  cfg.current = { disabled: !!disabled, onCommit, step };
   const dragRef = useRef<number | null>(null);
   const heightRef = useRef(1);
   const grantPct = useRef(0);
@@ -32,13 +39,13 @@ export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
     onStartShouldSetPanResponder: () => !cfg.current.disabled,
     onMoveShouldSetPanResponder: () => !cfg.current.disabled,
     onPanResponderGrant: evt => {
-      const pct = clampPct(100 * (1 - evt.nativeEvent.locationY / heightRef.current));
+      const pct = clampLevelPct(100 * (1 - evt.nativeEvent.locationY / heightRef.current));
       grantPct.current = pct;
       dragRef.current = pct;
       setDrag(pct);
     },
     onPanResponderMove: (_e, g) => {
-      const pct = clampPct(grantPct.current - (g.dy / heightRef.current) * 100);
+      const pct = clampLevelPct(grantPct.current - (g.dy / heightRef.current) * 100);
       dragRef.current = pct;
       setDrag(pct);
     },
@@ -51,13 +58,16 @@ export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
     onPanResponderTerminate: () => { dragRef.current = null; setDrag(null); },
   }), []);
 
-  const display = drag ?? clampPct(value);
+  const display = drag ?? clampLevelPct(value);
   // #221: coarse nudge for anyone who can't land the drag (gloves, screen
   // readers). Buttons commit directly; the adjustable role + actions cover
   // the assistive-tech path on the track itself.
-  const nudge = (delta: number) => {
+  // #285: steps a WHOLE `step` off the snapped value. It used to move by a
+  // hardcoded 5 against callers that snap to 10s, so minus always rounded back
+  // to where it started — see levelStep.ts.
+  const nudge = (direction: 1 | -1) => {
     if (cfg.current.disabled) return;
-    cfg.current.onCommit(clampPct(clampPct(value) + delta));
+    cfg.current.onCommit(stepLevelPct(value, direction, cfg.current.step));
   };
   return (
     <View style={s.row}>
@@ -69,14 +79,14 @@ export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
         accessibilityLabel="Level"
         accessibilityValue={{ min: 0, max: 100, now: Math.round(display) }}
         accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-        onAccessibilityAction={e => nudge(e.nativeEvent.actionName === 'increment' ? 5 : -5)}
+        onAccessibilityAction={e => nudge(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
         {...responder.panHandlers}
       >
         <View style={[s.fill, { height: `${display}%` }]} />
       </View>
       <View style={s.side}>
         <Pressable
-          onPress={() => nudge(5)}
+          onPress={() => nudge(1)}
           disabled={disabled || display >= 100}
           hitSlop={KIT_HIT_SLOP}
           style={s.nudgeBtn}
@@ -88,7 +98,7 @@ export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
         </Pressable>
         <Text style={s.pct}>{Math.round(display)}%</Text>
         <Pressable
-          onPress={() => nudge(-5)}
+          onPress={() => nudge(-1)}
           disabled={disabled || display <= 0}
           hitSlop={KIT_HIT_SLOP}
           style={s.nudgeBtn}
@@ -101,10 +111,6 @@ export function VerticalLevelSlider({ value, onCommit, disabled }: Props) {
       </View>
     </View>
   );
-}
-
-function clampPct(n: number): number {
-  return Math.min(100, Math.max(0, n));
 }
 
 const makeStyles = (t: Theme) => StyleSheet.create({

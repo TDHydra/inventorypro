@@ -406,6 +406,8 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
               <Text style={s.muted}>{`${vehicle?.debris_level ?? 0}%`}</Text>
             ) : (
               <VerticalLevelSlider
+                // #285: must match snapDebrisLevel's 10s grid.
+                step={10}
                 value={vehicle?.debris_level ?? 0}
                 onCommit={raw => {
                   if (isWriteBlocked()) return;
@@ -423,6 +425,8 @@ export function VehiclePanel({ locationId, variant, onNavigate }: Props) {
           <Text style={s.muted}>{`${vehicle?.fuel_level ?? 0}%`}</Text>
         ) : (
           <VerticalLevelSlider
+            // #285: must match snapFuelLevel's 10s grid.
+            step={10}
             value={vehicle?.fuel_level ?? 0}
             onCommit={raw => {
               if (isWriteBlocked()) return;

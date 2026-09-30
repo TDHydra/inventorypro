@@ -47,6 +47,7 @@ export * from './components/ui/quantityMath';
 export * from './components/ui/recentPicks';
 export * from './components/ui/recentPicksStore';
 export * from './components/ui/recordAutofillFilter';
+export * from './components/ui/levelStep';
 export * from './components/ui/timeWheelStep';
 export * from './components/SuggestInput';
 export * from './components/BulkActionBar';
