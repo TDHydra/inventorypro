@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { runInTransaction, useTableVersion } from '@invenpro/core';
 import {
-  useThemedStyles, FilterChip, FieldLabel, AppInput, FormScreen, type Theme,
+  useThemedStyles, FilterChip, FieldLabel, AppInput, FormScreen, KIT_HIT_SLOP, type Theme,
 } from '@invenpro/ui';
 import { createRepair, type Repair } from '../../repos/repairs';
 import { getRepairStatuses, isTerminalStatus } from '../../repos/taxonomy';
@@ -19,6 +19,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
 import { QuickAddFooter } from './QuickAddFooter';
+import { shouldLockTarget } from './repairTargetLock';
 import { track } from '../../telemetry';
 import { validateText } from '../../lib/validation';
 
@@ -112,6 +113,15 @@ export default function RepairQuickAdd({ onSaved }: Props) {
       ? { id: initialParams.entityId, label: initialParams.entityLabel ?? initialParams.entityId }
       : null
   )); // chosen entity
+  // #288: when the sheet was opened FOR something ("Report repair" on a unit,
+  // item or vehicle), the target is already decided — lock it. It used to be a
+  // live picker whose selected row was one big toggle: a stray tap anywhere on
+  // it cleared the asset tag, and switching an entity-type chip cleared it too,
+  // so a ticket could silently end up pointing at the wrong unit or at nothing.
+  // Still changeable, just deliberately — "Change" below unlocks both.
+  const [targetLocked, setTargetLocked] = useState(
+    () => shouldLockTarget(initialEntityType, initialParams.entityId),
+  );
   const [targetError, setTargetError] = useState('');
   const [notes, setNotes] = useState('');
   const [notesError, setNotesError] = useState('');
@@ -244,6 +254,7 @@ export default function RepairQuickAdd({ onSaved }: Props) {
               key={et.type}
               label={et.label}
               active={entityType === et.type}
+              disabled={targetLocked}
               onPress={() => pickType(et.type)}
             />
           ))}
@@ -252,10 +263,23 @@ export default function RepairQuickAdd({ onSaved }: Props) {
 
       {/* ── Target entity ───────────────────────────────────────────── */}
       <View style={s.fieldWrap}>
-        <FieldLabel>
-          {entityType === 'equipment_unit' ? 'Asset tag' : entityType === 'location' ? 'Vehicle' : 'Item'}
-        </FieldLabel>
+        <View style={s.labelRow}>
+          <FieldLabel>
+            {entityType === 'equipment_unit' ? 'Asset tag' : entityType === 'location' ? 'Vehicle' : 'Item'}
+          </FieldLabel>
+          {targetLocked && (
+            <TouchableOpacity
+              onPress={() => setTargetLocked(false)}
+              hitSlop={KIT_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Change what needs repair"
+            >
+              <Text style={s.changeLink}>Change</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <SearchablePicker
+          disabled={targetLocked}
           placeholder={
             entityType === 'equipment_unit'
               ? 'Search asset tag…'
@@ -345,6 +369,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   // Mirrors the shell's default FormScreen content padding + this form's row gap.
   content: { padding: t.spacing.lg, paddingBottom: 48, gap: 12 },
   fieldWrap: { gap: 6 },
+  // #288: label on the left, the "Change" unlock on the right.
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  changeLink: { color: t.colors.primary, fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   multiline: { height: 80, paddingTop: 12, textAlignVertical: 'top' },
   errorText: { fontSize: t.typography.fontSizes.caption, color: t.colors.danger },

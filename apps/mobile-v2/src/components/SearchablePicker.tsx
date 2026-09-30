@@ -17,6 +17,14 @@ interface Props {
   // of filtering a static `options` array client-side. Required for large sets
   // (e.g. the full item catalog) where a capped pre-load would hide most rows.
   searchFn?: (query: string) => PickerOption[];
+  // #288: render the chosen option read-only — no tap target, no "Change", no
+  // search input. For forms whose target is fixed by where the user came from
+  // (a repair opened for one specific unit). The row below is a single large
+  // TouchableOpacity that calls onSelect(value), and callers toggle in onSelect,
+  // so without this ANY stray tap on it silently cleared the selection.
+  // The caller owns the way back out — it should offer an explicit control that
+  // clears `disabled`, so changing the value stays possible but deliberate.
+  disabled?: boolean;
 }
 
 // Live-filtering entity dropdown: type to narrow existing rows to a tappable list,
@@ -24,7 +32,7 @@ interface Props {
 // one when nothing matches. Used for item/location/job/PM selection so the behavior
 // is identical everywhere. For large catalogs pass `searchFn` (DB-backed) instead
 // of a static `options` array.
-export function SearchablePicker({ placeholder, options = [], value, onSelect, onCreate, autoFocus, searchFn }: Props) {
+export function SearchablePicker({ placeholder, options = [], value, onSelect, onCreate, autoFocus, searchFn, disabled }: Props) {
   const s = useThemedStyles(makeStyles);
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -67,6 +75,19 @@ export function SearchablePicker({ placeholder, options = [], value, onSelect, o
   }, [query, options, searchFn, matches]);
   const showCreate = !!onCreate && query.trim().length > 0 && !exact;
   const open = focused && (matches.length > 0 || showCreate);
+
+  // #288: locked — same row, but inert and without the "Change" hint.
+  if (value && disabled) {
+    return (
+      <View style={[s.selected, s.selectedLocked]} accessibilityLabel={`${value.label}, locked`}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.selectedLabel}>{value.label}</Text>
+          {!!value.sublabel && <Text style={s.selectedSub}>{value.sublabel}</Text>}
+        </View>
+        <Text style={s.lockGlyph}>🔒</Text>
+      </View>
+    );
+  }
 
   if (value) {
     return (
@@ -126,4 +147,6 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   selectedLabel: { fontSize: t.typography.fontSizes.body, color: t.colors.textPrimary, fontWeight: '600' },
   selectedSub: { fontSize: t.typography.fontSizes.caption, color: t.colors.textSecondary, marginTop: 1 },
   change: { color: t.colors.primary, fontSize: t.typography.fontSizes.body2, fontWeight: '600' },
+  selectedLocked: { borderWidth: 1, borderColor: t.colors.border },
+  lockGlyph: { fontSize: t.typography.fontSizes.body2 },
 });
