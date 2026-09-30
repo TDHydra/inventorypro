@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { runInTransaction, useTableVersion } from '@invenpro/core';
+import { runInTransaction, useDbQuery, useTableVersion } from '@invenpro/core';
 import {
-  useThemedStyles, FilterChip, FieldLabel, AppInput, FormScreen, KIT_HIT_SLOP, type Theme,
+  useThemedStyles, Alert, FilterChip, FieldLabel, FormScreen, KIT_HIT_SLOP,
+  normalizeList, type Theme,
 } from '@invenpro/ui';
 import { createRepair, type Repair } from '../../repos/repairs';
-import { getRepairStatuses, isTerminalStatus } from '../../repos/taxonomy';
+import { getRepairStatuses, getPartsCategories, isTerminalStatus } from '../../repos/taxonomy';
 import { setUnitStatus, searchUnitsByTag } from '../../repos/equipmentUnits';
-import { searchItems } from '../../repos/items';
+import { searchItems, getPartCatalogNames, findOrCreatePartByName } from '../../repos/items';
 import { getAllActiveUsers, getUserById } from '../../repos/users';
 import { getRoleColorMap, roleColor } from '../../repos/roleSettings';
 import { getUnitLocations, findOrCreateVehicleByName } from '../../repos/locations';
@@ -18,6 +19,7 @@ import { useSession } from '../../hooks/useSession';
 import { usePermission } from '../../hooks/usePermission';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { SearchablePicker, type PickerOption } from '../SearchablePicker';
+import { AutofillTextField } from '../ui/AutofillTextField';
 import { QuickAddFooter } from './QuickAddFooter';
 import { shouldLockTarget } from './repairTargetLock';
 import { track } from '../../telemetry';
@@ -58,6 +60,13 @@ import { validateText } from '../../lib/validation';
 // create, status chips restricted to non-terminal, optional role-colored
 // assignee picker, notes/parts_needed free text).
 //
+// #289: notes/parts_needed are no longer bare AppInputs. Both are
+// AutofillTextField now, so prior tickets' values are offered back instead of
+// retyped, and "Parts needed" additionally searches the parts catalog and can
+// add a missing part to it inline (`+ Create "X"`, the same affordance as the
+// vehicle picker above). Still ONE text column each — see multiValueText.ts for
+// why the wish list stays text rather than becoming rows.
+//
 // Caller-owned self-log convention (this wave's standing rule): createRepair
 // does not self-log — the equipment-unit auto-drive-to-repair write and the
 // 'repair_opened' appendLog are wrapped together in one runInTransaction
@@ -85,6 +94,9 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   const { user, realUser } = useSession();
   const { locked } = useMaintenanceMode();
   const canManageLocations = usePermission('manage_locations');
+  // Gates the inline `+ Create "X"` on Parts needed — it writes a real catalog
+  // item, so it needs the same permission the Add Item form does (#289).
+  const canAddItems = usePermission('add_inventory');
   // One-tap "report a repair for THIS thing" (ItemCard, equipment/[id],
   // locations/[id]'s "Report repair" rows) — pre-fills the target instead of
   // dropping the user on the blank chooser. Replaces the old app's dedicated
@@ -129,6 +141,14 @@ export default function RepairQuickAdd({ onSaved }: Props) {
   const [partsError, setPartsError] = useState('');
   const [assigneeOpt, setAssigneeOpt] = useState<PickerOption | null>(null);
 
+  // Parts catalog pool for the Parts needed typeahead (#289). Reactive on both
+  // tables: a part created inline (here or elsewhere) and an admin flagging a
+  // new "use for repair parts" category must both show up without a remount.
+  const partNames = useDbQuery(getPartCatalogNames, [], ['inventory_items', 'taxonomy_types']);
+  const hasPartsCategory = useDbQuery(
+    () => getPartsCategories().length > 0, [], ['taxonomy_types'],
+  );
+
   const assigneeOptions = useMemo<PickerOption[]>(
     () => getAllActiveUsers().map(u => ({ id: u.id, label: u.name })),
     [optionsVersion],
@@ -170,6 +190,37 @@ export default function RepairQuickAdd({ onSaved }: Props) {
     setTargetError('');
   }
 
+  // `+ Create "X"` on Parts needed: put the part in the catalog so the next
+  // ticket can just pick it. SuggestInput has already committed the text to the
+  // field, so a failed create still leaves the repair saying what it needs —
+  // hence a warning rather than an error that loses the typing.
+  function handleCreatePart(name: string) {
+    if (isWriteBlocked()) return;
+    const trimmed = name.trim();
+    // Same transaction as the log (caller-owned self-log convention):
+    // findOrCreatePartByName deliberately doesn't open one of its own.
+    const result = runInTransaction(() => {
+      const created = findOrCreatePartByName(trimmed);
+      if (created?.created) {
+        appendLog({
+          user_id: realUser?.id ?? null, team_id: null, action: 'item_created',
+          entity_type: 'item', entity_id: created.id,
+          from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+          note: trimmed, metadata: null, device_id: null,
+        });
+      }
+      return created;
+    });
+    if (!result) {
+      Alert.alert(
+        'Part not added to the catalog',
+        `"${trimmed}" is still listed on this repair, but it couldn't be saved to the catalog. Add it from Inventory when you get a chance.`,
+      );
+      return;
+    }
+    if (result.created) track('action', 'repair_part_quick_created', { screen: 'quick_add' });
+  }
+
   function handleSave() {
     if (isWriteBlocked()) return;
     if (!target) {
@@ -188,7 +239,9 @@ export default function RepairQuickAdd({ onSaved }: Props) {
       return;
     }
     setNotesError('');
-    const partsResult = validateText(parts, { label: 'Parts needed' });
+    // Canonical list form first: appendSegment leaves a trailing ', ' as the
+    // "add another" affordance, and that must not reach the column (#289).
+    const partsResult = validateText(normalizeList(parts), { label: 'Parts needed' });
     if (!partsResult.ok) {
       trackReject('repair.parts_needed', partsResult.rule);
       setPartsError(partsResult.error);
@@ -337,30 +390,44 @@ export default function RepairQuickAdd({ onSaved }: Props) {
       </View>
 
       {/* ── Notes ───────────────────────────────────────────────────── */}
-      <View style={s.fieldWrap}>
-        <FieldLabel>Notes</FieldLabel>
-        <AppInput
-          style={s.multiline}
-          value={notes}
-          onChangeText={t => { setNotes(t); if (notesError) setNotesError(''); }}
-          placeholder="What's wrong / what needs doing?"
-          multiline
-        />
-        {!!notesError && <Text style={s.errorText}>{notesError}</Text>}
-      </View>
+      {/* #289: the same fault gets written up over and over ("won't start,
+          cranks fine"), so prior notes are offered back. `replace` mode — a
+          note is one value, and its commas are punctuation, not separators. */}
+      <AutofillTextField
+        label="Notes"
+        table="repairs"
+        column="notes"
+        value={notes}
+        onChangeText={t => { setNotes(t); if (notesError) setNotesError(''); }}
+        placeholder="What's wrong / what needs doing?"
+        error={notesError}
+        multiline
+        style={s.multiline}
+        autoCapitalize="sentences"
+      />
 
       {/* ── Parts needed ────────────────────────────────────────────── */}
-      <View style={s.fieldWrap}>
-        <FieldLabel>Parts needed</FieldLabel>
-        <AppInput
-          style={s.multiline}
-          value={parts}
-          onChangeText={t => { setParts(t); if (partsError) setPartsError(''); }}
-          placeholder="Parts required (free text)"
-          multiline
-        />
-        {!!partsError && <Text style={s.errorText}>{partsError}</Text>}
-      </View>
+      {/* #289: a typeahead over the parts catalog PLUS what past tickets asked
+          for, in `list` mode so several parts accumulate in the one column.
+          `+ Create "X"` only appears when it can actually land somewhere: the
+          user can add inventory, writes aren't locked, and some category is
+          flagged "use for repair parts". */}
+      <AutofillTextField
+        label="Parts needed"
+        table="repairs"
+        column="parts_needed"
+        pickMode="list"
+        extraSuggestions={partNames}
+        value={parts}
+        onChangeText={t => { setParts(t); if (partsError) setPartsError(''); }}
+        placeholder="Search parts, or type a new one…"
+        hint="Tap a part to add it. Separate with commas."
+        error={partsError}
+        multiline
+        style={s.multiline}
+        autoCapitalize="sentences"
+        onCreate={canAddItems && !locked && hasPartsCategory ? handleCreatePart : undefined}
+      />
     </FormScreen>
   );
 }

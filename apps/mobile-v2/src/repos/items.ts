@@ -1,5 +1,9 @@
 import { getDb, rowsAs } from '../db/schema';
-import { resolveTypeId, resolveLabels, ITEM_CATEGORY, EQUIPMENT_CATEGORY } from './taxonomy';
+import {
+  resolveTypeId, resolveLabels, getPartsCategories, ITEM_CATEGORY, EQUIPMENT_CATEGORY,
+} from './taxonomy';
+import { PRODUCT_CLASS_IDS, getUnitsForClass } from '../constants/units';
+import { generateUUID } from '../utils/uuid';
 import { createRepository, runInTransaction, queueTableBump } from '@invenpro/core';
 
 const itemsRepo = createRepository('inventory_items');
@@ -461,4 +465,103 @@ export function getItemsNeedingCleaning(): InventoryItem[] {
      ORDER BY name ASC`
   );
   return resolveLabels(rowsAs<InventoryItem>(result.rows), 'category_id', 'category');
+}
+
+// ── Repair parts (#289) ─────────────────────────────────────────────────────
+
+// Names of every active item in a parts-flagged category, for the repair
+// "Parts needed" typeahead. Names only (no stock join, no LIMIT) because the
+// field filters client-side: searchItems() would drag in the stock-total
+// subquery and, worse, need a row cap — and a capped pool silently hides parts
+// from a typeahead that is supposed to know the whole catalog.
+//
+// Empty array = no category is flagged "use for repair parts" yet, the same
+// admin-configured state the Use-parts sheet reports. Call sites decide the
+// fallback (the field degrades to history-only suggestions).
+export function getPartCatalogNames(): string[] {
+  const categoryIds = getPartsCategories().map(ty => ty.id);
+  if (categoryIds.length === 0) return [];
+  const db = getDb();
+  const placeholders = categoryIds.map(() => '?').join(',');
+  const result = db.executeSync(
+    `SELECT DISTINCT name FROM inventory_items
+     WHERE active = 1 AND category_id IN (${placeholders})
+     ORDER BY name COLLATE NOCASE`,
+    categoryIds,
+  );
+  return rowsAs<{ name: string }>(result.rows).map(r => r.name);
+}
+
+// Find (case-insensitive, by name) or create a catalog item in the FIRST
+// parts-flagged category, for the inline `+ Create "X"` row in the repair
+// "Parts needed" field. The sibling of findOrCreateShelfByName /
+// findOrCreateVehicleByName in repos/locations.ts, and deliberately the same
+// shape: a crew member naming a part they need shouldn't have to leave the
+// ticket and fill in the whole Add Item form.
+//
+// The row is intentionally minimal — name + category + a `piece`/`each` unit,
+// no stock, no supplier, no home location. It exists so the part is findable
+// and orderable; whoever manages the catalog fills in the rest later.
+//
+// Matching is by name across the WHOLE active catalog, not just parts
+// categories: if "Oil filter" already exists as a PPE/consumable row, reuse it
+// rather than creating a confusing second item with the same name.
+//
+// CONTRACT: returns null when the name is blank, when no category is flagged for
+// repair parts (nowhere sensible to put it — callers should hide the create
+// affordance in that case), or when the write failed (swallowed and warned, as
+// in findOrCreateShelfByName). `created` is false for a row that already
+// existed, so the caller can log only real creations. Callers MUST null-check.
+export function findOrCreatePartByName(name: string): { id: string; created: boolean } | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const partsCategory = getPartsCategories()[0];
+  if (!partsCategory) return null;
+
+  const db = getDb();
+  const existing = rowsAs<InventoryItem>(db.executeSync(
+    `SELECT * FROM inventory_items WHERE active = 1 AND LOWER(name) = LOWER(?) LIMIT 1`,
+    [trimmed],
+  ).rows)[0];
+  if (existing) return { id: existing.id, created: false };
+
+  const id = generateUUID();
+  const now = new Date().toISOString();
+  // Stable class id, not the legacy enum string — migration 012 only remaps
+  // EXISTING rows (see constants/units.ts).
+  const unitCategory = PRODUCT_CLASS_IDS.piece;
+  const item: InventoryItem = {
+    id,
+    name: trimmed,
+    barcode: null,
+    description: null,
+    sku: null,
+    supplier: null,
+    model: null,
+    kind: 'product',
+    category: partsCategory.label,
+    category_id: partsCategory.id,
+    returnable: 0,
+    unit_tracked: 0,
+    tag_prefix: null,
+    unit_category: unitCategory,
+    unit: getUnitsForClass(unitCategory)[0] ?? 'each',
+    min_qty_alert: 0,
+    reorder_to: null,
+    active: 1,
+    updated_at: now,
+    synced_at: null,
+    home_location_id: null,
+    pack_size: null,
+  };
+  try {
+    // No runInTransaction here: upsertItem is a single self-mirroring write, and
+    // leaving the transaction to the caller lets it wrap this together with its
+    // own activity log (the caller-owned self-log convention).
+    upsertItem(item);
+  } catch (err) {
+    console.warn('findOrCreatePartByName: failed to create part', err);
+    return null;
+  }
+  return { id, created: true };
 }

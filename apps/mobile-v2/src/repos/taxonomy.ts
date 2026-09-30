@@ -146,9 +146,15 @@ export function parseItemTypeMeta(meta: string | null | undefined): ItemTypeMeta
 // — a Manage Types rename of "Equipment Part" must not empty the parts search.
 // Empty array = nothing flagged yet; call sites decide the fallback.
 export function getPartsCategoryIds(): string[] {
-  return getItemTypes()
-    .filter(ty => parseItemTypeMeta(ty.meta).parts)
-    .map(ty => ty.id);
+  return getPartsCategories().map(ty => ty.id);
+}
+
+// The same categories with their labels, for the code paths that must WRITE a
+// part rather than filter one (#289: findOrCreatePartByName needs the label for
+// inventory_items.category, the cache beside the category_id FK). Ordered as
+// getItemTypes orders them, so "the first parts category" is stable.
+export function getPartsCategories(): TaxonomyType[] {
+  return getItemTypes().filter(ty => parseItemTypeMeta(ty.meta).parts);
 }
 
 // Ids of the ACTIVE item categories whose items can be repaired (#283). Same

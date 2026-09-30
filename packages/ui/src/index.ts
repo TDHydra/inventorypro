@@ -43,6 +43,7 @@ export * from './components/ui/confirmQueue';
 export * from './components/ui/dateFieldLogic';
 export * from './components/ui/hitSlop';
 export * from './components/ui/overlayZ';
+export * from './components/ui/multiValueText';
 export * from './components/ui/offlineBannerState';
 export * from './components/ui/quantityMath';
 export * from './components/ui/recentPicks';

@@ -26,11 +26,20 @@ import { getDb, rowsAs } from '../db/schema';
 //   (packages/core/src/manifest/tables.ts) — troubleshooting steps are free
 //   text and crews retry the SAME checks across tickets ("Checked the fuse"),
 //   so prior actions/results are exactly the reuse case this module exists for.
+// - repairs.notes / repairs.parts_needed: manifest table `repairs`
+//   (packages/core/src/manifest/tables.ts, both plain TEXT) — #289. Same reuse
+//   case one level up from repair_steps: the same parts get ordered and the same
+//   faults get written up ticket after ticket, and the crew was retyping both.
+//   `parts_needed` is a comma-separated LIST in one column, so its call sites
+//   pass pickMode="list" and split prior values into segments (see
+//   packages/ui/.../multiValueText.ts) rather than offering a whole old list as
+//   one suggestion.
 export const SUGGESTIBLE = {
   inventory_items: ['supplier', 'model', 'unit', 'sku'],
   jobs: ['customer_name', 'insurance_carrier', 'site_address', 'reference_number'],
   locations: ['name'],
   repair_steps: ['action', 'result'],
+  repairs: ['notes', 'parts_needed'],
 } as const;
 
 export type SuggestibleTable = keyof typeof SUGGESTIBLE;

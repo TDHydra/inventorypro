@@ -55,14 +55,16 @@ import { setUnitStatus } from '../../../src/repos/equipmentUnits';
 import { resolveLocationShelfSelection } from '../../../src/repos/locations';
 import { getAllActiveUsers, getUserById } from '../../../src/repos/users';
 import { roleColor, getRoleColorMap } from '../../../src/repos/roleSettings';
-import { getItemById, adjustStock, getStockQuantity } from '../../../src/repos/items';
+import {
+  getItemById, adjustStock, getStockQuantity, getPartCatalogNames, findOrCreatePartByName,
+} from '../../../src/repos/items';
 import { appendLog, getLogForEntity } from '../../../src/db/queries/log';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import type { Theme } from '@invenpro/ui';
 import {
   useThemedStyles, Alert, FieldLabel, AppInput, PrimaryButton, FormScreen, ModalSheet,
   EmptyState, QuantityStepper, DateField, toIsoDateString, Card, TextField,
-  EntityEditSheet, FilterChip,
+  EntityEditSheet, FilterChip, normalizeList,
 } from '@invenpro/ui';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
@@ -134,6 +136,9 @@ export default function RepairDetailScreen() {
   const { user, realUser } = useSession();
   const canEdit = usePermission('edit_inventory');
   const canViewFinancial = usePermission('view_financial_data');
+  // #289: the inline `+ Create "X"` on Parts needed writes a catalog item, so it
+  // needs add_inventory on top of edit rights on the ticket itself.
+  const canAddItems = usePermission('add_inventory');
   // "Use parts" emits an ADJUST to stock_by_location, which the server authorizes
   // on checkin_inventory || checkout_inventory (see syncPolicy requiredOperationPerm's
   // handling of stock_by_location adjustments) — not edit_inventory. An override
@@ -229,6 +234,10 @@ export default function RepairDetailScreen() {
   // (chemicals, PPE, equipment…). Reactive so flagging a category in Manage
   // Types — or a synced flag change — widens the search without a remount.
   const partsCategoryIds = useDbQuery(getPartsCategoryIds, [], ['taxonomy_types']);
+  // #289: the same parts, by NAME, for the free-text "Parts needed" typeahead
+  // above (the wish list). Distinct from the Use-parts picker below, which needs
+  // whole item rows because it moves stock.
+  const partNames = useDbQuery(getPartCatalogNames, [], ['inventory_items', 'taxonomy_types']);
   // The selected part's catalog row — its unit/unit_category label the on-hand
   // quantities and the stepper. Reactive so a synced unit change shows at once.
   const partItemFull = useDbQuery(
@@ -266,6 +275,35 @@ export default function RepairDetailScreen() {
   const terminal = repair.completed_at != null || isTerminalStatus(repair.status);
   const isOverdue = !!repair.due_at && !terminal && new Date(repair.due_at).getTime() < Date.now();
 
+  // #289: `+ Create "X"` under the Parts needed suggestions — add the part to the
+  // catalog without leaving the ticket. The text is already in the field by the
+  // time this runs, so a failed create warns instead of erroring: the repair
+  // still records what it needs. Identical handler to RepairQuickAdd's.
+  function handleCreatePart(name: string) {
+    if (isWriteBlocked()) return;
+    const trimmed = name.trim();
+    const result = runInTransaction(() => {
+      const created = findOrCreatePartByName(trimmed);
+      if (created?.created) {
+        appendLog({
+          user_id: realUser?.id ?? null, team_id: null, action: 'item_created',
+          entity_type: 'item', entity_id: created.id,
+          from_location_id: null, to_location_id: null, quantity: null, unit: null, job_id: null,
+          note: trimmed, metadata: null, device_id: null,
+        });
+      }
+      return created;
+    });
+    if (!result) {
+      Alert.alert(
+        'Part not added to the catalog',
+        `"${trimmed}" is still listed on this repair, but it couldn't be saved to the catalog. Add it from Inventory when you get a chance.`,
+      );
+      return;
+    }
+    if (result.created) track('action', 'repair_part_quick_created', { screen: 'repair_detail' });
+  }
+
   function saveFields() {
     if (!repair || isWriteBlocked()) return;
     let costValue: number | null = null;
@@ -280,7 +318,9 @@ export default function RepairDetailScreen() {
     }
     const notesResult = validateText(notes, { label: 'Notes' });
     if (!notesResult.ok) { trackReject('repair.notes', notesResult.rule); Alert.alert('Check notes', notesResult.error); return; }
-    const partsResult = validateText(parts, { label: 'Parts needed' });
+    // Canonical list form first — appendSegment's trailing ', ' must not be
+    // stored (#289).
+    const partsResult = validateText(normalizeList(parts), { label: 'Parts needed' });
     if (!partsResult.ok) { trackReject('repair.parts_needed', partsResult.rule); Alert.alert('Check parts needed', partsResult.error); return; }
     try {
       runInTransaction(() => {
@@ -587,26 +627,47 @@ export default function RepairDetailScreen() {
           <Text style={s.readonlyNote}>You do not have permission to edit this repair.</Text>
         )}
 
-        {/* Editable fields */}
-        <FieldLabel style={{ marginTop: 16 }}>Notes</FieldLabel>
-        <AppInput
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="What is wrong / work done…"
-          multiline
-          editable={canEdit}
-          style={s.multiline}
-        />
+        {/* Editable fields. #289: both are AutofillTextField so this screen and
+            RepairQuickAdd behave identically — prior tickets' notes come back as
+            suggestions, and Parts needed is a typeahead over the parts catalog
+            plus what past tickets asked for, with an inline create. */}
+        <View style={{ marginTop: 16 }}>
+          <AutofillTextField
+            label="Notes"
+            table="repairs"
+            column="notes"
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="What is wrong / work done…"
+            multiline
+            editable={canEdit}
+            style={s.multiline}
+            autoCapitalize="sentences"
+          />
+        </View>
 
-        <FieldLabel style={{ marginTop: 12 }}>Parts needed</FieldLabel>
-        <AppInput
-          value={parts}
-          onChangeText={setParts}
-          placeholder="Parts required…"
-          multiline
-          editable={canEdit}
-          style={s.multiline}
-        />
+        <View style={{ marginTop: 12 }}>
+          <AutofillTextField
+            label="Parts needed"
+            table="repairs"
+            column="parts_needed"
+            pickMode="list"
+            extraSuggestions={partNames}
+            value={parts}
+            onChangeText={setParts}
+            placeholder="Search parts, or type a new one…"
+            hint={canEdit ? 'Tap a part to add it. Separate with commas.' : undefined}
+            multiline
+            editable={canEdit}
+            style={s.multiline}
+            autoCapitalize="sentences"
+            onCreate={
+              canEdit && canAddItems && !locked && partsCategoryIds.length > 0
+                ? handleCreatePart
+                : undefined
+            }
+          />
+        </View>
 
         {/* Assignee */}
         <FieldLabel style={{ marginTop: 12 }}>Assignee</FieldLabel>
