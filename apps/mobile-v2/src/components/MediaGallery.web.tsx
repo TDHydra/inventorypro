@@ -4,7 +4,7 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useDbQuery, runInTransaction } from '@invenpro/core';
-import { Alert, useTheme, useThemedStyles, type Theme } from '@invenpro/ui';
+import { Alert, ABOVE_SHEET_Z, useTheme, useThemedStyles, type Theme } from '@invenpro/ui';
 import { useSession } from '../hooks/useSession';
 import { usePermission } from '../hooks/usePermission';
 import { uploadMediaAsset, MAX_UPLOAD_BYTES } from '../media/upload';
@@ -402,9 +402,12 @@ const makeStyles = (t: Theme): Record<string, CSSProperties> => ({
   addIcon: { fontSize: 26, color: t.colors.primary, fontWeight: 300 },
   addText: { fontSize: 11, color: t.colors.textSecondary, fontWeight: 600, marginTop: 2 },
   // Source picker bottom sheet
+  // #287: must clear react-native-web's <Modal> (z-index 9999) — this gallery
+  // is also rendered INSIDE a ModalSheet (per-unit equipment photos), where a
+  // lower z-index left the picker mounted but painted behind the sheet.
   sheetOverlay: {
     position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
-    justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000,
+    justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)', zIndex: ABOVE_SHEET_Z,
   },
   sheet: {
     backgroundColor: t.colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
@@ -457,7 +460,8 @@ const makeStyles = (t: Theme): Record<string, CSSProperties> => ({
   },
   lightbox: {
     position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.92)',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    zIndex: ABOVE_SHEET_Z, // #287, same reason as sheetOverlay
   },
   lightboxImg: { width: '100%', height: '80%', objectFit: 'contain' },
   lightboxDelete: {
