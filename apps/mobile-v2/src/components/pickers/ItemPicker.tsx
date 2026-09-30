@@ -16,6 +16,8 @@ export function ItemPicker({
   placeholder,
   allowCreate,
   disabled,
+  categoryIds,
+  showSublabel,
 }: {
   value: PickerOption | null;
   onChange: (opt: PickerOption | null) => void;
@@ -23,15 +25,30 @@ export function ItemPicker({
   placeholder?: string;
   allowCreate?: boolean;
   disabled?: boolean;
+  // Scope the dropdown to a set of item_category FK ids (see searchItems) —
+  // the repair "Use parts" sheet passes the categories flagged as repair parts
+  // so the search only ever offers parts. Omit for the whole catalog; an EMPTY
+  // array deliberately matches nothing (call sites explain why to the user).
+  categoryIds?: string[];
+  // Show the item's part # (falling back to its unit) under the name. Off by
+  // default so the existing checkout/stock call sites keep their one-line rows.
+  showSublabel?: boolean;
 }) {
   // The returned function's identity changes whenever inventory_items or
   // equipment_units changes (local write or sync pull, #60/#63), which drives
   // SearchablePicker's own memo (keyed on searchFn identity) to re-run the
-  // still-open query against fresh data instead of staying frozen.
+  // still-open query against fresh data instead of staying frozen. Adding
+  // taxonomy_types keeps a category newly flagged as parts (or unflagged) from
+  // leaving an open dropdown scoped to the old set.
   const itemSearchFn = useDbQuery(
-    () => (q: string): PickerOption[] => searchItems(q).map(i => ({ id: i.id, label: i.name })),
-    [],
-    ['inventory_items', 'equipment_units'],
+    () => (q: string): PickerOption[] =>
+      searchItems(q, 20, 0, undefined, undefined, undefined, categoryIds).map(i => ({
+        id: i.id,
+        label: i.name,
+        sublabel: showSublabel ? (i.sku ?? i.unit) : undefined,
+      })),
+    [categoryIds?.join(','), showSublabel],
+    ['inventory_items', 'equipment_units', 'taxonomy_types'],
   );
 
   const picker = (

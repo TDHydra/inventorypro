@@ -104,7 +104,7 @@ export function searchItems(
   category?: string,
   kind?: string,
   unitTracked?: boolean,
-  itemCategoryId?: string
+  itemCategoryId?: string | string[]
 ): ItemWithTotalStock[] {
   const db = getDb();
   const pattern = `%${query}%`;
@@ -118,12 +118,23 @@ export function searchItems(
   // Item-type filter by the durable taxonomy FK (#74 P2) — not the `category`
   // label cache, which goes stale on a type rename and would drop renamed items
   // from the filter. Chips pass the type id. In-SQL so pagination stays correct.
-  const itemCategoryClause = itemCategoryId ? `AND i.category_id = ?` : '';
+  // A STRING filters one type (the inventory chips); an ARRAY filters a set —
+  // the repair "Use parts" search passes every category flagged meta.parts, so
+  // more than one category can hold parts. An EMPTY array is a real filter that
+  // matches nothing (`IN ()` is a syntax error, so it becomes a false literal):
+  // "no category is flagged as parts" must show no parts, not the whole catalog.
+  const categoryIds = Array.isArray(itemCategoryId) ? itemCategoryId : undefined;
+  const itemCategoryClause = categoryIds
+    ? (categoryIds.length > 0
+        ? `AND i.category_id IN (${categoryIds.map(() => '?').join(',')})`
+        : 'AND 0')
+    : (itemCategoryId ? `AND i.category_id = ?` : '');
   const params: (string | number)[] = [pattern, pattern, pattern];
   if (category) params.push(category);
   if (kind) params.push(kind);
   if (unitTracked !== undefined) params.push(unitTracked ? 1 : 0);
-  if (itemCategoryId) params.push(itemCategoryId);
+  if (categoryIds) params.push(...categoryIds);
+  else if (typeof itemCategoryId === 'string') params.push(itemCategoryId);
   params.push(query, `${query}%`, limit, offset);
 
   const result = db.executeSync(

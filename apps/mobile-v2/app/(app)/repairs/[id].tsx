@@ -48,12 +48,14 @@ import {
   getRepairById, updateRepairFields, updateRepairStatus, addRepairPart, getRepairParts,
   addRepairStep, getRepairSteps, type Repair, type RepairPart, type RepairStep,
 } from '../../../src/repos/repairs';
-import { getRepairStatusesWithFallback, isTerminalStatus, getTypeIcon } from '../../../src/repos/taxonomy';
+import {
+  getRepairStatusesWithFallback, isTerminalStatus, getTypeIcon, getPartsCategoryIds,
+} from '../../../src/repos/taxonomy';
 import { setUnitStatus } from '../../../src/repos/equipmentUnits';
-import { getAllLocations, resolveLocationShelfSelection } from '../../../src/repos/locations';
+import { resolveLocationShelfSelection } from '../../../src/repos/locations';
 import { getAllActiveUsers, getUserById } from '../../../src/repos/users';
 import { roleColor, getRoleColorMap } from '../../../src/repos/roleSettings';
-import { searchItems, getItemById, adjustStock } from '../../../src/repos/items';
+import { getItemById, adjustStock, getStockQuantity } from '../../../src/repos/items';
 import { appendLog, getLogForEntity } from '../../../src/db/queries/log';
 import { PriorRepairsCard } from '../../../src/components/repairs/PriorRepairsCard';
 import type { Theme } from '@invenpro/ui';
@@ -64,12 +66,16 @@ import {
 } from '@invenpro/ui';
 import { PermissionGate } from '../../../src/components/PermissionGate';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
-import { LocationShelfPicker } from '../../../src/components/pickers';
+import {
+  LocationShelfPicker, ItemPicker, StockLocationPicker, type StockRowWithDistance,
+} from '../../../src/components/pickers';
+import { AutofillTextField } from '../../../src/components/ui/AutofillTextField';
 import ActivityFeed from '../../../src/components/ActivityFeed';
 import { MediaGallery } from '../../../src/components/MediaGallery';
 import { DiscussThisButton } from '../../../src/components/DiscussThisButton';
 import { track } from '../../../src/telemetry';
 import { MAX_QUANTITY, validateText } from '../../../src/lib/validation';
+import { formatQuantity, type UnitCategory } from '../../../src/constants/units';
 
 // Audit a validation rejection — field path + rule name ONLY, never the value.
 function trackReject(field: string, rule: string) {
@@ -192,10 +198,10 @@ export default function RepairDetailScreen() {
     () => (assigneeOpt ? getUserById(assigneeOpt.id) : null),
     [assigneeOpt, optionsVersion],
   );
-  // Kept for parity with the old screen's option surface (locations picker for
-  // Use-parts / return-to-service both use LocationShelfPicker directly, which
-  // resolves its own options — getAllLocations here is unused otherwise, so it
-  // is intentionally NOT re-derived into a PickerOption[] to avoid dead code).
+  // Return-to-service uses LocationShelfPicker (every location is a valid place
+  // to park a repaired unit); "Use parts" uses StockLocationPicker (only places
+  // that actually hold the part). Both resolve their own options, so this screen
+  // needs no location list of its own.
 
   // Return-location modal state (only used for equipment-unit completion)
   const [returnUnitId, setReturnUnitId] = useState<string | null>(null);
@@ -211,16 +217,24 @@ export default function RepairDetailScreen() {
   const [showUseParts, setShowUseParts] = useState(false);
   const [partItem, setPartItem] = useState<PickerOption | null>(null);
   const [partQty, setPartQty] = useState(0);
-  const [partLocation, setPartLocation] = useState<PickerOption | null>(null);
-  const [partShelf, setPartShelf] = useState<PickerOption | null>(null);
+  // The chosen stock_by_location row, not a bare location: it carries the
+  // on-hand quantity that caps the stepper and proves the part is really there.
+  const [partStock, setPartStock] = useState<StockRowWithDistance | null>(null);
   const [partError, setPartError] = useState('');
   // Optional link to the troubleshooting step a part was consumed under (#178
   // Part 4) — defaults to the current/latest step in openUseParts below.
   const [partStepId, setPartStepId] = useState<string | null>(null);
-  const partItemSearch = useMemo(
-    () => (q: string): PickerOption[] =>
-      searchItems(q, 12).map(i => ({ id: i.id, label: i.name, sublabel: i.sku ?? i.unit })),
-    [],
+  // Item categories flagged "Use for repair parts" in Manage Types. The item
+  // search is scoped to these so the sheet offers PARTS, not the whole catalog
+  // (chemicals, PPE, equipment…). Reactive so flagging a category in Manage
+  // Types — or a synced flag change — widens the search without a remount.
+  const partsCategoryIds = useDbQuery(getPartsCategoryIds, [], ['taxonomy_types']);
+  // The selected part's catalog row — its unit/unit_category label the on-hand
+  // quantities and the stepper. Reactive so a synced unit change shows at once.
+  const partItemFull = useDbQuery(
+    () => (partItem ? getItemById(partItem.id) : null),
+    [partItem?.id],
+    ['inventory_items'],
   );
   const stepOptions = useMemo<PickerOption[]>(
     () => steps.map(st => ({ id: st.id, label: st.action })),
@@ -300,22 +314,23 @@ export default function RepairDetailScreen() {
   function openUseParts() {
     setPartItem(null);
     setPartQty(0);
-    setPartLocation(null);
-    setPartShelf(null);
+    setPartStock(null);
     setPartError('');
     setPartStepId(steps.length > 0 ? steps[steps.length - 1].id : null);
     setShowUseParts(true);
   }
 
-  function pickPartItem(opt: PickerOption) {
-    setPartItem(prev => (prev?.id === opt.id ? null : opt));
+  // Changing (or clearing) the item invalidates the location: StockLocationPicker
+  // re-derives the stocked locations for the new item and auto-selects the
+  // nearest one. The old screen seeded the location from the item's catalog
+  // `home_location_id` instead, which is where the part is *filed*, not where it
+  // actually IS — commonly null (nothing preselected) and, when set to a
+  // location holding none, drove stock_by_location negative on submit.
+  function pickPartItem(opt: PickerOption | null) {
+    setPartItem(opt);
+    setPartStock(null);
+    setPartQty(0);
     setPartError('');
-    setPartShelf(null);
-    const full = getItemById(opt.id);
-    if (full?.home_location_id) {
-      const loc = getAllLocations().find(l => l.id === full.home_location_id);
-      if (loc) setPartLocation({ id: loc.id, label: loc.name });
-    }
   }
 
   function confirmUseParts() {
@@ -325,9 +340,9 @@ export default function RepairDetailScreen() {
       setPartError('Choose an item.');
       return;
     }
-    if (!partLocation) {
+    if (!partStock) {
       trackReject('repair_part.location', 'required');
-      setPartError('Choose a location.');
+      setPartError('Choose the location the part came from.');
       return;
     }
     if (partQty <= 0) {
@@ -335,17 +350,24 @@ export default function RepairDetailScreen() {
       setPartError('Quantity must be greater than 0.');
       return;
     }
-    const qty = partQty;
-    const locRes = resolveLocationShelfSelection(partLocation, partShelf);
-    if (!locRes.ok) {
-      trackReject('repair_part.shelf', 'create_failed');
-      setPartError(`Could not create shelf "${locRes.shelfLabel}". Please re-pick or re-enter it.`);
+    // On-hand ceiling. The stepper already caps at this, but the stock row can
+    // go stale under an open sheet (a sync pull, or another crew consuming the
+    // same shelf), and "Use parts" is the one flow that used to be able to push
+    // a stock row negative — re-check against the live row at submit.
+    const onHand = getStockQuantity(partItem.id, partStock.location_id);
+    if (partQty > onHand) {
+      trackReject('repair_part.qty', 'max');
+      setPartError(
+        onHand <= 0
+          ? `${partStock.location_name} no longer has any of this part.`
+          : `Only ${onHand} left at ${partStock.location_name}.`,
+      );
       return;
     }
-    const stockLocId = locRes.id as string;
+    const qty = partQty;
+    const stockLocId = partStock.location_id;
     setPartError('');
-    const full = getItemById(partItem.id);
-    const unit = full?.unit ?? 'each';
+    const unit = partItemFull?.unit ?? 'each';
     try {
       runInTransaction(() => {
         adjustStock(partItem.id, stockLocId, -qty);
@@ -773,31 +795,54 @@ export default function RepairDetailScreen() {
             Deducts stock from inventory and records it as consumed on this repair.
           </Text>
 
-          <FieldLabel style={{ marginTop: 12 }}>Item</FieldLabel>
-          <SearchablePicker
-            placeholder="Search items…"
-            searchFn={partItemSearch}
-            value={partItem}
-            onSelect={pickPartItem}
-          />
+          <FieldLabel style={{ marginTop: 12 }}>Part</FieldLabel>
+          {partsCategoryIds.length === 0 ? (
+            // Not an error state to hide: the scope is admin-configured, so say
+            // exactly what to do instead of showing an empty dropdown.
+            <Text style={s.modalHint}>
+              No item category is marked “Use for repair parts” yet. Set one in
+              Manage Types (e.g. Equipment Part) and its items will show up here.
+            </Text>
+          ) : (
+            <ItemPicker
+              placeholder="Search parts…"
+              value={partItem}
+              onChange={pickPartItem}
+              categoryIds={partsCategoryIds}
+              showSublabel
+            />
+          )}
 
-          <FieldLabel style={{ marginTop: 12 }}>Location</FieldLabel>
-          <LocationShelfPicker
-            locationValue={partLocation}
-            shelfValue={partShelf}
-            onChangeLocation={setPartLocation}
-            onChangeShelf={setPartShelf}
-          />
+          {!!partItem && (
+            <>
+              <FieldLabel style={{ marginTop: 12 }}>Location</FieldLabel>
+              <StockLocationPicker
+                itemId={partItem.id}
+                value={partStock}
+                onChange={setPartStock}
+                unit={partItemFull?.unit ?? 'each'}
+                unitCategory={(partItemFull?.unit_category ?? 'piece') as UnitCategory}
+                emptyText={`“${partItem.label}” has no stock recorded at any location — check it in before using it on a repair.`}
+              />
+            </>
+          )}
 
           <FieldLabel style={{ marginTop: 12 }}>Quantity</FieldLabel>
           <QuantityStepper
             value={partQty}
             onChange={setPartQty}
             min={0}
-            max={MAX_QUANTITY}
+            // Can't consume more than the chosen location holds. Falls back to
+            // the global cap until a stocked location is chosen.
+            max={partStock ? Math.min(partStock.quantity, MAX_QUANTITY) : MAX_QUANTITY}
             allowDecimal
-            unit={partItem ? (getItemById(partItem.id)?.unit ?? undefined) : undefined}
+            unit={partItemFull?.unit ?? undefined}
           />
+          {!!partStock && (
+            <Text style={s.modalHint}>
+              {`${formatQuantity(partStock.quantity, partItemFull?.unit ?? 'each', (partItemFull?.unit_category ?? 'piece') as UnitCategory)} on hand at ${partStock.location_name}.`}
+            </Text>
+          )}
           {!!partError && <Text style={s.errorText}>{partError}</Text>}
 
           {stepOptions.length > 0 && (
@@ -815,7 +860,7 @@ export default function RepairDetailScreen() {
           <PrimaryButton
             label="Use Parts"
             onPress={confirmUseParts}
-            disabled={locked}
+            disabled={locked || !partItem || !partStock}
             style={{ marginTop: 16 }}
           />
         </ScrollView>
@@ -830,20 +875,33 @@ export default function RepairDetailScreen() {
         saveLabel="Log step"
       >
         <View style={s.fields}>
-          <TextField
+          {/* AutofillTextField, not TextField: troubleshooting is repetitive
+              ("Checked the fuse", "Swapped the capacitor"), so both fields offer
+              a filter-as-you-type list of steps already logged on ANY ticket —
+              the crew finds the same wording instead of retyping a variant, and
+              the step log stays groupable. Suggestions come from the
+              repair_steps SUGGESTIBLE whitelist (repos/suggestions.ts) and
+              refresh reactively as new steps sync in. Not `multiline` — the
+              suggestion dropdown anchors under a single-line input, and a step
+              is one short sentence by design. */}
+          <AutofillTextField
             label="What did you try?"
+            table="repair_steps"
+            column="action"
             value={stepAction}
             onChangeText={setStepAction}
             placeholder="e.g. Checked the fuse"
             required
-            multiline
+            autoCapitalize="sentences"
           />
-          <TextField
+          <AutofillTextField
             label="Result"
+            table="repair_steps"
+            column="result"
             value={stepResult}
             onChangeText={setStepResult}
             placeholder="What happened…"
-            multiline
+            autoCapitalize="sentences"
           />
         </View>
       </EntityEditSheet>
@@ -883,6 +941,7 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 8,
   },
   usePartsLink: { fontSize: 13, fontWeight: '700', color: t.colors.primary },
+  modalHint: { fontSize: 12, color: t.colors.textSecondary, marginTop: 6, lineHeight: 17 },
   partRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.colors.borderDetail,

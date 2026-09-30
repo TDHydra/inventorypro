@@ -99,20 +99,68 @@ export function resolveLabels<T>(
 
 // item_category.meta shape (migration 018): the type's curated units + the
 // product_class it maps to (stored as the item's unit_category for formatting).
-export type ItemTypeMeta = { units: string[]; classId: string | null; color: string | null };
+// Two opt-in booleans ride alongside them:
+//   `parts`      (API migration 082) — the category's items ARE consumable
+//                repair parts; the repair detail's "Use parts" search filters
+//                on it.
+//   `repairable` (#283) — the category's items CAN BE repaired; ItemCard shows
+//                "Report repair" only for these.
+// Both live in meta (not new columns) for the same reason `color`/`terminal` do:
+// taxonomy_types.meta already round-trips through every upsert and the sync
+// pull, so no schema migration is needed on either side.
+export type ItemTypeMeta = {
+  units: string[];
+  classId: string | null;
+  color: string | null;
+  parts: boolean;
+  repairable: boolean;
+};
+
+const EMPTY_ITEM_TYPE_META: ItemTypeMeta = {
+  units: [], classId: null, color: null, parts: false, repairable: false,
+};
 
 export function parseItemTypeMeta(meta: string | null | undefined): ItemTypeMeta {
-  if (!meta) return { units: [], classId: null, color: null };
+  if (!meta) return { ...EMPTY_ITEM_TYPE_META };
   try {
-    const p = JSON.parse(meta) as { units?: unknown; classId?: unknown; color?: unknown };
+    const p = JSON.parse(meta) as {
+      units?: unknown; classId?: unknown; color?: unknown;
+      parts?: unknown; repairable?: unknown;
+    };
     return {
       units: Array.isArray(p.units) ? p.units.filter((u): u is string => typeof u === 'string') : [],
       classId: typeof p.classId === 'string' ? p.classId : null,
       color: typeof p.color === 'string' ? p.color : null,
+      // Strictly `=== true`: a stray "yes"/1 from a hand-edited row must not
+      // silently flag a whole category.
+      parts: p.parts === true,
+      repairable: p.repairable === true,
     };
   } catch {
-    return { units: [], classId: null, color: null };
+    return { ...EMPTY_ITEM_TYPE_META };
   }
+}
+
+// Ids of the ACTIVE item categories flagged as repair parts. Returns ids, not
+// labels, because searchItems filters on the durable `category_id` FK (#74 P2)
+// — a Manage Types rename of "Equipment Part" must not empty the parts search.
+// Empty array = nothing flagged yet; call sites decide the fallback.
+export function getPartsCategoryIds(): string[] {
+  return getItemTypes()
+    .filter(ty => parseItemTypeMeta(ty.meta).parts)
+    .map(ty => ty.id);
+}
+
+// Ids of the ACTIVE item categories whose items can be repaired (#283). Same
+// id-not-label rule as getPartsCategoryIds. OPT-IN by design: an unflagged —
+// or uncategorized — item shows no "Report repair" action, because the old
+// keyword blacklist ('ppe'/'filter'/'consumable'/'chemical' matched against the
+// label) defaulted a NULL category to repairable, which put the button on
+// essentially every item in the catalog.
+export function getRepairableCategoryIds(): string[] {
+  return getItemTypes()
+    .filter(ty => parseItemTypeMeta(ty.meta).repairable)
+    .map(ty => ty.id);
 }
 
 // Active item types (PPE, Filters, …) for the catalog forms.
@@ -170,9 +218,13 @@ export function isTerminalStatus(label: string): boolean {
   try { return (JSON.parse(row.meta) as { terminal?: unknown }).terminal === true; } catch { return false; }
 }
 
-// Set ONLY the terminal flag inside a repair_status row's meta (preserves any
-// other meta keys), + outbox — mirrors setTaxonomyClassId.
-export function setTaxonomyTerminal(id: string, terminal: boolean): void {
+// Read-modify-write a single taxonomy_types.meta key, preserving every other
+// key, + outbox. Five setters had this same body copy-pasted (terminal, units,
+// classId, parts, color) and #283 would have made it six — `patch` mutates the
+// parsed object in place and everything else is shared. Malformed JSON is
+// treated as `{}` rather than throwing: a bad blob costs its own keys, not the
+// admin's edit.
+function patchTaxonomyMeta(id: string, patch: (meta: Record<string, unknown>) => void): void {
   const db = getDb();
   const existing = rowsAs<TaxonomyType>(
     db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
@@ -180,33 +232,25 @@ export function setTaxonomyTerminal(id: string, terminal: boolean): void {
   if (!existing) return;
   let meta: Record<string, unknown> = {};
   try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
-  meta.terminal = terminal;
-  const metaStr = JSON.stringify(meta);
-  const updated_at = new Date().toISOString();
+  patch(meta);
   taxonomyRepo.insert({
     id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
-    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
+    sort_order: existing.sort_order, active: existing.active === 1,
+    updated_at: new Date().toISOString(), meta: JSON.stringify(meta),
   });
+}
+
+// Set ONLY the terminal flag inside a repair_status row's meta (preserves any
+// other meta keys), + outbox — mirrors setTaxonomyClassId.
+export function setTaxonomyTerminal(id: string, terminal: boolean): void {
+  patchTaxonomyMeta(id, m => { m.terminal = terminal; });
 }
 
 // Update ONLY the `units` array inside a taxonomy row's meta, preserving every
 // other meta key (e.g. item_category's classId). Used by the Manage Types units
 // editor for item types so editing units doesn't wipe the class mapping.
 export function setTaxonomyUnits(id: string, units: string[]): void {
-  const db = getDb();
-  const existing = rowsAs<TaxonomyType>(
-    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
-  )[0];
-  if (!existing) return;
-  let meta: Record<string, unknown> = {};
-  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
-  meta.units = units;
-  const metaStr = JSON.stringify(meta);
-  const updated_at = new Date().toISOString();
-  taxonomyRepo.insert({
-    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
-    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
-  });
+  patchTaxonomyMeta(id, m => { m.units = units; });
 }
 
 // Parse a taxonomy_types.meta JSON blob into the units/allowDecimals shape.
@@ -290,40 +334,30 @@ export function setClassMeta(
 // units array. Lets admins remap which unit class a type uses (e.g. Chemicals →
 // liquid) from Manage Types.
 export function setTaxonomyClassId(id: string, classId: string): void {
-  const db = getDb();
-  const existing = rowsAs<TaxonomyType>(
-    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
-  )[0];
-  if (!existing) return;
-  let meta: Record<string, unknown> = {};
-  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
-  meta.classId = classId;
-  const metaStr = JSON.stringify(meta);
-  const updated_at = new Date().toISOString();
-  taxonomyRepo.insert({
-    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
-    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
-  });
+  patchTaxonomyMeta(id, m => { m.classId = classId; });
+}
+
+// Flag an item_category as repair parts (meta.parts), preserving units/classId/
+// color — mirrors setTaxonomyClassId. Set from Manage Types; "Use parts" on a
+// repair reads it via getPartsCategoryIds(). Written as a real boolean so the
+// outbox payload matches what parseItemTypeMeta expects back from the server.
+export function setTaxonomyParts(id: string, parts: boolean): void {
+  patchTaxonomyMeta(id, m => { if (parts) m.parts = true; else delete m.parts; });
+}
+
+// Flag an item_category as repairable (meta.repairable) — #283. Set from Manage
+// Types ("Can be repaired"); ItemCard reads it via getRepairableCategoryIds().
+// Absent rather than `false` when off, so a never-flagged category and an
+// un-flagged one serialize identically and neither reads as repairable.
+export function setTaxonomyRepairable(id: string, repairable: boolean): void {
+  patchTaxonomyMeta(id, m => { if (repairable) m.repairable = true; else delete m.repairable; });
 }
 
 // Admin override: pin an Item Type's color. Stored in meta.color (no schema
 // change; the existing upserts already round-trip meta). Pass null to clear back
 // to the auto color.
 export function setTaxonomyColor(id: string, color: string | null): void {
-  const db = getDb();
-  const existing = rowsAs<TaxonomyType>(
-    db.executeSync(`SELECT * FROM taxonomy_types WHERE id = ? LIMIT 1`, [id]).rows,
-  )[0];
-  if (!existing) return;
-  let meta: Record<string, unknown> = {};
-  try { meta = existing.meta ? (JSON.parse(existing.meta) as Record<string, unknown>) : {}; } catch { meta = {}; }
-  if (color) meta.color = color; else delete meta.color;
-  const metaStr = JSON.stringify(meta);
-  const updated_at = new Date().toISOString();
-  taxonomyRepo.insert({
-    id: existing.id, category: existing.category, label: existing.label, icon: existing.icon,
-    sort_order: existing.sort_order, active: existing.active === 1, updated_at, meta: metaStr,
-  });
+  patchTaxonomyMeta(id, m => { if (color) m.color = color; else delete m.color; });
 }
 
 // Label → admin-override color for active Item Types (only those with one set).

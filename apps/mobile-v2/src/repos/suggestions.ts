@@ -22,10 +22,15 @@ import { getDb, rowsAs } from '../db/schema';
 // - jobs.insurance_carrier: 016_job_insurance.ts
 // - jobs.reference_number: 013_hardening.ts
 // - locations.name: 001_initial.ts (NOT NULL)
+// - repair_steps.action (NOT NULL) / .result: manifest table `repair_steps`
+//   (packages/core/src/manifest/tables.ts) — troubleshooting steps are free
+//   text and crews retry the SAME checks across tickets ("Checked the fuse"),
+//   so prior actions/results are exactly the reuse case this module exists for.
 export const SUGGESTIBLE = {
   inventory_items: ['supplier', 'model', 'unit', 'sku'],
   jobs: ['customer_name', 'insurance_carrier', 'site_address', 'reference_number'],
   locations: ['name'],
+  repair_steps: ['action', 'result'],
 } as const;
 
 export type SuggestibleTable = keyof typeof SUGGESTIBLE;

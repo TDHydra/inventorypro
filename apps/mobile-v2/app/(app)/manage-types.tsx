@@ -18,6 +18,8 @@ import {
   setTaxonomyUnits,
   setTaxonomyClassId,
   setTaxonomyTerminal,
+  setTaxonomyParts,
+  setTaxonomyRepairable,
   setTaxonomyColor,
 } from '../../src/repos/taxonomy';
 import {
@@ -412,6 +414,14 @@ export default function ManageTypesScreen() {
   // Repair-status terminal flag ("counts as completed").
   const [editTerminal, setEditTerminal] = useState(false);
   const [editTerminalOriginal, setEditTerminalOriginal] = useState(false);
+  // Item-category "these are repair parts" flag (item_category.meta.parts) —
+  // scopes the repair detail's "Use parts" item search.
+  const [editParts, setEditParts] = useState(false);
+  const [editPartsOriginal, setEditPartsOriginal] = useState(false);
+  // Item-category "these can be repaired" flag (item_category.meta.repairable)
+  // — gates ItemCard's "Report repair" action (#283).
+  const [editRepairable, setEditRepairable] = useState(false);
+  const [editRepairableOriginal, setEditRepairableOriginal] = useState(false);
 
   function refresh() {
     setLists(loadAllLists());
@@ -481,6 +491,10 @@ export default function ManageTypesScreen() {
       setEditClassId(m.classId ?? '');
       setEditClassIdOriginal(m.classId ?? '');
       setEditColorOverride(m.color);
+      setEditParts(m.parts);
+      setEditPartsOriginal(m.parts);
+      setEditRepairable(m.repairable);
+      setEditRepairableOriginal(m.repairable);
     } else if (item.category === 'repair_status') {
       setEditClass(null);
       setEditUnits([]);
@@ -603,6 +617,8 @@ export default function ManageTypesScreen() {
           setTaxonomyClassId(editType.id, editClassId);
           loadClassConfigCache();
         }
+        if (partsDirty) setTaxonomyParts(editType.id, editParts);
+        if (repairableDirty) setTaxonomyRepairable(editType.id, editRepairable);
       } else if (editType.category === 'repair_status' && terminalDirty) {
         setTaxonomyTerminal(editType.id, editTerminal);
       }
@@ -769,6 +785,12 @@ export default function ManageTypesScreen() {
   const terminalDirty =
     editType?.category === 'repair_status' && editTerminal !== editTerminalOriginal;
 
+  const partsDirty =
+    editType?.category === 'item_category' && editParts !== editPartsOriginal;
+
+  const repairableDirty =
+    editType?.category === 'item_category' && editRepairable !== editRepairableOriginal;
+
   const editDirty =
     !!editType &&
     (editLabel.trim() !== editType.label ||
@@ -776,7 +798,9 @@ export default function ManageTypesScreen() {
       metaDirty ||
       unitsDirty ||
       classIdDirty ||
-      terminalDirty);
+      terminalDirty ||
+      partsDirty ||
+      repairableDirty);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -993,6 +1017,41 @@ export default function ManageTypesScreen() {
                     </>
                   )}
                 </>
+              )}
+
+              {editType.category === 'item_category' && (
+                <View style={s.decimalsRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.rowLabel}>Use for repair parts</Text>
+                    <Text style={s.rowSub}>
+                      Items in this category show up in “Use parts” on a repair
+                      ticket. More than one category can be marked.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={editParts}
+                    onValueChange={setEditParts}
+                    disabled={locked}
+                  />
+                </View>
+              )}
+
+              {editType.category === 'item_category' && (
+                <View style={s.decimalsRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.rowLabel}>Can be repaired</Text>
+                    <Text style={s.rowSub}>
+                      Items in this category get a “Report repair” action.
+                      Leave off for anything consumed or worn out rather than
+                      fixed — an item with no category never shows it.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={editRepairable}
+                    onValueChange={setEditRepairable}
+                    disabled={locked}
+                  />
+                </View>
               )}
 
               {editType.category === 'repair_status' && (

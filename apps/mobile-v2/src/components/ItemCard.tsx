@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { formatQuantity } from '../constants/units';
 import { getStockByItem, getItemById, InventoryItem } from '../repos/items';
 import { getLocationPath } from '../repos/locations';
-import { isRepairableCategory } from '../constants/repairable';
+import { getRepairableCategoryIds } from '../repos/taxonomy';
 import { usePermission } from '../hooks/usePermission';
 import { resolveTypeColor } from '@invenpro/ui';
 import { MediaThumbnail } from './MediaThumbnail';
@@ -63,11 +63,13 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
   // write or sync pull touches stock/items (#60/#63) — replaces the old
   // useState pair + toggle()'s one-shot load + the useTableVersion-driven
   // useEffect that kept it fresh.
-  const { stock, full } = useDbQuery(() => {
-    if (!expanded) return { stock: null, full: null };
+  const { stock, full, repairableIds } = useDbQuery(() => {
+    if (!expanded) return { stock: null, full: null, repairableIds: [] as string[] };
     return {
       stock: getStockByItem(item.id) as unknown as StockRow[],
       full: getItemById(item.id),
+      // #283: which categories admins marked "Can be repaired" in Manage Types.
+      repairableIds: getRepairableCategoryIds(),
     };
   }, [expanded, item.id], ['stock_by_location', 'inventory_items', 'locations', 'taxonomy_types']);
 
@@ -162,7 +164,12 @@ export function ItemCard({ item, onCheckout, typeColorMap }: Props) {
                 <Text style={styles.actPrimaryText}>Check Out</Text>
               </TouchableOpacity>
             )}
-            {canEdit && isRepairableCategory(full?.category) && (
+            {/* #283: opt-in, and matched on the durable category_id FK so a
+                Manage Types rename can't silently drop the action. No category
+                → no button: the old keyword blacklist defaulted an
+                uncategorized item to repairable, which is why "2 box of
+                keyboards" offered a repair ticket. */}
+            {canEdit && !!full?.category_id && repairableIds.includes(full.category_id) && (
               <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={reportRepair}>
                 <Text style={styles.actGhostText}>🔧 Report repair</Text>
               </TouchableOpacity>

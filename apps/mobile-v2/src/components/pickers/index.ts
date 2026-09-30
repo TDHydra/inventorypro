@@ -9,6 +9,10 @@ export { LocationShelfPicker } from './LocationShelfPicker';
 export { UserPicker } from './UserPicker';
 export { ItemPicker } from './ItemPicker';
 export {
+  StockLocationPicker,
+  type StockRowWithDistance,
+} from './StockLocationPicker';
+export {
   resolveTaxonomyValue,
   type TaxonomyValue,
 } from './resolveTaxonomyValue';
