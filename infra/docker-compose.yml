@@ -53,7 +53,7 @@ services:
   api:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/api-v2/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -89,7 +89,7 @@ services:
     # rebuild (--build) whenever EXPO_PUBLIC_API_URL changes.
     build:
       context: ..
-      dockerfile: infra/Dockerfile.web
+      dockerfile: infra/Dockerfile.web-v2
       args:
         EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:3000}
     restart: unless-stopped

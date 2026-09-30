@@ -94,7 +94,7 @@ services:
     restart: "no"
 
   api: &api-common
-    image: ${API_IMAGE:-inventorypro-api:latest}
+    image: ${API_IMAGE:-inventorypro-api-v2:latest}
     # If you don't have a prebuilt image, uncomment `build:` and run with --build
     # from a checkout of the monorepo on the host.
     # Phase 7 (lean rebuild): the dockerfile is parameterized (like api2's
@@ -103,7 +103,7 @@ services:
     # the other is pointed at apps/api-v2/Dockerfile via .env.
     build:
       context: ..
-      dockerfile: ${API_DOCKERFILE:-apps/api/Dockerfile}
+      dockerfile: ${API_DOCKERFILE:-apps/api-v2/Dockerfile}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -170,10 +170,10 @@ services:
     # green loopback port while blue (old api) keeps serving live traffic.
     # The nested defaults fall back to blue's exact image/dockerfile, so a box
     # that sets neither var behaves precisely as before (same-image standby).
-    image: ${API2_IMAGE:-${API_IMAGE:-inventorypro-api:latest}}
+    image: ${API2_IMAGE:-${API_IMAGE:-inventorypro-api-v2:latest}}
     build:
       context: ..
-      dockerfile: ${API2_DOCKERFILE:-apps/api/Dockerfile}
+      dockerfile: ${API2_DOCKERFILE:-apps/api-v2/Dockerfile}
     ports:
       - "${API2_PORT:-3001}:3000"
 
@@ -186,7 +186,7 @@ services:
       # Phase 9: WEB_DOCKERFILE lets the VPS .env select the mobile-v2 web
       # image (infra/Dockerfile.web-v2) without touching this file; default
       # stays the old app's build.
-      dockerfile: ${WEB_DOCKERFILE:-infra/Dockerfile.web}
+      dockerfile: ${WEB_DOCKERFILE:-infra/Dockerfile.web-v2}
       args:
         EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-https://api.invenpro.app}
     restart: unless-stopped

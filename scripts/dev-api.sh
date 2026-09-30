@@ -3,7 +3,7 @@
 # Dev-only credentials — nothing here is a secret. See docs/REBUILD-NOTES.md
 # "Dev environment". Start the PG container first: docker start invenpro-dev-pg
 set -euo pipefail
-cd "$(dirname "$0")/../apps/api"
+cd "$(dirname "$0")/../apps/api-v2"
 PORT=3001 \
 DATABASE_URL=postgres://invenpro:devlocal@127.0.0.1:5433/inventorypro \
 JWT_SECRET=dev-local-secret-not-prod-0123456789abcdef \

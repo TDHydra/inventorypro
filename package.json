@@ -2,14 +2,14 @@
   "name": "inventorypro",
   "private": true,
   "workspaces": [
-    "apps/mobile",
-    "apps/api"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
-    "dev:api": "pnpm --filter api dev",
-    "dev:mobile": "pnpm --filter mobile start",
-    "build:api": "pnpm --filter api build",
-    "db:migrate": "pnpm --filter api db:migrate",
+    "dev:api": "pnpm --filter api-v2 dev",
+    "dev:mobile": "pnpm --filter mobile-v2 start",
+    "build:api": "pnpm --filter api-v2 build",
+    "db:migrate": "pnpm --filter api-v2 db:migrate",
     "security:audit": "bash scripts/security-audit.sh",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down"

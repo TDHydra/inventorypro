@@ -5,7 +5,7 @@ description: Build and deploy the InventoryPro Android app — a local debug dev
 
 # Deploy InventoryPro — Android
 
-Working dir: `~/inventorypro/apps/mobile`. Target device: **Samsung S24 Ultra** (`R5CXA06AQQM`) — always deploy/test on this one. (The Pixel `58060DLCQ001ZR` screen is broken; do NOT use it.) Env in `~/.bashrc` (JAVA_HOME=~/jdk Temurin 21, ANDROID_HOME=~/Android/Sdk).
+Working dir: `~/inventorypro/apps/mobile-v2`. Target device: **Samsung S24 Ultra** (`R5CXA06AQQM`) — always deploy/test on this one. (The Pixel `58060DLCQ001ZR` screen is broken; do NOT use it.) Env in `~/.bashrc` (JAVA_HOME=~/jdk Temurin 21, ANDROID_HOME=~/Android/Sdk).
 
 ## Gotchas (always)
 - **Gradle pinned to 8.13** in `android/gradle/wrapper/gradle-wrapper.properties`. `npx expo prebuild --clean` resets it to 9.3.1 → re-pin afterward (`sed -i 's#gradle-9.3.1-bin.zip#gradle-8.13-bin.zip#' android/gradle/wrapper/gradle-wrapper.properties`).
@@ -16,7 +16,7 @@ Working dir: `~/inventorypro/apps/mobile`. Target device: **Samsung S24 Ultra** 
 
 ## A. Field-use release APK (points at prod)
 ```bash
-cd ~/inventorypro/apps/mobile/android
+cd ~/inventorypro/apps/mobile-v2/android
 EXPO_PUBLIC_API_URL=https://api.invenpro.app ./gradlew assembleRelease
 cp app/build/outputs/apk/release/app-release.apk ~/inventorypro/inventorypro-preview.apk
 adb install -r ~/inventorypro/inventorypro-preview.apk   # uninstall first if signature mismatch
@@ -29,7 +29,7 @@ Verify: `unzip -p app/build/outputs/apk/release/app-release.apk assets/index.and
 
 ```bash
 # 0. (native change / first install only) build + install the debug dev-client
-cd ~/inventorypro/apps/mobile/android && ./gradlew assembleDebug   # do NOT run Metro concurrently — file-watcher race
+cd ~/inventorypro/apps/mobile-v2/android && ./gradlew assembleDebug   # do NOT run Metro concurrently — file-watcher race
 adb install -r app/build/outputs/apk/debug/app-debug.apk           # uninstall release first if signature mismatch
 
 # 1. ALWAYS free port 8081 first — a prior Metro/watcher lingers almost every hotload.
@@ -47,7 +47,7 @@ adb reverse tcp:8081 tcp:8081
 #    and hot reload silently never happens; this has burned us twice). ALWAYS pass --clear:
 #    Metro's transform cache otherwise serves a STALE bundle — a new migration/module
 #    silently won't load (e.g. app logs "schema vN ready" one version behind, migration skipped).
-cd ~/inventorypro/apps/mobile
+cd ~/inventorypro/apps/mobile-v2
 EXPO_PUBLIC_API_URL=https://api.invenpro.app nohup npx expo start --dev-client --localhost --port 8081 --clear </dev/null >/tmp/metro.log 2>&1 &
 # wait for "Waiting on http://localhost:8081" in /tmp/metro.log (first --clear build takes ~1 min)
 
@@ -72,7 +72,7 @@ EAS project: `@tdhydra/inventorypro` (id d4244438-0520-46c3-9ad1-fd5da43f7f86). 
 
 Versioning is REMOTE (`appVersionSource: remote`, production `autoIncrement: true`): versionCode lives on EAS servers and bumps automatically per production build — never add `android.versionCode` to app.json. `version` in app.json stays the human-readable one.
 ```bash
-cd ~/projects/InventoryPro/apps/mobile
+cd ~/projects/InventoryPro/apps/mobile-v2
 npx eas-cli build -p android --profile production   # AAB, auto-increments versionCode
 npx eas-cli submit -p android --latest              # uses eas.json submit.production (service-account JSON, gitignored)
 ```

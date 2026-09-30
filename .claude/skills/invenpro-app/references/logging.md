@@ -29,7 +29,7 @@ checked-out), not UI minutiae. Traps:
 
 - `action` / `entity_type` MUST be in the server enums
   (`ACTIVITY_ACTIONS` / `ACTIVITY_ENTITY_TYPES` in
-  `apps/api/src/lib/syncPolicy.ts`) or every push permanently conflicts.
+  `apps/api-v2/src/lib/syncPolicy.ts`) or every push permanently conflicts.
   Adding a new action = server enum change FIRST, deployed before devices
   use it.
 - `entity_id`, `user_id`, `team_id`, `job_id`, location ids are **UUID
@@ -56,7 +56,7 @@ When chasing a bug that needs on-device evidence:
    - **Release APKs do NOT emit `console.*` at all** — for release-only bugs
      instrument the SERVER side (push conflicts, activity log) instead.
 4. Hotload (Fast Refresh applies on save), reproduce, read the log.
-5. **Strip before commit**: `grep -rn "TEMP DEBUG" apps/mobile/src` must
+5. **Strip before commit**: `grep -rn "TEMP DEBUG" apps/mobile-v2/src` must
    come back empty. Never ship debug logs — `__DEV__`-guarded noise still
    costs and rots.
 

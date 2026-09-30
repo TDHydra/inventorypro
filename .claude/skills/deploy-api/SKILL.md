@@ -15,7 +15,7 @@ auto-renews). DNS: Cloudflare zone `invenpro.app`, grey-cloud A records
 `api`/`@`/`s3` → 74.91.114.166, `minio` → 10.8.0.1 (WG-only by DNS trick).
 No NPM, no Unraid in the chain anymore.
 **Migrations run automatically on API startup** (`runMigrations()` in
-`apps/api/src/index.ts`), so deploying is also how migrations reach prod.
+`apps/api-v2/src/index.ts`), so deploying is also how migrations reach prod.
 
 ## Access (changed 2026-08-01 — read this first)
 
@@ -64,7 +64,7 @@ health-gates.
   (`172.16.0.0/12`, which the installer wrote). Add Cloudflare ranges ONLY if
   the domains are ever orange-clouded (they are grey-cloud today —
   s3 must STAY grey or uploads hit Cloudflare's body-size cap).
-- Typecheck + tests green: `cd apps/api && npx tsc --noEmit && npm test`.
+- Typecheck + tests green: `cd apps/api-v2 && npx tsc --noEmit && npm test`.
 - 2 GB RAM box: the web image build needs the 4 G swapfile (present, in
   fstab). If a build OOMs, check `swapon --show` first.
 

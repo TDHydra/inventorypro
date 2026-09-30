@@ -3,12 +3,13 @@ node_modules/
 .pnpm-store/
 
 # Expo / React Native native projects (regenerated via `expo prebuild`)
-apps/mobile/android/
-apps/mobile/ios/
-apps/mobile/.expo/
+legacy-v1/mobile/android/
+legacy-v1/mobile/ios/
+legacy-v1/mobile/.expo/
 
 # Build output
-apps/api/dist/
+apps/api-v2/dist/
+legacy-v1/api/dist/
 
 # Large artifacts (image tarballs + APKs are shipped out-of-band, never committed —
 # a stray 124MB APK in a commit exceeds GitHub's 100MB limit and bloats history)
@@ -16,7 +17,7 @@ apps/api/dist/
 *.apk
 
 # Signing / credentials — never committed (previously only in .git/info/exclude
-# or apps/mobile/.gitignore, which don't cover new app packages)
+# or legacy-v1/mobile/.gitignore, which don't cover new app packages)
 *.jks
 *.pass
 credentials.json

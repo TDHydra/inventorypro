@@ -29,8 +29,10 @@ per-table policies, and the server enforces role permissions on every push.
 
 | Path | What |
 |---|---|
-| `apps/mobile` | Expo SDK 56 app (Android + web from the same source) |
-| `apps/api` | Fastify 5 API — raw SQL on `pg`, no ORM |
+| `apps/mobile-v2` | Expo SDK 56 app (Android + web from the same source) — **the live app** |
+| `apps/api-v2` | Fastify 5 API — raw SQL on `pg`, no ORM — **the live API** |
+| `packages/core`, `packages/ui` | Shared DB/sync core + UI kit consumed as TS source |
+| `legacy-v1/` | Archived V1 app + API — reference only, not built or deployed ([why](legacy-v1/README.md)) |
 | `infra/` | Docker compose files (dev, prod, all-in-one) + nginx configs |
 | `infra/vps/` | One-file production VPS installer + backup setup |
 | `docs/` | Operator + developer docs (see [Docs index](#docs-index)) |
@@ -59,7 +61,7 @@ pnpm install
 ## Step 1 — backing services (Postgres + MinIO)
 
 ```bash
-cp apps/api/.env.example apps/api/.env   # then edit the CHANGE_ME values
+cp apps/api-v2/.env.example apps/api-v2/.env   # then edit the CHANGE_ME values
 pnpm infra:up                            # postgres:16 + minio + bucket init
 ```
 
@@ -80,7 +82,7 @@ First time (or after any native/module change) build the **dev client**
 onto your USB-connected phone:
 
 ```bash
-cd apps/mobile
+cd apps/mobile-v2
 npx expo run:android          # debug build, installs + launches
 ```
 
@@ -101,7 +103,7 @@ to the adb reverse).
 ## Step 4 — the web app
 
 ```bash
-cd apps/mobile
+cd apps/mobile-v2
 npx expo start --web
 ```
 
@@ -113,8 +115,8 @@ suspect — it must be `sql-wasm-browser.wasm` (see
 ## Tests
 
 ```bash
-cd apps/mobile && pnpm exec tsc --noEmit && pnpm test   # typecheck + unit
-cd apps/api   && pnpm test
+cd apps/mobile-v2 && pnpm exec tsc --noEmit && pnpm test   # typecheck + unit
+cd apps/api-v2   && pnpm test
 ```
 
 CI expectation: both suites green before any merge to `main`.
@@ -193,7 +195,7 @@ Sets up a self-hosted, Sentry-protocol-compatible error backend (web +
 worker + Valkey + a **dedicated** Postgres, its own cert, its own nginx
 vhost) so #213's mobile crash client stays off third-party SaaS. After it
 finishes: sign up in the web UI, create an org/project, and paste the DSN
-into `apps/mobile/eas.json` as `EXPO_PUBLIC_SENTRY_DSN`. Full runbook,
+into `apps/mobile-v2/eas.json` as `EXPO_PUBLIC_SENTRY_DSN`. Full runbook,
 afternoon checklist and removal steps: **[docs/GLITCHTIP.md](docs/GLITCHTIP.md)**.
 
 ---

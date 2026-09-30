@@ -22,17 +22,17 @@
 #   - No MinIO: the API requires MINIO_ACCESS_KEY/MINIO_SECRET_KEY at boot
 #     (fails closed) — you must point MINIO_* at an external S3/MinIO.
 
-# --- Build stage (mirrors apps/api/Dockerfile) ---
+# --- Build stage (mirrors legacy-v1/api/Dockerfile) ---
 FROM node:20-alpine AS builder
 WORKDIR /app
 RUN npm install -g pnpm
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/api/package.json ./apps/api/
+COPY legacy-v1/api/package.json ./legacy-v1/api/
 RUN pnpm install --frozen-lockfile --filter api...
 
-COPY apps/api ./apps/api
-RUN cd apps/api && pnpm build
+COPY legacy-v1/api ./legacy-v1/api
+RUN cd legacy-v1/api && pnpm build
 
 # --- Runtime: node + postgres16 + supervisord ---
 FROM node:20-alpine AS runner
@@ -45,13 +45,13 @@ RUN npm install -g pnpm && \
     mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/api/package.json ./apps/api/
+COPY legacy-v1/api/package.json ./legacy-v1/api/
 RUN pnpm install --frozen-lockfile --prod --filter api...
 
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/legacy-v1/api/dist ./legacy-v1/api/dist
 
-COPY infra/allinone/supervisord.conf /etc/supervisord.conf
-COPY infra/allinone/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY legacy-v1/infra/allinone/supervisord.conf /etc/supervisord.conf
+COPY legacy-v1/infra/allinone/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Postgres only listens on loopback inside the container (see supervisord.conf),

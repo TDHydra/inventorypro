@@ -16,7 +16,7 @@ All options are environment variables — compose any Metro setup:
 | Variable | Default | Meaning |
 |---|---|---|
 | `METRO_PORT` | `8081` | Port to start Metro on (keep within 8081-8085) |
-| `APP_DIR` | auto | Expo app dir. Auto-detects `$PWD/apps/mobile`, else falls back to `~/projects/InventoryPro/apps/mobile`. **Set this explicitly when serving a worktree** (e.g. `APP_DIR=~/projects/InventoryPro-reactivity/apps/mobile`) |
+| `APP_DIR` | auto | Expo app dir. Auto-detects `$PWD/apps/mobile-v2`, else falls back to `~/projects/InventoryPro/apps/mobile-v2`. **Set this explicitly when serving a worktree** (e.g. `APP_DIR=~/projects/InventoryPro-reactivity/apps/mobile-v2`) |
 | `SCAN_FROM` / `SCAN_TO` | `8081` / `8085` | Port range scanned for existing Metro instances to kill |
 | `CLEAR` | `1` | `1` → `--clear` (reset bundler cache) |
 | `DEV_CLIENT` | `1` | `1` → `--dev-client` |
@@ -30,7 +30,7 @@ Examples:
 
 ```bash
 # Serve a specific worktree on the default port
-APP_DIR=~/projects/InventoryPro-reactivity/apps/mobile .claude/skills/start-metro/scripts/start-metro.sh
+APP_DIR=~/projects/InventoryPro-reactivity/apps/mobile-v2 .claude/skills/start-metro/scripts/start-metro.sh
 
 # Second instance on 8082 without nuking caches
 METRO_PORT=8082 CLEAR=0 .claude/skills/start-metro/scripts/start-metro.sh

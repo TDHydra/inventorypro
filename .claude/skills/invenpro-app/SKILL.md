@@ -1,6 +1,6 @@
 ---
 name: invenpro-app
-description: House conventions for building or changing ANYTHING in the InventoryPro app — new screens, forms, sheets, buttons, fields, lists, dashboards, feature work, styling tweaks, refactors, and debug instrumentation. Use this skill whenever you are about to write or modify code in apps/mobile (or its web twins), even for a "small" UI change or a one-off form — the recurring bugs here (#163, #168) came from skipping it. It covers which existing component to reuse instead of hand-rolling, the reactive-read and write patterns, permanent telemetry/activity logging, and the temporary debug-logging workflow.
+description: House conventions for building or changing ANYTHING in the InventoryPro app — new screens, forms, sheets, buttons, fields, lists, dashboards, feature work, styling tweaks, refactors, and debug instrumentation. Use this skill whenever you are about to write or modify code in apps/mobile-v2 (or its web twins), even for a "small" UI change or a one-off form — the recurring bugs here (#163, #168) came from skipping it. It covers which existing component to reuse instead of hand-rolling, the reactive-read and write patterns, permanent telemetry/activity logging, and the temporary debug-logging workflow.
 ---
 
 # InventoryPro app conventions
@@ -21,10 +21,12 @@ permissions, logging) from the start.
    one (the #168 lesson: GasReceiptSheet duplicated AddServiceRecordSheet and
    had to be merged away).
 
-2. **Read the kit contract first**: `apps/mobile/src/components/ui/README.md`.
-   It lists every kit component and the hard constraints (JS-only — no new
-   native modules, web-safe RN primitives only, style via theme tokens, no
-   icon libraries, no hardcoded hex).
+2. **Read the kit contract first**: the kit now lives in the shared
+   `packages/ui` workspace (imported as `@invenpro/ui`) — `packages/ui/src/index.ts`
+   is its barrel/inventory. The narrative contract still reads true and is kept
+   at `legacy-v1/mobile/src/components/ui/README.md`: the hard constraints are
+   JS-only (no new native modules), web-safe RN primitives only, style via theme
+   tokens, no icon libraries, no hardcoded hex.
 
 ## Pre-flight checklist for any UI/feature change
 
@@ -66,18 +68,18 @@ permissions, logging) from the start.
 
 ## Import hygiene
 
-- Relative imports within `apps/mobile/src` (the house shape — no aliases).
+- Relative imports within `apps/mobile-v2/src` (the house shape — no aliases).
 - Never import a new native module (breaks hotload; the dev client doesn't
   have it). If a dependency seems needed, stop and say so — it forces a
   dev-client rebuild and is a user decision.
-- Feature components import kit pieces from `../ui/…`; kit pieces never
+- Feature components import kit pieces from `@invenpro/ui`; kit pieces never
   import feature components (no cycles).
 - After moving/extending a component, run
-  `pnpm exec tsc --noEmit` in `apps/mobile` — it is the import checker.
+  `pnpm exec tsc --noEmit` in `apps/mobile-v2` — it is the import checker.
 
 ## Definition of done
 
-`pnpm exec tsc --noEmit` and `pnpm test` green in `apps/mobile` (plus
-`apps/api` if touched), temp debug logs stripped (`grep -rn "TEMP DEBUG"`
+`pnpm exec tsc --noEmit` and `pnpm test` green in `apps/mobile-v2` (plus
+`apps/api-v2` if touched), temp debug logs stripped (`grep -rn "TEMP DEBUG"`
 comes back empty), web twins updated, then hotload for user verification —
 device confirmation is the only completion signal.

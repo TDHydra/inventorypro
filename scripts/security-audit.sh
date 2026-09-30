@@ -18,7 +18,7 @@ if [[ -n "$ARTIFACT" && -d "$ARTIFACT" && -z "$WEB_DIST" ]]; then
 fi
 STATUS=0
 
-for ws in apps/mobile apps/api; do
+for ws in apps/mobile-v2 apps/api-v2; do
   echo "=== pnpm audit --prod ($ws) ==="
   if ! (cd "$ROOT/$ws" && pnpm audit --prod); then
     echo "--- advisories found in $ws (continuing) ---" >&2

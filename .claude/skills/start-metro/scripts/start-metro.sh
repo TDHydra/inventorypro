@@ -31,12 +31,12 @@ fi
 
 # --- Locate the app -----------------------------------------------------------
 if [ -z "$APP_DIR" ]; then
-  if [ -d "$PWD/apps/mobile" ]; then
-    APP_DIR="$PWD/apps/mobile"
-  elif [[ "$PWD" == */apps/mobile* ]]; then
-    APP_DIR="${PWD%%/apps/mobile*}/apps/mobile"
+  if [ -d "$PWD/apps/mobile-v2" ]; then
+    APP_DIR="$PWD/apps/mobile-v2"
+  elif [[ "$PWD" == */apps/mobile-v2* ]]; then
+    APP_DIR="${PWD%%/apps/mobile-v2*}/apps/mobile-v2"
   else
-    APP_DIR="$HOME/projects/InventoryPro/apps/mobile"
+    APP_DIR="$HOME/projects/InventoryPro/apps/mobile-v2"
   fi
 fi
 if [ ! -f "$APP_DIR/package.json" ]; then

@@ -18,7 +18,7 @@ The app uses expo-camera, expo-notifications (needs an APNs key in App Store Con
 
 ## Build + distribute
 ```bash
-cd ~/inventorypro/apps/mobile
+cd ~/inventorypro/apps/mobile-v2
 eas build --platform ios --profile preview      # internal testing (ad-hoc / TestFlight internal)
 # or:
 eas build --platform ios --profile production   # App Store build
