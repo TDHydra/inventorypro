@@ -17,11 +17,40 @@ export interface Migration {
   up: (db: SqlDb) => void;
 }
 
+/**
+ * True when `table` already has `column`.
+ *
+ * Every additive migration here MUST guard its ALTER with this. Migration 001
+ * builds the baseline from the CURRENT manifest, which also carries the column
+ * the later migration adds — so on a FRESH install the column already exists by
+ * the time 002 runs, and an unguarded `ALTER TABLE … ADD COLUMN` would fail
+ * with "duplicate column name" and roll the whole install back. SQLite has no
+ * `ADD COLUMN IF NOT EXISTS`.
+ */
+export function hasColumn(db: SqlDb, table: string, column: string): boolean {
+  const rows = db.executeSync(`PRAGMA table_info(${table})`).rows as { name: string }[];
+  return rows.some(r => r.name === column);
+}
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
     up: db => {
       for (const stmt of baselineDdl()) db.executeSync(stmt);
+    },
+  },
+  {
+    // #290 shelf management: manual shelf order within a location. Appended
+    // LAST so an upgrading device ends up with the same column order a fresh
+    // install gets from the manifest baseline (asserted by core's
+    // baseline.test.ts). No backfill: every row starts at 0 and shelf lists
+    // order by `sort_order, name`, so nothing visibly changes until someone
+    // reorders a parent's shelves — which renumbers that parent 0..n-1.
+    version: 2,
+    up: db => {
+      if (!hasColumn(db, 'locations', 'sort_order')) {
+        db.executeSync(`ALTER TABLE locations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`);
+      }
     },
   },
 ];

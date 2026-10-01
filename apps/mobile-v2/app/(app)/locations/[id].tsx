@@ -37,7 +37,8 @@
 //     vehicles.ts domain — see repos/locations.ts's archiveLocation doc
 //     comment). Vehicle-type Restore/reactivation IS kept working
 //     (reactivateVehicle, already ported).
-// Kept fully working: shelf colors, GPS anchor, type/subtype taxonomy, the
+// Kept fully working: shelf colors (now shelf MANAGEMENT — rename/remove/▲▼
+// reorder, #290), GPS anchor, type/subtype taxonomy, the
 // rooms (sub-areas) section (repos/locations.ts::getRoomsForParent — NOT the
 // unrelated src/repos/rooms.ts room-catalog table used for job-photo tagging),
 // map picker (via GpsAnchorField → MapPickerModal, already ported), Move Stock.
@@ -55,6 +56,7 @@ import {
   getLocationById, getStockAtLocation, upsertLocation,
   getBrowsableLocations, getLocationPath, getDescendantIds,
   getShelvesForParent, setShelfColor, getRoomsForParent, findOrCreateShelf,
+  renameShelf, removeShelf, reorderShelves,
   reactivateVehicle, archiveLocation, restoreLocation,
   StockAtLocation, Location,
 } from '../../../src/repos/locations';
@@ -167,8 +169,25 @@ export default function LocationDetailScreen() {
       .map(l => ({ id: l.id, label: getLocationPath(l.id) }));
   }, [id], ['locations']);
 
-  // Which shelf's color-picker row is expanded, if any.
-  const [coloringShelfId, setColoringShelfId] = useState<string | null>(null);
+  // #290: which shelf's inline manage panel is expanded, if any. This used to be
+  // `coloringShelfId` and held only the color swatches; it now holds rename +
+  // color + remove, because all three act on one shelf and a second expanding
+  // row per shelf would make the card unreadable.
+  const [editingShelfId, setEditingShelfId] = useState<string | null>(null);
+  // Snapshot-on-open, NOT a live read (the #163 rule): a sync pull that touches
+  // `locations` re-runs the shelves query, and a reactive name here would
+  // overwrite what the user is halfway through typing.
+  const [shelfNameDraft, setShelfNameDraft] = useState('');
+
+  // Save is only live for a real change: blank is not a name, and re-saving the
+  // name already on the row is a no-op the repo would accept silently.
+  const editingShelfName = shelves.find(sh => sh.id === editingShelfId)?.name ?? '';
+  const renameDisabled = locked || !shelfNameDraft.trim() || shelfNameDraft.trim() === editingShelfName;
+
+  function toggleShelfEditor(shelf: Location) {
+    setEditingShelfId(prev => (prev === shelf.id ? null : shelf.id));
+    setShelfNameDraft(shelf.name);
+  }
 
   function handleSetShelfColor(shelfId: string, color: string | null) {
     if (isWriteBlocked()) return;
@@ -176,11 +195,56 @@ export default function LocationDetailScreen() {
       setShelfColor(shelfId, color, user?.id ?? null);
     } catch (e) {
       Alert.alert('Save failed', `Couldn't update the shelf color. Please try again.\n\n${String((e as Error)?.message ?? e)}`);
-      return;
     }
     // No explicit reload: setShelfColor's write bumps 'locations', which the
-    // useDbQuery(shelves) read above is subscribed to.
-    setColoringShelfId(null);
+    // useDbQuery(shelves) read above is subscribed to. The panel deliberately
+    // stays OPEN now (#290) — it also carries the rename field, and closing it
+    // on a color tap would throw away a name the user had already typed.
+  }
+
+  // #290 rename. renameShelf trims, no-ops on an unchanged name and refuses a
+  // sibling clash with a sentence meant for the user — surface it as-is.
+  function handleRenameShelf(shelf: Location) {
+    if (isWriteBlocked()) return;
+    const res = renameShelf(shelf.id, shelfNameDraft, user?.id ?? null);
+    if (!res.ok) {
+      Alert.alert('Rename failed', res.reason);
+      return;
+    }
+    setEditingShelfId(null);
+  }
+
+  // #290 remove. Soft delete, and removeShelf refuses when stock / a homed item /
+  // a parked unit still points at the shelf — that refusal names what's in the
+  // way, so it goes straight to the user instead of being flattened to "failed".
+  async function handleRemoveShelf(shelf: Location) {
+    if (isWriteBlocked()) return;
+    const ok = await confirmSheet({
+      title: 'Remove Shelf',
+      message: `Remove "${shelf.name}"? It disappears from this location's shelf list. Stock history that mentions it is kept.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
+    const res = removeShelf(shelf.id, user?.id ?? null);
+    if (!res.ok) {
+      Alert.alert("Can't remove this shelf", res.reason);
+      return;
+    }
+    setEditingShelfId(null);
+  }
+
+  // #290 reorder by one position. The arrows send the WHOLE new order (not a
+  // swap) because reorderShelves renumbers 0..n-1 — that is what makes the
+  // all-zeros starting state resolve itself on the first move, with no backfill.
+  function handleMoveShelf(index: number, dir: -1 | 1) {
+    if (isWriteBlocked()) return;
+    const target = index + dir;
+    if (target < 0 || target >= shelves.length) return;
+    const ids = shelves.map(sh => sh.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    const res = reorderShelves(id, ids, user?.id ?? null);
+    if (!res.ok) Alert.alert('Reorder failed', res.reason);
   }
 
   // Inline "+ Add shelf" on the Shelves card. findOrCreateShelf is transactional
@@ -524,7 +588,7 @@ export default function LocationDetailScreen() {
               ) : (
                 shelves.map((shelf, i) => (
                   <View key={shelf.id}>
-                    <View style={[s.shelfRow, i < shelves.length - 1 && coloringShelfId !== shelf.id && s.divider]}>
+                    <View style={[s.shelfRow, i < shelves.length - 1 && editingShelfId !== shelf.id && s.divider]}>
                       <View style={s.shelfRowMain}>
                         <View style={[s.shelfColorDot, { backgroundColor: shelf.color ?? t.colors.border }]} />
                         <View style={{ flex: 1 }}>
@@ -532,32 +596,96 @@ export default function LocationDetailScreen() {
                           <Text style={s.shelfParent}>{location.name}</Text>
                         </View>
                       </View>
-                      {canManage && (
-                        <TouchableOpacity
-                          onPress={() => setColoringShelfId(prev => (prev === shelf.id ? null : shelf.id))}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Text style={s.shelfColorBtn}>Color</Text>
-                        </TouchableOpacity>
+                      {/* #290: shelf editing follows the "+ Add shelf" row's gate —
+                          an ARCHIVED location's shelves are history, not a wall
+                          anyone is still arranging. Restoring the location brings
+                          the controls back. */}
+                      {canManage && location.active === 1 && (
+                        <View style={s.shelfRowActions}>
+                          {/* #290: ▲▼ only earn their space once there's something to
+                              reorder — a single shelf has no order. Same arrow idiom
+                              as manage-types.tsx so reordering reads the same
+                              everywhere in the app. */}
+                          {shelves.length > 1 && (
+                            <>
+                              <TouchableOpacity
+                                onPress={() => handleMoveShelf(i, -1)}
+                                disabled={i === 0 || locked}
+                                style={s.reorderBtn}
+                                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                                accessibilityLabel={`Move ${shelf.name} up`}
+                              >
+                                <Text style={[s.reorderArrow, (i === 0 || locked) && s.arrowDisabled]}>▲</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => handleMoveShelf(i, 1)}
+                                disabled={i === shelves.length - 1 || locked}
+                                style={s.reorderBtn}
+                                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                                accessibilityLabel={`Move ${shelf.name} down`}
+                              >
+                                <Text style={[s.reorderArrow, (i === shelves.length - 1 || locked) && s.arrowDisabled]}>▼</Text>
+                              </TouchableOpacity>
+                            </>
+                          )}
+                          <TouchableOpacity
+                            onPress={() => toggleShelfEditor(shelf)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel={`Edit ${shelf.name}`}
+                          >
+                            <Text style={s.shelfColorBtn}>{editingShelfId === shelf.id ? 'Done' : 'Edit'}</Text>
+                          </TouchableOpacity>
+                        </View>
                       )}
                     </View>
-                    {coloringShelfId === shelf.id && (
-                      <View style={[s.colorRow, i < shelves.length - 1 && s.divider, { paddingBottom: 10 }]}>
-                        <TouchableOpacity
-                          style={[s.colorCell, s.colorCellNone, shelf.color === null && s.colorCellActive]}
-                          onPress={() => handleSetShelfColor(shelf.id, null)}
-                        >
-                          <Text style={s.colorCellNoneText}>✕</Text>
-                        </TouchableOpacity>
-                        {COLOR_OPTIONS.map(c => (
+                    {editingShelfId === shelf.id && (
+                      <View style={[s.shelfEditPanel, i < shelves.length - 1 && s.divider]}>
+                        {/* Rename. Submitting from the keyboard saves too — the field
+                            holds one short name, so Enter is the natural commit. */}
+                        <View style={s.shelfRenameRow}>
+                          <View style={{ flex: 1 }}>
+                            <AppInput
+                              value={shelfNameDraft}
+                              onChangeText={setShelfNameDraft}
+                              placeholder="Shelf name"
+                              editable={!locked}
+                              returnKeyType="done"
+                              onSubmitEditing={() => handleRenameShelf(shelf)}
+                            />
+                          </View>
                           <TouchableOpacity
-                            key={c}
-                            style={[s.colorCell, { backgroundColor: c }, shelf.color === c && s.colorCellActive]}
-                            onPress={() => handleSetShelfColor(shelf.id, c)}
+                            onPress={() => handleRenameShelf(shelf)}
+                            disabled={renameDisabled}
+                            style={[s.addShelfBtn, renameDisabled && s.shelfSaveBtnDisabled]}
                           >
-                            {shelf.color === c && <Text style={s.colorCheck}>✓</Text>}
+                            <Text style={s.addShelfBtnText}>Save</Text>
                           </TouchableOpacity>
-                        ))}
+                        </View>
+                        <FieldLabel>Color</FieldLabel>
+                        <View style={s.colorRow}>
+                          <TouchableOpacity
+                            style={[s.colorCell, s.colorCellNone, shelf.color === null && s.colorCellActive]}
+                            onPress={() => handleSetShelfColor(shelf.id, null)}
+                          >
+                            <Text style={s.colorCellNoneText}>✕</Text>
+                          </TouchableOpacity>
+                          {COLOR_OPTIONS.map(c => (
+                            <TouchableOpacity
+                              key={c}
+                              style={[s.colorCell, { backgroundColor: c }, shelf.color === c && s.colorCellActive]}
+                              onPress={() => handleSetShelfColor(shelf.id, c)}
+                            >
+                              {shelf.color === c && <Text style={s.colorCheck}>✓</Text>}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleRemoveShelf(shelf)}
+                          disabled={locked}
+                          style={[s.btn, s.btnDanger, locked && s.shelfSaveBtnDisabled]}
+                        >
+                          <Text style={s.btnDangerText}>Remove Shelf</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>
@@ -864,6 +992,16 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   shelfName: { fontSize: t.typography.fontSizes.body, fontWeight: '600', color: t.colors.textPrimary },
   shelfParent: { fontSize: t.typography.fontSizes.caption, color: t.colors.textMuted, marginTop: 1 },
   shelfColorBtn: { color: t.colors.primary, fontWeight: '700', fontSize: t.typography.fontSizes.body2 },
+  // #290 shelf management: arrows + the inline rename/color/remove panel.
+  // reorderBtn/reorderArrow/arrowDisabled are copied from manage-types.tsx so
+  // the two reorder surfaces in the app look and hit the same.
+  shelfRowActions: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  reorderBtn: { padding: 4 },
+  reorderArrow: { fontSize: 12, color: t.colors.textSecondary, fontWeight: '700' },
+  arrowDisabled: { color: t.colors.textDisabled },
+  shelfEditPanel: { gap: t.spacing.sm, paddingBottom: t.spacing.md },
+  shelfRenameRow: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm },
+  shelfSaveBtnDisabled: { opacity: 0.5 },
   secondaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4, marginBottom: t.spacing.sm },
   linkBtn: { paddingVertical: t.spacing.sm, paddingHorizontal: t.spacing.lg },
   linkText: { color: t.colors.primary, fontSize: t.typography.fontSizes.md, fontWeight: '600' },

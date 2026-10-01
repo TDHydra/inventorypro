@@ -1,0 +1,16 @@
+-- Migration 083: manual shelf order inside a location (#290). Mirrors mobile
+-- migration 002. Additive-only, safe default — no backfill and no watermark
+-- touch needed (the 081 precedent).
+--
+-- locations.sort_order INT NOT NULL DEFAULT 0. Shelves are `locations` rows
+-- (type = 'Shelf', parent_id = their has_shelves parent), and the client lists
+-- them `ORDER BY sort_order, name` — so every existing row sitting at 0 keeps
+-- today's alphabetical order, and the first reorder of a parent renumbers just
+-- that parent's shelves 0..n-1. Nothing here needs to pick an initial order.
+--
+-- The column is generic to `locations` rather than shelf-specific: it is just
+-- "where this row sits among its siblings", and sub-areas are the obvious next
+-- consumer. INT not SMALLINT so it matches the INTEGER the manifest declares
+-- for SQLite, and NOT NULL DEFAULT 0 so an older client that pushes a locations
+-- row WITHOUT sort_order still inserts cleanly.
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;

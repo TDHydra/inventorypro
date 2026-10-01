@@ -134,7 +134,10 @@ test('locations ALWAYS exposes operationally-required columns regardless of view
   // "ownerless", unlocking access rather than restricting it.
   for (const canViewLocations of [false, true]) {
     const cols = selectColumnsFor('locations', false, canViewLocations);
-    for (const required of ['id', 'name', 'parent_id', 'color', 'icon', 'active', 'has_shelves', 'type', 'type_id', 'updated_at', 'owner_user_id']) {
+    // #290: sort_order is in this list because it is NOT NULL DEFAULT 0 on the
+    // client too — redacting it would pull every shelf back to 0 and silently
+    // undo a hand-ordered wall, which is data loss, not privacy.
+    for (const required of ['id', 'name', 'parent_id', 'color', 'icon', 'active', 'has_shelves', 'type', 'type_id', 'sort_order', 'updated_at', 'owner_user_id']) {
       assert.ok(new RegExp(`\\b${required}\\b`).test(cols), `${required} must always be present (canViewLocations=${canViewLocations})`);
     }
   }

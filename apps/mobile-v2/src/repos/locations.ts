@@ -40,6 +40,10 @@ export interface Location {
   type_id?: string | null;
   // When 1, add-stock offers a Shelf field (migration 020). INTEGER locally.
   has_shelves?: number;
+  // #290: manual order among the shelves of one parent (migration 002). 0 for
+  // every row until someone reorders that parent, and shelf queries order by
+  // `sort_order, name`, so 0-everywhere reads as alphabetical.
+  sort_order?: number;
 }
 
 export interface LocationWithChildren extends Location {
@@ -309,11 +313,16 @@ export function getOfficeLocations(): Location[] {
   return rowsAs<Location>(result.rows);
 }
 
-// Shelf child-locations of a given parent, for the add-stock Shelf typeahead.
+// Shelf child-locations of a given parent, for the add-stock Shelf typeahead
+// and the location screen's Shelves card. #290: ordered by the manual
+// `sort_order` first so the list can be made to match the physical wall, with
+// `name` as the tiebreak — which is ALSO the whole order until someone reorders
+// this parent (every row starts at 0), so an untouched install is unchanged.
 export function getShelvesForParent(parentId: string): Location[] {
   const db = getDb();
   const result = db.executeSync(
-    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ? ORDER BY name`,
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id = ?
+     ORDER BY sort_order, name`,
     [parentId],
   );
   return rowsAs<Location>(result.rows);
@@ -353,6 +362,8 @@ export function findOrCreateShelf(parentId: string, name: string): string | null
     id, name: trimmed, parent_id: parentId, color: null, icon: '🗄️',
     owner_user_id: null, active: 1, updated_at: now, synced_at: null,
     latitude: null, longitude: null, subareas_require_owner: 0, type: 'Shelf', has_shelves: 0,
+    // #290: last in this parent's order — see nextShelfOrder.
+    sort_order: nextShelfOrder(parentId),
   };
   try {
     upsertLocation(shelf);
@@ -568,7 +579,10 @@ export function retireLocker(lockerId: string): boolean {
 
 // #153: result shape for the Vehicle retire/reactivate pair — mirrors
 // PersonalLockerResult (access/personalLocker.ts) so the UI gets a
-// user-facing reason for a refusal instead of a bare boolean.
+// user-facing reason for a refusal instead of a bare boolean. #290: the shelf
+// rename/remove/reorder writes at the bottom of this file return the same
+// shape, for the same reason — it is this file's generic "refused, and here's
+// the sentence to show the user" result, not a vehicle-only type.
 export type RetireUnitResult = { ok: true } | { ok: false; reason: string };
 
 /**
@@ -709,6 +723,12 @@ export function upsertLocation(location: Location): void {
   // Dual-write the taxonomy FK (#74): prefer an explicit type_id (pulled rows),
   // else resolve from the label so locally-created locations anchor to the id too.
   const typeId = location.type_id ?? resolveTypeId(LOCATION_TYPE, location.type);
+  // #290: the local write is INSERT OR REPLACE, which resets every column it
+  // does NOT name to that column's DEFAULT — so without this, saving a shelf
+  // through any edit path that doesn't know about sort_order would silently
+  // reshuffle its parent's shelves back to alphabetical. Callers that don't
+  // care pass nothing and keep the row's current order.
+  const sortOrder = location.sort_order ?? getLocationById(location.id)?.sort_order ?? 0;
   locationsRepo.mirror('INSERT', {
     id: location.id,
     name: location.name,
@@ -723,14 +743,208 @@ export function upsertLocation(location: Location): void {
     subareas_require_owner: !!(location.subareas_require_owner ?? 0),
     type: location.type ?? null,
     has_shelves: !!(location.has_shelves ?? 0),
+    sort_order: sortOrder,
   }, () => {
     getDb().executeSync(
-      `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type, has_shelves, type_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO locations (id, name, parent_id, color, icon, owner_user_id, active, updated_at, synced_at, latitude, longitude, subareas_require_owner, type, has_shelves, type_id, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       bindParams([location.id, location.name, location.parent_id, location.color,
        location.icon, location.owner_user_id, location.active, location.updated_at, location.synced_at,
        location.latitude ?? null, location.longitude ?? null, location.subareas_require_owner ?? 0,
-       location.type ?? null, location.has_shelves ?? 0, typeId])
+       location.type ?? null, location.has_shelves ?? 0, typeId, sortOrder])
     );
   });
+}
+
+// ── Shelf management (#290) ──────────────────────────────────────────────────
+// Until now the Shelves card could only ADD a shelf and set its color: a typo
+// was permanent, a shelf that stopped existing stayed forever, and the list was
+// locked to alphabetical order even when the physical wall runs A1, A2, B1 in a
+// different sequence. These three writes close that, all through the same
+// mirror()-inside-runInTransaction shape as setShelfColor/retireVehicle so the
+// local row, the outbox entry and the activity-log line commit together.
+
+// Next order value for a shelf appended to `parentId` — one past the highest in
+// use, mirroring reorderTaxonomyType's "append at the end" rule (taxonomy.ts).
+// Deliberately NOT 0: with every row at 0 a new shelf would sort alphabetically
+// (today's behavior, fine), but once a parent HAS been reordered 0..n-1, a 0
+// would make every newly created shelf jump to the TOP of the wall. Last is the
+// honest place for the one you just made.
+function nextShelfOrder(parentId: string): number {
+  const row = rowsAs<{ max_order: number | null }>(getDb().executeSync(
+    `SELECT MAX(sort_order) AS max_order FROM locations WHERE type = 'Shelf' AND parent_id = ?`,
+    [parentId],
+  ).rows)[0];
+  return (row?.max_order ?? -1) + 1;
+}
+
+/** Up to `limit` names, then "and N more" — for a refusal that has to name what
+ *  is in the way without turning into a wall of text. */
+function nameList(names: string[], limit = 3): string {
+  const shown = names.slice(0, limit).join(', ');
+  const rest = names.length - limit;
+  return rest > 0 ? `${shown} and ${rest} more` : shown;
+}
+
+/**
+ * Rename a shelf in place. Trims, and refuses a name already taken by an active
+ * sibling shelf case-insensitively — the SAME uniqueness rule findOrCreateShelf
+ * dedupes on, so a rename can't produce a pair of shelves that helper would
+ * then treat as one.
+ */
+export function renameShelf(shelfId: string, name: string, userId: string | null): RetireUnitResult {
+  const shelf = getLocationById(shelfId);
+  if (!shelf || shelf.type !== 'Shelf') return { ok: false, reason: 'Not a shelf.' };
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, reason: 'A shelf needs a name.' };
+  if (trimmed === shelf.name) return { ok: true };
+
+  const clash = rowsAs<Location>(getDb().executeSync(
+    `SELECT * FROM locations WHERE active = 1 AND type = 'Shelf' AND parent_id IS ?
+       AND LOWER(name) = LOWER(?) AND id != ? LIMIT 1`,
+    [shelf.parent_id, trimmed, shelfId],
+  ).rows)[0];
+  if (clash) return { ok: false, reason: `There's already a shelf called "${clash.name}" here.` };
+
+  const now = new Date().toISOString();
+  try {
+    locationsRepo.mirror('UPDATE', { id: shelfId, name: trimmed, updated_at: now }, () => {
+      getDb().executeSync(`UPDATE locations SET name = ?, updated_at = ? WHERE id = ?`,
+        [trimmed, now, shelfId]);
+      appendLog({
+        action: 'location_updated', entity_type: 'location', entity_id: shelfId,
+        user_id: userId, team_id: null, job_id: null,
+        // The OLD name is the part that's about to be unrecoverable from the row.
+        note: `${shelf.name} → ${trimmed}`,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('renameShelf: failed to rename shelf', err);
+    return { ok: false, reason: 'Could not rename the shelf. Please try again.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Remove a shelf: active=0 through the same path as archiveLocation (locations
+ * are NEVER hard-deleted — activity_log and old stock rows still point here).
+ *
+ * Refuses, naming what is in the way, when the shelf still holds stock, is some
+ * item's home location, or has an equipment unit parked on it. All three would
+ * otherwise leave a record pointing at a shelf that no longer appears anywhere
+ * in the UI — stock would simply go invisible. None of the three is repaired
+ * automatically: which shelf that stock or that item belongs on instead is the
+ * user's call, not a default this function gets to pick.
+ */
+export function removeShelf(shelfId: string, userId: string | null): RetireUnitResult {
+  const shelf = getLocationById(shelfId);
+  if (!shelf || shelf.type !== 'Shelf') return { ok: false, reason: 'Not a shelf.' };
+  if (shelf.active !== 1) return { ok: true };
+  const db = getDb();
+
+  const stock = getStockAtLocation(shelfId);
+  if (stock.length > 0) {
+    return {
+      ok: false,
+      reason: `${shelf.name} still holds stock (${nameList(stock.map(r => r.name))}). Move it to another shelf first, then remove this one.`,
+    };
+  }
+
+  const homed = rowsAs<{ name: string }>(db.executeSync(
+    `SELECT name FROM inventory_items WHERE home_location_id = ? AND active = 1 ORDER BY name`,
+    [shelfId],
+  ).rows).map(r => r.name);
+  if (homed.length > 0) {
+    return {
+      ok: false,
+      reason: `${shelf.name} is the home location for ${nameList(homed)}. Give ${homed.length === 1 ? 'it' : 'them'} a new home location first.`,
+    };
+  }
+
+  const parked = rowsAs<{ label: string }>(db.executeSync(
+    `SELECT COALESCE(u.asset_tag, i.name, 'a unit') AS label
+       FROM equipment_units u LEFT JOIN inventory_items i ON i.id = u.item_id
+      WHERE u.current_location_id = ? ORDER BY label`,
+    [shelfId],
+  ).rows).map(r => r.label);
+  if (parked.length > 0) {
+    return {
+      ok: false,
+      reason: `${nameList(parked)} ${parked.length === 1 ? 'is' : 'are'} on ${shelf.name}. Move ${parked.length === 1 ? 'it' : 'them'} somewhere else first.`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  try {
+    locationsRepo.mirror('UPDATE', { id: shelfId, active: false, updated_at: now }, () => {
+      db.executeSync(`UPDATE locations SET active = 0, updated_at = ? WHERE id = ?`, [now, shelfId]);
+      appendLog({
+        action: 'location_archived', entity_type: 'location', entity_id: shelfId,
+        user_id: userId, team_id: null, job_id: null, note: shelf.name,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('removeShelf: failed to remove shelf', err);
+    return { ok: false, reason: 'Could not remove the shelf. Please try again.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Commit a new order for ALL of a parent's active shelves, renumbering them
+ * 0..n-1 (not swapping two values) — which is why the sort_order column needs no
+ * backfill: the first reorder of a parent normalizes it from all-zeros, and a
+ * caller only has to say what the list should look like now.
+ *
+ * `orderedIds` MUST be a permutation of exactly the parent's active shelves.
+ * Anything else means the caller's list is stale — another device added or
+ * removed a shelf since it rendered — and renumbering from a stale list would
+ * reorder the wall around a shelf that isn't in it. Refused, not reconciled.
+ */
+export function reorderShelves(parentId: string, orderedIds: string[], userId: string | null): RetireUnitResult {
+  const current = getShelvesForParent(parentId);
+  const stale = orderedIds.length !== current.length
+    || new Set(orderedIds).size !== orderedIds.length
+    || !orderedIds.every(id => current.some(c => c.id === id));
+  if (stale) {
+    return { ok: false, reason: 'This location\'s shelves changed on another device. Reopen it and try again.' };
+  }
+
+  const changed = orderedIds
+    .map((id, index) => ({ id, index }))
+    .filter(({ id, index }) => (current.find(c => c.id === id)?.sort_order ?? 0) !== index);
+  if (changed.length === 0) return { ok: true };
+
+  const parent = getLocationById(parentId);
+  const now = new Date().toISOString();
+  try {
+    // One transaction for the whole move: a half-applied renumber would leave
+    // two shelves sharing a sort_order, and the tie would break by name —
+    // silently undoing part of the user's arrangement.
+    runInTransaction(() => {
+      for (const { id, index } of changed) {
+        locationsRepo.mirror('UPDATE', { id, sort_order: index, updated_at: now }, () => {
+          getDb().executeSync(`UPDATE locations SET sort_order = ?, updated_at = ? WHERE id = ?`,
+            [index, now, id]);
+        });
+      }
+      // ONE log line for the move, on the PARENT — a line per shelf would bury
+      // the feed under a dozen entries for a single drag.
+      appendLog({
+        action: 'location_updated', entity_type: 'location', entity_id: parentId,
+        user_id: userId, team_id: null, job_id: null,
+        note: `Shelf order: ${orderedIds.map(id => current.find(c => c.id === id)?.name ?? '?').join(', ')}`,
+        from_location_id: null, to_location_id: null, quantity: null, unit: null,
+        metadata: null, device_id: null,
+      });
+    });
+  } catch (err) {
+    console.warn('reorderShelves: failed to reorder shelves', err);
+    return { ok: false, reason: `Could not save the new shelf order${parent ? ` for ${parent.name}` : ''}. Please try again.` };
+  }
+  return { ok: true };
 }

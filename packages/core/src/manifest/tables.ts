@@ -103,8 +103,14 @@ export const TABLES: TableSpec[] = [
       { name: 'type', type: 'TEXT' },
       { name: 'has_shelves', type: 'INTEGER', notNull: true, ddlDefault: "0" },
       { name: 'type_id', type: 'TEXT' },
+      // #290: manual order WITHIN a parent, for the shelves of a has_shelves
+      // location (a wall of shelves rarely runs alphabetically). Default 0 for
+      // every existing row, and shelf lists order by `sort_order, name`, so an
+      // install that never reorders anything keeps today's alphabetical order;
+      // the first reorder renumbers that parent's shelves 0..n-1.
+      { name: 'sort_order', type: 'INTEGER', notNull: true, ddlDefault: "0" },
     ],
-    ddl: "CREATE TABLE locations (\n        id          TEXT PRIMARY KEY,\n        name        TEXT NOT NULL,\n        parent_id   TEXT REFERENCES locations(id),\n        color       TEXT,\n        icon        TEXT,\n        updated_at  TEXT NOT NULL,\n        synced_at   TEXT\n      , owner_user_id TEXT, active INTEGER NOT NULL DEFAULT 1, latitude REAL, longitude REAL, subareas_require_owner INTEGER NOT NULL DEFAULT 0, type TEXT, has_shelves INTEGER NOT NULL DEFAULT 0, type_id TEXT)",
+    ddl: "CREATE TABLE locations (\n        id          TEXT PRIMARY KEY,\n        name        TEXT NOT NULL,\n        parent_id   TEXT REFERENCES locations(id),\n        color       TEXT,\n        icon        TEXT,\n        updated_at  TEXT NOT NULL,\n        synced_at   TEXT\n      , owner_user_id TEXT, active INTEGER NOT NULL DEFAULT 1, latitude REAL, longitude REAL, subareas_require_owner INTEGER NOT NULL DEFAULT 0, type TEXT, has_shelves INTEGER NOT NULL DEFAULT 0, type_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0)",
     indexes: [
       "CREATE INDEX locations_parent_idx ON locations(parent_id)",
       "CREATE INDEX locations_type_id_idx ON locations(type_id)",
@@ -124,6 +130,13 @@ export const TABLES: TableSpec[] = [
       { name: 'type' },
       { name: 'has_shelves', coerce: 'bool' },
       { name: 'type_id' },
+      // #290: `def: 0` is load-bearing, not decorative — the local column is
+      // NOT NULL, and a client that ships before the server applies migration
+      // 083 pulls locations rows with no sort_order field at all. Without the
+      // default, rowToValues would bind null and every locations upsert of that
+      // pull would fail the NOT NULL constraint (has_shelves gets the same
+      // protection for free from coerce: 'bool').
+      { name: 'sort_order', def: 0 },
     ],
   },
   {

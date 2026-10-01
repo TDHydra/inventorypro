@@ -547,7 +547,11 @@ const JOBS_SENSITIVE = ', customer_name, site_address, description, insurance_ca
 // degrade) and subareas_require_owner (nullable-safe bool, only read by
 // VehicleEditSheet's own config panel — no checkout/transfer gate depends on
 // it client-side).
-const LOCATIONS_BASE = 'id, name, parent_id, color, icon, active, has_shelves, type, type_id, updated_at, owner_user_id';
+// #290: sort_order is BASE, not SENSITIVE — it is the manual order of the
+// shelves inside a location, carries no privacy value at all, and is NOT NULL
+// DEFAULT 0, so omitting it would make every pulled shelf fall back to 0 and
+// silently reshuffle a wall the crew just ordered by hand.
+const LOCATIONS_BASE = 'id, name, parent_id, color, icon, active, has_shelves, type, type_id, sort_order, updated_at, owner_user_id';
 const LOCATIONS_SENSITIVE = ', latitude, longitude, subareas_require_owner';
 // enrollment_code_public is public BY DESIGN, but only for demo rows — the CASE
 // guarantees a real user's row can never carry a code even if one were planted.

@@ -7,6 +7,35 @@ The sync layer uses HARDCODED column lists, not `SELECT *`. Any migration that a
 Skipping this silently drops the new column on sync (push error or pull omission → data loss / never propagates).
 Burned us on migration 008 (jobs work-order fields) and 009 (location coords). Verify column/placeholder parity.
 
+## What this means in v2 (the three files to touch, #290)
+
+Point 2 is no longer two hand-written lists: `packages/core/src/manifest/tables.ts` IS the
+contract, and `derive.ts` generates the upsert SQL, the placeholders and `rowToValues` from it.
+A column added to a synced table in v2 needs:
+
+1. **`packages/core/src/manifest/tables.ts`** — append the column to the table's `columns[]`
+   (SQLite baseline DDL), to the verbatim `ddl` string, and to `pullColumns[]`. Append LAST
+   everywhere, so an upgrading device ends up with the same column order a fresh install gets
+   from the baseline. If the local column is `NOT NULL`, give the pull spec a `def` (or
+   `coerce: 'bool'`): a client that ships before the server's migration applies pulls rows
+   with the field absent, and a bare spec binds `null` → every upsert in that pull fails.
+2. **`apps/mobile-v2/src/db/migrations/index.ts`** — one additive migration, and its `ALTER`
+   MUST be wrapped in `hasColumn(...)`. Migration 001 builds the baseline from the CURRENT
+   manifest, which already carries the new column, so on a FRESH install the column exists
+   before the later migration runs; SQLite has no `ADD COLUMN IF NOT EXISTS`, and the
+   unguarded `ALTER` rolls the whole install back. (There is only ONE `MIGRATIONS` array in
+   v2 — `schema.ts` and `schema.web.ts` share it, so the old twin-array drift risk is gone.)
+3. **`apps/api-v2/src/lib/syncPolicy.ts`** — the PULL projection. This one is still hardcoded
+   per table (`JOBS_BASE`, `LOCATIONS_BASE`, `USERS_BASE`, … and their `_SENSITIVE` halves,
+   the #204 column-redaction split) and is the easiest step to miss: everything else can be
+   complete and green, and the column still never reaches a device because the server never
+   SELECTs it. Default to BASE; only put a column in `_SENSITIVE` if withholding it degrades
+   safely on the client (a `NOT NULL DEFAULT` column usually does NOT — the fallback silently
+   rewrites real data).
+
+The **push** path needs nothing: it filters payload columns against live PG introspection
+(`loadTableColumns`), so a column present in PG is accepted automatically.
+
 ## Expand/contract discipline (required since #247 — blue-green is the default API deploy)
 
 Blue-green deploys (see `infra/README.md`) mean the OLD color keeps serving live traffic,

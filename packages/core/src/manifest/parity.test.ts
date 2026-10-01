@@ -21,10 +21,13 @@ import {
   upsertSql, rowToValues,
 } from './derive';
 
+// V1 was archived in place by #282 (apps/mobile → legacy-v1/mobile, apps/api →
+// legacy-v1/api). It is still the frozen reference this test compares against;
+// only the paths moved.
 const REPO = join(__dirname, '../../../..');
-const PULL_SRC = readFileSync(join(REPO, 'apps/mobile/src/sync/pull.ts'), 'utf8');
-const FULL_SRC = readFileSync(join(REPO, 'apps/mobile/src/sync/fullDownload.ts'), 'utf8');
-const SYNC_SRC = readFileSync(join(REPO, 'apps/api/src/routes/sync.ts'), 'utf8');
+const PULL_SRC = readFileSync(join(REPO, 'legacy-v1/mobile/src/sync/pull.ts'), 'utf8');
+const FULL_SRC = readFileSync(join(REPO, 'legacy-v1/mobile/src/sync/fullDownload.ts'), 'utf8');
+const SYNC_SRC = readFileSync(join(REPO, 'legacy-v1/api/src/routes/sync.ts'), 'utf8');
 
 // Tables intentionally dropped from the rebuild (dead / de-scoped): the old
 // contract still carries them, so every comparison filters them out.
@@ -77,9 +80,35 @@ test('manifest covers exactly the old pull tables minus dropped', () => {
   assert.deepEqual(newTables, oldTables);
 });
 
+// The manifest is allowed to GROW past the frozen V1 contract — new columns
+// append to a table's pullColumns (e.g. locations.sort_order, #290). What must
+// never change is the part V1 already had: every column it knew, in the same
+// order, carrying the same coerced value. So both comparisons below assert the
+// old contract is a PREFIX of the new one, and that the growth is append-only.
+// For a table nobody has touched, a prefix of equal length is plain equality —
+// nothing is weakened; `extraColumns` names exactly where we've diverged.
+function sqlColumns(sql: string): string[] {
+  const m = sql.match(/\(([^)]*)\)\s*VALUES/i);
+  assert.ok(m, `could not read the column list out of: ${sql.slice(0, 60)}…`);
+  return m[1].split(',').map(c => c.trim());
+}
+
 for (const spec of PULL_TABLES) {
   test(`upsert SQL parity: ${spec.name}`, () => {
-    assert.equal(norm(upsertSql(spec)), norm(oldUpsertSql[spec.name]));
+    const oldSql = norm(oldUpsertSql[spec.name]);
+    const newSql = norm(upsertSql(spec));
+    const oldCols = sqlColumns(oldSql);
+    const newCols = sqlColumns(newSql);
+    assert.deepEqual(newCols.slice(0, oldCols.length), oldCols,
+      'V1 columns must keep their identity and order');
+    // Everything outside the column list (table name, INSERT OR REPLACE,
+    // placeholder count) must still match once the added columns are removed.
+    const trimmed = newSql
+      .replace(`(${newCols.join(',')})`, `(${oldCols.join(',')})`)
+      .replace(/VALUES \([^)]*\)/i, `VALUES (${oldCols.map(() => '?').join(',')})`);
+    assert.equal(trimmed, oldSql);
+    assert.equal(newCols.length, (newSql.match(/\?/g) ?? []).length,
+      'one placeholder per column');
   });
 
   test(`rowToValues parity: ${spec.name}`, () => {
@@ -93,14 +122,29 @@ for (const spec of PULL_TABLES) {
       Object.fromEntries(cols.map(c => [c, null])),
     ];
     for (const row of probes) {
-      assert.deepEqual(
-        JSON.parse(JSON.stringify(rowToValues(spec, row) ?? null)),
-        JSON.parse(JSON.stringify(oldRowToValues(spec.name, row) ?? null)),
-        `row=${JSON.stringify(row).slice(0, 80)}`,
-      );
+      const now = JSON.parse(JSON.stringify(rowToValues(spec, row) ?? null)) as unknown[] | null;
+      const then = JSON.parse(JSON.stringify(oldRowToValues(spec.name, row) ?? null)) as unknown[] | null;
+      if (now === null || then === null) {
+        assert.deepEqual(now, then, `row=${JSON.stringify(row).slice(0, 80)}`);
+        continue;
+      }
+      assert.deepEqual(now.slice(0, then.length), then, `row=${JSON.stringify(row).slice(0, 80)}`);
     }
   });
 }
+
+// Names every column the manifest has added since V1, so growth is visible in
+// the test output instead of silently absorbed by the prefix comparisons above.
+test('manifest columns added since the V1 contract', () => {
+  const added: string[] = [];
+  for (const spec of PULL_TABLES) {
+    const oldCols = sqlColumns(norm(oldUpsertSql[spec.name]));
+    for (const c of sqlColumns(norm(upsertSql(spec))).slice(oldCols.length)) {
+      added.push(`${spec.name}.${c}`);
+    }
+  }
+  assert.deepEqual(added, ['locations.sort_order']);
+});
 
 // ── 3: full-download order ──────────────────────────────────────────────────
 test('full-download order equals old SYNC_TABLES minus dropped', () => {

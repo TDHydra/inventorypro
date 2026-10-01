@@ -56,7 +56,7 @@ function seedLocation(row: {
 }
 
 before(async () => {
-  await testDb.initTestDb(['locations', 'taxonomy_types', 'inventory_items', 'stock_by_location', 'outbox']);
+  await testDb.initTestDb(['locations', 'taxonomy_types', 'inventory_items', 'stock_by_location', 'equipment_units', 'outbox']);
   loc = requireCjs('./locations') as typeof import('./locations');
   seedLocation({ id: 'shop-1', name: 'Shop', type: 'Shop', has_shelves: 1 });
   seedLocation({ id: 'shelf-a1', name: 'A1', parent_id: 'shop-1', type: 'Shelf' });
@@ -253,4 +253,139 @@ test('end-to-end: stock placed at a shelf inside a room inside a building', () =
   );
   const stock = loc.getStockAtLocation(shelfId);
   assert.deepEqual(stock.map(r => ({ name: r.name, quantity: r.quantity })), [{ name: 'Duct Tape', quantity: 12 }]);
+});
+
+// ── Shelf management (#290) ──────────────────────────────────────────────────
+// Each of these seeds its OWN parent: the tests above share shop-1/room-maint
+// and a rename or removal there would reach backwards into them.
+
+test('shelves list by sort_order then name — all-zero rows read as alphabetical', () => {
+  seedLocation({ id: 'ord-parent', name: 'Order Shop', type: 'Shop', has_shelves: 1 });
+  // Seeded directly (sort_order defaults to 0), i.e. the state every row is in
+  // immediately after migration 002.
+  seedLocation({ id: 'ord-c', name: 'C1', parent_id: 'ord-parent', type: 'Shelf' });
+  seedLocation({ id: 'ord-a', name: 'A1', parent_id: 'ord-parent', type: 'Shelf' });
+  seedLocation({ id: 'ord-b', name: 'B1', parent_id: 'ord-parent', type: 'Shelf' });
+  assert.deepEqual(loc.getShelvesForParent('ord-parent').map(sh => sh.name), ['A1', 'B1', 'C1']);
+});
+
+test('reorderShelves renumbers 0..n-1 and the new order sticks', () => {
+  const ids = ['ord-c', 'ord-a', 'ord-b'];
+  assert.deepEqual(loc.reorderShelves('ord-parent', ids, 'user-1'), { ok: true });
+  assert.deepEqual(loc.getShelvesForParent('ord-parent').map(sh => sh.id), ids);
+  assert.deepEqual(
+    loc.getShelvesForParent('ord-parent').map(sh => sh.sort_order),
+    [0, 1, 2],
+    'normalized from all-zeros, so no migration backfill is needed',
+  );
+  // Idempotent: committing the same order again is a no-op success.
+  assert.deepEqual(loc.reorderShelves('ord-parent', ids, 'user-1'), { ok: true });
+  assert.deepEqual(loc.getShelvesForParent('ord-parent').map(sh => sh.id), ids);
+});
+
+test('reorderShelves refuses a STALE list instead of renumbering around it', () => {
+  // Missing one id, a duplicate, and an id from another parent — each is the
+  // same bug (the caller rendered before someone else changed the wall).
+  for (const bad of [['ord-c', 'ord-a'], ['ord-c', 'ord-c', 'ord-a'], ['ord-c', 'ord-a', 'shelf-a1']]) {
+    const res = loc.reorderShelves('ord-parent', bad, 'user-1');
+    assert.equal(res.ok, false, `refused: ${bad.join()}`);
+  }
+  // …and nothing moved.
+  assert.deepEqual(loc.getShelvesForParent('ord-parent').map(sh => sh.id), ['ord-c', 'ord-a', 'ord-b']);
+});
+
+test('a shelf created after a reorder appends LAST, never jumping to the top', () => {
+  const created = loc.findOrCreateShelf('ord-parent', 'A0');
+  assert.ok(created);
+  assert.deepEqual(
+    loc.getShelvesForParent('ord-parent').map(sh => sh.name),
+    ['C1', 'A1', 'B1', 'A0'],
+    'alphabetically first, but added last — a 0 default would have put it on top',
+  );
+});
+
+test('renameShelf trims, and refuses a name an active sibling already uses', () => {
+  assert.deepEqual(loc.renameShelf('ord-a', '  A1-left  ', 'user-1'), { ok: true });
+  assert.equal(loc.getLocationById('ord-a')?.name, 'A1-left');
+  // Case-insensitive clash with a sibling — the same rule findOrCreateShelf
+  // dedupes on, so a rename can't create a pair that helper would merge.
+  const clash = loc.renameShelf('ord-a', 'b1', 'user-1');
+  assert.equal(clash.ok, false);
+  assert.match((clash as { ok: false; reason: string }).reason, /already a shelf called "B1"/);
+  assert.equal(loc.getLocationById('ord-a')?.name, 'A1-left', 'refusal wrote nothing');
+  // Blank is refused; renaming to the SAME name is a no-op success.
+  assert.equal(loc.renameShelf('ord-a', '   ', 'user-1').ok, false);
+  assert.deepEqual(loc.renameShelf('ord-a', 'A1-left', 'user-1'), { ok: true });
+  // A shelf under a DIFFERENT parent may reuse the name.
+  assert.deepEqual(loc.renameShelf('shelf-a1', 'B1', 'user-1'), { ok: true });
+});
+
+test('removeShelf soft-deletes: the row survives, the shelf leaves the list', () => {
+  assert.deepEqual(loc.removeShelf('ord-b', 'user-1'), { ok: true });
+  assert.equal(loc.getLocationById('ord-b')?.active, 0, 'locations are never hard-deleted');
+  assert.ok(!loc.getShelvesForParent('ord-parent').some(sh => sh.id === 'ord-b'));
+  // Already removed → no-op success (a double tap must not error).
+  assert.deepEqual(loc.removeShelf('ord-b', 'user-1'), { ok: true });
+  // Not a shelf at all.
+  assert.equal(loc.removeShelf('ord-parent', 'user-1').ok, false);
+});
+
+test('removeShelf refuses while the shelf holds stock, and names what is on it', () => {
+  seedLocation({ id: 'rm-parent', name: 'Remove Shop', type: 'Shop', has_shelves: 1 });
+  seedLocation({ id: 'rm-stock', name: 'S1', parent_id: 'rm-parent', type: 'Shelf' });
+  testDb.getDb().executeSync(
+    `INSERT INTO inventory_items (id, name, unit_category, unit, updated_at, active) VALUES ('item-screws', 'Deck Screws', 'each', 'each', ?, 1)`,
+    [NOW],
+  );
+  testDb.getDb().executeSync(
+    `INSERT INTO stock_by_location (item_id, location_id, quantity, updated_at) VALUES ('item-screws', 'rm-stock', 40, ?)`,
+    [NOW],
+  );
+  const res = loc.removeShelf('rm-stock', 'user-1');
+  assert.equal(res.ok, false);
+  assert.match((res as { ok: false; reason: string }).reason, /still holds stock \(Deck Screws\)/);
+  assert.equal(loc.getLocationById('rm-stock')?.active, 1, 'refusal wrote nothing');
+  // Emptying the shelf clears the refusal.
+  testDb.getDb().executeSync(`UPDATE stock_by_location SET quantity = 0 WHERE location_id = 'rm-stock'`);
+  assert.deepEqual(loc.removeShelf('rm-stock', 'user-1'), { ok: true });
+});
+
+test('removeShelf refuses while an item is HOMED to it', () => {
+  seedLocation({ id: 'rm-home', name: 'H1', parent_id: 'rm-parent', type: 'Shelf' });
+  testDb.getDb().executeSync(
+    `UPDATE inventory_items SET home_location_id = 'rm-home' WHERE id = 'item-screws'`,
+  );
+  const res = loc.removeShelf('rm-home', 'user-1');
+  assert.equal(res.ok, false);
+  assert.match((res as { ok: false; reason: string }).reason, /home location for Deck Screws.*new home location/s);
+  testDb.getDb().executeSync(`UPDATE inventory_items SET home_location_id = NULL WHERE id = 'item-screws'`);
+  assert.deepEqual(loc.removeShelf('rm-home', 'user-1'), { ok: true });
+});
+
+test('removeShelf refuses while an equipment unit is parked on it', () => {
+  seedLocation({ id: 'rm-unit', name: 'U1', parent_id: 'rm-parent', type: 'Shelf' });
+  testDb.getDb().executeSync(
+    `INSERT INTO equipment_units (id, item_id, asset_tag, status, current_location_id, created_at, updated_at)
+     VALUES ('eq-1', 'item-screws', 'TOOL-7', 'available', 'rm-unit', ?, ?)`,
+    [NOW, NOW],
+  );
+  const res = loc.removeShelf('rm-unit', 'user-1');
+  assert.equal(res.ok, false);
+  assert.match((res as { ok: false; reason: string }).reason, /TOOL-7 is on U1/);
+  testDb.getDb().executeSync(`UPDATE equipment_units SET current_location_id = NULL WHERE id = 'eq-1'`);
+  assert.deepEqual(loc.removeShelf('rm-unit', 'user-1'), { ok: true });
+});
+
+test('upsertLocation does not reset a shelf order it was not told about', () => {
+  // The clobber this guards: upsertLocation's local write is INSERT OR REPLACE,
+  // so any edit path that rebuilds a Location without sort_order would send the
+  // whole wall back to alphabetical.
+  const before = loc.getLocationById('ord-c')!;
+  assert.equal(before.sort_order, 0);
+  loc.upsertLocation({ ...before, sort_order: undefined, name: 'C1-renamed' });
+  assert.equal(loc.getLocationById('ord-c')?.name, 'C1-renamed');
+  assert.equal(loc.getLocationById('ord-c')?.sort_order, 0);
+  // And an explicit value still wins.
+  loc.upsertLocation({ ...before, sort_order: 7 });
+  assert.equal(loc.getLocationById('ord-c')?.sort_order, 7);
 });

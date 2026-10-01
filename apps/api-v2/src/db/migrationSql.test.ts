@@ -93,3 +93,17 @@ test('080: no backfill — every role starts disabled, no watermark bump wanted'
   const sql = read('080_role_idle_reauth.sql');
   assert.doesNotMatch(sql, /UPDATE role_settings/i);
 });
+
+// ── #290: manual shelf order ─────────────────────────────────────────────────
+
+test('083: sort_order is an additive INT NOT NULL DEFAULT 0, never an enum', () => {
+  const sql = read('083_location_sort_order.sql');
+  assert.match(sql, /ALTER TABLE locations ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0/);
+  assert.doesNotMatch(sql, /CREATE TYPE/i);
+  assert.doesNotMatch(sql, /DROP COLUMN/i);
+});
+
+test('083: no backfill — 0 everywhere reads as alphabetical, so no watermark bump', () => {
+  const sql = read('083_location_sort_order.sql');
+  assert.doesNotMatch(sql, /UPDATE locations/i);
+});
