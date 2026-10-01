@@ -9,6 +9,7 @@ import { ROLE_DASHBOARDS } from '../../src/dashboard/presets';
 import { StatTiles } from '../../src/components/dashboard/StatTiles';
 import { WorkList } from '../../src/components/dashboard/WorkList';
 import { QuickActionsRow } from '../../src/components/dashboard/QuickActionsRow';
+import { TooltipHint } from '../../src/components/TooltipHint';
 
 // Station D3: the real hub. Role-keyed dashboard (hardcoded presets — the old
 // 21-file user-editable engine was cut, plan decision #3) above the universal
@@ -111,6 +112,9 @@ export default function Hub() {
       <Text style={styles.name}>{user.name}</Text>
       <Text style={styles.role}>{ROLE_DISPLAY_NAMES[user.role] ?? user.role}</Text>
 
+      {/* HINTS.dashboard copy exists for all four role tiers but had no mount. */}
+      <TooltipHint screenKey="dashboard" style={styles.hint} />
+
       {dash?.quickActions && <QuickActionsRow />}
       {dash && <StatTiles stats={dash.stats} />}
       {dash?.lists.map(id => <WorkList key={id} list={id} />)}
@@ -142,6 +146,8 @@ const makeStyles = (t: Theme) => StyleSheet.create({
   greeting: { fontSize: 16, color: t.colors.textSecondary },
   name: { fontSize: 28, fontWeight: '700', color: t.colors.brand },
   role: { fontSize: 13, color: t.colors.textSecondary, marginBottom: 24 },
+  // The container already pads 20; the banner's own side margins would double it.
+  hint: { marginHorizontal: 0 },
   tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 },
   tile: {
     width: '31%',

@@ -19,6 +19,7 @@ export * from './components/ui/FormActions';
 export * from './components/ui/FormScreen';
 export * from './components/ui/FormScreen.types';
 export * from './components/ui/FormSheet';
+export * from './components/ui/HintBanner';
 export * from './components/ui/KeyValueRow';
 export * from './components/ui/ListScreenShell';
 export * from './components/ui/MaintenanceBanner';

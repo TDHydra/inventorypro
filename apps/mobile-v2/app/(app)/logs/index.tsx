@@ -33,6 +33,7 @@ import {
 import { ACTION_ICONS, actionLabel } from '../../../src/components/ActivityFeed';
 import { SearchablePicker, type PickerOption } from '../../../src/components/SearchablePicker';
 import { useSession } from '../../../src/hooks/useSession';
+import { TooltipHint } from '../../../src/components/TooltipHint';
 
 type Filter = 'mine' | 'unsynced';
 
@@ -153,6 +154,9 @@ export default function LogsScreen() {
             />
           </View>
         )}
+
+        {/* HINTS.logs copy exists for all four role tiers but had no mount. */}
+        <TooltipHint screenKey="logs" />
 
         <FlatList
           data={filteredLogs}
