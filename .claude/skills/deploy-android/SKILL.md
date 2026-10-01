@@ -13,11 +13,24 @@ Working dir: `~/inventorypro/apps/mobile-v2`. Target device: **Samsung S24 Ultra
 - Release & debug builds use the **same applicationId** `com.inventorypro.app`. If `adb install -r` fails on signature, `adb uninstall com.inventorypro.app` first (wipes local data — it re-syncs from prod).
 - A new **native dep** just needs a rebuild (`./gradlew assembleDebug` + `adb install -r`) — Expo **autolinking** picks it up, NO `prebuild` needed (confirmed 2026-07-18 adding `react-native-keyboard-controller` with only `pnpm --filter mobile add …` + `assembleDebug`). Run `prebuild` ONLY when a dep ships a config plugin / needs `app.json` native changes — and re-pin gradle afterward. JS-only changes need no rebuild at all.
 - `EXPO_PUBLIC_API_URL` is **baked at bundle time** for release (set it on the gradle command); for the dev client it's read from the Metro process env.
+- ⚠️ **Gradle does not treat env vars as task inputs**, so re-running `assembleRelease` with a
+  DIFFERENT `EXPO_PUBLIC_API_URL` can report `createBundleReleaseJsAndAssets UP-TO-DATE` and
+  package the PREVIOUS bundle — an APK that installs fine and silently talks to the wrong API
+  (burned us 2026-09-30: a 14-second "BUILD SUCCESSFUL" shipped a `localhost:3000` bundle).
+  A suspiciously fast release build is the tell. Force the re-bundle:
+  `rm -rf app/build/generated/assets/react/release app/build/generated/sourcemaps/react/release`,
+  then ALWAYS verify with the `unzip -p … | strings | grep -o api.invenpro.app` check below.
+- **Source-map upload needs a GlitchTip token.** `android/sentry.properties` (local, gitignored)
+  points at `errors.invenpro.app` and reads `SENTRY_AUTH_TOKEN` from the env; without it
+  `assembleRelease` fails at `…_SentryUpload_…` ("Auth token is required") AFTER the bundle has
+  already built. For a local test build, skip it: `SENTRY_DISABLE_AUTO_UPLOAD=true` (the gate is
+  `@sentry/react-native/sentry.gradle`'s `shouldSentryAutoUploadGeneral`). In-app crash
+  reporting still works; only that build's stack traces stay unsymbolicated.
 
 ## A. Field-use release APK (points at prod)
 ```bash
 cd ~/inventorypro/apps/mobile-v2/android
-EXPO_PUBLIC_API_URL=https://api.invenpro.app ./gradlew assembleRelease
+EXPO_PUBLIC_API_URL=https://api.invenpro.app SENTRY_DISABLE_AUTO_UPLOAD=true ./gradlew assembleRelease
 cp app/build/outputs/apk/release/app-release.apk ~/inventorypro/inventorypro-preview.apk
 adb install -r ~/inventorypro/inventorypro-preview.apk   # uninstall first if signature mismatch
 ```
