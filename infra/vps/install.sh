@@ -1002,6 +1002,46 @@ phase_helpers() {
 set -Eeuo pipefail
 COMPOSE="docker compose --project-name inventorypro --env-file /opt/inventorypro/.env -f /opt/inventorypro/app/infra/docker-compose.prod.yml -f /opt/inventorypro/compose.vps.yml"
 ACTIVE_COLOR_CONF=/etc/nginx/inventorypro-api-active.conf
+
+# #284: every DELIBERATE abort below explains the state it leaves behind ("blue
+# was never touched and is still serving"). An UNEXPECTED one said nothing at
+# all — `set -Eeuo pipefail` makes those immediate and silent. That is exactly
+# how a genuine `compose up` failure got written up as "the deploy succeeded but
+# the script lied": from an exit code alone the operator cannot tell whether
+# traffic moved, and re-running a deploy that DID flip costs a pointless second
+# flip. `set -E` was already here so an ERR trap inherits into functions and
+# subshells; this installs the trap it was missing.
+#
+# Deliberate `exit 1`s do NOT reach here: bash fires ERR on a command returning
+# non-zero, not on `exit`, and the guarded `... || { ...; exit 1; }` forms have
+# their status tested, which suppresses ERR too. So this only ever speaks for a
+# failure nothing else explained.
+flipped=0
+conf_written=0
+on_err() {
+  local rc=$?
+  local line=${BASH_LINENO[0]:-?}
+  echo >&2
+  echo "DEPLOY ABORTED (exit $rc, upgrade.sh line $line) — the cause is the error above." >&2
+  if [ "${flipped:-0}" = 1 ]; then
+    echo "nginx WAS flipped: live traffic is already on ${standby_color:-the new color}." >&2
+    echo "To put it back: echo 'set \$api_upstream inventorypro_api_${active_color:-blue};' >$ACTIVE_COLOR_CONF && nginx -t && nginx -s reload" >&2
+  elif [ "${conf_written:-0}" = 1 ]; then
+    # The upstream file is written one line BEFORE the reload, so a failed
+    # `nginx -t`/reload leaves a config on disk that live nginx hasn't loaded.
+    # That is the worst of the three states and the only one needing action
+    # NOW: traffic hasn't moved, but the next reload by ANYONE applies the
+    # pending flip unattended — and there is one on a timer, the certbot
+    # deploy hook (/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh).
+    echo "nginx did NOT reload, so ${active_color:-the active color} is still serving live traffic —" >&2
+    echo "BUT $ACTIVE_COLOR_CONF has already been rewritten to ${standby_color:-the new color}, and the NEXT reload of nginx by anything (including the certbot renewal hook) would apply that flip with nobody watching." >&2
+    echo "Revert it now: echo 'set \$api_upstream inventorypro_api_${active_color:-blue};' >$ACTIVE_COLOR_CONF && nginx -t" >&2
+  else
+    echo "nginx was NOT flipped — ${active_color:-the active color} is still serving live traffic and was never stopped." >&2
+    echo "Nothing to roll back. Fix the cause and re-run; that will not double-flip." >&2
+  fi
+}
+trap on_err ERR
 cd /opt/inventorypro/app
 git pull --ff-only
 
@@ -1046,7 +1086,37 @@ web_old=$($COMPOSE images -q web 2>/dev/null || true)
 [ -n "$web_old" ] && docker tag "$web_old" inventorypro-web:rollback
 
 $COMPOSE build "$standby_svc" web
-$COMPOSE up -d "$standby_svc" web
+
+# #284: an interrupted recreate leaves the old container behind renamed to
+# `<shortid>_<name>`, and that corpse then BLOCKS the next recreate of the real
+# name with "Conflict. The container name ... is already in use" — a real,
+# deploy-failing error, which is what actually aborted the 2026-09-30 deploy at
+# this step. A renamed container never serves traffic (compose routes by the
+# canonical name), so these are dead by definition and safe to remove.
+stale=$(docker ps -aq --filter "name=^[0-9a-f]{12}_inventorypro-" || true)
+if [ -n "$stale" ]; then
+  echo "clearing leftover renamed container(s) from an interrupted recreate:" >&2
+  docker ps -a --filter "name=^[0-9a-f]{12}_inventorypro-" --format '  {{.Names}} ({{.Status}})' >&2
+  docker rm -f $stale >/dev/null
+fi
+
+# --no-deps (#284): api2 inherits `depends_on: {postgres,minio} service_healthy`
+# from the api anchor, so a bare `up -d "$standby_svc" web` pulls BOTH into the
+# operation — and when their config has drifted (editing .env is enough) compose
+# RECREATES them. That restarts the live database in the middle of a deploy whose
+# entire purpose is not interrupting service. It happened on 2026-09-30: .env was
+# edited at 16:25 and the 17:29 deploy logged `Container inventorypro-postgres-1
+# Recreate`. Dependencies here are long-lived, and postgres was already proven
+# healthy by the pre-upgrade pg_dump above — so require them rather than letting
+# compose "helpfully" bounce them.
+for dep in postgres minio; do
+  [ -n "$($COMPOSE ps -q "$dep")" ] || {
+    echo "dependency '$dep' is not running — this script will not start it mid-deploy." >&2
+    echo "Start it first, confirm it is healthy, then re-run: \$COMPOSE up -d $dep" >&2
+    exit 1
+  }
+done
+$COMPOSE up -d --no-deps "$standby_svc" web
 
 echo "waiting for standby API health ($standby_svc on 127.0.0.1:$standby_port)…"
 gate_ok=
@@ -1097,7 +1167,9 @@ fi
 
 echo "flipping nginx from $active_color to $standby_color…"
 echo "set \$api_upstream inventorypro_api_$standby_color;" >"$ACTIVE_COLOR_CONF"
+conf_written=1  # #284: config says the new color; live nginx doesn't yet
 nginx -t && nginx -s reload
+flipped=1   # #284: from here on an abort must say traffic has already moved
 
 # Post-flip smoke test through the REAL public path (SNI + Host both correct
 # via --resolve, so this hits the actual api vhost over its real cert — not
