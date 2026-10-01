@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated,
 } from 'react-native';
@@ -21,6 +21,17 @@ export function TooltipHint({ screenKey, style, onReady }: Props) {
   const { user } = useSession();
   const [visible, setVisible] = useState(false);
   const [opacity] = useState(new Animated.Value(0));
+  // The 6s auto-dismiss has to be cancellable: without this the timer outlived
+  // the screen, so navigating away inside 6s fired dismiss() on an unmounted
+  // component — setVisible into the void, and worse, a setAppSetting write
+  // marking the hint seen from a dead component. Surfaced by the page render
+  // tests, where the stray timer fired after jest tore the environment down.
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function scheduleDismiss() {
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    dismissTimer.current = setTimeout(dismiss, 6000);
+  }
 
   const tier = user ? ROLE_TIER[user.role as UserRole] : 1;
   const hintText = HINTS[screenKey]?.[tier] ?? HINTS[screenKey]?.[1] ?? null;
@@ -30,8 +41,11 @@ export function TooltipHint({ screenKey, style, onReady }: Props) {
     if (getAppSetting(`hint_seen_${screenKey}`) !== '1') {
       setVisible(true);
       Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-      setTimeout(dismiss, 6000);
+      scheduleDismiss();
     }
+    return () => {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    };
   }, [screenKey, hintText]);
 
   function dismiss() {
@@ -45,7 +59,7 @@ export function TooltipHint({ screenKey, style, onReady }: Props) {
     if (!hintText) return;
     setVisible(true);
     Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    setTimeout(dismiss, 6000);
+    scheduleDismiss();
   }
 
   useEffect(() => { onReady?.(reshowHint); }, []);

@@ -3,15 +3,26 @@
 Render tests for the v2 route screens, using jest-expo + React Native Testing
 Library against a real in-memory SQLite database.
 
+Coverage: all 47 route pages under `app/` have a test file (1:1, enforced by
+nothing but convention — add one with every new route). The four files without a
+test are the three `_layout.tsx` provider shells and `+html.tsx`.
+
 ## Two test runners, split by file extension
 
 | Files | Runner | Command | What lives there |
 |---|---|---|---|
 | `src/**/*.test.ts` | `node --test` + tsx | `pnpm test:unit` | logic, repos, migrations (351 tests, pre-existing) |
-| `app/**/*.test.tsx`, `src/**/*.test.tsx` | jest + RNTL | `pnpm test:pages` | page/component renders |
+| `app/**/*.test.tsx`, `src/**/*.test.tsx` | jest + RNTL | `pnpm test:pages` | page/component renders (47 suites, 388 tests) |
 
 `pnpm test` runs both. **Never name a page test `*.test.ts`** — the node runner
 would try to execute it and jest would ignore it.
+
+A jest path argument is a **regex**, not a glob, so the `(app)` route group needs
+its parens escaped or jest silently matches nothing and exits "No tests found":
+
+```bash
+cd apps/mobile-v2 && npx jest 'app/\(app\)/jobs/index' 'app/\(app\)/schedule'
+```
 
 The two runners are separate on purpose: the node suites swap `db/schema` with a
 `Module._load` hook that has no jest equivalent, and they are green today. Do not
@@ -74,6 +85,21 @@ await renderScreen(<InventoryScreen />, { permissions: { edit_inventory: false }
 expect(screen.queryByText('Add item')).not.toBeOnTheScreen();
 ```
 
+**Exception — the full_admin self-lockout floor.** `permissions` cannot revoke
+`manage_roles_permissions` or `system_settings` from a `full_admin`. These are
+`FULL_ADMIN_FLOOR` in `src/auth/permissions.ts`, checked at step **0** of
+`hasPermission` *before* any override layer, so the system can never lose
+permission management (authoritative, mirrored server-side in
+`apps/api-v2/src/lib/permissions.ts`). To test UI gated on either one, switch the
+ROLE instead of overriding the permission:
+
+```tsx
+// WRONG — full_admin keeps system_settings no matter what
+await renderScreen(<OnCallScreen />, { permissions: { system_settings: false } });
+// RIGHT
+await renderScreen(<OnCallScreen />, { role: 'construction_crew' });
+```
+
 ### Seeding
 
 `seed()` takes manifest column names. Get them from
@@ -122,6 +148,18 @@ reviews the diff, and they fail on every unrelated theme tweak.
   `/node_modules/` segments and the `.pnpm` allowance only clears the first. Every
   ESM-only dep needs its own name in the allowlist (that is what `uuid` is doing
   there). Symptom: `SyntaxError: Unexpected token 'export'`.
+- **Never mock the `@invenpro/core` barrel; mock the module underneath it.**
+  `test/jest.setup.ts` imports `pageTestDb`, which imports `@invenpro/core`
+  *during setup*. If setup also registered a factory for `'@invenpro/core'`, that
+  mock is built and cached right there, and a test file's own
+  `jest.mock('@invenpro/core', ...)` — hoisted, but still later — is registered
+  too late to ever be built. Your local stubs silently stay the REAL functions.
+  That is why the sync stub targets
+  `../../../packages/core/src/sync/engine` instead; `export *` in the barrel
+  re-exports it, so screens still get the stub. A test file mocking the barrel for
+  its own purposes (`fetchRoster`, `runFullDownload`) works fine — just never add
+  a barrel mock to the shared setup. Symptom:
+  `TypeError: mockThing.mockReset is not a function`.
 - **No `extend-expect` import.** RNTL v14 registers `toBeOnTheScreen` and friends
   on plain import; the old `@testing-library/react-native/extend-expect` entry
   point no longer exists.
